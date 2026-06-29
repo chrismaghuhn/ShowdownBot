@@ -30,15 +30,15 @@ def _bench_switch_targets(req: BattleRequest, slot_index: int) -> list[SlotActio
 
 
 def _move_targets(move_target: str) -> list[int | None]:
-    if move_target == "self":
-        return [None]
-    if move_target in ("adjacentFoe", "normal"):
+    # Only single-adjacent-target moves take an explicit target slot (1 or 2).
+    if move_target in ("normal", "adjacentFoe", "any"):
         return [1, 2]
     if move_target == "adjacentAlly":
         return [-1]
-    if move_target in ("allAdjacent", "allAdjacentFoes", "all"):
-        return [None]
-    return [1, 2]
+    # Everything else takes NO target: self, allySide/allyTeam/foeSide (Tailwind,
+    # screens, hazards), all/allAdjacent(Foes) spreads, randomNormal, scripted.
+    # The default MUST be [None] -- a foe target on these is an illegal choice.
+    return [None]
 
 
 def _active_mon_fainted(req: BattleRequest, active_index: int) -> bool:
