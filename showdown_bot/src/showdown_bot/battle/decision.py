@@ -199,6 +199,10 @@ def heuristic_choose_for_request(
     # Drop dead Fake Out / First Impression: a mon that already acted since
     # switching in can't use them (they auto-fail and waste the turn). Active
     # index 0/1 maps to our slots a/b.
+    from showdown_bot.team.spreads import apply_own_team_knowledge
+
+    apply_own_team_knowledge(state, req, our_spreads)
+
     side_mons = state.side(our_side)
     moved_since_switch = []
     for slot in ("a", "b"):

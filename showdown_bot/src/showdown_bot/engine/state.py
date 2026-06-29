@@ -201,8 +201,9 @@ class BattleState:
 
 
 def merge_request(req: BattleRequest, state: BattleState) -> BattleState:
-    """Merge our own private knowledge (moves, exact HP, item) from a request.
+    """Merge our own private knowledge (moves, exact HP) from a request.
 
+    Item truth is owned by apply_own_team_knowledge (team/spreads.py), not here.
     The requesting side is identified by ``req.side.id``. Active team members are
     mapped to active slots (a, b, ...) in listing order; revealed move ids and
     condition are merged into the existing log-derived state where possible.

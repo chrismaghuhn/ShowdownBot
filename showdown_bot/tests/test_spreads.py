@@ -79,3 +79,15 @@ def test_fallback_never_resurrects_lost_item():
     st = _state_with("Incineroar", item=None, item_known=True, item_lost=True)
     apply_own_team_knowledge(st, _req(None, species="Incineroar", drop_item=True), sp)
     assert st.sides["p1"]["a"].item is None  # NOT restored to sitrusberry
+
+
+from showdown_bot.engine.speed import effective_speed_from_state
+
+
+def test_known_scarf_multiplies_our_speed():
+    from showdown_bot.engine.state import FieldState
+    st = _state_with("Landorus-Therian")
+    apply_own_team_knowledge(st, _req("Choice Scarf"), None)
+    mon = st.sides["p1"]["a"]
+    spe = effective_speed_from_state(100, mon, FieldState(), "p1")
+    assert spe == 150  # 100 * 1.5 (Scarf now known)
