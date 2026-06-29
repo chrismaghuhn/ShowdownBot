@@ -20,6 +20,13 @@
 
 ## Task 1: `schema.py` — frozen contract + JSONL
 
+> ✅ **DONE + hardened per review.** The committed `schema.py` is STRICTER than the
+> snippet below: `validate_row` enforces exact feature/metadata/label key sets
+> (missing AND unknown), `to_jsonl_line` validates before serializing and drops
+> `default=str`, `Row` is frozen, and `heuristic_rank` is LABEL-only (not a feature)
+> — `format_id` is the only intentional feature/metadata overlap. See the two
+> `feat(learning)` commits; snippet kept for context only.
+
 **Files:**
 - Create: `src/showdown_bot/learning/__init__.py`, `src/showdown_bot/learning/schema.py`
 - Test: `tests/test_ml_schema.py`
@@ -207,6 +214,8 @@ without Node/calc:
 
 ```python
 # tests/test_teacher_rollout.py
+import pytest
+
 from showdown_bot.learning.teacher import RolloutConfig, counterfactual_value
 
 
@@ -249,14 +258,47 @@ def test_return_formula_no_double_count():
     assert abs(v - 4.0) < 1e-9
 
 
-def test_weighted_mean_over_responses():
-    decide, resolve, leaf = _fakes({0: 4.0}, leaf_value=0.0)
+def test_response_weights_are_applied():
+    # responses give DIFFERENT rewards, so a teacher that ignored weights would fail
+    def decide(state, side):
+        return ("dummy", side)
+
+    def resolve(state, our_action, opp_action):
+        return state + 1, (2.0 if opp_action == "r1" else 6.0)
+
+    def leaf(state):
+        return 0.0
+
     cfg = RolloutConfig(H=0, gamma=0.75, use_leaf=False)
     v = counterfactual_value(
-        start_state=0, candidate="c", responses=[("r1", 0.5), ("r2", 0.5)],
+        start_state=0, candidate="c", responses=[("r1", 0.25), ("r2", 0.75)],
         decide=decide, resolve=resolve, leaf=leaf, cfg=cfg,
     )
-    assert v == 4.0  # both responses give 4.0 -> weighted mean 4.0
+    assert abs(v - 5.0) < 1e-9  # 0.25*2 + 0.75*6
+
+
+def test_rejects_empty_responses():
+    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
+    cfg = RolloutConfig(H=0, use_leaf=False)
+    with pytest.raises(ValueError, match="empty"):
+        counterfactual_value(start_state=0, candidate="c", responses=[],
+                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
+
+
+def test_rejects_weights_not_summing_to_one():
+    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
+    cfg = RolloutConfig(H=0, use_leaf=False)
+    with pytest.raises(ValueError, match="sum to 1"):
+        counterfactual_value(start_state=0, candidate="c", responses=[("r1", 0.3), ("r2", 0.3)],
+                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
+
+
+def test_rejects_negative_weight():
+    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
+    cfg = RolloutConfig(H=0, use_leaf=False)
+    with pytest.raises(ValueError, match="non-negative"):
+        counterfactual_value(start_state=0, candidate="c", responses=[("r1", 1.3), ("r2", -0.3)],
+                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -303,7 +345,17 @@ def _rollout_one(start_state, candidate, first_opp, *, decide, resolve, leaf, cf
 
 def counterfactual_value(start_state, candidate, responses, *, decide, resolve, leaf, cfg) -> float:
     """Weighted mean over the (candidate-independent) opponent response set.
-    ``responses`` is a list of (opponent_action, weight) with weights summing to 1."""
+    ``responses`` is a list of (opponent_action, weight); weights must be
+    non-negative and sum to 1 — otherwise the label silently mis-normalizes."""
+    if not responses:
+        raise ValueError("responses must not be empty")
+    total_w = 0.0
+    for _, w in responses:
+        if w < 0:
+            raise ValueError("response weight must be non-negative")
+        total_w += w
+    if abs(total_w - 1.0) > 1e-6:
+        raise ValueError("response weights must sum to 1")
     return sum(
         w * _rollout_one(start_state, candidate, opp, decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
         for opp, w in responses
@@ -350,6 +402,27 @@ def test_label_decision_normalizes_and_flags_disagreement():
     assert out["B"]["teacher_rank"] == 0
     assert out["A"]["heuristic_rank"] == 0
     assert out["A"]["teacher_rank"] != 0
+
+
+def test_label_decision_tie_break_is_consistent():
+    # tied teacher values: teacher_rank==0 and teacher_best MUST point at the same id
+    from showdown_bot.learning.teacher import label_decision
+    out = label_decision({"A": 1.0, "B": 1.0}, {"A": 0.0, "B": 0.0}, "A")
+    assert out["A"]["teacher_rank"] == 0
+    assert out["A"]["teacher_best"] is True
+    assert out["B"]["teacher_best"] is False
+
+
+def test_label_decision_requires_same_candidate_sets():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="same candidates"):
+        label_decision({"A": 1.0}, {"A": 1.0, "B": 2.0}, "A")
+
+
+def test_label_decision_requires_choice_in_candidates():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="must be one of"):
+        label_decision({"A": 1.0, "B": 2.0}, {"A": 1.0, "B": 2.0}, "Z")
 ```
 
 - [ ] **Step 2: Run it to verify it fails**
@@ -369,11 +442,17 @@ def _ranks(values: dict) -> dict:
 def label_decision(teacher_values: dict, heuristic_values: dict, heuristic_choice_id) -> dict:
     """Per-candidate labels, all within-decision. ``teacher_values`` and
     ``heuristic_values`` map candidate_id -> value over the SAME candidate set."""
+    if not teacher_values:
+        raise ValueError("teacher_values must not be empty")
+    if set(teacher_values) != set(heuristic_values):
+        raise ValueError("teacher and heuristic values must cover the same candidates")
+    if heuristic_choice_id not in teacher_values:
+        raise ValueError("heuristic_choice_id must be one of the candidates")
     mean = sum(teacher_values.values()) / len(teacher_values)
     best = max(teacher_values.values())
-    best_id = max(teacher_values, key=lambda c: (teacher_values[c], str(c)))
     t_rank = _ranks(teacher_values)
     h_rank = _ranks(heuristic_values)
+    best_id = min(t_rank, key=t_rank.get)   # rank 0 — SAME tie-break as _ranks (no inconsistency)
     return {
         cid: {
             "counterfactual_value_raw": v,
