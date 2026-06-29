@@ -3,6 +3,7 @@ from showdown_bot.battle.diagnostics import (
     format_decision,
     format_outcome,
     format_rollout_trace,
+    format_turn_trace,
     turn_report,
 )
 from showdown_bot.battle.resolve import PreventedAction, TurnOutcome
@@ -97,3 +98,17 @@ def test_turn_report_combines_sections():
     assert "rollout" in rep
     # sections are labeled
     assert "battle" in rep.lower()
+
+
+def test_format_turn_trace_combines_log_and_decision():
+    raw = [
+        "|turn|1",
+        "|move|p1a: Incineroar|Protect||[still]",  # noise from an earlier turn
+        "|turn|2",
+        "|move|p1a: Incineroar|Fake Out|p2a: Flutter Mane",
+        "|-damage|p2a: Flutter Mane|70/100",
+    ]
+    text = format_turn_trace(raw, "decision [mode=neutral]: chose X +5.00")
+    assert "Turn 2" in text          # only the latest turn is shown
+    assert "Fake Out" in text
+    assert "chose X" in text

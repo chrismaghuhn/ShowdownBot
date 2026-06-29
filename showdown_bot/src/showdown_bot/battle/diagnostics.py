@@ -121,6 +121,17 @@ def turn_report(battle_text: str, decision_text: str, rollout_text: str | None =
     return "\n".join(parts)
 
 
+def format_turn_trace(raw_lines: list[str], decision_report: str) -> str:
+    """Combine the latest turn's actual events (from accumulated protocol frames)
+    with the bot's decision report. Used by the live runner."""
+    from showdown_bot.engine.log_parser import parse_log
+
+    events = parse_log("\n".join(raw_lines))
+    last_turn = max((i for i, e in enumerate(events) if e.type == "turn"), default=0)
+    battle_text = format_battle_events(events[last_turn:])
+    return turn_report(battle_text, decision_report or "(no decision report)")
+
+
 def format_rollout_trace(result: RolloutResult) -> str:
     """Readable rollout timeline: per-turn order, KOs, hp snapshot, score."""
     if not result.trace:

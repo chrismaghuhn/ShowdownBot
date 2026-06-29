@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -81,10 +82,11 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
             logger.warning("state build failed in %s: %s", room, exc)
             state = None
 
+    report: list[str] = []
     if book is not None:
         priors = _get_priors(_active_format)
         choose = choose_with_fallback(
-            req, state=state, book=book, our_side=req.side.id, priors=priors
+            req, state=state, book=book, our_side=req.side.id, priors=priors, report=report
         )
     else:
         choose = choose_for_request(req)
@@ -92,6 +94,22 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
     await conn.send(f"{room}|{choose}")
     kind = "team preview" if req.team_preview else "battle"
     logger.info("sent %s (%s)", choose, kind)
+    if book is not None and not req.team_preview:
+        _emit_turn_trace(room, report)
+
+
+def _emit_turn_trace(room: str, report: list[str]) -> None:
+    """Log a readable per-turn diagnostic (battle events + decision). Opt-out via
+    SHOWDOWN_TURN_TRACE=0. Never raises -- diagnostics must not break the loop."""
+    if os.environ.get("SHOWDOWN_TURN_TRACE", "1") == "0":
+        return
+    try:
+        from showdown_bot.battle.diagnostics import format_turn_trace
+
+        decision = report[0] if report else "(no decision report)"
+        logger.info("turn trace %s:\n%s", room, format_turn_trace(_room_raw.get(room, []), decision))
+    except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
+        logger.debug("turn trace failed in %s: %s", room, exc)
 
 
 async def _send_default_choose(conn: ShowdownConnection, room: str) -> None:

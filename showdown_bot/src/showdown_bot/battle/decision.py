@@ -295,6 +295,7 @@ def choose_with_fallback(
     book: SpreadBook | None = None,
     our_side: str | None = None,
     hard_timeout: float = 4.0,
+    report: list[str] | None = None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
@@ -315,7 +316,7 @@ def choose_with_fallback(
         try:
             fut = ex.submit(
                 heuristic_choose_for_request,
-                req, state=state, book=book, our_side=our_side, **deps,
+                req, state=state, book=book, our_side=our_side, report=report, **deps,
             )
             return fut.result(timeout=hard_timeout)
         except FutureTimeout:
