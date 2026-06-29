@@ -154,12 +154,24 @@ lives in the scalar `score_vector` + the Group-4 risk features (`score_var_vs_op
 > decomposition, matching the existing metrics path). No one may assume
 > `aggregate_breakdown.total_score == aggregate_score`.
 
-**Two Group-3 columns have no current scoring term — v1 sentinels (no new
-gameplay terms).** `fakeout_invalid_penalty = 0.0` (Fake Out invalidity is handled
-by *pruning* in `enumerate_my_actions`, never penalized in scoring) and
-`action_economy_score = 0.0` (no standalone term exists). Introducing real terms
-would change gameplay and is scope-creep; they stay `0.0` in v1 and can be raised
-later behind a `schema_version` bump.
+**v1 source decisions (grounded against the real state/eval, recorded so 1b-B has
+no hidden gaps):**
+- **KO / survive counts** (`ko_secured_count`, `ko_threatened_count`,
+  `survives_for_sure_count`) are `DamageModel` *queries* (`secures_ko` /
+  `has_ko_chance` / `survives_for_sure`), and `features.py` has **no model handle**.
+  Per the no-recomputation rule they are **captured in the trace** (1b-A amendment:
+  a `CandidateModelFeatures` DTO on `CandidateTrace`, filled in `decision.py` where
+  the model + candidate plans are in scope), never re-derived in `learning/`.
+- **`screens_ours` / `screens_opp`:** `FieldState` does not track screens, so the
+  honest value is the categorical sentinel **`"__untracked__"`** (NOT `false`, which
+  would falsely assert "no screens active").
+- **`speed_control_state`:** *derived* from `FieldState` (real info available):
+  `"none" | "tailwind_ours" | "tailwind_opp" | "tailwind_both" | "trick_room" |
+  "mixed"`.
+- **`fakeout_invalid_penalty = 0.0`** (Fake Out invalidity is handled by *pruning*,
+  never penalized in scoring) and **`action_economy_score = 0.0`** (no standalone
+  term exists). No new gameplay terms in 1b (scope-creep); raise later behind a
+  `schema_version` bump.
 
 **No nulls — sentinels for optional features.** Some columns are semantically
 optional (e.g. `slot{1,2}_switch_target_species_id`,
