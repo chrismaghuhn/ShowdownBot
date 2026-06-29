@@ -34,6 +34,14 @@ def _our_roll(res) -> float:
     return res.min_damage
 
 
+def _our_def_preset() -> str:
+    """Preset for OUR own mon as the defender (incoming damage). Default ``offense``
+    (frail) over-estimates incoming for our bulky mons; ``SHOWDOWN_OUR_DEF_PRESET=
+    defense`` is the Stage-B proxy to test whether that over-caution is the lever
+    before building the real-team-spread plumbing."""
+    return DEFENSE if os.environ.get("SHOWDOWN_OUR_DEF_PRESET", "offense").lower() == "defense" else OFFENSE
+
+
 def build_field_payload(field: FieldState) -> dict:
     payload: dict[str, object] = {"gameType": "Doubles"}
     if field.weather:
@@ -147,7 +155,7 @@ class DamageModel:
         move = action.move.name
         attacker = self.hyps[(action.side, action.slot)].as_attacker(OFFENSE, move=move)
         def_hyp = self.hyps[target_key]
-        defender = def_hyp.as_defender(DEFENSE if action.is_ours else OFFENSE)
+        defender = def_hyp.as_defender(DEFENSE if action.is_ours else _our_def_preset())
         return DamageRequest(
             attacker=attacker, defender=defender, move=move, field=dict(self.field_payload)
         )
