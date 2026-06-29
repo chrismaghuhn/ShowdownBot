@@ -255,11 +255,45 @@ def heuristic_choose_for_request(
         from showdown_bot.battle.diagnostics import format_decision
         from showdown_bot.battle.policy import aggregate_scores
 
-        ranked = [
-            (_label_ja(req, ja), aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
-            for ja, scores in items
-        ]
+        ranked = sorted(
+            (
+                (_label_ja(req, ja), aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+                for ja, scores in items
+            ),
+            key=lambda p: p[1],
+            reverse=True,
+        )
         report.append(format_decision(_label_ja(req, best_ja), ranked, getattr(mode, "name", str(mode))))
+
+        # Metrics line: predicted incoming/outgoing for the chosen line + score gap.
+        # Makes the gauntlet A/Bs interpretable beyond winrate (esp. for the bulk
+        # proxy: does perceived incoming drop?). Cheap -- reuses prefetched calcs.
+        chosen_plan = _plan_my_actions(
+            req, best_ja, state=state, our_side=our_side, opp_side=opp_side, speed_oracle=speed_oracle
+        )
+        rep_resp = opp_resps[0].actions if opp_resps else []
+        _, out = evaluate_line(
+            state, chosen_plan, rep_resp, model.damage_fn,
+            our_side=our_side, weights=weights, field=state.field, rollout_horizon=0,
+        )
+        incoming = sum(-d for k, d in out.hp_delta.items() if k[0] == our_side and d < 0)
+        outgoing = sum(-d for k, d in out.hp_delta.items() if k[0] == opp_side and d < 0)
+        gap = (ranked[0][1] - ranked[1][1]) if len(ranked) >= 2 else 0.0
+        report.append(
+            f"metrics mode={getattr(mode, 'name', mode)} in={incoming:.2f} out={outgoing:.2f} gap={gap:.2f}"
+        )
+
+        # "Why not max_damage" -- only when explicitly requested (it runs the
+        # baseline, an extra calc). Read ~10 lost turns to see cowardice vs
+        # false-threat vs worse damage line.
+        if os.environ.get("SHOWDOWN_DECISION_DIFF") == "1":
+            try:
+                from showdown_bot.battle.baselines import max_damage_choice
+
+                md = max_damage_choice(req, state=state, book=book, our_side=our_side)
+                report.append(f"max_damage would: {md}")
+            except Exception:  # noqa: BLE001
+                pass
 
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 

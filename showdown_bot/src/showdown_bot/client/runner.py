@@ -106,7 +106,7 @@ def _emit_turn_trace(room: str, report: list[str]) -> None:
     try:
         from showdown_bot.battle.diagnostics import format_turn_trace
 
-        decision = report[0] if report else "(no decision report)"
+        decision = "\n".join(report) if report else "(no decision report)"
         logger.info("turn trace %s:\n%s", room, format_turn_trace(_room_raw.get(room, []), decision))
     except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
         logger.debug("turn trace failed in %s: %s", room, exc)

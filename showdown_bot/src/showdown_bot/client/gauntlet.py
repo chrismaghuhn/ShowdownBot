@@ -146,7 +146,7 @@ class _Client:
             try:
                 from showdown_bot.battle.diagnostics import format_turn_trace
 
-                decision = report[0] if report else "(no decision report)"
+                decision = "\n".join(report) if report else "(no decision report)"
                 logger.info(
                     "[%s] %s", self.name, format_turn_trace(self.room_raw.get(room, []), decision)
                 )
