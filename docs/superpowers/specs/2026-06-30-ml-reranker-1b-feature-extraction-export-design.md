@@ -138,6 +138,14 @@ Every `schema.FEATURE_COLUMNS` entry maps to **exactly one** source; the
 > `OutcomeBreakdown`). If a feature cannot be emitted from the scoring path, it is
 > not computed separately in `learning/`.
 
+> **Backend-capture principle (general — verbatim spec rule):** Any feature
+> requiring the **calc, damage, or speed backend** is captured in the real decision
+> path via `DecisionTrace`. `learning/features.py` never imports or recomputes
+> backend-dependent values; it only maps **captured trace values** plus
+> **deterministic state/request/context reads**. This covers eval (`OutcomeBreakdown`),
+> KO/survive (`CandidateModelFeatures`), and **speed** (`DecisionTempoFeatures`) —
+> all decision-level speed counts are captured, never re-derived in `learning/`.
+
 **`aggregate_breakdown` reduction (weighted mean over responses, ALL modes).**
 `aggregate_scores` is mean-based in *every* mode (`MUST_REACT = mean − λ(mean − min)`
 is a blend; `NEUTRAL` subtracts variance) — there is **no single selected response**.
