@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 _SLOTS = ["a", "b"]
 
+TOP_K_TRACE_CANDIDATES = 6
+
 
 def _default_rollout_horizon() -> int:
     """Multi-turn rollout horizon, overridable via ``SHOWDOWN_ROLLOUT_HORIZON``
@@ -157,6 +159,7 @@ def heuristic_choose_for_request(
     report: list[str] | None = None,
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
+    trace=None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -327,6 +330,52 @@ def heuristic_choose_for_request(
             except Exception:  # noqa: BLE001
                 pass
 
+    if trace is not None:
+        from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace as _DT
+        from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
+        from showdown_bot.battle.policy import aggregate_scores
+
+        rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
+
+        def _breakdowns_for(plan):
+            out = []
+            for ra in rep_resps:
+                _, oc = evaluate_line(
+                    state, plan, ra, model.damage_fn, our_side=our_side,
+                    weights=weights, field=state.field, rollout_horizon=0, endgame=endgame,
+                )
+                out.append(score_outcome_with_breakdown(oc, our_side, weights, endgame=endgame)[1])
+            return out
+
+        def _weighted_mean_breakdown(bds):
+            ws = resp_weights or [1.0] * len(bds)
+            tot = sum(ws) or 1.0
+            agg = OutcomeBreakdown()
+            for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
+                      "my_kos", "my_faints", "protect_stall_penalty",
+                      "endgame_protect_penalty", "partner_abandon_penalty"):
+                setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
+            return agg
+
+        scored = [
+            (ja, scores, aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+            for ja, scores in items
+        ]
+        scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
+        cands = []
+        for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
+            bds = _breakdowns_for(plans[ja])
+            cands.append(CandidateTrace(
+                candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
+                aggregate_score=agg, score_vector=list(scores),
+                outcome_breakdowns=bds, aggregate_breakdown=_weighted_mean_breakdown(bds),
+            ))
+        trace.game_mode = getattr(mode, "name", str(mode))
+        trace.chosen_candidate_id = _label_ja(req, best_ja)
+        trace.opponent_responses = [r.actions for r in opp_resps]
+        trace.opponent_response_weights = resp_weights or []
+        trace.candidates = cands
+
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
 
@@ -378,6 +427,7 @@ def choose_with_fallback(
     our_side: str | None = None,
     hard_timeout: float = 4.0,
     report: list[str] | None = None,
+    trace=None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
@@ -398,7 +448,7 @@ def choose_with_fallback(
         try:
             fut = ex.submit(
                 heuristic_choose_for_request,
-                req, state=state, book=book, our_side=our_side, report=report, **deps,
+                req, state=state, book=book, our_side=our_side, report=report, trace=trace, **deps,
             )
             return fut.result(timeout=hard_timeout)
         except FutureTimeout:
