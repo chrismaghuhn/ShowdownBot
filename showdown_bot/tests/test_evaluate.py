@@ -54,6 +54,36 @@ def test_score_speed_control_only_for_us():
     assert score_outcome(theirs, "p1", w) == 0.0
 
 
+def test_protect_stall_penalty_no_block_and_endgame():
+    """Protecting with our last mon that blocks nothing is pure wasted tempo +
+    just defers the loss (the observed 1v1 protect-spam failure mode)."""
+    w = EvalWeights()
+    out = TurnOutcome(flags={"protect:p1a"})
+    s = score_outcome(out, "p1", w, endgame=True)
+    assert abs(s - (w.protect_stall + w.endgame_protect)) < 1e-9
+
+
+def test_protect_blocking_a_hit_midgame_not_penalized():
+    """Protect with a concrete purpose (it actually blocked an incoming hit),
+    mid-game, keeps its block reward and is NOT stalled."""
+    w = EvalWeights()
+    out = TurnOutcome(
+        flags={"protect:p1a"},
+        protected_hits=[ProtectedHit(("p2", "a"), ("p1", "a"), "flareblitz")],
+    )
+    s = score_outcome(out, "p1", w, endgame=False)
+    assert abs(s - w.protect_block) < 1e-9
+
+
+def test_partner_abandon_penalty():
+    """Protecting our own mon while a teammate faints the same turn is bad action
+    economy (Turn 8: Incineroar protects, Flutter Mane dies)."""
+    w = EvalWeights()
+    out = TurnOutcome(my_faints=1, flags={"protect:p1a"})
+    s = score_outcome(out, "p1", w, endgame=False)
+    assert abs(s - (w.faint + w.protect_stall + w.partner_abandon)) < 1e-9
+
+
 def test_build_field_payload():
     fp = build_field_payload(FieldState(weather="SunnyDay", terrain="Grassy Terrain"))
     assert fp["gameType"] == "Doubles"

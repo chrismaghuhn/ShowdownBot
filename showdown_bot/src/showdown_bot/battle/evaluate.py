@@ -72,10 +72,14 @@ class EvalWeights:
     speed_control: float = 2.0  # we set Tailwind / Trick Room
     wasted_move: float = -0.6
     switch_cost: float = -0.3
+    # Protect action-economy (contextual, not a blanket "Protect bad"):
+    protect_stall: float = -1.0  # our Protect blocked nothing -> wasted tempo
+    endgame_protect: float = -3.0  # Protecting with our last mon just defers the loss
+    partner_abandon: float = -2.0  # we Protected while a teammate fainted this turn
 
 
 def score_outcome(
-    outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None
+    outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None, *, endgame: bool = False
 ) -> float:
     w = weights or EvalWeights()
     s = 0.0
@@ -113,6 +117,20 @@ def score_outcome(
             s += w.wasted_move
         elif parts[0] == "switch" and len(parts) == 2 and parts[1].startswith(our_side):
             s += w.switch_cost
+
+    # Protect action-economy penalties (contextual, not a blanket "Protect bad").
+    # Protect is fine for a concrete purpose (shield a KO threat so a partner can
+    # act, sit a Tailwind/TR turn), but: blocking nothing wastes tempo; protecting
+    # our last mon only defers the loss; protecting while a partner dies is bad
+    # action economy. Counters the observed endgame protect-spam loop.
+    if any(f.startswith(f"protect:{our_side}") for f in outcome.flags):
+        blocked = any(ph.target[0] == our_side for ph in outcome.protected_hits)
+        if not blocked:
+            s += w.protect_stall
+        if endgame:
+            s += w.endgame_protect
+        if outcome.my_faints > 0:
+            s += w.partner_abandon
 
     return s
 
@@ -280,11 +298,12 @@ def evaluate_line(
     field: FieldState | None = None,
     rollout_horizon: int = 0,
     rollout_gamma: float = 0.7,
+    endgame: bool = False,
 ) -> tuple[float, TurnOutcome]:
     field = field or state.field
     all_actions = my_actions + opp_actions
     outcome = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field)
-    score = score_outcome(outcome, our_side, weights)
+    score = score_outcome(outcome, our_side, weights, endgame=endgame)
     if rollout_horizon > 0:
         score += _rollout_value(
             state, all_actions, outcome, our_side, weights or EvalWeights(),

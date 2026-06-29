@@ -204,6 +204,12 @@ def heuristic_choose_for_request(
         m = side_mons.get(slot)
         moved_since_switch.append(bool(m is not None and getattr(m, "moved_since_switch", False)))
 
+    # Endgame = our last mon (no bench to switch to): Protect then only defers the
+    # loss, so the eval penalizes it (see score_outcome). Count non-fainted mons
+    # from the authoritative request.
+    our_remaining = sum(1 for p in req.side.pokemon if "fnt" not in (p.condition or ""))
+    endgame = our_remaining <= 1
+
     my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
         raise ValueError("no legal joint actions")
@@ -238,7 +244,7 @@ def heuristic_choose_for_request(
                 evaluate_line(
                     state, my_plan, r.actions, model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
-                    rollout_horizon=rollout_horizon,
+                    rollout_horizon=rollout_horizon, endgame=endgame,
                 )[0]
                 for r in opp_resps
             ]
@@ -246,7 +252,7 @@ def heuristic_choose_for_request(
             evaluate_line(
                 state, my_plan, [], model.damage_fn,
                 our_side=our_side, weights=weights, field=state.field,
-                rollout_horizon=rollout_horizon,
+                rollout_horizon=rollout_horizon, endgame=endgame,
             )[0]
         ]
 
@@ -258,6 +264,7 @@ def heuristic_choose_for_request(
     best_ja = _maybe_tera(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
+        endgame=endgame,
     )
 
     if report is not None:
@@ -310,6 +317,7 @@ def heuristic_choose_for_request(
 def _maybe_tera(
     req, best_ja, best_val, mode, state, our_side, opp_side,
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
+    *, endgame: bool = False,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
@@ -329,13 +337,15 @@ def _maybe_tera(
         if opp_resps:
             scores = [
                 evaluate_line(state, plan, r.actions, model.damage_fn,
-                              our_side=our_side, weights=weights, field=state.field)[0]
+                              our_side=our_side, weights=weights, field=state.field,
+                              endgame=endgame)[0]
                 for r in opp_resps
             ]
         else:
             scores = [
                 evaluate_line(state, plan, [], model.damage_fn,
-                              our_side=our_side, weights=weights, field=state.field)[0]
+                              our_side=our_side, weights=weights, field=state.field,
+                              endgame=endgame)[0]
             ]
         val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
         if val > best_overlay_val and tera_decision(best_val, val, margin=tera_margin):
