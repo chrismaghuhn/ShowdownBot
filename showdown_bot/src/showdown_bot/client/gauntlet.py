@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -43,11 +44,13 @@ def agent_choose(
     book: SpreadBook | None,
     our_side: str | None,
     priors=None,
+    report: list[str] | None = None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
     ``heuristic`` uses the full fallback chain; ``max_damage`` uses the baseline
-    via the fallback chain; ``random`` uses the legacy random agent.
+    via the fallback chain; ``random`` uses the legacy random agent. ``report``
+    (heuristic only) collects a readable decision block for the turn trace.
     """
     if agent == "random" or state is None or book is None:
         return choose_for_request(req)
@@ -58,7 +61,9 @@ def agent_choose(
             return max_damage_choice(req, state=state, book=book, our_side=our_side)
         except Exception:  # noqa: BLE001
             return choose_for_request(req)
-    return choose_with_fallback(req, state=state, book=book, our_side=our_side, priors=priors)
+    return choose_with_fallback(
+        req, state=state, book=book, our_side=our_side, priors=priors, report=report
+    )
 
 
 @dataclass
@@ -86,7 +91,7 @@ class GauntletStats:
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team):
+    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -94,6 +99,7 @@ class _Client:
         self.priors = priors
         self.format_id = format_id
         self.packed_team = packed_team
+        self.trace = trace
         self.room_raw: dict[str, list[str]] = {}
         self.latencies: list[float] = []
         self.invalid = 0
@@ -119,11 +125,12 @@ class _Client:
             # Opponent's turn; we've already locked in. Nothing to choose.
             return
         state = self._state_for(room, req)
+        report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
         start = time.perf_counter()
         try:
             choose = agent_choose(
                 self.agent, req, state=state, book=self.book,
-                our_side=req.side.id, priors=self.priors,
+                our_side=req.side.id, priors=self.priors, report=report,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -131,6 +138,16 @@ class _Client:
             choose = f"/choose default|{req.rqid}"
         self.latencies.append(time.perf_counter() - start)
         await self.conn.send(f"{room}|{choose}")
+        if report is not None and not req.team_preview:
+            try:
+                from showdown_bot.battle.diagnostics import format_turn_trace
+
+                decision = report[0] if report else "(no decision report)"
+                logger.info(
+                    "[%s] %s", self.name, format_turn_trace(self.room_raw.get(room, []), decision)
+                )
+            except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
+                logger.debug("[%s] trace failed: %s", self.name, exc)
 
 
 async def _run_client(
@@ -224,7 +241,8 @@ async def run_local_gauntlet(
     await authenticate_local(hero_conn, hero_name)
     await authenticate_local(villain_conn, villain_name)
 
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed)
+    trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, trace=trace)
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed)
 
     stats = GauntletStats()
