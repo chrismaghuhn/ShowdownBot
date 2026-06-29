@@ -39,29 +39,35 @@ Set our own item authoritatively, with a **precedence rule** so a consumed or
 removed item can never be "resurrected" by the packed-team fallback. Beyond
 speed, this later helps our-mon damage (AV / Band / Specs / Life Orb).
 
-**New state field:** `PokemonState.item_consumed: bool = False`.
+**New state field:** `PokemonState.item_lost: bool = False` — covers consumed,
+removed, knocked off, or activated (broader and clearer than "consumed").
 
 **Item-truth precedence for OUR mons:**
-1. **Live request item, if explicitly present** (`req.side.pokemon[].item` non-empty):
-   `mon.item = req item`, `mon.item_known = True`. (The request reflects the
-   *current* held item, so it already respects consumption — a consumed berry
-   shows empty.)
-2. **Protocol events override** (already partly in state.py, extend):
-   - `|-item|` → `item` set, `item_known = True`.
-   - `|-enditem|` (berry eaten, Focus Sash / Booster Energy used, Knock Off
-     removal — all surface as `|-enditem|`) → `item = None`, `item_known = True`,
-     **`item_consumed = True`**.
-3. **Packed-team fallback** (from Stage C `our_spreads`): used **only when**
-   `item_known` is False **and** `item_consumed` is False **and** no live-request/
-   protocol event contradicts. Never resurrect a consumed/removed item.
+1. **Live request item — tri-state** (`req.side.pokemon[].item`):
+   - field **missing** → do not change item state (no assertion);
+   - field **present and non-empty** → `mon.item = req item`, `mon.item_known = True`, `mon.item_lost = False`;
+   - field **present and empty** → `mon.item = None`, `mon.item_known = True`, `mon.item_lost = True`.
 
-**Where:** `merge_request` applies rule 1 for our mons (set item + `item_known`
-from a non-empty `req` item; do NOT clobber on an empty request item — leave the
-log's `|-enditem|` result standing). The protocol handler (`state.py::_apply`)
-applies rule 2 (add `item_consumed = True` to the existing `enditem` branch). The
-packed-team fallback (rule 3) fills remaining-unknown items from `our_spreads`
-right before speed computation in the decision setup (it already receives
-`our_spreads`); it must respect `item_known`/`item_consumed`.
+   Distinguishing *missing* from *present-but-empty* is exactly what stops the
+   packed-team fallback from resurrecting a consumed item.
+2. **Protocol events override** (already partly in state.py, extend):
+   - `|-item|` → `item` set, `item_known = True`, `item_lost = False`.
+   - `|-enditem|` (berry eaten, Focus Sash / Booster Energy activated, Knock Off
+     removal — all surface as `|-enditem|`) → `item = None`, `item_known = True`,
+     **`item_lost = True`**.
+3. **Packed-team fallback** (from Stage C `our_spreads`): used **only when**
+   `item_known` is False **and** `item_lost` is False **and** no live-request/
+   protocol event contradicts. Never resurrect a lost item.
+
+**Where — one central entry point.** A single `apply_own_team_knowledge(state,
+request, our_spreads)` runs once in the decision-setup phase, **before** speed
+computation, DamageModel construction, action enumeration, and evaluation — so
+own-team knowledge is consistent everywhere (speed, damage, item effects, and
+later switch logic / tera planning), not just speed. It (a) applies rule 1
+(tri-state request item) for our mons and (b) applies the packed-team fallback
+(rule 3). Rule 2 (protocol `|-item|` / `|-enditem|`, setting `item_lost`) lives
+in the existing `state.py::_apply` log handler. `merge_request`'s docstring is
+corrected (it does not, by itself, own item truth anymore).
 
 **Opponent items stay hidden** — Fix A touches only `req.side` (our side). The
 opponent's item remains unknown unless a protocol event reveals it.
@@ -72,8 +78,10 @@ opponent's item remains unknown unless a protocol event reveals it.
 ### Fix A tests
 - own request `item=choicescarf` → `mon.item_known = True`, `mon.item` set.
 - Landorus-Therian effective speed with Scarf = `base × 1.5`.
-- Sitrus consumed via `|-enditem|` → `item_consumed = True`; packed-team fallback
+- Sitrus consumed via `|-enditem|` → `item_lost = True`; packed-team fallback
   does **not** restore Sitrus.
+- request item field **empty** → `item_lost = True`, fallback does not restore;
+  request item field **missing** → fallback may set it (tri-state distinction).
 - unknown/missing request item → packed-team fallback may set it initially.
 - opponent item stays hidden unless a protocol event reveals it (don't
   accidentally "know" opponent items).
@@ -99,6 +107,10 @@ sort key, not merely the raw speed number:
 - effective speed equal (with Tailwind/TR/para/Scarf already applied),
 - one action ours vs one the opponent's,
 - both actions still executable.
+
+**Timing:** tie detection happens after action legality/pruning but before
+sequential execution. KO-before-act can cancel actions later, but the tie itself
+belongs to the sort/order phase.
 
 **Performance guardrail (must be in the spec):** the two resolver passes reuse
 the same `DamageOracle` / prefetch cache. The second pass must create **no**
