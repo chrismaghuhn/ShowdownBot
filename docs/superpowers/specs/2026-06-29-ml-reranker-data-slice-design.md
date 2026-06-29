@@ -25,10 +25,12 @@ but applied at training time), evaluation, the reranker integration into
 
 ## The teacher: fixed-horizon counterfactual rollout
 
-Parameters: **H = 4** turns (default; H=2 smoke, H=6 offline/experimental),
-**top-K = 6** candidates, **γ = 0.75**, **leaf value = the current heuristic eval**
-at the horizon. The heuristic plays **both sides** for turns 1..H (with the
-now-correct own/opponent models).
+Parameters: **H = the number of heuristic follow-up turns after the fixed
+candidate turn** (default 4; H=2 smoke, H=6 offline/experimental) — so there are
+`1 + H` simulated transitions total (transition 0 = the candidate turn, then H
+follow-ups). **top-K = 6** candidates, **γ = 0.75**, **leaf value = the current
+heuristic eval** at the horizon. The heuristic plays **both sides** for the H
+follow-up turns (with the now-correct own/opponent models).
 
 **No counterfactual leak (precise rule):** the turn-0 opponent action(s) must be
 chosen from the *public pre-decision state* and must **not** condition on the
@@ -47,14 +49,14 @@ for candidate c in top_k:
         # transition 0 = fixed candidate c + opponent response r;
         # transitions 1..H = the heuristic playing BOTH sides.
         v_r = sum_{t=0..H} γ^t · transition_reward_t                        # incremental deltas
-              + (γ^(H+1) · leaf_eval(state_after_H) if use_leaf else 0)     # static board value, bootstrap only
+              + (γ^(H+1) · leaf_eval(state_after_transition_H) if use_leaf else 0)     # static board value, bootstrap only
     counterfactual_value(c) = Σ_r w_r · v_r    # weighted mean over responses (matches Phase-2 eval)
 ```
 
 - **`transition_reward_t`** = the **incremental** outcome score of turn `t` — the
   existing `score_outcome` (KOs/damage/tempo *of that turn*), NOT an absolute board
   value.
-- **`leaf_eval(state_after_H)`** = the **static** heuristic value of the horizon
+- **`leaf_eval(state_after_transition_H)`** = the **static** heuristic value of the horizon
   state (one-ply aggregate). It is the ONLY full board evaluation and is discounted
   to `γ^(H+1)` — strictly *after* the last realized transition — so it cannot
   double-count `transition_reward_H`.
@@ -77,8 +79,10 @@ One JSONL row per `(decision × candidate)`. Three disjoint sections:
   after any change to likely_sets / penalties / feature names / teacher logic):
   `schema_version`, `feature_extractor_version`, `teacher_version`, `git_sha`,
   `team_hash`, `config_hash`, and `teacher_config: {H, gamma, top_k,
-  response_policy, model_flags}`. Used for grouping + versioning + later
-  evaluation, **never as a training feature**.
+  response_policy, model_flags, sample_policy, decision_sampling_rate,
+  random_seed}` — the sampling fields record *which* decisions a dataset came from
+  (every turn / every Nth / non-terminal only / high-disagreement only). Used for
+  grouping + versioning + later evaluation, **never as a training feature**.
 - **`label`** — `counterfactual_value_raw`,
   `counterfactual_value_normalized_within_decision`, `value_gap_to_best`,
   `counterfactual_rank`, `teacher_best: bool`, and — to surface the most valuable
@@ -98,6 +102,8 @@ decision): `game_mode`, `turn_number`, `endgame_flag`, `our_alive_count`,
 
 **Group 2 — candidate action** (per candidate): `slot1_action_type`,
 `slot2_action_type` (move/protect/switch/tera), `slot1_move_id`, `slot2_move_id`,
+`slot1_move_type`, `slot2_move_type`, `slot1_move_category`, `slot2_move_category`
+(generalize better than raw move-ids; reconstructable from `MoveMeta`),
 `slot1_target_kind`, `slot2_target_kind`, `slot1_target_slot`, `slot2_target_slot`,
 `slot1_priority`, `slot2_priority`, `slot1_is_damaging`, `slot2_is_damaging`,
 `slot1_is_protect`, `slot2_is_protect`, `slot1_is_switch`, `slot2_is_switch`,
