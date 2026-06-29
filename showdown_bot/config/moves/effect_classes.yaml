@@ -1,0 +1,78 @@
+# Curated heuristic-semantics overlay for moves (Phase A4, spec §4.2 / §7.4).
+#
+# Each entry maps a move id (as in movedata.json) to:
+#   classes: [effect_class, ...]   # known classes only (see test_effect_classes)
+#   params:  { ... }               # parameters the ConditionEngine/Rollout consume
+#
+# Scope = Reg-G-prioritized v1. Unlisted moves keep correct raw mechanics from
+# movedata.json but carry no semantic class (generic fallback). Adding a move =
+# one line here; no need to touch the 954-move data file.
+
+# --- status infliction --------------------------------------------------------
+willowisp:   { classes: [status_infliction], params: { status: brn } }
+spore:       { classes: [status_infliction], params: { status: slp } }
+sleeppowder: { classes: [status_infliction], params: { status: slp } }
+thunderwave: { classes: [status_infliction, speed_control], params: { status: par } }
+nuzzle:      { classes: [status_infliction], params: { status: par } }
+toxic:       { classes: [status_infliction], params: { status: tox } }
+
+# --- speed control / field setters -------------------------------------------
+tailwind:    { classes: [speed_control, field_setter], params: { side_condition: tailwind, duration: 4 } }
+trickroom:   { classes: [speed_control, field_setter], params: { field: trickroom, duration: 5 } }
+icywind:     { classes: [speed_control, debuff_foe], params: { boosts: { spe: -1 } } }
+electroweb:  { classes: [speed_control, debuff_foe], params: { boosts: { spe: -1 } } }
+reflect:     { classes: [field_setter], params: { side_condition: reflect, duration: 5 } }
+lightscreen: { classes: [field_setter], params: { side_condition: lightscreen, duration: 5 } }
+auroraveil:  { classes: [field_setter], params: { side_condition: auroraveil, duration: 5 } }
+sunnyday:    { classes: [field_setter], params: { weather: sunnyday, duration: 5 } }
+raindance:   { classes: [field_setter], params: { weather: raindance, duration: 5 } }
+sandstorm:   { classes: [field_setter], params: { weather: sandstorm, duration: 5 } }
+snowscape:   { classes: [field_setter], params: { weather: snowscape, duration: 5 } }
+grassyterrain:  { classes: [field_setter], params: { terrain: grassyterrain, duration: 5 } }
+electricterrain: { classes: [field_setter], params: { terrain: electricterrain, duration: 5 } }
+psychicterrain: { classes: [field_setter], params: { terrain: psychicterrain, duration: 5 } }
+mistyterrain: { classes: [field_setter], params: { terrain: mistyterrain, duration: 5 } }
+
+# --- setup (self boosts) ------------------------------------------------------
+swordsdance: { classes: [setup_self], params: { boosts: { atk: 2 } } }
+nastyplot:   { classes: [setup_self], params: { boosts: { spa: 2 } } }
+dragondance: { classes: [setup_self], params: { boosts: { atk: 1, spe: 1 } } }
+calmmind:    { classes: [setup_self], params: { boosts: { spa: 1, spd: 1 } } }
+bulkup:      { classes: [setup_self], params: { boosts: { atk: 1, def: 1 } } }
+
+# --- debuff (foe) -------------------------------------------------------------
+snarl:       { classes: [debuff_foe], params: { boosts: { spa: -1 } } }
+faketears:   { classes: [debuff_foe], params: { boosts: { spd: -2 } } }
+charm:       { classes: [debuff_foe], params: { boosts: { atk: -2 } } }
+
+# --- protection ---------------------------------------------------------------
+protect:     { classes: [protect] }
+detect:      { classes: [protect] }
+wideguard:   { classes: [protect], params: { scope: side } }
+quickguard:  { classes: [protect], params: { scope: side } }
+spikyshield: { classes: [protect], params: { contact_damage: 0.125 } }
+kingsshield: { classes: [protect] }
+banefulbunker: { classes: [protect], params: { contact_status: psn } }
+
+# --- redirection --------------------------------------------------------------
+followme:    { classes: [redirect] }
+ragepowder:  { classes: [redirect], params: { powder: true } }
+
+# --- pivot --------------------------------------------------------------------
+uturn:       { classes: [pivot] }
+voltswitch:  { classes: [pivot] }
+flipturn:    { classes: [pivot] }
+partingshot: { classes: [pivot, debuff_foe], params: { boosts: { atk: -1, spa: -1 } } }
+teleport:    { classes: [pivot] }
+
+# --- disruption ---------------------------------------------------------------
+helpinghand: { classes: [disruption], params: { ally_damage_mult: 1.5 } }
+taunt:       { classes: [disruption], params: { volatile: taunt, duration: 3 } }
+encore:      { classes: [disruption], params: { volatile: encore, duration: 3 } }
+haze:        { classes: [disruption], params: { reset_boosts: true } }
+feint:       { classes: [disruption], params: { breaks_protect: true } }
+
+# --- recovery / volatile ------------------------------------------------------
+leechseed:   { classes: [volatile_inflict, recovery], params: { volatile: leechseed } }
+recover:     { classes: [recovery], params: { heal: 0.5 } }
+roost:       { classes: [recovery], params: { heal: 0.5 } }

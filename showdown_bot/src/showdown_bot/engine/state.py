@@ -62,6 +62,7 @@ class PokemonState:
     types: list[str] = field(default_factory=list)
     consecutive_protect: int = 0  # trailing run of Protect-type moves used
     moved_since_switch: bool = False  # has acted since last switch-in (Fake Out gate)
+    item_lost: bool = False  # item consumed / removed / knocked / activated -> known absent
 
     @property
     def hp_fraction(self) -> float:
@@ -181,9 +182,11 @@ class BattleState:
         elif et == "item":
             mon.item = event.value
             mon.item_known = True
+            mon.item_lost = False
         elif et == "enditem":
             mon.item = None
             mon.item_known = True
+            mon.item_lost = True
 
     @classmethod
     def from_log(cls, events: list[LogEvent]) -> "BattleState":
@@ -198,8 +201,9 @@ class BattleState:
 
 
 def merge_request(req: BattleRequest, state: BattleState) -> BattleState:
-    """Merge our own private knowledge (moves, exact HP, item) from a request.
+    """Merge our own private knowledge (moves, exact HP) from a request.
 
+    Item truth is owned by apply_own_team_knowledge (team/spreads.py), not here.
     The requesting side is identified by ``req.side.id``. Active team members are
     mapped to active slots (a, b, ...) in listing order; revealed move ids and
     condition are merged into the existing log-derived state where possible.

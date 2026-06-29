@@ -36,3 +36,17 @@ def test_spread_and_target_flags():
     icy = get_move_meta("Icy Wind")
     assert icy.target == "allAdjacentFoes"
     assert icy.category == "special"
+
+
+def test_get_move_meta_enriched_from_data():
+    m = get_move_meta("Will-O-Wisp")
+    assert m.category == "status"
+    assert m.status == "brn"
+    t = get_move_meta("Tailwind")
+    assert t.side_condition == "tailwind"
+    sd = get_move_meta("Swords Dance")
+    assert sd.boosts == {"atk": 2}
+    f = get_move_meta("Fake Out")
+    assert "flinch" in f.flags and f.priority == 3
+    eq = get_move_meta("Earthquake")
+    assert eq.is_spread and eq.target == "allAdjacent"

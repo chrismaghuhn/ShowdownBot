@@ -1,0 +1,3 @@
+# Build-time generator deps only; the generated JSON under config/ is the
+# checked-in deliverable, so @pkmn/dex does not need to be vendored.
+node_modules/

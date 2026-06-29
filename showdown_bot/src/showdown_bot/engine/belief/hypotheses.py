@@ -147,3 +147,54 @@ def build_hypotheses(
         slot: hypothesis_from_state(mon, book)
         for slot, mon in state.side(side).items()
     }
+
+
+def load_likely_sets(path: Path, *, is_valid_species=None) -> dict[str, SpeciesSpreads]:
+    """Curated probable opponent sets. Returns {to_id(species): SpeciesSpreads}
+    with both presets = the single likely set. Keys are canonicalized via to_id;
+    when ``is_valid_species`` is given, an unknown species key raises (fail loud).
+    Missing file -> empty. nature/evs are required; item is optional (no prior)."""
+    from showdown_bot.engine.state import to_id
+
+    if not Path(path).exists():
+        return {}
+    with Path(path).open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    out: dict[str, SpeciesSpreads] = {}
+    for name, entry in (data.get("species") or {}).items():
+        if is_valid_species is not None and not is_valid_species(name):
+            raise ValueError(f"likely_sets: unknown species key {name!r}")
+        if "nature" not in entry or "evs" not in entry:
+            raise ValueError(f"likely_sets: {name!r} missing nature/evs")
+        item = entry.get("item")
+        preset = SpreadPreset(
+            nature=entry["nature"],
+            evs={k: int(v) for k, v in (entry.get("evs") or {}).items()},
+            items=[item] if item else [],
+        )
+        out[to_id(name)] = SpeciesSpreads(offense=preset, defense=preset)
+    return out
+
+
+def load_opp_sets_for_format(format_id: str):
+    """Load curated opponent likely-sets for a format, validating species against
+    the calc backend. Returns {} (off, worst-case) when SHOWDOWN_OPP_SETS=0, the
+    file is missing, or anything fails -- a broken prior never silently activates."""
+    import os
+
+    from showdown_bot.engine.format_config import load_format_config
+
+    if os.environ.get("SHOWDOWN_OPP_SETS", "1") == "0":
+        return {}
+    try:
+        path = load_format_config(format_id).meta_path("likely_sets")
+        from showdown_bot.engine.calc.client import SubprocessCalcBackend
+
+        backend = SubprocessCalcBackend()
+
+        def is_valid(species: str) -> bool:
+            return bool(backend.types_batch([species])[0])
+
+        return load_likely_sets(path, is_valid_species=is_valid)
+    except Exception:  # noqa: BLE001 - missing/invalid file or backend -> off
+        return {}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
@@ -25,6 +26,15 @@ from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
 logger = logging.getLogger(__name__)
 
 _SLOTS = ["a", "b"]
+
+
+def _default_rollout_horizon() -> int:
+    """Multi-turn rollout horizon, overridable via ``SHOWDOWN_ROLLOUT_HORIZON``
+    (0 disables the rollout). Lets us A/B the rollout from the gauntlet."""
+    try:
+        return int(os.environ.get("SHOWDOWN_ROLLOUT_HORIZON", "2"))
+    except ValueError:
+        return 2
 
 
 def choose_for_request(req: BattleRequest) -> str:
@@ -113,6 +123,22 @@ def _plan_my_actions(
     return plans
 
 
+def _label_ja(req: BattleRequest, ja: JointAction) -> str:
+    """Readable label for a JointAction (for decision diagnostics)."""
+    labels: list[str] = []
+    for i, sa in enumerate((ja.slot0, ja.slot1)):
+        active = req.active[i] if i < len(req.active) else None
+        if sa.kind == "move" and sa.move_index and active is not None:
+            moves = active.moves
+            name = moves[sa.move_index - 1].move if sa.move_index - 1 < len(moves) else f"move{sa.move_index}"
+            tgt = f"->{sa.target}" if sa.target else ""
+            tera = " tera" if sa.terastallize else ""
+            labels.append(f"{name}{tgt}{tera}")
+        else:
+            labels.append(sa.kind)
+    return "(" + ", ".join(labels) + ")"
+
+
 def heuristic_choose_for_request(
     req: BattleRequest,
     *,
@@ -127,9 +153,20 @@ def heuristic_choose_for_request(
     weights: EvalWeights | None = None,
     risk_lambda: float = 0.5,
     tera_margin: float = 1.0,
+    rollout_horizon: int | None = None,
+    report: list[str] | None = None,
+    our_spreads: dict | None = None,
+    opp_sets: dict | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
-    fallback chain can take over."""
+    fallback chain can take over.
+
+    ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
+    a ``report`` list to collect a readable decision block.
+    """
+    if rollout_horizon is None:
+        rollout_horizon = _default_rollout_horizon()
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
@@ -160,7 +197,32 @@ def heuristic_choose_for_request(
                 except Exception:
                     pass
 
-    my_actions = enumerate_my_actions(req)
+    # Drop dead Fake Out / First Impression: a mon that already acted since
+    # switching in can't use them (they auto-fail and waste the turn). Active
+    # index 0/1 maps to our slots a/b.
+    from showdown_bot.team.spreads import apply_own_team_knowledge
+
+    apply_own_team_knowledge(state, req, our_spreads)
+
+    side_mons = state.side(our_side)
+    moved_since_switch = []
+    for slot in ("a", "b"):
+        m = side_mons.get(slot)
+        moved_since_switch.append(bool(m is not None and getattr(m, "moved_since_switch", False)))
+
+    # Endgame = our last mon (no bench to switch to): Protect then only defers the
+    # loss, so the eval penalizes it (see score_outcome). Count non-fainted mons
+    # from the authoritative request.
+    our_remaining = sum(1 for p in req.side.pokemon if "fnt" not in (p.condition or ""))
+    endgame = our_remaining <= 1
+
+    # A/B knob for the Protect stall penalties (Fix 2). Default on.
+    if weights is None:
+        weights = EvalWeights()
+        if os.environ.get("SHOWDOWN_PROTECT_PENALTY", "1") == "0":
+            weights = EvalWeights(protect_stall=0.0, endgame_protect=0.0, partner_abandon=0.0)
+
+    my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
         raise ValueError("no legal joint actions")
 
@@ -181,10 +243,14 @@ def heuristic_choose_for_request(
     opp_resps = predict_responses(
         state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
         dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+        opp_sets=opp_sets,
     )
     resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
 
-    model = DamageModel(state, our_side, opp_side, book=book, oracle=oracle, field=state.field)
+    model = DamageModel(
+        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+        our_spreads=our_spreads, opp_sets=opp_sets,
+    )
     groups = list(plans.values()) + [r.actions for r in opp_resps]
     model.prefetch(groups)
 
@@ -194,6 +260,7 @@ def heuristic_choose_for_request(
                 evaluate_line(
                     state, my_plan, r.actions, model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
+                    rollout_horizon=rollout_horizon, endgame=endgame,
                 )[0]
                 for r in opp_resps
             ]
@@ -201,6 +268,7 @@ def heuristic_choose_for_request(
             evaluate_line(
                 state, my_plan, [], model.damage_fn,
                 our_side=our_side, weights=weights, field=state.field,
+                rollout_horizon=rollout_horizon, endgame=endgame,
             )[0]
         ]
 
@@ -212,7 +280,52 @@ def heuristic_choose_for_request(
     best_ja = _maybe_tera(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
+        endgame=endgame,
     )
+
+    if report is not None:
+        from showdown_bot.battle.diagnostics import format_decision
+        from showdown_bot.battle.policy import aggregate_scores
+
+        ranked = sorted(
+            (
+                (_label_ja(req, ja), aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+                for ja, scores in items
+            ),
+            key=lambda p: p[1],
+            reverse=True,
+        )
+        report.append(format_decision(_label_ja(req, best_ja), ranked, getattr(mode, "name", str(mode))))
+
+        # Metrics line: predicted incoming/outgoing for the chosen line + score gap.
+        # Makes the gauntlet A/Bs interpretable beyond winrate (esp. for the bulk
+        # proxy: does perceived incoming drop?). Cheap -- reuses prefetched calcs.
+        chosen_plan = _plan_my_actions(
+            req, best_ja, state=state, our_side=our_side, opp_side=opp_side, speed_oracle=speed_oracle
+        )
+        rep_resp = opp_resps[0].actions if opp_resps else []
+        _, out = evaluate_line(
+            state, chosen_plan, rep_resp, model.damage_fn,
+            our_side=our_side, weights=weights, field=state.field, rollout_horizon=0,
+        )
+        incoming = sum(-d for k, d in out.hp_delta.items() if k[0] == our_side and d < 0)
+        outgoing = sum(-d for k, d in out.hp_delta.items() if k[0] == opp_side and d < 0)
+        gap = (ranked[0][1] - ranked[1][1]) if len(ranked) >= 2 else 0.0
+        report.append(
+            f"metrics mode={getattr(mode, 'name', mode)} in={incoming:.2f} out={outgoing:.2f} gap={gap:.2f}"
+        )
+
+        # "Why not max_damage" -- only when explicitly requested (it runs the
+        # baseline, an extra calc). Read ~10 lost turns to see cowardice vs
+        # false-threat vs worse damage line.
+        if os.environ.get("SHOWDOWN_DECISION_DIFF") == "1":
+            try:
+                from showdown_bot.battle.baselines import max_damage_choice
+
+                md = max_damage_choice(req, state=state, book=book, our_side=our_side)
+                report.append(f"max_damage would: {md}")
+            except Exception:  # noqa: BLE001
+                pass
 
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
@@ -220,6 +333,7 @@ def heuristic_choose_for_request(
 def _maybe_tera(
     req, best_ja, best_val, mode, state, our_side, opp_side,
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
+    *, endgame: bool = False,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
@@ -239,13 +353,15 @@ def _maybe_tera(
         if opp_resps:
             scores = [
                 evaluate_line(state, plan, r.actions, model.damage_fn,
-                              our_side=our_side, weights=weights, field=state.field)[0]
+                              our_side=our_side, weights=weights, field=state.field,
+                              endgame=endgame)[0]
                 for r in opp_resps
             ]
         else:
             scores = [
                 evaluate_line(state, plan, [], model.damage_fn,
-                              our_side=our_side, weights=weights, field=state.field)[0]
+                              our_side=our_side, weights=weights, field=state.field,
+                              endgame=endgame)[0]
             ]
         val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
         if val > best_overlay_val and tera_decision(best_val, val, margin=tera_margin):
@@ -261,6 +377,7 @@ def choose_with_fallback(
     book: SpreadBook | None = None,
     our_side: str | None = None,
     hard_timeout: float = 4.0,
+    report: list[str] | None = None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
@@ -281,7 +398,7 @@ def choose_with_fallback(
         try:
             fut = ex.submit(
                 heuristic_choose_for_request,
-                req, state=state, book=book, our_side=our_side, **deps,
+                req, state=state, book=book, our_side=our_side, report=report, **deps,
             )
             return fut.result(timeout=hard_timeout)
         except FutureTimeout:

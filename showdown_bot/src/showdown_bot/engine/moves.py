@@ -1,34 +1,72 @@
 from __future__ import annotations
 
+import functools
+import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+
+import yaml
 
 from showdown_bot.engine.state import FieldState
+
+_CONFIG = Path(__file__).resolve().parents[3] / "config"
+_MOVEDATA = _CONFIG / "moves" / "movedata.json"
+_EFFECT_CLASSES = _CONFIG / "moves" / "effect_classes.yaml"
+
+# Gen-9 terrain-priority moves (the one field @pkmn/dex does not expose as a
+# simple value). Grassy Glide gains +1 priority in Grassy Terrain.
+_TERRAIN_PRIORITY: dict[str, str] = {"grassyglide": "Grassy"}
 
 
 def to_id(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def _tuple(value) -> tuple | None:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return tuple(value)
+    return value
+
+
 @dataclass(frozen=True)
 class MoveMeta:
-    """Minimal move metadata for the resolver.
+    """Move metadata for the resolver, data-driven from ``config/moves/movedata.json``
+    (generated from @pkmn/dex). The mechanical fields mirror Pokemon-Showdown
+    names; the curated ``effect_classes`` overlay (Phase A4) adds heuristic
+    semantics.
 
-    Phase 2 ships a small hand table; the API is shaped so the data can later be
-    imported wholesale from pokemon-showdown/data/moves.ts (generated JSON):
-    priority, target, category and flags all mirror PS field names.
+    The structured effect fields are excluded from ``compare``/``hash`` (they are
+    dicts/lists) so ``MoveMeta`` stays hashable on its identity fields.
     """
 
     id: str
     name: str
     priority: int = 0
     category: str = "physical"  # physical | special | status
-    target: str = "normal"  # normal | adjacentFoe | allAdjacentFoes | allAdjacent | self | adjacentAlly | all
+    target: str = "normal"
     base_power: int = 0
     move_type: str | None = None
     flags: frozenset[str] = field(default_factory=frozenset)
-    # Terrain that grants +1 priority (Grassy Glide etc.).
     terrain_priority: str | None = None
+    # --- enriched semantic fields (from @pkmn/dex) ---
+    status: str | None = field(default=None, compare=False)
+    volatile_status: str | None = field(default=None, compare=False)
+    side_condition: str | None = field(default=None, compare=False)
+    slot_condition: str | None = field(default=None, compare=False)
+    weather: str | None = field(default=None, compare=False)
+    terrain: str | None = field(default=None, compare=False)
+    boosts: dict | None = field(default=None, compare=False)
+    self_effect: dict | None = field(default=None, compare=False)
+    secondary: dict | None = field(default=None, compare=False)
+    drain: tuple | None = field(default=None, compare=False)
+    recoil: tuple | None = field(default=None, compare=False)
+    multihit: object | None = field(default=None, compare=False)
+    # --- curated overlay (populated in Phase A4) ---
+    effect_classes: tuple[str, ...] = field(default=(), compare=False)
+    effect_params: dict = field(default_factory=dict, compare=False)
 
     @property
     def is_damaging(self) -> bool:
@@ -43,67 +81,67 @@ class MoveMeta:
         return self.target in ("normal", "adjacentFoe", "allAdjacentFoes", "allAdjacent", "randomNormal")
 
 
-def _m(name, priority=0, category="physical", target="normal", base_power=0,
-       move_type=None, flags=(), terrain_priority=None) -> MoveMeta:
-    base_flags = set(flags)
-    # Damaging foe moves and most status moves are blocked by Protect unless
-    # they explicitly bypass it; encode "protect" = "affected by Protect".
+def _meta_from_record(rec: dict) -> MoveMeta:
     return MoveMeta(
-        id=to_id(name),
-        name=name,
-        priority=priority,
-        category=category,
-        target=target,
-        base_power=base_power,
-        move_type=move_type,
-        flags=frozenset(base_flags),
-        terrain_priority=terrain_priority,
+        id=rec["id"],
+        name=rec["name"],
+        priority=int(rec.get("priority") or 0),
+        category=(rec.get("category") or "Physical").lower(),
+        target=rec.get("target") or "normal",
+        base_power=int(rec.get("basePower") or 0),
+        move_type=rec.get("type"),
+        flags=frozenset(rec.get("flags") or ()),
+        terrain_priority=_TERRAIN_PRIORITY.get(rec["id"]),
+        status=rec.get("status"),
+        volatile_status=rec.get("volatileStatus"),
+        side_condition=rec.get("sideCondition"),
+        slot_condition=rec.get("slotCondition"),
+        weather=rec.get("weather"),
+        terrain=rec.get("terrain"),
+        boosts=rec.get("boosts"),
+        self_effect=rec.get("self"),
+        secondary=rec.get("secondary"),
+        drain=_tuple(rec.get("drain")),
+        recoil=_tuple(rec.get("recoil")),
+        multihit=_tuple(rec.get("multihit")),
     )
 
 
-_TABLE: dict[str, MoveMeta] = {
-    m.id: m
-    for m in [
-        # Priority / protection
-        _m("Fake Out", priority=3, category="physical", target="normal", base_power=40, move_type="Normal", flags={"protect", "contact", "flinch"}),
-        _m("Protect", priority=4, category="status", target="self"),
-        _m("Detect", priority=4, category="status", target="self"),
-        _m("Wide Guard", priority=3, category="status", target="self"),
-        _m("Quick Attack", priority=1, base_power=40, move_type="Normal", flags={"protect", "contact"}),
-        _m("Extreme Speed", priority=2, base_power=80, move_type="Normal", flags={"protect", "contact"}),
-        _m("Aqua Jet", priority=1, base_power=40, move_type="Water", flags={"protect", "contact"}),
-        _m("Sucker Punch", priority=1, base_power=70, move_type="Dark", flags={"protect", "contact"}),
-        _m("Grassy Glide", priority=0, base_power=55, move_type="Grass", flags={"protect", "contact"}, terrain_priority="Grassy"),
-        # Redirection
-        _m("Rage Powder", priority=2, category="status", target="self", flags={"powder"}),
-        _m("Follow Me", priority=2, category="status", target="self"),
-        # Speed control / support
-        _m("Tailwind", priority=0, category="status", target="self"),
-        _m("Trick Room", priority=-7, category="status", target="self"),
-        _m("Icy Wind", priority=0, category="special", target="allAdjacentFoes", base_power=55, move_type="Ice", flags={"protect"}),
-        _m("Spore", priority=0, category="status", target="normal", flags={"protect", "powder"}),
-        _m("Will-O-Wisp", priority=0, category="status", target="normal", flags={"protect"}),
-        # Common damage
-        _m("Moonblast", category="special", base_power=95, move_type="Fairy", flags={"protect"}),
-        _m("Shadow Ball", category="special", base_power=80, move_type="Ghost", flags={"protect"}),
-        _m("Flare Blitz", category="physical", base_power=120, move_type="Fire", flags={"protect", "contact"}),
-        _m("Knock Off", category="physical", base_power=65, move_type="Dark", flags={"protect", "contact"}),
-        _m("Wood Hammer", category="physical", base_power=120, move_type="Grass", flags={"protect", "contact"}),
-        _m("Close Combat", category="physical", base_power=120, move_type="Fighting", flags={"protect", "contact"}),
-        _m("Earthquake", category="physical", target="allAdjacent", base_power=100, move_type="Ground", flags={"protect"}),
-        _m("Heat Wave", category="special", target="allAdjacentFoes", base_power=95, move_type="Fire", flags={"protect"}),
-        _m("Make It Rain", category="special", target="allAdjacentFoes", base_power=120, move_type="Steel", flags={"protect"}),
-        _m("Dazzling Gleam", category="special", target="allAdjacentFoes", base_power=80, move_type="Fairy", flags={"protect"}),
-    ]
-}
+@functools.lru_cache(maxsize=1)
+def _effect_overlay() -> dict[str, dict]:
+    """Curated move_id -> {classes, params} overlay. Missing file -> no overlay."""
+    try:
+        return yaml.safe_load(_EFFECT_CLASSES.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+
+
+@functools.lru_cache(maxsize=1)
+def _move_table() -> dict[str, MoveMeta]:
+    raw = json.loads(_MOVEDATA.read_text(encoding="utf-8"))
+    overlay = _effect_overlay()
+    table: dict[str, MoveMeta] = {}
+    for mid, rec in raw["moves"].items():
+        meta = _meta_from_record(rec)
+        entry = overlay.get(mid)
+        if entry:
+            meta = replace(
+                meta,
+                effect_classes=tuple(entry.get("classes") or ()),
+                effect_params=dict(entry.get("params") or {}),
+            )
+        table[mid] = meta
+    return table
 
 
 def get_move_meta(name_or_id: str) -> MoveMeta:
     """Look up move metadata; unknown moves default to a blockable single-target
     physical move at priority 0 (conservative for the resolver)."""
     mid = to_id(name_or_id)
-    if mid in _TABLE:
-        return _TABLE[mid]
+    table = _move_table()
+    meta = table.get(mid)
+    if meta is not None:
+        return meta
     return MoveMeta(id=mid, name=name_or_id, base_power=80, flags=frozenset({"protect"}))
 
 

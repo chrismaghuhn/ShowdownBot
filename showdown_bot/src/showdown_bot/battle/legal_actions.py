@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from itertools import product
 
+from showdown_bot.battle.resolve import _FIRST_TURN_MOVES
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.models.actions import SlotAction, SlotPair
 from showdown_bot.models.request import BattleRequest
@@ -30,18 +31,31 @@ def _bench_switch_targets(req: BattleRequest, slot_index: int) -> list[SlotActio
 
 
 def _move_targets(move_target: str) -> list[int | None]:
-    if move_target == "self":
-        return [None]
-    if move_target in ("adjacentFoe", "normal"):
+    # Only single-adjacent-target moves take an explicit target slot (1 or 2).
+    if move_target in ("normal", "adjacentFoe", "any"):
         return [1, 2]
     if move_target == "adjacentAlly":
         return [-1]
-    if move_target in ("allAdjacent", "allAdjacentFoes", "all"):
-        return [None]
-    return [1, 2]
+    # Everything else takes NO target: self, allySide/allyTeam/foeSide (Tailwind,
+    # screens, hazards), all/allAdjacent(Foes) spreads, randomNormal, scripted.
+    # The default MUST be [None] -- a foe target on these is an illegal choice.
+    return [None]
 
 
-def _slot_move_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
+def _active_mon_fainted(req: BattleRequest, active_index: int) -> bool:
+    """Whether the mon in our ``active_index``-th active slot has fainted.
+
+    A fainted active mon with no replacement keeps its slot in ``active`` (still
+    listing the dead mon's moves), but Showdown expects ``pass`` for it; a move
+    there is rejected ("more choices than unfainted Pokemon") and stalls the game.
+    """
+    actives = [p for p in req.side.pokemon if p.active]
+    return active_index < len(actives) and "fnt" in actives[active_index].condition
+
+
+def _slot_move_actions(
+    active_index: int, req: BattleRequest, *, drop_first_turn: bool = False
+) -> list[SlotAction]:
     forced = bool(
         req.force_switch
         and active_index < len(req.force_switch)
@@ -58,6 +72,9 @@ def _slot_move_actions(active_index: int, req: BattleRequest) -> list[SlotAction
     # Empty slot (doubles with one mon left): nothing to choose, just pass.
     if active is None:
         return [SlotAction(kind="pass")]
+    # Active mon fainted with no replacement -> the dead slot must pass.
+    if _active_mon_fainted(req, active_index):
+        return [SlotAction(kind="pass")]
     # Choice items lock the holder into the FIRST move it selects. Clicking a
     # non-damaging move (e.g. Protect) therefore locks the mon into that move
     # forever -- a dead Pokémon and, with Protect, an infinite stall loop. Only
@@ -69,7 +86,15 @@ def _slot_move_actions(active_index: int, req: BattleRequest) -> list[SlotAction
     for i, move in enumerate(active.moves, start=1):
         if move.disabled:
             continue
-        if choice_locked and not get_move_meta(move.move).is_damaging:
+        meta = get_move_meta(move.move)
+        if choice_locked and not meta.is_damaging:
+            skipped_nondamaging = True
+            continue
+        # Fake Out / First Impression auto-fail unless the mon just switched in.
+        # Offering a dead first-turn move lets the policy pick a guaranteed wasted
+        # turn over a real attack (observed: Incineroar spamming a failing Fake
+        # Out every other turn in the endgame).
+        if drop_first_turn and meta.id in _FIRST_TURN_MOVES:
             skipped_nondamaging = True
             continue
         for target in _move_targets(move.target):

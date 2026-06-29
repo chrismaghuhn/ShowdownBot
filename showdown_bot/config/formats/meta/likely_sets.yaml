@@ -1,0 +1,53 @@
+# Curated probable opponent sets for common Reg-G species. nature/evs = spread
+# (used when the species is curated + the field is unknown); item = optional
+# separate prior (a revealed item always wins). Keys must be canonical dex species
+# names. set_id/source/confidence/item_confidence are debug metadata only.
+species:
+  Incineroar:
+    set_id: bulky_support
+    nature: Careful
+    evs: {hp: 252, atk: 4, spd: 252}
+    item: Sitrus Berry
+    item_confidence: medium
+    source: curated_reg_g
+    confidence: high
+  Rillaboom:
+    set_id: av_grassy
+    nature: Adamant
+    evs: {hp: 252, atk: 252, spd: 4}
+    item: Assault Vest
+    item_confidence: medium
+    source: curated_reg_g
+    confidence: medium
+  Flutter Mane:
+    set_id: booster_fast
+    nature: Timid
+    evs: {spa: 252, spd: 4, spe: 252}
+    item: Booster Energy
+    item_confidence: low
+    source: curated_reg_g
+    confidence: high
+  Landorus-Therian:
+    set_id: scarf_physical
+    nature: Jolly
+    evs: {atk: 252, def: 4, spe: 252}
+    item: Choice Scarf
+    item_confidence: low
+    source: curated_reg_g
+    confidence: medium
+  Tornadus:
+    set_id: tailwind_support
+    nature: Timid
+    evs: {hp: 252, spa: 4, spe: 252}
+    item: Covert Cloak
+    item_confidence: low
+    source: curated_reg_g
+    confidence: medium
+  Urshifu-Rapid-Strike:
+    set_id: sash_offense
+    nature: Jolly
+    evs: {atk: 252, def: 4, spe: 252}
+    item: Focus Sash
+    item_confidence: low
+    source: curated_reg_g
+    confidence: medium

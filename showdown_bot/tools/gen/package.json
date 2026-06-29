@@ -1,0 +1,15 @@
+{
+  "name": "showdown-bot-gen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Build-time generator: @pkmn/dex -> config/moves/movedata.json + config/items/itemdata.json. NOT a runtime dependency; @smogon/calc stays damage-only.",
+  "scripts": {
+    "gen": "node gen_movedata.mjs",
+    "check": "node gen_movedata.mjs --check"
+  },
+  "dependencies": {
+    "@pkmn/data": "^0.10.11",
+    "@pkmn/dex": "^0.10.11"
+  }
+}

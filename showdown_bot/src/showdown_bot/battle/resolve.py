@@ -90,12 +90,14 @@ def _order_rank(action: PlannedAction) -> int:
     return 0 if action.kind == "switch" else 1
 
 
-def sort_actions(actions: list[PlannedAction], field: FieldState | None = None) -> list[PlannedAction]:
+def sort_actions(
+    actions: list[PlannedAction], field: FieldState | None = None, *, tie_break: str = "ours_last"
+) -> list[PlannedAction]:
     """Approximate PS action queue: order asc, then priority desc, then speed.
 
-    Speed is DESC normally, ASC under Trick Room (TR is sort logic only -- it is
-    not baked into the speed numbers). Speed ties resolve pessimistically: our
-    mon acts last. This is an explicit assumption; Step 11 refines tie handling.
+    Speed is DESC normally, ASC under Trick Room. ``tie_break`` decides equal-key
+    ties: ``ours_last`` (default, pessimistic) or ``ours_first`` -- the two
+    orderings the tie-EV averages over.
     """
     tr = bool(field and field.trick_room)
 
@@ -104,7 +106,10 @@ def sort_actions(actions: list[PlannedAction], field: FieldState | None = None) 
             4 if a.kind == "protect" else 0
         )
         speed_sort = a.speed if tr else -a.speed
-        tie = 1 if a.is_ours else 0  # ours loses ties
+        if tie_break == "ours_first":
+            tie = 0 if a.is_ours else 1
+        else:
+            tie = 1 if a.is_ours else 0  # ours loses ties (pessimistic default)
         return (_order_rank(a), -pr, speed_sort, tie)
 
     return sorted(actions, key=keyfn)
@@ -117,6 +122,7 @@ def resolve_turn(
     *,
     our_side: str = "p1",
     field: FieldState | None = None,
+    tie_break: str = "ours_last",
 ) -> TurnOutcome:
     """Approximate one-ply tactical resolution (layers 2A + 2B).
 
@@ -194,7 +200,7 @@ def resolve_turn(
                 outcome.my_kos += 1
                 outcome.opp_faints += 1
 
-    for idx, action in enumerate(sort_actions(actions, field)):
+    for idx, action in enumerate(sort_actions(actions, field, tie_break=tie_break)):
         key = action.key
         if action.kind == "move" and action.move:
             outcome.speed_events.append(

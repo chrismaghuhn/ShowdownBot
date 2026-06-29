@@ -1,0 +1,9 @@
+format_id: gen9vgc2024regg
+level: 50
+game_type: doubles
+restricted_limit: 0
+tera: true
+meta_paths:
+  default_spreads: meta/default_spreads.yaml
+  protect_priors: meta/protect_priors.yaml
+  likely_sets: meta/likely_sets.yaml

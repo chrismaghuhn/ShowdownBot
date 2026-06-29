@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -11,12 +12,13 @@ from showdown_bot.client.connection import (
     ShowdownConnection,
     authenticate_local,
 )
-from showdown_bot.engine.belief.hypotheses import SpreadBook, load_spread_book
+from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming
 from showdown_bot.team.pack import load_packed_team
+from showdown_bot.team.spreads import our_spreads_from_packed
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +45,15 @@ def agent_choose(
     book: SpreadBook | None,
     our_side: str | None,
     priors=None,
+    report: list[str] | None = None,
+    our_spreads: dict | None = None,
+    opp_sets: dict | None = None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
     ``heuristic`` uses the full fallback chain; ``max_damage`` uses the baseline
-    via the fallback chain; ``random`` uses the legacy random agent.
+    via the fallback chain; ``random`` uses the legacy random agent. ``report``
+    (heuristic only) collects a readable decision block for the turn trace.
     """
     if agent == "random" or state is None or book is None:
         return choose_for_request(req)
@@ -58,7 +64,10 @@ def agent_choose(
             return max_damage_choice(req, state=state, book=book, our_side=our_side)
         except Exception:  # noqa: BLE001
             return choose_for_request(req)
-    return choose_with_fallback(req, state=state, book=book, our_side=our_side, priors=priors)
+    return choose_with_fallback(
+        req, state=state, book=book, our_side=our_side, priors=priors, report=report,
+        our_spreads=our_spreads, opp_sets=opp_sets,
+    )
 
 
 @dataclass
@@ -86,7 +95,7 @@ class GauntletStats:
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team):
+    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -94,7 +103,15 @@ class _Client:
         self.priors = priors
         self.format_id = format_id
         self.packed_team = packed_team
+        # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
+        # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
+        _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
+        self.our_spreads = our_spreads_from_packed(packed_team) if (packed_team and _real) else None
+        self.opp_sets = opp_sets
+        self.trace = trace
         self.room_raw: dict[str, list[str]] = {}
+        self.last_choose: dict[str, str] = {}
+        self.last_request: dict[str, str] = {}
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
@@ -118,19 +135,33 @@ class _Client:
         if req.wait:
             # Opponent's turn; we've already locked in. Nothing to choose.
             return
+        self.last_request[room] = payload
         state = self._state_for(room, req)
+        report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
         start = time.perf_counter()
         try:
             choose = agent_choose(
                 self.agent, req, state=state, book=self.book,
-                our_side=req.side.id, priors=self.priors,
+                our_side=req.side.id, priors=self.priors, report=report,
+                our_spreads=self.our_spreads, opp_sets=self.opp_sets,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
             self.crashes += 1
             choose = f"/choose default|{req.rqid}"
         self.latencies.append(time.perf_counter() - start)
+        self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
+        if report is not None and not req.team_preview:
+            try:
+                from showdown_bot.battle.diagnostics import format_turn_trace
+
+                decision = "\n".join(report) if report else "(no decision report)"
+                logger.info(
+                    "[%s] %s", self.name, format_turn_trace(self.room_raw.get(room, []), decision)
+                )
+            except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
+                logger.debug("[%s] trace failed: %s", self.name, exc)
 
 
 async def _run_client(
@@ -163,8 +194,16 @@ async def _run_client(
                     if parsed.room.startswith("battle-"):
                         if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
                             await client.conn.send(f"|/join {parsed.room}")
-                        if parsed.prefix == "error" and _is_real_invalid(parsed.args[0] if parsed.args else ""):
-                            client.invalid += 1
+                        if parsed.prefix == "error":
+                            err_text = parsed.args[0] if parsed.args else ""
+                            if _is_real_invalid(err_text):
+                                client.invalid += 1
+                                logger.warning(
+                                    "[%s] INVALID CHOICE in %s: server=%r | sent=%r | request=%s",
+                                    client.name, parsed.room, err_text,
+                                    client.last_choose.get(parsed.room),
+                                    client.last_request.get(parsed.room, "")[:400],
+                                )
                         if parsed.prefix == "request":
                             await client.handle_request(parsed.room, parsed.payload)
                         if parsed.prefix in ("win", "tie"):
@@ -195,6 +234,7 @@ async def run_local_gauntlet(
     """
     book = None
     priors = None
+    opp_sets = {}
     try:
         cfg = load_format_config(format_id)
         book = load_spread_book(cfg.meta_path("default_spreads"))
@@ -203,6 +243,7 @@ async def run_local_gauntlet(
         priors = load_protect_priors(cfg.meta_path("protect_priors"))
     except Exception:  # noqa: BLE001
         pass
+    opp_sets = load_opp_sets_for_format(format_id)
     packed = ""
     try:
         packed = load_packed_team(team_path)
@@ -224,8 +265,9 @@ async def run_local_gauntlet(
     await authenticate_local(hero_conn, hero_name)
     await authenticate_local(villain_conn, villain_name)
 
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed)
-    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed)
+    trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, trace=trace, opp_sets=opp_sets)
+    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, opp_sets=opp_sets)
 
     stats = GauntletStats()
     stop = asyncio.Event()

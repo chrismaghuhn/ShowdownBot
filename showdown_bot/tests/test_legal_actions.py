@@ -1,10 +1,25 @@
 import json
 from pathlib import Path
 
-from showdown_bot.battle.legal_actions import enumerate_slot_pairs
+from showdown_bot.battle.legal_actions import _move_targets, enumerate_slot_pairs
+from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.models.request import BattleRequest
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def test_side_field_moves_take_no_target():
+    """Regression: allySide (Tailwind/screens), foeSide, randomNormal etc. take
+    NO target. The old default [1,2] gave them a foe target -> 'move N 1' ->
+    server rejects 'You can't choose a target for Tailwind' and the game stalls."""
+    assert _move_targets("allySide") == [None]
+    assert _move_targets("allyTeam") == [None]
+    assert _move_targets("foeSide") == [None]
+    assert _move_targets("randomNormal") == [None]
+    assert _move_targets("normal") == [1, 2]
+    assert _move_targets("adjacentFoe") == [1, 2]
+    # Tailwind really is an allySide move in the data -> must be targetless.
+    assert get_move_meta("Tailwind").target == "allySide"
 
 
 def test_enumerate_move_pairs_for_doubles():

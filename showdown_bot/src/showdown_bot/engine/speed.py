@@ -84,9 +84,30 @@ class SpeedOracle:
 
             stats_backend = SubprocessCalcBackend()
         self.backend = stats_backend
+        self._spe_cache: dict = {}
 
     def our_speed(self, base_speed: int, mon: PokemonState, field: FieldState, side: str) -> int:
         return effective_speed_from_state(base_speed, mon, field, side)
+
+    def _base_speed(self, species: str, nature: str, evs: dict) -> int:
+        """Final Speed stat (no in-battle mods) for a spread, cached. VGC level
+        50, IVs 31 for any stat the set doesn't specify."""
+        key = (species, nature, tuple(sorted(evs.items())))
+        cached = self._spe_cache.get(key)
+        if cached is None:
+            spec = CalcMon(species=species, level=50, nature=nature, evs=dict(evs), ivs={"spe": 31})
+            cached = self.backend.stats_batch([spec])[0]["spe"]
+            self._spe_cache[key] = cached
+        return cached
+
+    def likely_speed(self, mon, field, side, preset, item_for_speed) -> int:
+        """Realistic point Speed from a curated set. ONLY Choice Scarf is read
+        from the item; everything else (boosts/Tailwind/para/booster) comes from
+        observed state -- a curated Booster Energy never inflates speed here."""
+        base = self._base_speed(mon.species, preset.nature, preset.evs)
+        mods = speed_modifiers_from_state(mon, field, side)
+        mods["scarf"] = item_for_speed in ("Choice Scarf", "choicescarf")
+        return effective_speed(base, **mods)
 
     def opponent_range(
         self, mon: PokemonState, field: FieldState, side: str, *, book: SpreadBook
