@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import os
 from statistics import mean, pvariance
 from typing import TypeVar
 
 from showdown_bot.engine.belief.game_mode import GameMode
 
 K = TypeVar("K")
+
+
+def _must_react_lambda() -> float:
+    """How much MUST_REACT weights the worst case: 1.0 = pure min (old behavior,
+    too passive), 0.0 = mean. Overridable via ``SHOWDOWN_MUST_REACT_LAMBDA`` for
+    tuning. Default leans conservative but no longer turtles on the nightmare."""
+    try:
+        return max(0.0, min(1.0, float(os.environ.get("SHOWDOWN_MUST_REACT_LAMBDA", "0.6"))))
+    except ValueError:
+        return 0.6
 
 
 def aggregate_scores(
@@ -18,19 +29,28 @@ def aggregate_scores(
     """Collapse the per-opponent-response scores of ONE of our actions into a
     single value, with a game_mode-dependent operator:
 
-    - must_react -> min   (worst case: assume the opponent picks their best reply)
+    - must_react -> mean - mr_lambda * (mean - min)  (worst-case-leaning, but not
+                    pure min: pure min turtles into Protect and loses tempo)
     - ahead      -> mean  (we can afford the average line; protect reads net out)
     - neutral    -> mean - lambda * variance  (risk-averse: avoid high-variance lines)
 
     ``weights`` (opponent-response likelihoods from protect priors) turn the mean
-    / variance into weighted versions for the ahead / neutral operators.
+    / variance into weighted versions for the ahead / neutral / must_react ops.
     """
     if not scores:
         return 0.0
-    if mode == GameMode.MUST_REACT:
-        return min(scores)
 
     use_weights = weights is not None and len(weights) == len(scores) and sum(weights) > 0
+
+    if mode == GameMode.MUST_REACT:
+        worst = min(scores)
+        if use_weights:
+            wsum = sum(weights)
+            avg = sum(s * w for s, w in zip(scores, weights)) / wsum
+        else:
+            avg = mean(scores)
+        return avg - _must_react_lambda() * (avg - worst)
+
     if use_weights:
         wsum = sum(weights)
         wmean = sum(s * w for s, w in zip(scores, weights)) / wsum
