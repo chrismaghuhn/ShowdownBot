@@ -1,0 +1,7082 @@
+{
+ "source_version": "0.10.11",
+ "generation": 9,
+ "format": "gen9vgc2024regg",
+ "data_hash": "eb2d66e6dffed578",
+ "items": {
+  "abilityshield": {
+   "id": "abilityshield",
+   "name": "Ability Shield",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Ability cannot be changed, suppressed, or ignored by any effect."
+  },
+  "abomasite": {
+   "id": "abomasite",
+   "name": "Abomasite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Abomasnow, this item allows it to Mega Evolve in battle."
+  },
+  "absolite": {
+   "id": "absolite",
+   "name": "Absolite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Absol, this item allows it to Mega Evolve into Mega Absol in battle."
+  },
+  "absolitez": {
+   "id": "absolitez",
+   "name": "Absolite Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Absol, this item allows it to Mega Evolve into Mega Absol Z in battle."
+  },
+  "absorbbulb": {
+   "id": "absorbbulb",
+   "name": "Absorb Bulb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spa": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Sp. Atk by 1 stage if hit by a Water-type attack. Single use."
+  },
+  "adamantcrystal": {
+   "id": "adamantcrystal",
+   "name": "Adamant Crystal",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Dialga, its Steel- and Dragon-type attacks have 1.2x power."
+  },
+  "adamantorb": {
+   "id": "adamantorb",
+   "name": "Adamant Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Dialga, its Steel- and Dragon-type attacks have 1.2x power."
+  },
+  "adrenalineorb": {
+   "id": "adrenalineorb",
+   "name": "Adrenaline Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spe": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Speed by 1 stage if it gets affected by Intimidate. Single use."
+  },
+  "aerodactylite": {
+   "id": "aerodactylite",
+   "name": "Aerodactylite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Aerodactyl, this item allows it to Mega Evolve in battle."
+  },
+  "aggronite": {
+   "id": "aggronite",
+   "name": "Aggronite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Aggron, this item allows it to Mega Evolve in battle."
+  },
+  "aguavberry": {
+   "id": "aguavberry",
+   "name": "Aguav Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Dragon"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/3 max HP at 1/4 max HP or less; confuses if -SpD Nature. Single use."
+  },
+  "airballoon": {
+   "id": "airballoon",
+   "name": "Air Balloon",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder is immune to Ground-type attacks. Pops when holder is hit."
+  },
+  "alakazite": {
+   "id": "alakazite",
+   "name": "Alakazite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Alakazam, this item allows it to Mega Evolve in battle."
+  },
+  "aloraichiumz": {
+   "id": "aloraichiumz",
+   "name": "Aloraichium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by an Alolan Raichu with Thunderbolt, it can use Stoked Sparksurfer."
+  },
+  "altarianite": {
+   "id": "altarianite",
+   "name": "Altarianite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Altaria, this item allows it to Mega Evolve in battle."
+  },
+  "ampharosite": {
+   "id": "ampharosite",
+   "name": "Ampharosite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Ampharos, this item allows it to Mega Evolve in battle."
+  },
+  "apicotberry": {
+   "id": "apicotberry",
+   "name": "Apicot Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Ground"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Sp. Def by 1 stage when at 1/4 max HP or less. Single use."
+  },
+  "armorfossil": {
+   "id": "armorfossil",
+   "name": "Armor Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Shieldon."
+  },
+  "aspearberry": {
+   "id": "aspearberry",
+   "name": "Aspear Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ice"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder is cured if it is frozen. Single use."
+  },
+  "assaultvest": {
+   "id": "assaultvest",
+   "name": "Assault Vest",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Holder's Sp. Def is 1.5x, but it can only select damaging moves."
+  },
+  "audinite": {
+   "id": "audinite",
+   "name": "Audinite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Audino, this item allows it to Mega Evolve in battle."
+  },
+  "auspiciousarmor": {
+   "id": "auspiciousarmor",
+   "name": "Auspicious Armor",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Charcadet into Armarouge when used."
+  },
+  "babiriberry": {
+   "id": "babiriberry",
+   "name": "Babiri Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Steel"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Steel-type attack. Single use."
+  },
+  "banettite": {
+   "id": "banettite",
+   "name": "Banettite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Banette, this item allows it to Mega Evolve in battle."
+  },
+  "barbaracite": {
+   "id": "barbaracite",
+   "name": "Barbaracite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Barbaracle, this item allows it to Mega Evolve in battle."
+  },
+  "baxcalibrite": {
+   "id": "baxcalibrite",
+   "name": "Baxcalibrite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Baxcalibur, this item allows it to Mega Evolve in battle."
+  },
+  "beastball": {
+   "id": "beastball",
+   "name": "Beast Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A special Poke Ball designed to catch Ultra Beasts."
+  },
+  "beedrillite": {
+   "id": "beedrillite",
+   "name": "Beedrillite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Beedrill, this item allows it to Mega Evolve in battle."
+  },
+  "belueberry": {
+   "id": "belueberry",
+   "name": "Belue Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Electric"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "berry": {
+   "id": "berry",
+   "name": "Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Poison"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Restores 10 HP when at 1/2 max HP or less. Single use."
+  },
+  "berryjuice": {
+   "id": "berryjuice",
+   "name": "Berry Juice",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Restores 20 HP when at 1/2 max HP or less. Single use."
+  },
+  "berrysweet": {
+   "id": "berrysweet",
+   "name": "Berry Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "berserkgene": {
+   "id": "berserkgene",
+   "name": "Berserk Gene",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "atk": 2
+   },
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "(Gen 2) On switch-in, raises holder's Attack by 2 and confuses it. Single use."
+  },
+  "bignugget": {
+   "id": "bignugget",
+   "name": "Big Nugget",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 130
+   },
+   "shortDesc": "A big nugget of pure gold that gives off a lustrous gleam."
+  },
+  "bigroot": {
+   "id": "bigroot",
+   "name": "Big Root",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder gains 1.3x HP from draining/Aqua Ring/Ingrain/Leech Seed/Strength Sap."
+  },
+  "bindingband": {
+   "id": "bindingband",
+   "name": "Binding Band",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's partial-trapping moves deal 1/6 max HP per turn instead of 1/8."
+  },
+  "bitterberry": {
+   "id": "bitterberry",
+   "name": "Bitter Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ground"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder is cured if it is confused. Single use."
+  },
+  "blackbelt": {
+   "id": "blackbelt",
+   "name": "Black Belt",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Fighting-type attacks have 1.2x power."
+  },
+  "blackglasses": {
+   "id": "blackglasses",
+   "name": "Black Glasses",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Dark-type attacks have 1.2x power."
+  },
+  "blacksludge": {
+   "id": "blacksludge",
+   "name": "Black Sludge",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Each turn, if holder is a Poison type, restores 1/16 max HP; loses 1/8 if not."
+  },
+  "blastoisinite": {
+   "id": "blastoisinite",
+   "name": "Blastoisinite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Blastoise, this item allows it to Mega Evolve in battle."
+  },
+  "blazikenite": {
+   "id": "blazikenite",
+   "name": "Blazikenite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Blaziken, this item allows it to Mega Evolve in battle."
+  },
+  "blueorb": {
+   "id": "blueorb",
+   "name": "Blue Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Kyogre, this item triggers its Primal Reversion in battle."
+  },
+  "blukberry": {
+   "id": "blukberry",
+   "name": "Bluk Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Fire"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "blunderpolicy": {
+   "id": "blunderpolicy",
+   "name": "Blunder Policy",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If the holder misses due to accuracy, its Speed is raised by 2 stages. Single use."
+  },
+  "boosterenergy": {
+   "id": "boosterenergy",
+   "name": "Booster Energy",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Activates the Protosynthesis or Quark Drive Abilities. Single use."
+  },
+  "bottlecap": {
+   "id": "bottlecap",
+   "name": "Bottle Cap",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Used for Hyper Training. One of a Pokemon's stats is calculated with an IV of 31."
+  },
+  "brightpowder": {
+   "id": "brightpowder",
+   "name": "Bright Powder",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "The accuracy of attacks against the holder is 0.9x."
+  },
+  "buggem": {
+   "id": "buggem",
+   "name": "Bug Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Bug-type attack will have 1.3x power. Single use."
+  },
+  "buginiumz": {
+   "id": "buginiumz",
+   "name": "Buginium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Bug move, this item allows it to use a Bug Z-Move."
+  },
+  "bugmemory": {
+   "id": "bugmemory",
+   "name": "Bug Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Bug type."
+  },
+  "burndrive": {
+   "id": "burndrive",
+   "name": "Burn Drive",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Techno Blast is Fire type."
+  },
+  "burntberry": {
+   "id": "burntberry",
+   "name": "Burnt Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ice"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder is cured if it is frozen. Single use."
+  },
+  "cameruptite": {
+   "id": "cameruptite",
+   "name": "Cameruptite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Camerupt, this item allows it to Mega Evolve in battle."
+  },
+  "cellbattery": {
+   "id": "cellbattery",
+   "name": "Cell Battery",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "atk": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Attack by 1 if hit by an Electric-type attack. Single use."
+  },
+  "chandelurite": {
+   "id": "chandelurite",
+   "name": "Chandelurite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Chandelure, this item allows it to Mega Evolve in battle."
+  },
+  "charcoal": {
+   "id": "charcoal",
+   "name": "Charcoal",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Fire-type attacks have 1.2x power."
+  },
+  "charizarditex": {
+   "id": "charizarditex",
+   "name": "Charizardite X",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Charizard, this item allows it to Mega Evolve into Mega Charizard X."
+  },
+  "charizarditey": {
+   "id": "charizarditey",
+   "name": "Charizardite Y",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Charizard, this item allows it to Mega Evolve into Mega Charizard Y."
+  },
+  "chartiberry": {
+   "id": "chartiberry",
+   "name": "Charti Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Rock"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Rock-type attack. Single use."
+  },
+  "cheriberry": {
+   "id": "cheriberry",
+   "name": "Cheri Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fire"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder cures itself if it is paralyzed. Single use."
+  },
+  "cherishball": {
+   "id": "cherishball",
+   "name": "Cherish Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A rare Poke Ball that has been crafted to commemorate an occasion."
+  },
+  "chesnaughtite": {
+   "id": "chesnaughtite",
+   "name": "Chesnaughtite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Chesnaught, this item allows it to Mega Evolve in battle."
+  },
+  "chestoberry": {
+   "id": "chestoberry",
+   "name": "Chesto Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Water"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder wakes up if it is asleep. Single use."
+  },
+  "chilanberry": {
+   "id": "chilanberry",
+   "name": "Chilan Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Normal"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a Normal-type attack. Single use."
+  },
+  "chilldrive": {
+   "id": "chilldrive",
+   "name": "Chill Drive",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Techno Blast is Ice type."
+  },
+  "chimechite": {
+   "id": "chimechite",
+   "name": "Chimechite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Chimecho, this item allows it to Mega Evolve in battle."
+  },
+  "chippedpot": {
+   "id": "chippedpot",
+   "name": "Chipped Pot",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Sinistea-Antique into Polteageist-Antique when used."
+  },
+  "choiceband": {
+   "id": "choiceband",
+   "name": "Choice Band",
+   "isBerry": false,
+   "isChoice": true,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Attack is 1.5x, but it can only select the first move it executes."
+  },
+  "choicescarf": {
+   "id": "choicescarf",
+   "name": "Choice Scarf",
+   "isBerry": false,
+   "isChoice": true,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Speed is 1.5x, but it can only select the first move it executes."
+  },
+  "choicespecs": {
+   "id": "choicespecs",
+   "name": "Choice Specs",
+   "isBerry": false,
+   "isChoice": true,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Sp. Atk is 1.5x, but it can only select the first move it executes."
+  },
+  "chopleberry": {
+   "id": "chopleberry",
+   "name": "Chople Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fighting"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Fighting-type attack. Single use."
+  },
+  "clawfossil": {
+   "id": "clawfossil",
+   "name": "Claw Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Anorith."
+  },
+  "clearamulet": {
+   "id": "clearamulet",
+   "name": "Clear Amulet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Prevents other Pokemon from lowering the holder's stat stages."
+  },
+  "clefablite": {
+   "id": "clefablite",
+   "name": "Clefablite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Clefable, this item allows it to Mega Evolve in battle."
+  },
+  "cloversweet": {
+   "id": "cloversweet",
+   "name": "Clover Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "cobaberry": {
+   "id": "cobaberry",
+   "name": "Coba Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Flying"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Flying-type attack. Single use."
+  },
+  "colburberry": {
+   "id": "colburberry",
+   "name": "Colbur Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Dark"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Dark-type attack. Single use."
+  },
+  "cornerstonemask": {
+   "id": "cornerstonemask",
+   "name": "Cornerstone Mask",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Ogerpon-Cornerstone: 1.2x power attacks; Terastallize to gain Embody Aspect."
+  },
+  "cornnberry": {
+   "id": "cornnberry",
+   "name": "Cornn Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Bug"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "coverfossil": {
+   "id": "coverfossil",
+   "name": "Cover Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Tirtouga."
+  },
+  "covertcloak": {
+   "id": "covertcloak",
+   "name": "Covert Cloak",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder is not affected by the secondary effect of another Pokemon's attack."
+  },
+  "crabominite": {
+   "id": "crabominite",
+   "name": "Crabominite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Crabominable, this item allows it to Mega Evolve in battle."
+  },
+  "crackedpot": {
+   "id": "crackedpot",
+   "name": "Cracked Pot",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Sinistea into Polteageist when used."
+  },
+  "crucibellite": {
+   "id": "crucibellite",
+   "name": "Crucibellite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Crucibelle, this item allows it to Mega Evolve in battle."
+  },
+  "custapberry": {
+   "id": "custapberry",
+   "name": "Custap Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Ghost"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder moves first in its priority bracket when at 1/4 max HP or less. Single use."
+  },
+  "damprock": {
+   "id": "damprock",
+   "name": "Damp Rock",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Holder's use of Rain Dance lasts 8 turns instead of 5."
+  },
+  "darkgem": {
+   "id": "darkgem",
+   "name": "Dark Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Dark-type attack will have 1.3x power. Single use."
+  },
+  "darkiniumz": {
+   "id": "darkiniumz",
+   "name": "Darkinium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Dark move, this item allows it to use a Dark Z-Move."
+  },
+  "darkmemory": {
+   "id": "darkmemory",
+   "name": "Dark Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Dark type."
+  },
+  "darkranite": {
+   "id": "darkranite",
+   "name": "Darkranite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Darkrai, this item allows it to Mega Evolve in battle."
+  },
+  "dawnstone": {
+   "id": "dawnstone",
+   "name": "Dawn Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "decidiumz": {
+   "id": "decidiumz",
+   "name": "Decidium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Decidueye with Spirit Shackle, it can use Sinister Arrow Raid."
+  },
+  "deepseascale": {
+   "id": "deepseascale",
+   "name": "Deep Sea Scale",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "If held by a Clamperl, its Sp. Def is doubled."
+  },
+  "deepseatooth": {
+   "id": "deepseatooth",
+   "name": "Deep Sea Tooth",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "If held by a Clamperl, its Sp. Atk is doubled."
+  },
+  "delphoxite": {
+   "id": "delphoxite",
+   "name": "Delphoxite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Delphox, this item allows it to Mega Evolve in battle."
+  },
+  "destinyknot": {
+   "id": "destinyknot",
+   "name": "Destiny Knot",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If holder becomes infatuated, the other Pokemon also becomes infatuated."
+  },
+  "diancite": {
+   "id": "diancite",
+   "name": "Diancite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Diancie, this item allows it to Mega Evolve in battle."
+  },
+  "diveball": {
+   "id": "diveball",
+   "name": "Dive Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that works especially well on Pokemon that live underwater."
+  },
+  "domefossil": {
+   "id": "domefossil",
+   "name": "Dome Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Kabuto."
+  },
+  "dousedrive": {
+   "id": "dousedrive",
+   "name": "Douse Drive",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Techno Blast is Water type."
+  },
+  "dracoplate": {
+   "id": "dracoplate",
+   "name": "Draco Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Dragon-type attacks have 1.2x power. Judgment is Dragon type."
+  },
+  "dragalgite": {
+   "id": "dragalgite",
+   "name": "Dragalgite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Dragalge, this item allows it to Mega Evolve in battle."
+  },
+  "dragonfang": {
+   "id": "dragonfang",
+   "name": "Dragon Fang",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Dragon-type attacks have 1.2x power."
+  },
+  "dragongem": {
+   "id": "dragongem",
+   "name": "Dragon Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Dragon-type attack will have 1.3x power. Single use."
+  },
+  "dragoninite": {
+   "id": "dragoninite",
+   "name": "Dragoninite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Dragonite, this item allows it to Mega Evolve in battle."
+  },
+  "dragoniumz": {
+   "id": "dragoniumz",
+   "name": "Dragonium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Dragon move, this item allows it to use a Dragon Z-Move."
+  },
+  "dragonmemory": {
+   "id": "dragonmemory",
+   "name": "Dragon Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Dragon type."
+  },
+  "dragonscale": {
+   "id": "dragonscale",
+   "name": "Dragon Scale",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Seadra into Kingdra when traded."
+  },
+  "drampanite": {
+   "id": "drampanite",
+   "name": "Drampanite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Drampa, this item allows it to Mega Evolve in battle."
+  },
+  "dreadplate": {
+   "id": "dreadplate",
+   "name": "Dread Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Dark-type attacks have 1.2x power. Judgment is Dark type."
+  },
+  "dreamball": {
+   "id": "dreamball",
+   "name": "Dream Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that makes it easier to catch wild Pokémon while they're asleep."
+  },
+  "dubiousdisc": {
+   "id": "dubiousdisc",
+   "name": "Dubious Disc",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Evolves Porygon2 into Porygon-Z when traded."
+  },
+  "durinberry": {
+   "id": "durinberry",
+   "name": "Durin Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Water"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "duskball": {
+   "id": "duskball",
+   "name": "Dusk Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that makes it easier to catch wild Pokemon at night or in caves."
+  },
+  "duskstone": {
+   "id": "duskstone",
+   "name": "Dusk Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "earthplate": {
+   "id": "earthplate",
+   "name": "Earth Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Ground-type attacks have 1.2x power. Judgment is Ground type."
+  },
+  "eelektrossite": {
+   "id": "eelektrossite",
+   "name": "Eelektrossite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Eelektross, this item allows it to Mega Evolve in battle."
+  },
+  "eeviumz": {
+   "id": "eeviumz",
+   "name": "Eevium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by an Eevee with Last Resort, it can use Extreme Evoboost."
+  },
+  "ejectbutton": {
+   "id": "ejectbutton",
+   "name": "Eject Button",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "If holder survives a hit, it immediately switches out to a chosen ally. Single use."
+  },
+  "ejectpack": {
+   "id": "ejectpack",
+   "name": "Eject Pack",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "If the holder's stat stages are lowered, it switches to a chosen ally. Single use."
+  },
+  "electirizer": {
+   "id": "electirizer",
+   "name": "Electirizer",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Electabuzz into Electivire when traded."
+  },
+  "electricgem": {
+   "id": "electricgem",
+   "name": "Electric Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Electric-type attack will have 1.3x power. Single use."
+  },
+  "electricmemory": {
+   "id": "electricmemory",
+   "name": "Electric Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Electric type."
+  },
+  "electricseed": {
+   "id": "electricseed",
+   "name": "Electric Seed",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "def": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If the terrain is Electric Terrain, raises holder's Defense by 1 stage. Single use."
+  },
+  "electriumz": {
+   "id": "electriumz",
+   "name": "Electrium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has an Electric move, this item allows it to use an Electric Z-Move."
+  },
+  "emboarite": {
+   "id": "emboarite",
+   "name": "Emboarite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Emboar, this item allows it to Mega Evolve in battle."
+  },
+  "enigmaberry": {
+   "id": "enigmaberry",
+   "name": "Enigma Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Bug"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/4 max HP after holder is hit by a supereffective move. Single use."
+  },
+  "eviolite": {
+   "id": "eviolite",
+   "name": "Eviolite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 40
+   },
+   "shortDesc": "If holder's species can evolve, its Defense and Sp. Def are 1.5x."
+  },
+  "excadrite": {
+   "id": "excadrite",
+   "name": "Excadrite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Excadrill, this item allows it to Mega Evolve in battle."
+  },
+  "expertbelt": {
+   "id": "expertbelt",
+   "name": "Expert Belt",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's attacks that are super effective against the target do 1.2x damage."
+  },
+  "fairiumz": {
+   "id": "fairiumz",
+   "name": "Fairium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Fairy move, this item allows it to use a Fairy Z-Move."
+  },
+  "fairyfeather": {
+   "id": "fairyfeather",
+   "name": "Fairy Feather",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Fairy-type attacks have 1.2x power."
+  },
+  "fairygem": {
+   "id": "fairygem",
+   "name": "Fairy Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Fairy-type attack will have 1.3x power. Single use."
+  },
+  "fairymemory": {
+   "id": "fairymemory",
+   "name": "Fairy Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Fairy type."
+  },
+  "falinksite": {
+   "id": "falinksite",
+   "name": "Falinksite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Falinks, this item allows it to Mega Evolve in battle."
+  },
+  "fastball": {
+   "id": "fastball",
+   "name": "Fast Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that makes it easier to catch Pokemon which are quick to run away."
+  },
+  "feraligite": {
+   "id": "feraligite",
+   "name": "Feraligite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Feraligatr, this item allows it to Mega Evolve in battle."
+  },
+  "fightinggem": {
+   "id": "fightinggem",
+   "name": "Fighting Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Fighting-type attack will have 1.3x power. Single use."
+  },
+  "fightingmemory": {
+   "id": "fightingmemory",
+   "name": "Fighting Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Fighting type."
+  },
+  "fightiniumz": {
+   "id": "fightiniumz",
+   "name": "Fightinium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Fighting move, this item allows it to use a Fighting Z-Move."
+  },
+  "figyberry": {
+   "id": "figyberry",
+   "name": "Figy Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Bug"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/3 max HP at 1/4 max HP or less; confuses if -Atk Nature. Single use."
+  },
+  "firegem": {
+   "id": "firegem",
+   "name": "Fire Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Fire-type attack will have 1.3x power. Single use."
+  },
+  "firememory": {
+   "id": "firememory",
+   "name": "Fire Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Fire type."
+  },
+  "firestone": {
+   "id": "firestone",
+   "name": "Fire Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "firiumz": {
+   "id": "firiumz",
+   "name": "Firium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Fire move, this item allows it to use a Fire Z-Move."
+  },
+  "fistplate": {
+   "id": "fistplate",
+   "name": "Fist Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Fighting-type attacks have 1.2x power. Judgment is Fighting type."
+  },
+  "flameorb": {
+   "id": "flameorb",
+   "name": "Flame Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30,
+    "status": "brn"
+   },
+   "shortDesc": "At the end of every turn, this item attempts to burn the holder."
+  },
+  "flameplate": {
+   "id": "flameplate",
+   "name": "Flame Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Fire-type attacks have 1.2x power. Judgment is Fire type."
+  },
+  "floatstone": {
+   "id": "floatstone",
+   "name": "Float Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's weight is halved."
+  },
+  "floettite": {
+   "id": "floettite",
+   "name": "Floettite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by an Eternal Flower Floette, this item allows it to Mega Evolve in battle."
+  },
+  "flowersweet": {
+   "id": "flowersweet",
+   "name": "Flower Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 0
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "flyinggem": {
+   "id": "flyinggem",
+   "name": "Flying Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Flying-type attack will have 1.3x power. Single use."
+  },
+  "flyingmemory": {
+   "id": "flyingmemory",
+   "name": "Flying Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Flying type."
+  },
+  "flyiniumz": {
+   "id": "flyiniumz",
+   "name": "Flyinium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Flying move, this item allows it to use a Flying Z-Move."
+  },
+  "focusband": {
+   "id": "focusband",
+   "name": "Focus Band",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder has a 10% chance to survive an attack that would KO it with 1 HP."
+  },
+  "focussash": {
+   "id": "focussash",
+   "name": "Focus Sash",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If holder's HP is full, will survive an attack that would KO it with 1 HP. Single use."
+  },
+  "fossilizedbird": {
+   "id": "fossilizedbird",
+   "name": "Fossilized Bird",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can revive into Dracozolt with Fossilized Drake or Arctozolt with Fossilized Dino."
+  },
+  "fossilizeddino": {
+   "id": "fossilizeddino",
+   "name": "Fossilized Dino",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can revive into Arctovish with Fossilized Fish or Arctozolt with Fossilized Bird."
+  },
+  "fossilizeddrake": {
+   "id": "fossilizeddrake",
+   "name": "Fossilized Drake",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can revive into Dracozolt with Fossilized Bird or Dracovish with Fossilized Fish."
+  },
+  "fossilizedfish": {
+   "id": "fossilizedfish",
+   "name": "Fossilized Fish",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can revive into Dracovish with Fossilized Drake or Arctovish with Fossilized Dino."
+  },
+  "friendball": {
+   "id": "friendball",
+   "name": "Friend Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that makes caught Pokemon more friendly."
+  },
+  "froslassite": {
+   "id": "froslassite",
+   "name": "Froslassite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Froslass, this item allows it to Mega Evolve in battle."
+  },
+  "fullincense": {
+   "id": "fullincense",
+   "name": "Full Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder moves last in its priority bracket."
+  },
+  "galaricacuff": {
+   "id": "galaricacuff",
+   "name": "Galarica Cuff",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Galarian Slowpoke into Galarian Slowbro when used."
+  },
+  "galaricawreath": {
+   "id": "galaricawreath",
+   "name": "Galarica Wreath",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Galarian Slowpoke into Galarian Slowking when used."
+  },
+  "galladite": {
+   "id": "galladite",
+   "name": "Galladite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Gallade, this item allows it to Mega Evolve in battle."
+  },
+  "ganlonberry": {
+   "id": "ganlonberry",
+   "name": "Ganlon Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Ice"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Defense by 1 stage when at 1/4 max HP or less. Single use."
+  },
+  "garchompite": {
+   "id": "garchompite",
+   "name": "Garchompite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Garchomp, this item allows it to Mega Evolve into Mega Garchomp."
+  },
+  "garchompitez": {
+   "id": "garchompitez",
+   "name": "Garchompite Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Garchomp, this item allows it to Mega Evolve into Mega Garchomp Z."
+  },
+  "gardevoirite": {
+   "id": "gardevoirite",
+   "name": "Gardevoirite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Gardevoir, this item allows it to Mega Evolve in battle."
+  },
+  "gengarite": {
+   "id": "gengarite",
+   "name": "Gengarite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Gengar, this item allows it to Mega Evolve in battle."
+  },
+  "ghostgem": {
+   "id": "ghostgem",
+   "name": "Ghost Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Ghost-type attack will have 1.3x power. Single use."
+  },
+  "ghostiumz": {
+   "id": "ghostiumz",
+   "name": "Ghostium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Ghost move, this item allows it to use a Ghost Z-Move."
+  },
+  "ghostmemory": {
+   "id": "ghostmemory",
+   "name": "Ghost Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Ghost type."
+  },
+  "glalitite": {
+   "id": "glalitite",
+   "name": "Glalitite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Glalie, this item allows it to Mega Evolve in battle."
+  },
+  "glimmoranite": {
+   "id": "glimmoranite",
+   "name": "Glimmoranite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Glimmora, this item allows it to Mega Evolve in battle."
+  },
+  "goldberry": {
+   "id": "goldberry",
+   "name": "Gold Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Psychic"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Restores 30 HP when at 1/2 max HP or less. Single use."
+  },
+  "goldbottlecap": {
+   "id": "goldbottlecap",
+   "name": "Gold Bottle Cap",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Used for Hyper Training. All of a Pokemon's stats are calculated with an IV of 31."
+  },
+  "golisopite": {
+   "id": "golisopite",
+   "name": "Golisopite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Golisopod, this item allows it to Mega Evolve in battle."
+  },
+  "golurkite": {
+   "id": "golurkite",
+   "name": "Golurkite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Golurk, this item allows it to Mega Evolve in battle."
+  },
+  "grassgem": {
+   "id": "grassgem",
+   "name": "Grass Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Grass-type attack will have 1.3x power. Single use."
+  },
+  "grassiumz": {
+   "id": "grassiumz",
+   "name": "Grassium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Grass move, this item allows it to use a Grass Z-Move."
+  },
+  "grassmemory": {
+   "id": "grassmemory",
+   "name": "Grass Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Grass type."
+  },
+  "grassyseed": {
+   "id": "grassyseed",
+   "name": "Grassy Seed",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "def": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If the terrain is Grassy Terrain, raises holder's Defense by 1 stage. Single use."
+  },
+  "greatball": {
+   "id": "greatball",
+   "name": "Great Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A high-performance Ball that provides a higher catch rate than a Poke Ball."
+  },
+  "greninjite": {
+   "id": "greninjite",
+   "name": "Greninjite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Greninja, this item allows it to Mega Evolve in battle."
+  },
+  "grepaberry": {
+   "id": "grepaberry",
+   "name": "Grepa Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Flying"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "gripclaw": {
+   "id": "gripclaw",
+   "name": "Grip Claw",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's partial-trapping moves always last 7 turns."
+  },
+  "griseouscore": {
+   "id": "griseouscore",
+   "name": "Griseous Core",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Giratina, its Ghost- and Dragon-type attacks have 1.2x power."
+  },
+  "griseousorb": {
+   "id": "griseousorb",
+   "name": "Griseous Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Giratina, its Ghost- and Dragon-type attacks have 1.2x power."
+  },
+  "groundgem": {
+   "id": "groundgem",
+   "name": "Ground Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Ground-type attack will have 1.3x power. Single use."
+  },
+  "groundiumz": {
+   "id": "groundiumz",
+   "name": "Groundium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Ground move, this item allows it to use a Ground Z-Move."
+  },
+  "groundmemory": {
+   "id": "groundmemory",
+   "name": "Ground Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Ground type."
+  },
+  "gyaradosite": {
+   "id": "gyaradosite",
+   "name": "Gyaradosite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Gyarados, this item allows it to Mega Evolve in battle."
+  },
+  "habanberry": {
+   "id": "habanberry",
+   "name": "Haban Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Dragon"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Dragon-type attack. Single use."
+  },
+  "hardstone": {
+   "id": "hardstone",
+   "name": "Hard Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Holder's Rock-type attacks have 1.2x power."
+  },
+  "hawluchanite": {
+   "id": "hawluchanite",
+   "name": "Hawluchanite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Hawlucha, this item allows it to Mega Evolve in battle."
+  },
+  "healball": {
+   "id": "healball",
+   "name": "Heal Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A remedial Poke Ball that restores the caught Pokemon's HP and status problem."
+  },
+  "hearthflamemask": {
+   "id": "hearthflamemask",
+   "name": "Hearthflame Mask",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Ogerpon-Hearthflame: 1.2x power attacks; Terastallize to gain Embody Aspect."
+  },
+  "heatranite": {
+   "id": "heatranite",
+   "name": "Heatranite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Heatran, this item allows it to Mega Evolve in battle."
+  },
+  "heatrock": {
+   "id": "heatrock",
+   "name": "Heat Rock",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Holder's use of Sunny Day lasts 8 turns instead of 5."
+  },
+  "heavyball": {
+   "id": "heavyball",
+   "name": "Heavy Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball for catching very heavy Pokemon."
+  },
+  "heavydutyboots": {
+   "id": "heavydutyboots",
+   "name": "Heavy-Duty Boots",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "When switching in, the holder is unaffected by hazards on its side of the field."
+  },
+  "helixfossil": {
+   "id": "helixfossil",
+   "name": "Helix Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Omanyte."
+  },
+  "heracronite": {
+   "id": "heracronite",
+   "name": "Heracronite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Heracross, this item allows it to Mega Evolve in battle."
+  },
+  "hondewberry": {
+   "id": "hondewberry",
+   "name": "Hondew Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Ground"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "houndoominite": {
+   "id": "houndoominite",
+   "name": "Houndoominite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Houndoom, this item allows it to Mega Evolve in battle."
+  },
+  "iapapaberry": {
+   "id": "iapapaberry",
+   "name": "Iapapa Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Dark"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/3 max HP at 1/4 max HP or less; confuses if -Def Nature. Single use."
+  },
+  "iceberry": {
+   "id": "iceberry",
+   "name": "Ice Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Grass"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder is cured if it is burned. Single use."
+  },
+  "icegem": {
+   "id": "icegem",
+   "name": "Ice Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Ice-type attack will have 1.3x power. Single use."
+  },
+  "icememory": {
+   "id": "icememory",
+   "name": "Ice Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Ice type."
+  },
+  "icestone": {
+   "id": "icestone",
+   "name": "Ice Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "icicleplate": {
+   "id": "icicleplate",
+   "name": "Icicle Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Ice-type attacks have 1.2x power. Judgment is Ice type."
+  },
+  "iciumz": {
+   "id": "iciumz",
+   "name": "Icium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has an Ice move, this item allows it to use an Ice Z-Move."
+  },
+  "icyrock": {
+   "id": "icyrock",
+   "name": "Icy Rock",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 40
+   },
+   "shortDesc": "Holder's use of Snowscape lasts 8 turns instead of 5."
+  },
+  "inciniumz": {
+   "id": "inciniumz",
+   "name": "Incinium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by an Incineroar with Darkest Lariat, it can use Malicious Moonsault."
+  },
+  "insectplate": {
+   "id": "insectplate",
+   "name": "Insect Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Bug-type attacks have 1.2x power. Judgment is Bug type."
+  },
+  "ironball": {
+   "id": "ironball",
+   "name": "Iron Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 130
+   },
+   "shortDesc": "Holder is grounded, Speed halved. If Flying type, takes neutral Ground damage."
+  },
+  "ironplate": {
+   "id": "ironplate",
+   "name": "Iron Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Steel-type attacks have 1.2x power. Judgment is Steel type."
+  },
+  "jabocaberry": {
+   "id": "jabocaberry",
+   "name": "Jaboca Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Dragon"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If holder is hit by a physical move, attacker loses 1/8 of its max HP. Single use."
+  },
+  "jawfossil": {
+   "id": "jawfossil",
+   "name": "Jaw Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Tyrunt."
+  },
+  "kangaskhanite": {
+   "id": "kangaskhanite",
+   "name": "Kangaskhanite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Kangaskhan, this item allows it to Mega Evolve in battle."
+  },
+  "kasibberry": {
+   "id": "kasibberry",
+   "name": "Kasib Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ghost"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Ghost-type attack. Single use."
+  },
+  "kebiaberry": {
+   "id": "kebiaberry",
+   "name": "Kebia Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Poison"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Poison-type attack. Single use."
+  },
+  "keeberry": {
+   "id": "keeberry",
+   "name": "Kee Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Fairy"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Defense by 1 stage after it is hit by a physical attack. Single use."
+  },
+  "kelpsyberry": {
+   "id": "kelpsyberry",
+   "name": "Kelpsy Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Fighting"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "kingsrock": {
+   "id": "kingsrock",
+   "name": "King's Rock",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30,
+    "volatileStatus": "flinch"
+   },
+   "shortDesc": "Holder's attacks without a chance to flinch gain a 10% chance to flinch."
+  },
+  "kommoniumz": {
+   "id": "kommoniumz",
+   "name": "Kommonium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Kommo-o with Clanging Scales, it can use Clangorous Soulblaze."
+  },
+  "laggingtail": {
+   "id": "laggingtail",
+   "name": "Lagging Tail",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder moves last in its priority bracket."
+  },
+  "lansatberry": {
+   "id": "lansatberry",
+   "name": "Lansat Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Flying"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder gains the Focus Energy effect when at 1/4 max HP or less. Single use."
+  },
+  "latiasite": {
+   "id": "latiasite",
+   "name": "Latiasite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Latias, this item allows it to Mega Evolve in battle."
+  },
+  "latiosite": {
+   "id": "latiosite",
+   "name": "Latiosite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Latios, this item allows it to Mega Evolve in battle."
+  },
+  "laxincense": {
+   "id": "laxincense",
+   "name": "Lax Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "The accuracy of attacks against the holder is 0.9x."
+  },
+  "leafstone": {
+   "id": "leafstone",
+   "name": "Leaf Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "leek": {
+   "id": "leek",
+   "name": "Leek",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Farfetch’d or Sirfetch’d, its critical hit ratio is raised by 2 stages."
+  },
+  "leftovers": {
+   "id": "leftovers",
+   "name": "Leftovers",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "At the end of every turn, holder restores 1/16 of its max HP."
+  },
+  "leppaberry": {
+   "id": "leppaberry",
+   "name": "Leppa Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fighting"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 10 PP to the first of the holder's moves to reach 0 PP. Single use."
+  },
+  "levelball": {
+   "id": "levelball",
+   "name": "Level Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball for catching Pokemon that are a lower level than your own."
+  },
+  "liechiberry": {
+   "id": "liechiberry",
+   "name": "Liechi Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Grass"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Attack by 1 stage when at 1/4 max HP or less. Single use."
+  },
+  "lifeorb": {
+   "id": "lifeorb",
+   "name": "Life Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's attacks do 1.3x damage, and it loses 1/10 its max HP after the attack."
+  },
+  "lightball": {
+   "id": "lightball",
+   "name": "Light Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30,
+    "status": "par"
+   },
+   "shortDesc": "If held by a Pikachu, its Attack and Sp. Atk are doubled."
+  },
+  "lightclay": {
+   "id": "lightclay",
+   "name": "Light Clay",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's use of Aurora Veil, Light Screen, or Reflect lasts 8 turns instead of 5."
+  },
+  "loadeddice": {
+   "id": "loadeddice",
+   "name": "Loaded Dice",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's moves that hit 2-5 times hit 4-5 times; Population Bomb hits 4-10 times."
+  },
+  "lopunnite": {
+   "id": "lopunnite",
+   "name": "Lopunnite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Lopunny, this item allows it to Mega Evolve in battle."
+  },
+  "loveball": {
+   "id": "loveball",
+   "name": "Love Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Poke Ball for catching Pokemon that are the opposite gender of your Pokemon."
+  },
+  "lovesweet": {
+   "id": "lovesweet",
+   "name": "Love Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "lucarionite": {
+   "id": "lucarionite",
+   "name": "Lucarionite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Lucario, this item allows it to Mega Evolve into Mega Lucario in battle."
+  },
+  "lucarionitez": {
+   "id": "lucarionitez",
+   "name": "Lucarionite Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Lucario, this item allows it to Mega Evolve into Mega Lucario Z in battle."
+  },
+  "luckypunch": {
+   "id": "luckypunch",
+   "name": "Lucky Punch",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 40
+   },
+   "shortDesc": "If held by a Chansey, its critical hit ratio is raised by 2 stages."
+  },
+  "lumberry": {
+   "id": "lumberry",
+   "name": "Lum Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Flying"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder cures itself if it has a non-volatile status or is confused. Single use."
+  },
+  "luminousmoss": {
+   "id": "luminousmoss",
+   "name": "Luminous Moss",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spd": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Sp. Def by 1 stage if hit by a Water-type attack. Single use."
+  },
+  "lunaliumz": {
+   "id": "lunaliumz",
+   "name": "Lunalium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Lunala or Dawn Wings Necrozma with Moongeist Beam can use a special Z-Move."
+  },
+  "lureball": {
+   "id": "lureball",
+   "name": "Lure Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball for catching Pokemon hooked by a Rod when fishing."
+  },
+  "lustrousglobe": {
+   "id": "lustrousglobe",
+   "name": "Lustrous Globe",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Palkia, its Water- and Dragon-type attacks have 1.2x power."
+  },
+  "lustrousorb": {
+   "id": "lustrousorb",
+   "name": "Lustrous Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Palkia, its Water- and Dragon-type attacks have 1.2x power."
+  },
+  "luxuryball": {
+   "id": "luxuryball",
+   "name": "Luxury Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A comfortable Poke Ball that makes a caught wild Pokemon quickly grow friendly."
+  },
+  "lycaniumz": {
+   "id": "lycaniumz",
+   "name": "Lycanium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Lycanroc forme with Stone Edge, it can use Splintered Stormshards."
+  },
+  "machobrace": {
+   "id": "machobrace",
+   "name": "Macho Brace",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "magearnite": {
+   "id": "magearnite",
+   "name": "Magearnite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Magearna, this item allows it to Mega Evolve in battle."
+  },
+  "magmarizer": {
+   "id": "magmarizer",
+   "name": "Magmarizer",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Magmar into Magmortar when traded."
+  },
+  "magnet": {
+   "id": "magnet",
+   "name": "Magnet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Electric-type attacks have 1.2x power."
+  },
+  "magoberry": {
+   "id": "magoberry",
+   "name": "Mago Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ghost"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/3 max HP at 1/4 max HP or less; confuses if -Spe Nature. Single use."
+  },
+  "magostberry": {
+   "id": "magostberry",
+   "name": "Magost Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Rock"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "mail": {
+   "id": "mail",
+   "name": "Mail",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Cannot be given to or taken from a Pokemon, except by Covet/Knock Off/Thief."
+  },
+  "malamarite": {
+   "id": "malamarite",
+   "name": "Malamarite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Malamar, this item allows it to Mega Evolve in battle."
+  },
+  "maliciousarmor": {
+   "id": "maliciousarmor",
+   "name": "Malicious Armor",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Charcadet into Ceruledge when used."
+  },
+  "manectite": {
+   "id": "manectite",
+   "name": "Manectite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Manectric, this item allows it to Mega Evolve in battle."
+  },
+  "marangaberry": {
+   "id": "marangaberry",
+   "name": "Maranga Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Dark"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Sp. Def by 1 stage after it is hit by a special attack. Single use."
+  },
+  "marshadiumz": {
+   "id": "marshadiumz",
+   "name": "Marshadium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by Marshadow with Spectral Thief, it can use Soul-Stealing 7-Star Strike."
+  },
+  "masterball": {
+   "id": "masterball",
+   "name": "Master Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "The best Ball with the ultimate performance. It will catch any wild Pokemon."
+  },
+  "masterpieceteacup": {
+   "id": "masterpieceteacup",
+   "name": "Masterpiece Teacup",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Poltchageist-Artisan into Sinistcha-Masterpiece when used."
+  },
+  "mawilite": {
+   "id": "mawilite",
+   "name": "Mawilite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Mawile, this item allows it to Mega Evolve in battle."
+  },
+  "meadowplate": {
+   "id": "meadowplate",
+   "name": "Meadow Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Grass-type attacks have 1.2x power. Judgment is Grass type."
+  },
+  "medichamite": {
+   "id": "medichamite",
+   "name": "Medichamite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Medicham, this item allows it to Mega Evolve in battle."
+  },
+  "meganiumite": {
+   "id": "meganiumite",
+   "name": "Meganiumite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Meganium, this item allows it to Mega Evolve in battle."
+  },
+  "mentalherb": {
+   "id": "mentalherb",
+   "name": "Mental Herb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cures holder of Attract, Disable, Encore, Heal Block, Taunt, Torment. Single use."
+  },
+  "meowsticite": {
+   "id": "meowsticite",
+   "name": "Meowsticite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Meowstic, this item allows it to Mega Evolve in battle."
+  },
+  "metagrossite": {
+   "id": "metagrossite",
+   "name": "Metagrossite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Metagross, this item allows it to Mega Evolve in battle."
+  },
+  "metalalloy": {
+   "id": "metalalloy",
+   "name": "Metal Alloy",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Evolves Duraludon into Archaludon when used."
+  },
+  "metalcoat": {
+   "id": "metalcoat",
+   "name": "Metal Coat",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Steel-type attacks have 1.2x power."
+  },
+  "metalpowder": {
+   "id": "metalpowder",
+   "name": "Metal Powder",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If held by a Ditto that hasn't Transformed, its Defense is doubled."
+  },
+  "metronome": {
+   "id": "metronome",
+   "name": "Metronome",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Damage of moves used on consecutive turns is increased. Max 2x after 5 turns."
+  },
+  "mewniumz": {
+   "id": "mewniumz",
+   "name": "Mewnium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Mew with Psychic, it can use Genesis Supernova."
+  },
+  "mewtwonitex": {
+   "id": "mewtwonitex",
+   "name": "Mewtwonite X",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Mewtwo, this item allows it to Mega Evolve into Mega Mewtwo X in battle."
+  },
+  "mewtwonitey": {
+   "id": "mewtwonitey",
+   "name": "Mewtwonite Y",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Mewtwo, this item allows it to Mega Evolve into Mega Mewtwo Y in battle."
+  },
+  "micleberry": {
+   "id": "micleberry",
+   "name": "Micle Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Rock"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's next move has 1.2x accuracy when at 1/4 max HP or less. Single use."
+  },
+  "mimikiumz": {
+   "id": "mimikiumz",
+   "name": "Mimikium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Mimikyu with Play Rough, it can use Let's Snuggle Forever."
+  },
+  "mindplate": {
+   "id": "mindplate",
+   "name": "Mind Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Psychic-type attacks have 1.2x power. Judgment is Psychic type."
+  },
+  "mintberry": {
+   "id": "mintberry",
+   "name": "Mint Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Water"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder wakes up if it is asleep. Single use."
+  },
+  "miracleberry": {
+   "id": "miracleberry",
+   "name": "Miracle Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Flying"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder cures itself if it is confused or has a status condition. Single use."
+  },
+  "miracleseed": {
+   "id": "miracleseed",
+   "name": "Miracle Seed",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Grass-type attacks have 1.2x power."
+  },
+  "mirrorherb": {
+   "id": "mirrorherb",
+   "name": "Mirror Herb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "When an opposing Pokemon raises a stat stage, the holder copies it. Single use."
+  },
+  "mistyseed": {
+   "id": "mistyseed",
+   "name": "Misty Seed",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spd": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If the terrain is Misty Terrain, raises holder's Sp. Def by 1 stage. Single use."
+  },
+  "moonball": {
+   "id": "moonball",
+   "name": "Moon Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball for catching Pokemon that evolve using the Moon Stone."
+  },
+  "moonstone": {
+   "id": "moonstone",
+   "name": "Moon Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "muscleband": {
+   "id": "muscleband",
+   "name": "Muscle Band",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's physical attacks have 1.1x power."
+  },
+  "mysteryberry": {
+   "id": "mysteryberry",
+   "name": "Mystery Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fighting"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Restores 5 PP to the first of the holder's moves to reach 0 PP. Single use."
+  },
+  "mysticwater": {
+   "id": "mysticwater",
+   "name": "Mystic Water",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Water-type attacks have 1.2x power."
+  },
+  "nanabberry": {
+   "id": "nanabberry",
+   "name": "Nanab Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Water"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "nestball": {
+   "id": "nestball",
+   "name": "Nest Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that works especially well on weaker Pokemon in the wild."
+  },
+  "netball": {
+   "id": "netball",
+   "name": "Net Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that works especially well on Water- and Bug-type Pokemon."
+  },
+  "nevermeltice": {
+   "id": "nevermeltice",
+   "name": "Never-Melt Ice",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Ice-type attacks have 1.2x power."
+  },
+  "nomelberry": {
+   "id": "nomelberry",
+   "name": "Nomel Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Dragon"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "normalgem": {
+   "id": "normalgem",
+   "name": "Normal Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Normal-type attack will have 1.3x power. Single use."
+  },
+  "normaliumz": {
+   "id": "normaliumz",
+   "name": "Normalium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Normal move, this item allows it to use a Normal Z-Move."
+  },
+  "occaberry": {
+   "id": "occaberry",
+   "name": "Occa Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fire"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Fire-type attack. Single use."
+  },
+  "oddincense": {
+   "id": "oddincense",
+   "name": "Odd Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Psychic-type attacks have 1.2x power."
+  },
+  "oldamber": {
+   "id": "oldamber",
+   "name": "Old Amber",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Aerodactyl."
+  },
+  "oranberry": {
+   "id": "oranberry",
+   "name": "Oran Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Poison"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 10 HP when at 1/2 max HP or less. Single use."
+  },
+  "ovalstone": {
+   "id": "ovalstone",
+   "name": "Oval Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Happiny into Chansey when held and leveled up during the day."
+  },
+  "pamtreberry": {
+   "id": "pamtreberry",
+   "name": "Pamtre Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Steel"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "parkball": {
+   "id": "parkball",
+   "name": "Park Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A special Poke Ball for the Pal Park."
+  },
+  "passhoberry": {
+   "id": "passhoberry",
+   "name": "Passho Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Water"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Water-type attack. Single use."
+  },
+  "payapaberry": {
+   "id": "payapaberry",
+   "name": "Payapa Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Psychic"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Psychic-type attack. Single use."
+  },
+  "pechaberry": {
+   "id": "pechaberry",
+   "name": "Pecha Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Electric"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder is cured if it is poisoned. Single use."
+  },
+  "persimberry": {
+   "id": "persimberry",
+   "name": "Persim Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ground"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder is cured if it is confused. Single use."
+  },
+  "petayaberry": {
+   "id": "petayaberry",
+   "name": "Petaya Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Poison"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Sp. Atk by 1 stage when at 1/4 max HP or less. Single use."
+  },
+  "pidgeotite": {
+   "id": "pidgeotite",
+   "name": "Pidgeotite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Pidgeot, this item allows it to Mega Evolve in battle."
+  },
+  "pikaniumz": {
+   "id": "pikaniumz",
+   "name": "Pikanium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Pikachu with Volt Tackle, it can use Catastropika."
+  },
+  "pikashuniumz": {
+   "id": "pikashuniumz",
+   "name": "Pikashunium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by cap Pikachu with Thunderbolt, it can use 10,000,000 Volt Thunderbolt."
+  },
+  "pinapberry": {
+   "id": "pinapberry",
+   "name": "Pinap Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Grass"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "pinkbow": {
+   "id": "pinkbow",
+   "name": "Pink Bow",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "(Gen 2) Holder's Normal-type attacks have 1.1x power."
+  },
+  "pinsirite": {
+   "id": "pinsirite",
+   "name": "Pinsirite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Pinsir, this item allows it to Mega Evolve in battle."
+  },
+  "pixieplate": {
+   "id": "pixieplate",
+   "name": "Pixie Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Fairy-type attacks have 1.2x power. Judgment is Fairy type."
+  },
+  "plumefossil": {
+   "id": "plumefossil",
+   "name": "Plume Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Archen."
+  },
+  "poisonbarb": {
+   "id": "poisonbarb",
+   "name": "Poison Barb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70,
+    "status": "psn"
+   },
+   "shortDesc": "Holder's Poison-type attacks have 1.2x power."
+  },
+  "poisongem": {
+   "id": "poisongem",
+   "name": "Poison Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Poison-type attack will have 1.3x power. Single use."
+  },
+  "poisoniumz": {
+   "id": "poisoniumz",
+   "name": "Poisonium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Poison move, this item allows it to use a Poison Z-Move."
+  },
+  "poisonmemory": {
+   "id": "poisonmemory",
+   "name": "Poison Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Poison type."
+  },
+  "pokeball": {
+   "id": "pokeball",
+   "name": "Poke Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A device for catching wild Pokemon. It is designed as a capsule system."
+  },
+  "polkadotbow": {
+   "id": "polkadotbow",
+   "name": "Polkadot Bow",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "(Gen 2) Holder's Normal-type attacks have 1.1x power."
+  },
+  "pomegberry": {
+   "id": "pomegberry",
+   "name": "Pomeg Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Ice"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "poweranklet": {
+   "id": "poweranklet",
+   "name": "Power Anklet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "powerband": {
+   "id": "powerband",
+   "name": "Power Band",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "powerbelt": {
+   "id": "powerbelt",
+   "name": "Power Belt",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "powerbracer": {
+   "id": "powerbracer",
+   "name": "Power Bracer",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "powerherb": {
+   "id": "powerherb",
+   "name": "Power Herb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's two-turn moves complete in one turn (except Sky Drop). Single use."
+  },
+  "powerlens": {
+   "id": "powerlens",
+   "name": "Power Lens",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "powerweight": {
+   "id": "powerweight",
+   "name": "Power Weight",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Speed is halved. The Klutz Ability does not ignore this effect."
+  },
+  "premierball": {
+   "id": "premierball",
+   "name": "Premier Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A rare Poke Ball that has been crafted to commemorate an event."
+  },
+  "prettyfeather": {
+   "id": "prettyfeather",
+   "name": "Pretty Feather",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 20
+   },
+   "shortDesc": "Though this feather is beautiful, it's just a regular feather and has no effect."
+  },
+  "primariumz": {
+   "id": "primariumz",
+   "name": "Primarium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Primarina with Sparkling Aria, it can use Oceanic Operetta."
+  },
+  "prismscale": {
+   "id": "prismscale",
+   "name": "Prism Scale",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Feebas into Milotic when traded."
+  },
+  "protectivepads": {
+   "id": "protectivepads",
+   "name": "Protective Pads",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's moves are protected from adverse contact effects, except Pickpocket."
+  },
+  "protector": {
+   "id": "protector",
+   "name": "Protector",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Rhydon into Rhyperior when traded."
+  },
+  "przcureberry": {
+   "id": "przcureberry",
+   "name": "PRZ Cure Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fire"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder cures itself if it is paralyzed. Single use."
+  },
+  "psncureberry": {
+   "id": "psncureberry",
+   "name": "PSN Cure Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Electric"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "(Gen 2) Holder is cured if it is poisoned. Single use."
+  },
+  "psychicgem": {
+   "id": "psychicgem",
+   "name": "Psychic Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Psychic-type attack will have 1.3x power. Single use."
+  },
+  "psychicmemory": {
+   "id": "psychicmemory",
+   "name": "Psychic Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Psychic type."
+  },
+  "psychicseed": {
+   "id": "psychicseed",
+   "name": "Psychic Seed",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spd": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If the terrain is Psychic Terrain, raises holder's Sp. Def by 1 stage. Single use."
+  },
+  "psychiumz": {
+   "id": "psychiumz",
+   "name": "Psychium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Psychic move, this item allows it to use a Psychic Z-Move."
+  },
+  "punchingglove": {
+   "id": "punchingglove",
+   "name": "Punching Glove",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's punch-based attacks have 1.1x power and do not make contact."
+  },
+  "pyroarite": {
+   "id": "pyroarite",
+   "name": "Pyroarite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Pyroar, this item allows it to Mega Evolve in battle."
+  },
+  "qualotberry": {
+   "id": "qualotberry",
+   "name": "Qualot Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Poison"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "quickball": {
+   "id": "quickball",
+   "name": "Quick Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that provides a better catch rate at the start of a wild encounter."
+  },
+  "quickclaw": {
+   "id": "quickclaw",
+   "name": "Quick Claw",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Each turn, holder has a 20% chance to move first in its priority bracket."
+  },
+  "quickpowder": {
+   "id": "quickpowder",
+   "name": "Quick Powder",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If held by a Ditto that hasn't Transformed, its Speed is doubled."
+  },
+  "rabutaberry": {
+   "id": "rabutaberry",
+   "name": "Rabuta Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Ghost"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "raichunitex": {
+   "id": "raichunitex",
+   "name": "Raichunite X",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Raichu, this item allows it to Mega Evolve into Mega Raichu X in battle."
+  },
+  "raichunitey": {
+   "id": "raichunitey",
+   "name": "Raichunite Y",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Raichu, this item allows it to Mega Evolve into Mega Raichu Y in battle."
+  },
+  "rarebone": {
+   "id": "rarebone",
+   "name": "Rare Bone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "No competitive use other than when used with Fling."
+  },
+  "rawstberry": {
+   "id": "rawstberry",
+   "name": "Rawst Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Grass"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder is cured if it is burned. Single use."
+  },
+  "razorclaw": {
+   "id": "razorclaw",
+   "name": "Razor Claw",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Holder's critical hit ratio is raised by 1 stage."
+  },
+  "razorfang": {
+   "id": "razorfang",
+   "name": "Razor Fang",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30,
+    "volatileStatus": "flinch"
+   },
+   "shortDesc": "Holder's attacks without a chance to flinch gain a 10% chance to flinch."
+  },
+  "razzberry": {
+   "id": "razzberry",
+   "name": "Razz Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Steel"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "reapercloth": {
+   "id": "reapercloth",
+   "name": "Reaper Cloth",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Dusclops into Dusknoir when traded."
+  },
+  "redcard": {
+   "id": "redcard",
+   "name": "Red Card",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If holder survives a hit, attacker is forced to switch to a random ally. Single use."
+  },
+  "redorb": {
+   "id": "redorb",
+   "name": "Red Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Groudon, this item triggers its Primal Reversion in battle."
+  },
+  "repeatball": {
+   "id": "repeatball",
+   "name": "Repeat Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that works well on Pokemon species that were previously caught."
+  },
+  "ribbonsweet": {
+   "id": "ribbonsweet",
+   "name": "Ribbon Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "rindoberry": {
+   "id": "rindoberry",
+   "name": "Rindo Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Grass"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Grass-type attack. Single use."
+  },
+  "ringtarget": {
+   "id": "ringtarget",
+   "name": "Ring Target",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "The holder's type immunities granted solely by its typing are negated."
+  },
+  "rockgem": {
+   "id": "rockgem",
+   "name": "Rock Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Rock-type attack will have 1.3x power. Single use."
+  },
+  "rockincense": {
+   "id": "rockincense",
+   "name": "Rock Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Rock-type attacks have 1.2x power."
+  },
+  "rockiumz": {
+   "id": "rockiumz",
+   "name": "Rockium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Rock move, this item allows it to use a Rock Z-Move."
+  },
+  "rockmemory": {
+   "id": "rockmemory",
+   "name": "Rock Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Rock type."
+  },
+  "rockyhelmet": {
+   "id": "rockyhelmet",
+   "name": "Rocky Helmet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If holder is hit by a contact move, the attacker loses 1/6 of its max HP."
+  },
+  "roomservice": {
+   "id": "roomservice",
+   "name": "Room Service",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spe": -1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "If Trick Room is active, the holder's Speed is lowered by 1 stage. Single use."
+  },
+  "rootfossil": {
+   "id": "rootfossil",
+   "name": "Root Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Lileep."
+  },
+  "roseincense": {
+   "id": "roseincense",
+   "name": "Rose Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Grass-type attacks have 1.2x power."
+  },
+  "roseliberry": {
+   "id": "roseliberry",
+   "name": "Roseli Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Fairy"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Fairy-type attack. Single use."
+  },
+  "rowapberry": {
+   "id": "rowapberry",
+   "name": "Rowap Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Dark"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "If holder is hit by a special move, attacker loses 1/8 of its max HP. Single use."
+  },
+  "rustedshield": {
+   "id": "rustedshield",
+   "name": "Rusted Shield",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Zamazenta, this item changes its forme to Crowned Shield."
+  },
+  "rustedsword": {
+   "id": "rustedsword",
+   "name": "Rusted Sword",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Zacian, this item changes its forme to Crowned Sword."
+  },
+  "sablenite": {
+   "id": "sablenite",
+   "name": "Sablenite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Sableye, this item allows it to Mega Evolve in battle."
+  },
+  "sachet": {
+   "id": "sachet",
+   "name": "Sachet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Spritzee into Aromatisse when traded."
+  },
+  "safariball": {
+   "id": "safariball",
+   "name": "Safari Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A special Poke Ball that is used only in the Safari Zone and Great Marsh."
+  },
+  "safetygoggles": {
+   "id": "safetygoggles",
+   "name": "Safety Goggles",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Holder is immune to powder moves and damage from Sandstorm or Hail."
+  },
+  "sailfossil": {
+   "id": "sailfossil",
+   "name": "Sail Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Amaura."
+  },
+  "salacberry": {
+   "id": "salacberry",
+   "name": "Salac Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Fighting"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises holder's Speed by 1 stage when at 1/4 max HP or less. Single use."
+  },
+  "salamencite": {
+   "id": "salamencite",
+   "name": "Salamencite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Salamence, this item allows it to Mega Evolve in battle."
+  },
+  "sceptilite": {
+   "id": "sceptilite",
+   "name": "Sceptilite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Sceptile, this item allows it to Mega Evolve in battle."
+  },
+  "scizorite": {
+   "id": "scizorite",
+   "name": "Scizorite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Scizor, this item allows it to Mega Evolve in battle."
+  },
+  "scolipite": {
+   "id": "scolipite",
+   "name": "Scolipite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Scolipede, this item allows it to Mega Evolve in battle."
+  },
+  "scopelens": {
+   "id": "scopelens",
+   "name": "Scope Lens",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's critical hit ratio is raised by 1 stage."
+  },
+  "scovillainite": {
+   "id": "scovillainite",
+   "name": "Scovillainite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Scovillain, this item allows it to Mega Evolve in battle."
+  },
+  "scraftinite": {
+   "id": "scraftinite",
+   "name": "Scraftinite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Scrafty, this item allows it to Mega Evolve in battle."
+  },
+  "seaincense": {
+   "id": "seaincense",
+   "name": "Sea Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Water-type attacks have 1.2x power."
+  },
+  "sharpbeak": {
+   "id": "sharpbeak",
+   "name": "Sharp Beak",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Flying-type attacks have 1.2x power."
+  },
+  "sharpedonite": {
+   "id": "sharpedonite",
+   "name": "Sharpedonite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Sharpedo, this item allows it to Mega Evolve in battle."
+  },
+  "shedshell": {
+   "id": "shedshell",
+   "name": "Shed Shell",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder cannot be prevented from choosing to switch out by any effect."
+  },
+  "shellbell": {
+   "id": "shellbell",
+   "name": "Shell Bell",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "After an attack, holder gains 1/8 of the damage in HP dealt to other Pokemon."
+  },
+  "shinystone": {
+   "id": "shinystone",
+   "name": "Shiny Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "shockdrive": {
+   "id": "shockdrive",
+   "name": "Shock Drive",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 70
+   },
+   "shortDesc": "Holder's Techno Blast is Electric type."
+  },
+  "shucaberry": {
+   "id": "shucaberry",
+   "name": "Shuca Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ground"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Ground-type attack. Single use."
+  },
+  "silkscarf": {
+   "id": "silkscarf",
+   "name": "Silk Scarf",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Normal-type attacks have 1.2x power."
+  },
+  "silverpowder": {
+   "id": "silverpowder",
+   "name": "Silver Powder",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Bug-type attacks have 1.2x power."
+  },
+  "sitrusberry": {
+   "id": "sitrusberry",
+   "name": "Sitrus Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Psychic"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/4 max HP when at 1/2 max HP or less. Single use."
+  },
+  "skarmorite": {
+   "id": "skarmorite",
+   "name": "Skarmorite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Skarmory, this item allows it to Mega Evolve in battle."
+  },
+  "skullfossil": {
+   "id": "skullfossil",
+   "name": "Skull Fossil",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Can be revived into Cranidos."
+  },
+  "skyplate": {
+   "id": "skyplate",
+   "name": "Sky Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Flying-type attacks have 1.2x power. Judgment is Flying type."
+  },
+  "slowbronite": {
+   "id": "slowbronite",
+   "name": "Slowbronite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Slowbro, this item allows it to Mega Evolve in battle."
+  },
+  "smoothrock": {
+   "id": "smoothrock",
+   "name": "Smooth Rock",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's use of Sandstorm lasts 8 turns instead of 5."
+  },
+  "snorliumz": {
+   "id": "snorliumz",
+   "name": "Snorlium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Snorlax with Giga Impact, it can use Pulverizing Pancake."
+  },
+  "snowball": {
+   "id": "snowball",
+   "name": "Snowball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "atk": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Attack by 1 if hit by an Ice-type attack. Single use."
+  },
+  "softsand": {
+   "id": "softsand",
+   "name": "Soft Sand",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Ground-type attacks have 1.2x power."
+  },
+  "solganiumz": {
+   "id": "solganiumz",
+   "name": "Solganium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Solgaleo or Dusk Mane Necrozma with Sunsteel Strike can use a special Z-Move."
+  },
+  "souldew": {
+   "id": "souldew",
+   "name": "Soul Dew",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "If held by a Latias/Latios, its Dragon- and Psychic-type moves have 1.2x power."
+  },
+  "spelltag": {
+   "id": "spelltag",
+   "name": "Spell Tag",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Ghost-type attacks have 1.2x power."
+  },
+  "spelonberry": {
+   "id": "spelonberry",
+   "name": "Spelon Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Dark"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "splashplate": {
+   "id": "splashplate",
+   "name": "Splash Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Water-type attacks have 1.2x power. Judgment is Water type."
+  },
+  "spookyplate": {
+   "id": "spookyplate",
+   "name": "Spooky Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Ghost-type attacks have 1.2x power. Judgment is Ghost type."
+  },
+  "sportball": {
+   "id": "sportball",
+   "name": "Sport Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A special Poke Ball for the Bug-Catching Contest."
+  },
+  "staraptite": {
+   "id": "staraptite",
+   "name": "Staraptite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Staraptor, this item allows it to Mega Evolve in battle."
+  },
+  "starfberry": {
+   "id": "starfberry",
+   "name": "Starf Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Psychic"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Raises a random stat by 2 when at 1/4 max HP or less (not acc/eva). Single use."
+  },
+  "starminite": {
+   "id": "starminite",
+   "name": "Starminite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Starmie, this item allows it to Mega Evolve in battle."
+  },
+  "starsweet": {
+   "id": "starsweet",
+   "name": "Star Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "steelgem": {
+   "id": "steelgem",
+   "name": "Steel Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Steel-type attack will have 1.3x power. Single use."
+  },
+  "steeliumz": {
+   "id": "steeliumz",
+   "name": "Steelium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Steel move, this item allows it to use a Steel Z-Move."
+  },
+  "steelixite": {
+   "id": "steelixite",
+   "name": "Steelixite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Steelix, this item allows it to Mega Evolve in battle."
+  },
+  "steelmemory": {
+   "id": "steelmemory",
+   "name": "Steel Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Steel type."
+  },
+  "stick": {
+   "id": "stick",
+   "name": "Stick",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Farfetch’d, its critical hit ratio is raised by 2 stages."
+  },
+  "stickybarb": {
+   "id": "stickybarb",
+   "name": "Sticky Barb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Each turn, holder loses 1/8 max HP. An attacker making contact can receive it."
+  },
+  "stoneplate": {
+   "id": "stoneplate",
+   "name": "Stone Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Rock-type attacks have 1.2x power. Judgment is Rock type."
+  },
+  "strangeball": {
+   "id": "strangeball",
+   "name": "Strange Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Placeholder if caught in Poke Ball not in current game."
+  },
+  "strawberrysweet": {
+   "id": "strawberrysweet",
+   "name": "Strawberry Sweet",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Evolves Milcery into Alcremie when held and spun around."
+  },
+  "sunstone": {
+   "id": "sunstone",
+   "name": "Sun Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "swampertite": {
+   "id": "swampertite",
+   "name": "Swampertite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Swampert, this item allows it to Mega Evolve in battle."
+  },
+  "sweetapple": {
+   "id": "sweetapple",
+   "name": "Sweet Apple",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Applin into Appletun when used."
+  },
+  "syrupyapple": {
+   "id": "syrupyapple",
+   "name": "Syrupy Apple",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Applin into Dipplin when used."
+  },
+  "tamatoberry": {
+   "id": "tamatoberry",
+   "name": "Tamato Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Psychic"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "tangaberry": {
+   "id": "tangaberry",
+   "name": "Tanga Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Bug"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Bug-type attack. Single use."
+  },
+  "tapuniumz": {
+   "id": "tapuniumz",
+   "name": "Tapunium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If held by a Tapu with Nature's Madness, it can use Guardian of Alola."
+  },
+  "tartapple": {
+   "id": "tartapple",
+   "name": "Tart Apple",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Applin into Flapple when used."
+  },
+  "tatsugirinite": {
+   "id": "tatsugirinite",
+   "name": "Tatsugirinite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Tatsugiri, this item allows it to Mega Evolve in battle."
+  },
+  "terrainextender": {
+   "id": "terrainextender",
+   "name": "Terrain Extender",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Holder's use of Electric/Grassy/Misty/Psychic Terrain lasts 8 turns instead of 5."
+  },
+  "thickclub": {
+   "id": "thickclub",
+   "name": "Thick Club",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "If held by a Cubone or a Marowak, its Attack is doubled."
+  },
+  "throatspray": {
+   "id": "throatspray",
+   "name": "Throat Spray",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "spa": 1
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Raises holder's Special Attack by 1 stage after it uses a sound move. Single use."
+  },
+  "thunderstone": {
+   "id": "thunderstone",
+   "name": "Thunder Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "timerball": {
+   "id": "timerball",
+   "name": "Timer Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "A Poke Ball that becomes better the more turns there are in a battle."
+  },
+  "toxicorb": {
+   "id": "toxicorb",
+   "name": "Toxic Orb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30,
+    "status": "tox"
+   },
+   "shortDesc": "At the end of every turn, this item attempts to badly poison the holder."
+  },
+  "toxicplate": {
+   "id": "toxicplate",
+   "name": "Toxic Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Poison-type attacks have 1.2x power. Judgment is Poison type."
+  },
+  "tr00": {
+   "id": "tr00",
+   "name": "TR00",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Swords Dance. One use."
+  },
+  "tr01": {
+   "id": "tr01",
+   "name": "TR01",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Body Slam. One use."
+  },
+  "tr02": {
+   "id": "tr02",
+   "name": "TR02",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Flamethrower. One use."
+  },
+  "tr03": {
+   "id": "tr03",
+   "name": "TR03",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 110
+   },
+   "shortDesc": "Teaches certain Pokemon the move Hydro Pump. One use."
+  },
+  "tr04": {
+   "id": "tr04",
+   "name": "TR04",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Surf. One use."
+  },
+  "tr05": {
+   "id": "tr05",
+   "name": "TR05",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Ice Beam. One use."
+  },
+  "tr06": {
+   "id": "tr06",
+   "name": "TR06",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 110
+   },
+   "shortDesc": "Teaches certain Pokemon the move Blizzard. One use."
+  },
+  "tr07": {
+   "id": "tr07",
+   "name": "TR07",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Low Kick. One use."
+  },
+  "tr08": {
+   "id": "tr08",
+   "name": "TR08",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Thunderbolt. One use."
+  },
+  "tr09": {
+   "id": "tr09",
+   "name": "TR09",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 110
+   },
+   "shortDesc": "Teaches certain Pokemon the move Thunder. One use."
+  },
+  "tr10": {
+   "id": "tr10",
+   "name": "TR10",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Teaches certain Pokemon the move Earthquake. One use."
+  },
+  "tr11": {
+   "id": "tr11",
+   "name": "TR11",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Psychic. One use."
+  },
+  "tr12": {
+   "id": "tr12",
+   "name": "TR12",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Agility. One use."
+  },
+  "tr13": {
+   "id": "tr13",
+   "name": "TR13",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Focus Energy. One use."
+  },
+  "tr14": {
+   "id": "tr14",
+   "name": "TR14",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Metronome. One use."
+  },
+  "tr15": {
+   "id": "tr15",
+   "name": "TR15",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 110
+   },
+   "shortDesc": "Teaches certain Pokemon the move Fire Blast. One use."
+  },
+  "tr16": {
+   "id": "tr16",
+   "name": "TR16",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Waterfall. One use."
+  },
+  "tr17": {
+   "id": "tr17",
+   "name": "TR17",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Amnesia. One use."
+  },
+  "tr18": {
+   "id": "tr18",
+   "name": "TR18",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Leech Life. One use."
+  },
+  "tr19": {
+   "id": "tr19",
+   "name": "TR19",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Tri Attack. One use."
+  },
+  "tr20": {
+   "id": "tr20",
+   "name": "TR20",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Substitute. One use."
+  },
+  "tr21": {
+   "id": "tr21",
+   "name": "TR21",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Reversal. One use."
+  },
+  "tr22": {
+   "id": "tr22",
+   "name": "TR22",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Sludge Bomb. One use."
+  },
+  "tr23": {
+   "id": "tr23",
+   "name": "TR23",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Spikes. One use."
+  },
+  "tr24": {
+   "id": "tr24",
+   "name": "TR24",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Outrage. One use."
+  },
+  "tr25": {
+   "id": "tr25",
+   "name": "TR25",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Psyshock. One use."
+  },
+  "tr26": {
+   "id": "tr26",
+   "name": "TR26",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Endure. One use."
+  },
+  "tr27": {
+   "id": "tr27",
+   "name": "TR27",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Sleep Talk. One use."
+  },
+  "tr28": {
+   "id": "tr28",
+   "name": "TR28",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Megahorn. One use."
+  },
+  "tr29": {
+   "id": "tr29",
+   "name": "TR29",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Baton Pass. One use."
+  },
+  "tr30": {
+   "id": "tr30",
+   "name": "TR30",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Encore. One use."
+  },
+  "tr31": {
+   "id": "tr31",
+   "name": "TR31",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Teaches certain Pokemon the move Iron Tail. One use."
+  },
+  "tr32": {
+   "id": "tr32",
+   "name": "TR32",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Crunch. One use."
+  },
+  "tr33": {
+   "id": "tr33",
+   "name": "TR33",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Shadow Ball. One use."
+  },
+  "tr34": {
+   "id": "tr34",
+   "name": "TR34",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Future Sight. One use."
+  },
+  "tr35": {
+   "id": "tr35",
+   "name": "TR35",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Uproar. One use."
+  },
+  "tr36": {
+   "id": "tr36",
+   "name": "TR36",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 95
+   },
+   "shortDesc": "Teaches certain Pokemon the move Heat Wave. One use."
+  },
+  "tr37": {
+   "id": "tr37",
+   "name": "TR37",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Taunt. One use."
+  },
+  "tr38": {
+   "id": "tr38",
+   "name": "TR38",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Trick. One use."
+  },
+  "tr39": {
+   "id": "tr39",
+   "name": "TR39",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Superpower. One use."
+  },
+  "tr40": {
+   "id": "tr40",
+   "name": "TR40",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Skill Swap. One use."
+  },
+  "tr41": {
+   "id": "tr41",
+   "name": "TR41",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Blaze Kick. One use."
+  },
+  "tr42": {
+   "id": "tr42",
+   "name": "TR42",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Hyper Voice. One use."
+  },
+  "tr43": {
+   "id": "tr43",
+   "name": "TR43",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 130
+   },
+   "shortDesc": "Teaches certain Pokemon the move Overheat. One use."
+  },
+  "tr44": {
+   "id": "tr44",
+   "name": "TR44",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Cosmic Power. One use."
+  },
+  "tr45": {
+   "id": "tr45",
+   "name": "TR45",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Muddy Water. One use."
+  },
+  "tr46": {
+   "id": "tr46",
+   "name": "TR46",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Iron Defense. One use."
+  },
+  "tr47": {
+   "id": "tr47",
+   "name": "TR47",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Dragon Claw. One use."
+  },
+  "tr48": {
+   "id": "tr48",
+   "name": "TR48",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Bulk Up. One use."
+  },
+  "tr49": {
+   "id": "tr49",
+   "name": "TR49",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Calm Mind. One use."
+  },
+  "tr50": {
+   "id": "tr50",
+   "name": "TR50",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Leaf Blade. One use."
+  },
+  "tr51": {
+   "id": "tr51",
+   "name": "TR51",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Dragon Dance. One use."
+  },
+  "tr52": {
+   "id": "tr52",
+   "name": "TR52",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Gyro Ball. One use."
+  },
+  "tr53": {
+   "id": "tr53",
+   "name": "TR53",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Close Combat. One use."
+  },
+  "tr54": {
+   "id": "tr54",
+   "name": "TR54",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Toxic Spikes. One use."
+  },
+  "tr55": {
+   "id": "tr55",
+   "name": "TR55",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Flare Blitz. One use."
+  },
+  "tr56": {
+   "id": "tr56",
+   "name": "TR56",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Aura Sphere. One use."
+  },
+  "tr57": {
+   "id": "tr57",
+   "name": "TR57",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Poison Jab. One use."
+  },
+  "tr58": {
+   "id": "tr58",
+   "name": "TR58",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Dark Pulse. One use."
+  },
+  "tr59": {
+   "id": "tr59",
+   "name": "TR59",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Seed Bomb. One use."
+  },
+  "tr60": {
+   "id": "tr60",
+   "name": "TR60",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move X-Scissor. One use."
+  },
+  "tr61": {
+   "id": "tr61",
+   "name": "TR61",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Bug Buzz. One use."
+  },
+  "tr62": {
+   "id": "tr62",
+   "name": "TR62",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Dragon Pulse. One use."
+  },
+  "tr63": {
+   "id": "tr63",
+   "name": "TR63",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Power Gem. One use."
+  },
+  "tr64": {
+   "id": "tr64",
+   "name": "TR64",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Focus Blast. One use."
+  },
+  "tr65": {
+   "id": "tr65",
+   "name": "TR65",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Energy Ball. One use."
+  },
+  "tr66": {
+   "id": "tr66",
+   "name": "TR66",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Brave Bird. One use."
+  },
+  "tr67": {
+   "id": "tr67",
+   "name": "TR67",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Earth Power. One use."
+  },
+  "tr68": {
+   "id": "tr68",
+   "name": "TR68",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Nasty Plot. One use."
+  },
+  "tr69": {
+   "id": "tr69",
+   "name": "TR69",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Zen Headbutt. One use."
+  },
+  "tr70": {
+   "id": "tr70",
+   "name": "TR70",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Flash Cannon. One use."
+  },
+  "tr71": {
+   "id": "tr71",
+   "name": "TR71",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 130
+   },
+   "shortDesc": "Teaches certain Pokemon the move Leaf Storm. One use."
+  },
+  "tr72": {
+   "id": "tr72",
+   "name": "TR72",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Power Whip. One use."
+  },
+  "tr73": {
+   "id": "tr73",
+   "name": "TR73",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 120
+   },
+   "shortDesc": "Teaches certain Pokemon the move Gunk Shot. One use."
+  },
+  "tr74": {
+   "id": "tr74",
+   "name": "TR74",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Iron Head. One use."
+  },
+  "tr75": {
+   "id": "tr75",
+   "name": "TR75",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 100
+   },
+   "shortDesc": "Teaches certain Pokemon the move Stone Edge. One use."
+  },
+  "tr76": {
+   "id": "tr76",
+   "name": "TR76",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Stealth Rock. One use."
+  },
+  "tr77": {
+   "id": "tr77",
+   "name": "TR77",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Grass Knot. One use."
+  },
+  "tr78": {
+   "id": "tr78",
+   "name": "TR78",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 95
+   },
+   "shortDesc": "Teaches certain Pokemon the move Sludge Wave. One use."
+  },
+  "tr79": {
+   "id": "tr79",
+   "name": "TR79",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Heavy Slam. One use."
+  },
+  "tr80": {
+   "id": "tr80",
+   "name": "TR80",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Electro Ball. One use."
+  },
+  "tr81": {
+   "id": "tr81",
+   "name": "TR81",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 95
+   },
+   "shortDesc": "Teaches certain Pokemon the move Foul Play. One use."
+  },
+  "tr82": {
+   "id": "tr82",
+   "name": "TR82",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 20
+   },
+   "shortDesc": "Teaches certain Pokemon the move Stored Power. One use."
+  },
+  "tr83": {
+   "id": "tr83",
+   "name": "TR83",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Ally Switch. One use."
+  },
+  "tr84": {
+   "id": "tr84",
+   "name": "TR84",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Scald. One use."
+  },
+  "tr85": {
+   "id": "tr85",
+   "name": "TR85",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Work Up. One use."
+  },
+  "tr86": {
+   "id": "tr86",
+   "name": "TR86",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Wild Charge. One use."
+  },
+  "tr87": {
+   "id": "tr87",
+   "name": "TR87",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Drill Run. One use."
+  },
+  "tr88": {
+   "id": "tr88",
+   "name": "TR88",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Heat Crash. One use."
+  },
+  "tr89": {
+   "id": "tr89",
+   "name": "TR89",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 110
+   },
+   "shortDesc": "Teaches certain Pokemon the move Hurricane. One use."
+  },
+  "tr90": {
+   "id": "tr90",
+   "name": "TR90",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Play Rough. One use."
+  },
+  "tr91": {
+   "id": "tr91",
+   "name": "TR91",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Teaches certain Pokemon the move Venom Drench. One use."
+  },
+  "tr92": {
+   "id": "tr92",
+   "name": "TR92",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Dazzling Gleam. One use."
+  },
+  "tr93": {
+   "id": "tr93",
+   "name": "TR93",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Darkest Lariat. One use."
+  },
+  "tr94": {
+   "id": "tr94",
+   "name": "TR94",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 95
+   },
+   "shortDesc": "Teaches certain Pokemon the move High Horsepower. One use."
+  },
+  "tr95": {
+   "id": "tr95",
+   "name": "TR95",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Throat Chop. One use."
+  },
+  "tr96": {
+   "id": "tr96",
+   "name": "TR96",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Teaches certain Pokemon the move Pollen Puff. One use."
+  },
+  "tr97": {
+   "id": "tr97",
+   "name": "TR97",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Psychic Fangs. One use."
+  },
+  "tr98": {
+   "id": "tr98",
+   "name": "TR98",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 85
+   },
+   "shortDesc": "Teaches certain Pokemon the move Liquidation. One use."
+  },
+  "tr99": {
+   "id": "tr99",
+   "name": "TR99",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Teaches certain Pokemon the move Body Press. One use."
+  },
+  "twistedspoon": {
+   "id": "twistedspoon",
+   "name": "Twisted Spoon",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Holder's Psychic-type attacks have 1.2x power."
+  },
+  "tyranitarite": {
+   "id": "tyranitarite",
+   "name": "Tyranitarite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Tyranitar, this item allows it to Mega Evolve in battle."
+  },
+  "ultraball": {
+   "id": "ultraball",
+   "name": "Ultra Ball",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "An ultra-performance Ball that provides a higher catch rate than a Great Ball."
+  },
+  "ultranecroziumz": {
+   "id": "ultranecroziumz",
+   "name": "Ultranecrozium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Dusk Mane/Dawn Wings Necrozma: Ultra Burst, then Z-Move w/ Photon Geyser."
+  },
+  "unremarkableteacup": {
+   "id": "unremarkableteacup",
+   "name": "Unremarkable Teacup",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Poltchageist into Sinistcha when used."
+  },
+  "upgrade": {
+   "id": "upgrade",
+   "name": "Up-Grade",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves Porygon into Porygon2 when traded."
+  },
+  "utilityumbrella": {
+   "id": "utilityumbrella",
+   "name": "Utility Umbrella",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "The holder ignores rain- and sun-based effects."
+  },
+  "venusaurite": {
+   "id": "venusaurite",
+   "name": "Venusaurite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Venusaur, this item allows it to Mega Evolve in battle."
+  },
+  "victreebelite": {
+   "id": "victreebelite",
+   "name": "Victreebelite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Victreebel, this item allows it to Mega Evolve in battle."
+  },
+  "vilevial": {
+   "id": "vilevial",
+   "name": "Vile Vial",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "If held by a Venomicon, its Poison- and Flying-type attacks have 1.2x power."
+  },
+  "wacanberry": {
+   "id": "wacanberry",
+   "name": "Wacan Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Electric"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Electric-type attack. Single use."
+  },
+  "watergem": {
+   "id": "watergem",
+   "name": "Water Gem",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "Holder's first successful Water-type attack will have 1.3x power. Single use."
+  },
+  "wateriumz": {
+   "id": "wateriumz",
+   "name": "Waterium Z",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": null,
+   "shortDesc": "If holder has a Water move, this item allows it to use a Water Z-Move."
+  },
+  "watermemory": {
+   "id": "watermemory",
+   "name": "Water Memory",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 50
+   },
+   "shortDesc": "Holder's Multi-Attack is Water type."
+  },
+  "waterstone": {
+   "id": "waterstone",
+   "name": "Water Stone",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 30
+   },
+   "shortDesc": "Evolves certain species of Pokemon when used."
+  },
+  "watmelberry": {
+   "id": "watmelberry",
+   "name": "Watmel Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 100,
+    "type": "Fire"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "waveincense": {
+   "id": "waveincense",
+   "name": "Wave Incense",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's Water-type attacks have 1.2x power."
+  },
+  "weaknesspolicy": {
+   "id": "weaknesspolicy",
+   "name": "Weakness Policy",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": {
+    "atk": 2,
+    "spa": 2
+   },
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If holder is hit super effectively, raises Attack, Sp. Atk by 2 stages. Single use."
+  },
+  "wellspringmask": {
+   "id": "wellspringmask",
+   "name": "Wellspring Mask",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 60
+   },
+   "shortDesc": "Ogerpon-Wellspring: 1.2x power attacks; Terastallize to gain Embody Aspect."
+  },
+  "wepearberry": {
+   "id": "wepearberry",
+   "name": "Wepear Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 90,
+    "type": "Electric"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Cannot be eaten by the holder. No effect when eaten with Bug Bite or Pluck."
+  },
+  "whippeddream": {
+   "id": "whippeddream",
+   "name": "Whipped Dream",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "Evolves Swirlix into Slurpuff when traded."
+  },
+  "whiteherb": {
+   "id": "whiteherb",
+   "name": "White Herb",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores all lowered stat stages to 0 when one is less than 0. Single use."
+  },
+  "widelens": {
+   "id": "widelens",
+   "name": "Wide Lens",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "The accuracy of attacks by the holder is 1.1x."
+  },
+  "wikiberry": {
+   "id": "wikiberry",
+   "name": "Wiki Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Rock"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Restores 1/3 max HP at 1/4 max HP or less; confuses if -SpA Nature. Single use."
+  },
+  "wiseglasses": {
+   "id": "wiseglasses",
+   "name": "Wise Glasses",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Holder's special attacks have 1.1x power."
+  },
+  "yacheberry": {
+   "id": "yacheberry",
+   "name": "Yache Berry",
+   "isBerry": true,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": {
+    "basePower": 80,
+    "type": "Ice"
+   },
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "Halves damage taken from a supereffective Ice-type attack. Single use."
+  },
+  "zapplate": {
+   "id": "zapplate",
+   "name": "Zap Plate",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 90
+   },
+   "shortDesc": "Holder's Electric-type attacks have 1.2x power. Judgment is Electric type."
+  },
+  "zeraorite": {
+   "id": "zeraorite",
+   "name": "Zeraorite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Zeraora, this item allows it to Mega Evolve in battle."
+  },
+  "zoomlens": {
+   "id": "zoomlens",
+   "name": "Zoom Lens",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 10
+   },
+   "shortDesc": "The accuracy of attacks by the holder is 1.2x if it moves after its target."
+  },
+  "zygardite": {
+   "id": "zygardite",
+   "name": "Zygardite",
+   "isBerry": false,
+   "isChoice": false,
+   "boosts": null,
+   "naturalGift": null,
+   "fling": {
+    "basePower": 80
+   },
+   "shortDesc": "If held by a Zygarde in Complete Forme, this item allows it to Mega Evolve in battle."
+  }
+ }
+}
