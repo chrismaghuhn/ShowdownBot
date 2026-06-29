@@ -1,0 +1,39 @@
+# Curated heuristic-semantics overlay for items (Phase A5, spec §5.1).
+#
+# item id (as in itemdata.json) -> { classes: [...], params: {...} }.
+# Strict calc<->state split (spec I-5): `damage_stat` items are consumed by
+# @smogon/calc; residual/threshold/cure/trigger/block items are applied by the
+# ConditionEngine/Resolver AFTER damage, never double-counted.
+
+# --- damage / stat (handled by @smogon/calc) ---------------------------------
+choiceband:    { classes: [damage_stat], params: { atk_mult: 1.5 } }
+choicespecs:   { classes: [damage_stat], params: { spa_mult: 1.5 } }
+assaultvest:   { classes: [damage_stat], params: { spd_mult: 1.5 } }
+lifeorb:       { classes: [damage_stat, residual_self], params: { dmg_mult: 1.3, recoil: 0.1 } }
+
+# --- speed (handled by SpeedOracle) ------------------------------------------
+choicescarf:   { classes: [speed], params: { mult: 1.5 } }
+
+# --- residual / threshold heal (ConditionEngine, after damage) ---------------
+leftovers:     { classes: [residual_heal], params: { frac: 0.0625 } }
+blacksludge:   { classes: [residual_heal], params: { frac: 0.0625 } }
+sitrusberry:   { classes: [threshold_heal], params: { frac: 0.25, at: 0.5 } }
+
+# --- status cure -------------------------------------------------------------
+lumberry:      { classes: [status_cure] }
+mentalherb:    { classes: [status_cure], params: { cures: [taunt, encore, disable] } }
+
+# --- pinch / trigger ---------------------------------------------------------
+focussash:     { classes: [pinch_trigger], params: { survive_at_full: true } }
+weaknesspolicy: { classes: [pinch_trigger], params: { on: super_effective, boosts: { atk: 2, spa: 2 } } }
+
+# --- activation overlay ------------------------------------------------------
+boosterenergy: { classes: [activation_item], params: { stat_overlay: highest } }
+
+# --- effect blockers (apply_effect hooks, not damage) ------------------------
+safetygoggles: { classes: [effect_block], params: { blocks: [powder, weather_chip] } }
+covertcloak:   { classes: [effect_block], params: { blocks: [secondary] } }
+clearamulet:   { classes: [effect_block], params: { blocks: [stat_drop] } }
+
+# --- contact punish ----------------------------------------------------------
+rockyhelmet:   { classes: [contact_punish], params: { frac: 0.1667 } }
