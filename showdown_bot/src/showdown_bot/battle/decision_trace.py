@@ -13,6 +13,15 @@ from showdown_bot.battle.evaluate import OutcomeBreakdown
 
 
 @dataclass
+class DecisionTempoFeatures:
+    we_outspeed_count: int = 0
+    they_outspeed_count: int = 0
+    speed_tie_count: int = 0
+    our_fastest_active_speed: int = 0
+    opp_fastest_active_speed: int = 0
+
+
+@dataclass
 class CandidateModelFeatures:
     """Per-candidate KO/survive counts for ML feature capture (1b-A).
 
@@ -47,3 +56,4 @@ class DecisionTrace:
     opponent_responses: list[Any] = field(default_factory=list)
     opponent_response_weights: list[float] = field(default_factory=list)
     candidates: list[CandidateTrace] = field(default_factory=list)  # ONLY exported top-K, rank-sorted
+    tempo_features: DecisionTempoFeatures = field(default_factory=DecisionTempoFeatures)

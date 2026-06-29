@@ -480,18 +480,6 @@ def _entropy(weights) -> float:
     return -sum((w / tot) * math.log2(w / tot) for w in ws)
 
 
-def _speed_counts(state, ctx: "FeatureContext") -> tuple[int, int, int, int, int]:
-    """Return (we_outspeed, they_outspeed, ties, our_fastest, opp_fastest).
-
-    V1 sentinel: PokemonState does not carry a base_speed attribute, and
-    SpeedOracle.our_speed() requires base_speed as a caller-supplied argument.
-    Without a clean way to look up base stats from state alone (would require
-    importing the calc backend — which violates the no-recompute gate), we
-    return all-zeros here.  A future task can wire this up once base stats are
-    tracked in PokemonState or a lightweight lookup table is added to context.
-    """
-    return (0, 0, 0, 0, 0)
-
 
 def _group3_eval(candidate, trace) -> dict:
     """Group-3 eval features: read ONLY from trace, never recompute."""
@@ -530,13 +518,13 @@ def _group4_tempo(candidate, trace, state, ctx: "FeatureContext") -> dict:
     """Group-4 tempo/risk features: trace + state + context."""
     sv = candidate.score_vector or []
     priors = ctx.protect_priors_by_opp_slot or {}
-    we, they, ties, our_fast, opp_fast = _speed_counts(state, ctx)
+    tf = trace.tempo_features
     return {
-        "we_outspeed_count": we,
-        "they_outspeed_count": they,
-        "speed_tie_count": ties,
-        "our_fastest_active_speed": our_fast,
-        "opp_fastest_active_speed": opp_fast,
+        "we_outspeed_count": tf.we_outspeed_count,
+        "they_outspeed_count": tf.they_outspeed_count,
+        "speed_tie_count": tf.speed_tie_count,
+        "our_fastest_active_speed": tf.our_fastest_active_speed,
+        "opp_fastest_active_speed": tf.opp_fastest_active_speed,
         "must_react_reason_flags": 1 if trace.game_mode == "MUST_REACT" else 0,
         "protect_prior_target1": float(priors.get("a", 0.0)),
         "protect_prior_target2": float(priors.get("b", 0.0)),

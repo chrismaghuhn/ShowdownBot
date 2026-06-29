@@ -412,6 +412,32 @@ def heuristic_choose_for_request(
         trace.opponent_response_weights = resp_weights or []
         trace.candidates = cands
 
+        from showdown_bot.battle.opponent import _opponent_speed as _opp_speed
+        from showdown_bot.battle.decision_trace import DecisionTempoFeatures
+
+        _sp_actives = _active_pokemon(req)
+        our_speeds = []
+        for _i, _letter in enumerate(("a", "b")):
+            _m = state.side(our_side).get(_letter)
+            if _m is not None and not _m.fainted and speed_oracle is not None:
+                _base = int(_sp_actives[_i].stats.get("spe", 0)) if _i < len(_sp_actives) else 0
+                our_speeds.append(speed_oracle.our_speed(_base, _m, state.field, our_side))
+        opp_speeds = []
+        if speed_oracle is not None:
+            for _letter in ("a", "b"):
+                _m = state.side(opp_side).get(_letter)
+                if _m is not None and not _m.fainted:
+                    opp_speeds.append(_opp_speed(_m, state.field, opp_side, speed_oracle=speed_oracle, book=book, opp_sets=opp_sets))
+        _our_fast = max(our_speeds, default=0)
+        _opp_fast = max(opp_speeds, default=0)
+        trace.tempo_features = DecisionTempoFeatures(
+            we_outspeed_count=sum(1 for o in opp_speeds if _our_fast > o),
+            they_outspeed_count=sum(1 for u in our_speeds if _opp_fast > u),
+            speed_tie_count=sum(1 for u in our_speeds for o in opp_speeds if u == o),
+            our_fastest_active_speed=_our_fast,
+            opp_fastest_active_speed=_opp_fast,
+        )
+
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
 

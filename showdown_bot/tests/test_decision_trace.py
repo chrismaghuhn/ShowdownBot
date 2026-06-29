@@ -250,6 +250,22 @@ def test_ko_secured_counts_distinct_target_slots(decision_fixture):
         )
 
 
+def test_tempo_features_populated(decision_fixture):
+    """trace.tempo_features is a DecisionTempoFeatures with all int fields >= 0 after a real decision."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import DecisionTempoFeatures
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    tf = tr.tempo_features
+    assert isinstance(tf, DecisionTempoFeatures)
+    assert isinstance(tf.we_outspeed_count, int) and tf.we_outspeed_count >= 0
+    assert isinstance(tf.they_outspeed_count, int) and tf.they_outspeed_count >= 0
+    assert isinstance(tf.speed_tie_count, int) and tf.speed_tie_count >= 0
+    assert isinstance(tf.our_fastest_active_speed, int) and tf.our_fastest_active_speed >= 0
+    assert isinstance(tf.opp_fastest_active_speed, int) and tf.opp_fastest_active_speed >= 0
+
+
 def test_ko_secured_ignores_nondamaging_and_unselected(decision_fixture):
     """Non-damaging moves and unselected slots contribute 0 to ko_secured_count.
     With a normal no-OHKO calc, secured == 0 regardless of move selection."""

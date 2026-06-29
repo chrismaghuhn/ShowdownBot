@@ -528,6 +528,30 @@ def test_g4_must_react_flag(features_fixture):
     assert rows[0].features["must_react_reason_flags"] == expected
 
 
+def test_g4_speed_from_trace(features_fixture):
+    """G4 speed columns read directly from trace.tempo_features (no recompute)."""
+    from showdown_bot.battle.decision_trace import DecisionTempoFeatures
+    from showdown_bot.learning.features import extract_features
+    trace, state, req, ctx = features_fixture
+    # Inject known values into tempo_features
+    trace.tempo_features = DecisionTempoFeatures(
+        we_outspeed_count=2,
+        they_outspeed_count=1,
+        speed_tie_count=1,
+        our_fastest_active_speed=120,
+        opp_fastest_active_speed=95,
+    )
+    rows = extract_features(trace, state, req, ctx)
+    assert len(rows) >= 1
+    for row in rows:
+        f = row.features
+        assert f["we_outspeed_count"] == 2
+        assert f["they_outspeed_count"] == 1
+        assert f["speed_tie_count"] == 1
+        assert f["our_fastest_active_speed"] == 120
+        assert f["opp_fastest_active_speed"] == 95
+
+
 def test_g4_protect_priors(features_fixture):
     trace, state, req, ctx = features_fixture
     from showdown_bot.learning.features import extract_features
