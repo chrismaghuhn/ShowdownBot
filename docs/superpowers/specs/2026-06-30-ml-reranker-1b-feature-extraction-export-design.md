@@ -71,6 +71,11 @@ class DecisionTrace:
     opponent_response_weights: list[float] = field(default_factory=list)
     candidates: list[CandidateTrace] = field(default_factory=list)
 
+# DecisionTrace.candidates stores ONLY the exported top-K, already sorted by
+# heuristic rank then candidate_id — the trace matches the export exactly (no
+# separate slicing step). If full-candidate debugging is needed later, add an
+# explicit opt-in flag; v1 stores top-K only.
+
 # battle/evaluate.py
 @dataclass
 class OutcomeBreakdown:
@@ -92,6 +97,27 @@ property falls out for free.
 
 ## Feature extraction — sources + the no-drift guardrail
 
+`extract_features` receives an explicit `FeatureContext` (no loose params drifting
+in over time). It lives in `learning/` and bundles the provenance/IDs (which also
+become metadata) plus the read-only reference tools the deterministic feature reads
+need:
+
+```python
+# learning/features.py
+@dataclass
+class FeatureContext:
+    # provenance / IDs (also written to metadata)
+    run_id: str; game_id: str; decision_id: str
+    decision_local_index: int; turn_number: int; our_side: str
+    format_id: str; team_hash: str; config_hash: str
+    git_sha: str; dirty_flag: bool
+    teacher_config: dict; sampling_policy: str
+    mirror_flag: bool
+    # read-only reference tools for G1/G2/G4 (static lookups, never re-scoring)
+    dex: object | None = None; move_meta: object | None = None
+    speed_oracle: object | None = None; priors: object | None = None
+```
+
 Every `schema.FEATURE_COLUMNS` entry maps to **exactly one** source; the
 "all-4-groups-populated" test enforces full coverage.
 
@@ -112,12 +138,29 @@ Every `schema.FEATURE_COLUMNS` entry maps to **exactly one** source; the
 > `OutcomeBreakdown`). If a feature cannot be emitted from the scoring path, it is
 > not computed separately in `learning/`.
 
-**`aggregate_breakdown` reduction (the plan pins it):** the per-candidate *scalar*
-eval features must be consistent with `aggregate_score`. So `aggregate_breakdown`
-is the breakdown of the **same response the game-mode aggregation selects** — e.g.
-the worst-case response under `MUST_REACT` — not an unrelated `response[0]`. The
-implementation pins this against `policy.aggregate_scores`; a test asserts the
-chosen response index matches.
+**`aggregate_breakdown` reduction (per game-mode — the scalar eval features must
+stay consistent with `aggregate_score`, whose aggregation differs by mode):**
+- **worst-case modes (`MUST_REACT`):** `aggregate_breakdown` = the breakdown of the
+  **selected worst response** (the one that sets the score). A test asserts the
+  chosen response index matches `policy.aggregate_scores`.
+- **mean / weighted-mean modes (`NEUTRAL` / `AHEAD`):** no single response is
+  selected, so `aggregate_breakdown` = the **weighted reduction** of the
+  per-response breakdowns (same weights as the score). A test asserts it equals the
+  weighted reduction, not `response[0]`.
+- **mean-minus-variance:** the scalar score uses `mean − λ·var`;
+  `aggregate_breakdown` stores the **weighted-mean** components, and the variance /
+  risk lives in the separate Group-4 features (`score_var_vs_opp`,
+  `value_range_across_opp_responses`).
+
+**No nulls — sentinels for optional features.** Some columns are semantically
+optional (e.g. `slot{1,2}_switch_target_species_id`,
+`slot{1,2}_target_species_id_if_known` are absent on a Protect or a non-switch).
+"Fully populated" must not collide with these, so:
+
+> No feature value is null. Optional **categorical** features use `"__none__"`
+> (genuinely not applicable) or `"__unknown__"` (applicable but not yet revealed);
+> optional **numeric** slot/target features use `-1`; optional **bool** features
+> use `false`. The sentinels are part of the frozen contract and asserted by a test.
 
 **No leakage:** features contain only decision-time info. `game_outcome` / `winner`
 / future fields live in metadata, never features (already enforced by
@@ -167,9 +210,10 @@ The real (deeper, non-circular) silver labels arrive in slice 1c.
 ## Export flow
 
 ```
-choice = choose_with_fallback(req, ..., trace=DecisionTrace())   # client builds the trace
+trace = DecisionTrace() if exporter is not None else None   # no exporter ⇒ no trace overhead, default
+choice = choose_with_fallback(req, ..., trace=trace)
 if exporter is not None:
-    exporter.observe_decision(trace=trace, state=<stable snapshot>, request=req, game_context=ctx)
+    exporter.observe_decision(trace=trace, state=<stable snapshot>, request=req, context=ctx)
 ...
 exporter.flush_sorted()   # at run end: stable sort + write JSONL
 ```
@@ -199,11 +243,24 @@ expensive real teacher. (Every-Nth / disagreement-heavy are later.)
 - **Breakdown no-drift (exact):** `score, bd = score_outcome_with_breakdown(...)` ⇒
   `assert bd.total_score == score` on hand-built outcomes (the precise anchor that
   makes "no drift" testable), plus KO/survive counts correct on a known outcome.
+- **Mean-aggregation breakdown:** for a mean / weighted-mean mode,
+  `aggregate_breakdown` equals the **weighted reduction** of the per-response
+  breakdowns — not `response[0]`; for `MUST_REACT`, it equals the worst response's
+  breakdown (index matches `aggregate_scores`).
+- **Sentinel / no-null:** every feature value is non-null; optional fields carry the
+  documented sentinels (`"__none__"` / `"__unknown__"` / `-1` / `false`) — e.g. a
+  Protect candidate's `slot_switch_target_species_id` is `"__none__"`.
+- **Trace-off equivalence:** `heuristic_choose_for_request(..., trace=None)` and
+  `heuristic_choose_for_request(..., trace=DecisionTrace())` return the **identical
+  chosen action** — populating the trace must not perturb the decision (the real
+  behaviour-risk point, since `decision.py` sees only the trace).
 
 **Required hermetic E2E** — `test_decision_trace_to_jsonl_row_e2e` (recorded/fake
 decision fixture + fake oracle, no live Node, deterministic `run_seed`): drive the
 real `heuristic_choose_for_request(..., trace=...)` through the exporter; then
-- the chosen action is **identical to `exporter=None`** (the primary safety assert);
+- the chosen action is **identical with `exporter=None` vs enabled** (the primary
+  safety assert at the export level; the trace-level gate is the Trace-off
+  equivalence test above);
 - the trace is fully populated; every row is schema-valid;
 - JSONL is byte-identical on a re-run with the same seed.
 
@@ -214,13 +271,15 @@ exporter enabled; assert JSONL emits and validates.
 
 - a real self-play/gauntlet decision is captured read-only;
 - top-K candidates + score vectors are exported;
-- all 4 feature groups are fully populated (no nulls) from the trace/eval path;
+- all 4 feature groups are fully populated (no nulls; optional fields carry the
+  documented sentinels) from the trace/eval path;
 - every row validates via `learning/schema.py`;
 - the deterministic (byte-identical) export test is green;
 - the stub label is present and **clearly marked non-trainable** (`trainable_label:
   false`, `teacher_version: "stub-h0"`);
 - no battle-outcome leakage into features;
-- `exporter=None` is bit-identical to today's runtime;
+- runtime is bit-identical both ways: `trace=None` vs trace-enabled **and**
+  `exporter=None` vs enabled produce the identical chosen action;
 - `observe_decision` extracts rows immediately from a stable state snapshot.
 
 ## File structure (for the plan)
