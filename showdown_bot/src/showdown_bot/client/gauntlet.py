@@ -12,7 +12,7 @@ from showdown_bot.client.connection import (
     ShowdownConnection,
     authenticate_local,
 )
-from showdown_bot.engine.belief.hypotheses import SpreadBook, load_spread_book
+from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
@@ -47,6 +47,7 @@ def agent_choose(
     priors=None,
     report: list[str] | None = None,
     our_spreads: dict | None = None,
+    opp_sets: dict | None = None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -65,7 +66,7 @@ def agent_choose(
             return choose_for_request(req)
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
-        our_spreads=our_spreads,
+        our_spreads=our_spreads, opp_sets=opp_sets,
     )
 
 
@@ -94,7 +95,7 @@ class GauntletStats:
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False):
+    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -106,6 +107,7 @@ class _Client:
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
         self.our_spreads = our_spreads_from_packed(packed_team) if (packed_team and _real) else None
+        self.opp_sets = opp_sets
         self.trace = trace
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
@@ -141,7 +143,7 @@ class _Client:
             choose = agent_choose(
                 self.agent, req, state=state, book=self.book,
                 our_side=req.side.id, priors=self.priors, report=report,
-                our_spreads=self.our_spreads,
+                our_spreads=self.our_spreads, opp_sets=self.opp_sets,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -232,6 +234,7 @@ async def run_local_gauntlet(
     """
     book = None
     priors = None
+    opp_sets = {}
     try:
         cfg = load_format_config(format_id)
         book = load_spread_book(cfg.meta_path("default_spreads"))
@@ -240,6 +243,7 @@ async def run_local_gauntlet(
         priors = load_protect_priors(cfg.meta_path("protect_priors"))
     except Exception:  # noqa: BLE001
         pass
+    opp_sets = load_opp_sets_for_format(format_id)
     packed = ""
     try:
         packed = load_packed_team(team_path)
@@ -262,8 +266,8 @@ async def run_local_gauntlet(
     await authenticate_local(villain_conn, villain_name)
 
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, trace=trace)
-    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed)
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, trace=trace, opp_sets=opp_sets)
+    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, opp_sets=opp_sets)
 
     stats = GauntletStats()
     stop = asyncio.Event()

@@ -10,7 +10,7 @@ from pathlib import Path
 from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
 from showdown_bot.client.connection import ShowdownConnection, authenticate, join_lobby
 from showdown_bot.config import Settings
-from showdown_bot.engine.belief.hypotheses import SpreadBook, load_spread_book
+from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.belief.protect_priors import ProtectPriors, load_protect_priors
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
@@ -28,6 +28,7 @@ _last_rqid: dict[str, int] = {}
 _room_raw: dict[str, list[str]] = {}
 _active_format: str | None = None
 _our_spreads: dict | None = None  # our own team's real spreads (Stage C)
+_opp_sets: dict | None = None
 _book_cache: dict[str, SpreadBook | None] = {}
 _priors_cache: dict[str, ProtectPriors | None] = {}
 
@@ -89,7 +90,7 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
         priors = _get_priors(_active_format)
         choose = choose_with_fallback(
             req, state=state, book=book, our_side=req.side.id, priors=priors, report=report,
-            our_spreads=_our_spreads,
+            our_spreads=_our_spreads, opp_sets=_opp_sets,
         )
     else:
         choose = choose_for_request(req)
@@ -199,11 +200,12 @@ async def _connect_and_login(settings: Settings) -> ShowdownConnection:
 
 
 async def run_ladder_search(settings: Settings, max_battles: int = 1) -> int:
-    global _active_format, _our_spreads
+    global _active_format, _our_spreads, _opp_sets
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
     _our_spreads = our_spreads_from_packed(packed_team)
+    _opp_sets = load_opp_sets_for_format(settings.format_id)
     await conn.send(f"|/utm {packed_team}")
     await asyncio.sleep(0.3)
     await conn.send(f"|/search {settings.format_id}")
@@ -217,11 +219,12 @@ async def run_challenge(
     max_battles: int = 1,
 ) -> int:
     """Challenge a player (use when VGC ladder is closed)."""
-    global _active_format, _our_spreads
+    global _active_format, _our_spreads, _opp_sets
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
     _our_spreads = our_spreads_from_packed(packed_team)
+    _opp_sets = load_opp_sets_for_format(settings.format_id)
     await conn.send(f"|/utm {packed_team}")
     await asyncio.sleep(0.3)
     await conn.send(f"|/challenge {opponent}, {settings.format_id}")

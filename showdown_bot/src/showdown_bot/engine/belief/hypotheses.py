@@ -174,3 +174,27 @@ def load_likely_sets(path: Path, *, is_valid_species=None) -> dict[str, SpeciesS
         )
         out[to_id(name)] = SpeciesSpreads(offense=preset, defense=preset)
     return out
+
+
+def load_opp_sets_for_format(format_id: str):
+    """Load curated opponent likely-sets for a format, validating species against
+    the calc backend. Returns {} (off, worst-case) when SHOWDOWN_OPP_SETS=0, the
+    file is missing, or anything fails -- a broken prior never silently activates."""
+    import os
+
+    from showdown_bot.engine.format_config import load_format_config
+
+    if os.environ.get("SHOWDOWN_OPP_SETS", "1") == "0":
+        return {}
+    try:
+        path = load_format_config(format_id).meta_path("likely_sets")
+        from showdown_bot.engine.calc.client import SubprocessCalcBackend
+
+        backend = SubprocessCalcBackend()
+
+        def is_valid(species: str) -> bool:
+            return bool(backend.types_batch([species])[0])
+
+        return load_likely_sets(path, is_valid_species=is_valid)
+    except Exception:  # noqa: BLE001 - missing/invalid file or backend -> off
+        return {}
