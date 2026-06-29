@@ -1,7 +1,7 @@
-format_id: gen9vgc2026regi
+format_id: gen9vgc2024regg
 level: 50
 game_type: doubles
-restricted_limit: 2
+restricted_limit: 0
 tera: true
 meta_paths:
   default_spreads: meta/default_spreads.yaml
