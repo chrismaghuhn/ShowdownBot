@@ -1,0 +1,4 @@
+# Stub for Phase 2 (Fallback B): per-species prior probability of clicking Protect.
+# Not used in Phase 1. Default prior applied when a species is absent.
+default_prior: 0.25
+species: {}

@@ -1,0 +1,35 @@
+{
+  "Incineroar": {
+    "level": 50,
+    "nature": "Adamant",
+    "ability": "Intimidate",
+    "item": "Assault Vest",
+    "evs": {"hp": 252, "atk": 252, "def": 4}
+  },
+  "Rillaboom": {
+    "level": 50,
+    "nature": "Adamant",
+    "ability": "Grassy Surge",
+    "item": "Assault Vest",
+    "evs": {"hp": 252, "atk": 252, "def": 4}
+  },
+  "Amoonguss": {
+    "level": 50,
+    "nature": "Calm",
+    "ability": "Regenerator",
+    "item": "Sitrus Berry",
+    "evs": {"hp": 252, "spd": 252, "def": 4}
+  },
+  "Urshifu-Rapid-Strike": {
+    "level": 50,
+    "nature": "Jolly",
+    "ability": "Unseen Fist",
+    "evs": {"hp": 252, "atk": 4, "spe": 252}
+  },
+  "Flutter Mane": {
+    "level": 50,
+    "nature": "Timid",
+    "ability": "Protosynthesis",
+    "evs": {"spa": 252, "spe": 252, "hp": 4}
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "showdown-bot-calc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node bridge to @smogon/calc for the VGC Showdown bot engine.",
+  "main": "calc.mjs",
+  "scripts": {
+    "calc": "node calc.mjs"
+  },
+  "dependencies": {
+    "@smogon/calc": "^0.10.0"
+  }
+}

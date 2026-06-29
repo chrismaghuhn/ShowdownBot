@@ -1,0 +1,159 @@
+# Worst-case EV/nature/item presets per VGC meta species.
+#
+# Each species defines two role presets:
+#   offense  -> max offense + min defensive investment (most damage dealt /
+#               most damage taken). Applied to a mon when it is the ATTACKER,
+#               or to an opposing mon when computing the incoming-damage
+#               worst-case (it hits hardest).
+#   defense  -> max bulk (HP + defenses). Applied to a mon when it is the
+#               DEFENDER worst-case ("does it survive / can I even KO it").
+#
+# nature: PS nature name. evs: only invested stats need listing (0 otherwise).
+# items: candidate held items (first is the default assumption).
+
+default:
+  offense:
+    nature: Hasty
+    evs: {atk: 252, spa: 252, spe: 252}
+    items: [Life Orb, Choice Specs, Focus Sash]
+  defense:
+    nature: Bold
+    evs: {hp: 252, def: 252, spd: 252}
+    items: [Leftovers, Assault Vest, Sitrus Berry]
+
+species:
+  Incineroar:
+    offense:
+      nature: Adamant
+      evs: {atk: 252, hp: 4, spe: 252}
+      items: [Choice Band, Life Orb, Sitrus Berry]
+    defense:
+      nature: Careful
+      evs: {hp: 252, spd: 252, def: 4}
+      items: [Sitrus Berry, Assault Vest]
+  Rillaboom:
+    offense:
+      nature: Adamant
+      evs: {atk: 252, hp: 4, spe: 252}
+      items: [Choice Band, Life Orb, Miracle Seed]
+    defense:
+      nature: Adamant
+      evs: {hp: 252, atk: 4, spd: 252}
+      items: [Assault Vest, Sitrus Berry]
+  Flutter Mane:
+    offense:
+      nature: Timid
+      evs: {spa: 252, spe: 252, hp: 4}
+      items: [Choice Specs, Life Orb, Booster Energy]
+    defense:
+      nature: Calm
+      evs: {hp: 252, spd: 252, def: 4}
+      items: [Booster Energy, Sitrus Berry]
+  Landorus-Therian:
+    offense:
+      nature: Jolly
+      evs: {atk: 252, spe: 252, hp: 4}
+      items: [Choice Scarf, Life Orb, Assault Vest]
+    defense:
+      nature: Impish
+      evs: {hp: 252, def: 252, spd: 4}
+      items: [Rocky Helmet, Sitrus Berry]
+  Tornadus:
+    offense:
+      nature: Timid
+      evs: {spa: 252, spe: 252, hp: 4}
+      items: [Focus Sash, Covert Cloak]
+    defense:
+      nature: Bold
+      evs: {hp: 252, def: 252, spd: 4}
+      items: [Sitrus Berry, Covert Cloak]
+  Urshifu-Rapid-Strike:
+    offense:
+      nature: Jolly
+      evs: {atk: 252, spe: 252, hp: 4}
+      items: [Choice Scarf, Focus Sash, Mystic Water]
+    defense:
+      nature: Adamant
+      evs: {hp: 252, atk: 4, spd: 252}
+      items: [Assault Vest, Sitrus Berry]
+  Amoonguss:
+    offense:
+      nature: Modest
+      evs: {spa: 252, hp: 4, spd: 252}
+      items: [Life Orb, Sitrus Berry]
+    defense:
+      nature: Calm
+      evs: {hp: 252, spd: 252, def: 4}
+      items: [Sitrus Berry, Rocky Helmet]
+  Ogerpon-Hearthflame:
+    offense:
+      nature: Adamant
+      evs: {atk: 252, spe: 252, hp: 4}
+      items: [Hearthflame Mask]
+    defense:
+      nature: Impish
+      evs: {hp: 252, def: 252, spd: 4}
+      items: [Hearthflame Mask]
+  Chien-Pao:
+    offense:
+      nature: Jolly
+      evs: {atk: 252, spe: 252, hp: 4}
+      items: [Focus Sash, Life Orb, Choice Scarf]
+    defense:
+      nature: Jolly
+      evs: {hp: 252, atk: 4, spe: 252}
+      items: [Focus Sash, Sitrus Berry]
+  Calyrex-Shadow:
+    offense:
+      nature: Timid
+      evs: {spa: 252, spe: 252, hp: 4}
+      items: [Choice Specs, Life Orb, Focus Sash]
+    defense:
+      nature: Timid
+      evs: {hp: 252, spd: 252, spe: 4}
+      items: [Sitrus Berry, Covert Cloak]
+  Miraidon:
+    offense:
+      nature: Modest
+      evs: {spa: 252, spe: 252, hp: 4}
+      items: [Choice Specs, Life Orb, Booster Energy]
+    defense:
+      nature: Calm
+      evs: {hp: 252, spd: 252, def: 4}
+      items: [Booster Energy, Sitrus Berry]
+  Koraidon:
+    offense:
+      nature: Adamant
+      evs: {atk: 252, spe: 252, hp: 4}
+      items: [Life Orb, Clear Amulet, Booster Energy]
+    defense:
+      nature: Impish
+      evs: {hp: 252, def: 252, spd: 4}
+      items: [Clear Amulet, Sitrus Berry]
+  Tornadus-Therian:
+    offense:
+      nature: Timid
+      evs: {spa: 252, spe: 252, hp: 4}
+      items: [Life Orb, Choice Specs]
+    defense:
+      nature: Bold
+      evs: {hp: 252, def: 252, spd: 4}
+      items: [Sitrus Berry]
+  Raging Bolt:
+    offense:
+      nature: Modest
+      evs: {spa: 252, hp: 252, def: 4}
+      items: [Booster Energy, Life Orb]
+    defense:
+      nature: Modest
+      evs: {hp: 252, spd: 252, def: 4}
+      items: [Assault Vest, Sitrus Berry]
+  Iron Hands:
+    offense:
+      nature: Adamant
+      evs: {atk: 252, hp: 252, spd: 4}
+      items: [Assault Vest, Life Orb, Booster Energy]
+    defense:
+      nature: Adamant
+      evs: {hp: 252, atk: 4, spd: 252}
+      items: [Assault Vest, Sitrus Berry]
