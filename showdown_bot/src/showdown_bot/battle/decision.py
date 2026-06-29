@@ -210,6 +210,12 @@ def heuristic_choose_for_request(
     our_remaining = sum(1 for p in req.side.pokemon if "fnt" not in (p.condition or ""))
     endgame = our_remaining <= 1
 
+    # A/B knob for the Protect stall penalties (Fix 2). Default on.
+    if weights is None:
+        weights = EvalWeights()
+        if os.environ.get("SHOWDOWN_PROTECT_PENALTY", "1") == "0":
+            weights = EvalWeights(protect_stall=0.0, endgame_protect=0.0, partner_abandon=0.0)
+
     my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
         raise ValueError("no legal joint actions")
