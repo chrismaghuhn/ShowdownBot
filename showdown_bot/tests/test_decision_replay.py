@@ -16,7 +16,7 @@ from showdown_bot.engine.state import BattleState, PokemonState
 from showdown_bot.models.request import BattleRequest
 
 FIXTURES = Path(__file__).parent / "fixtures"
-CHOOSE_RE = re.compile(r"^/choose .+, .+ #\d+$")
+CHOOSE_RE = re.compile(r"^/choose .+, .+\|\d+$")
 
 
 def _book():
@@ -95,7 +95,7 @@ def test_heuristic_returns_legal_choose_offline():
         dex=FakeDex(),
     )
     assert CHOOSE_RE.match(out), out
-    assert out.endswith("#2")
+    assert out.endswith("|2")
 
 
 def test_heuristic_is_deterministic():
@@ -108,10 +108,41 @@ def test_heuristic_is_deterministic():
     assert a == b
 
 
+def test_does_not_spam_protect_when_doomed():
+    """Regression: when both actives already Protected last turn (consecutive=1)
+    a second Protect fails, so the heuristic must pick a real action instead of
+    spamming Protect into a KO."""
+    st = _state()
+    st.sides["p1"]["a"].consecutive_protect = 1
+    st.sides["p1"]["a"].moved_since_switch = True
+    st.sides["p1"]["b"].consecutive_protect = 1
+    st.sides["p1"]["b"].moved_since_switch = True
+
+    class HardHitOracle:
+        def request(self, req):
+            return (req.attacker.species, req.move, req.defender.species)
+
+        def get(self, key):
+            return DamageResult(min_damage=60, max_damage=90, max_hp=150)
+
+        def damage(self, req):
+            return DamageResult(min_damage=60, max_damage=90, max_hp=150)
+
+        def flush(self):
+            pass
+
+    out = heuristic_choose_for_request(
+        _req(), state=st, book=_book(), our_side="p1",
+        calc=FakeCalc(), oracle=HardHitOracle(), speed_oracle=FakeSpeed(), dex=FakeDex(),
+    )
+    # Both slots choosing Protect would be "move 3, move 3" (Protect is index 3).
+    assert "move 3, move 3" not in out, out
+
+
 def test_fallback_to_random_without_state():
     out = choose_with_fallback(_req())  # no state/book -> random legal pair
     assert out.startswith("/choose ")
-    assert out.endswith("#2")
+    assert out.endswith("|2")
 
 
 def test_fallback_chain_survives_broken_calc():

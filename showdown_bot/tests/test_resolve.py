@@ -171,6 +171,70 @@ def test_rage_powder_still_redirects_non_grass_attacker():
     assert out.hp_delta[("p2", "b")] == -0.5
 
 
+def test_consecutive_protect_fails_in_resolver():
+    st = _doubles_state()
+    st.sides["p1"]["a"].consecutive_protect = 1  # protected last turn already
+    protect = get_move_meta("Protect")
+    moon = get_move_meta("Moonblast")
+    mine = PlannedAction("p1", "a", "protect", speed=100, move=protect, is_ours=True)
+    opp = PlannedAction("p2", "a", "move", speed=120, move=moon, target=("p1", "a"), is_ours=False)
+
+    def dmg(action, target):
+        return 0.5
+
+    out = resolve_turn(st, [mine, opp], dmg, our_side="p1")
+    assert any(f.startswith("protect_failed") for f in out.flags)
+    assert out.hp_delta[("p1", "a")] == -0.5  # protect failed -> took the hit
+    # A failed Protect must be charged the lost-action tempo cost, otherwise its
+    # +4 priority lets a doomed Protect outscore actually attacking (Protect spam).
+    assert any(
+        p.side == "p1" and p.reason == "protect_failed"
+        for p in out.prevented_actions
+    )
+
+
+def test_first_protect_succeeds():
+    st = _doubles_state()  # consecutive_protect == 0
+    protect = get_move_meta("Protect")
+    moon = get_move_meta("Moonblast")
+    mine = PlannedAction("p1", "a", "protect", speed=100, move=protect, is_ours=True)
+    opp = PlannedAction("p2", "a", "move", speed=120, move=moon, target=("p1", "a"), is_ours=False)
+
+    def dmg(action, target):
+        return 0.5
+
+    out = resolve_turn(st, [mine, opp], dmg, our_side="p1")
+    assert out.hp_delta[("p1", "a")] == 0.0  # blocked
+    assert any(p.target == ("p1", "a") for p in out.protected_hits)
+
+
+def test_fake_out_fails_after_first_turn():
+    st = _doubles_state()
+    st.sides["p1"]["a"].moved_since_switch = True  # not fresh anymore
+    fake = get_move_meta("Fake Out")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=fake, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.3
+
+    out = resolve_turn(st, [mine], dmg, our_side="p1")
+    assert "wasted_move" in out.flags
+    assert out.hp_delta[("p2", "a")] == 0.0  # failed -> no damage, no flinch
+
+
+def test_fake_out_works_when_fresh():
+    st = _doubles_state()  # moved_since_switch == False
+    fake = get_move_meta("Fake Out")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=fake, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.3
+
+    out = resolve_turn(st, [mine], dmg, our_side="p1")
+    assert "wasted_move" not in out.flags
+    assert out.hp_delta[("p2", "a")] < 0
+
+
 def test_spread_move_hits_both_foes_reduced():
     st = _doubles_state()
     heat = get_move_meta("Heat Wave")  # allAdjacentFoes
