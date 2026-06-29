@@ -42,16 +42,20 @@ def run_validate_log(args) -> None:
 
 
 def run_gauntlet(args) -> None:
+    import os
+
     from showdown_bot.client.gauntlet import run_local_gauntlet
 
-    settings = Settings.from_env()
+    # The gauntlet uses local guest auth, so it does not need SHOWDOWN_USERNAME;
+    # only the team path matters here.
+    team_path = os.environ.get("SHOWDOWN_TEAM_PATH", "teams/fixed_team.txt")
     stats = asyncio.run(
         run_local_gauntlet(
             games=args.games,
             hero_agent="heuristic",
             villain_agent=args.villain,
             format_id=args.format_id,
-            team_path=settings.team_path,
+            team_path=team_path,
         )
     )
     p95 = stats.latency_p95()

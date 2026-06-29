@@ -66,6 +66,9 @@ def _log_battle_line(room: str, raw: str) -> None:
 
 async def handle_battle_message(conn: ShowdownConnection, room: str, payload: str) -> None:
     req = BattleRequest.model_validate(json.loads(payload))
+    if req.wait:
+        # Opponent's turn; we've already locked in. Nothing to choose.
+        return
     _last_rqid[room] = req.rqid
 
     book = _get_book(_active_format)
@@ -95,7 +98,7 @@ async def _send_default_choose(conn: ShowdownConnection, room: str) -> None:
     rqid = _last_rqid.get(room)
     if rqid is None:
         return
-    choose = f"/choose default #{rqid}"
+    choose = f"/choose default|{rqid}"
     await conn.send(f"{room}|{choose}")
     logger.info("sent fallback %s", choose)
 
