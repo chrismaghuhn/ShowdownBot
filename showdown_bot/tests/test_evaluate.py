@@ -247,3 +247,57 @@ def test_tie_ev_makes_no_new_oracle_calls():
     evaluate_line(st, ours, opp, damage_fn, our_side="p1", _force_tie_break="ours_last")  # one pass
     one_pass = calls["n"]
     assert two_pass == 2 * one_pass  # second pass adds exactly one pass of (cacheable) lookups, nothing extra
+
+
+from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+
+
+def _opp_state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    return st
+
+
+def _likely_incin():
+    p = SpreadPreset(nature="Careful", evs={"hp": 252, "atk": 4, "spd": 252}, items=["Sitrus Berry"])
+    return {"incineroar": SpeciesSpreads(offense=p, defense=p)}
+
+
+def test_opp_sets_overrides_opponent_hypothesis():
+    st = _opp_state()
+    cfg = load_format_config("gen9vgc2026regi")
+    book = load_spread_book(cfg.meta_path("default_spreads"))
+    real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
+    d = real.hyps[("p2", "a")].as_defender()
+    assert d.nature == "Careful"
+    assert d.evs == {"hp": 252, "atk": 4, "spd": 252}   # the likely set, not the book preset
+
+
+def test_opp_sets_none_is_unchanged():
+    st = _opp_state()
+    cfg = load_format_config("gen9vgc2026regi")
+    book = load_spread_book(cfg.meta_path("default_spreads"))
+    a = DamageModel(st, "p1", "p2", book=book)
+    b = DamageModel(st, "p1", "p2", book=book, opp_sets=None)
+    assert a.hyps[("p2", "a")].as_defender().nature == b.hyps[("p2", "a")].as_defender().nature
+
+
+def test_revealed_item_beats_likely_item():
+    st = _opp_state()
+    st.sides["p2"]["a"].item = "Assault Vest"
+    st.sides["p2"]["a"].item_known = True
+    cfg = load_format_config("gen9vgc2026regi")
+    book = load_spread_book(cfg.meta_path("default_spreads"))
+    model = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
+    assert model.hyps[("p2", "a")].as_defender().item == "Assault Vest"
+
+
+def test_uncurated_opponent_stays_worstcase():
+    st = _opp_state()
+    st.sides["p2"]["a"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
+    cfg = load_format_config("gen9vgc2026regi")
+    book = load_spread_book(cfg.meta_path("default_spreads"))
+    base = DamageModel(st, "p1", "p2", book=book)
+    real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
+    assert real.hyps[("p2", "a")].as_defender().nature == base.hyps[("p2", "a")].as_defender().nature

@@ -13,7 +13,7 @@ from showdown_bot.engine.belief.hypotheses import (
     hypothesis_from_state,
 )
 from showdown_bot.engine.calc.models import DamageRequest
-from showdown_bot.engine.state import BattleState, FieldState
+from showdown_bot.engine.state import BattleState, FieldState, to_id
 
 SlotId = tuple[str, str]
 
@@ -156,6 +156,7 @@ class DamageModel:
         oracle: DamageOracle | None = None,
         field: FieldState | None = None,
         our_spreads: dict | None = None,
+        opp_sets: dict | None = None,
     ) -> None:
         self.state = state
         self.our_side = our_side
@@ -173,6 +174,8 @@ class DamageModel:
                 hyp = hypothesis_from_state(mon, book)
                 if side == our_side and our_spreads and mon.species in our_spreads:
                     hyp.spreads = our_spreads[mon.species]
+                elif side == opp_side and opp_sets and to_id(mon.species) in opp_sets:
+                    hyp.spreads = opp_sets[to_id(mon.species)]
                 self.hyps[(side, slot)] = hyp
 
     def _request(self, action: PlannedAction, target_key: SlotId) -> DamageRequest:

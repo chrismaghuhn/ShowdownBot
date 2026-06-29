@@ -156,6 +156,7 @@ def heuristic_choose_for_request(
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
     our_spreads: dict | None = None,
+    opp_sets: dict | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -247,7 +248,7 @@ def heuristic_choose_for_request(
 
     model = DamageModel(
         state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
-        our_spreads=our_spreads,
+        our_spreads=our_spreads, opp_sets=opp_sets,
     )
     groups = list(plans.values()) + [r.actions for r in opp_resps]
     model.prefetch(groups)
