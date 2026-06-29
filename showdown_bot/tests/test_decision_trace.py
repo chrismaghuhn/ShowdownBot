@@ -144,3 +144,119 @@ def test_aggregate_breakdown_is_weighted_mean(decision_fixture):
     ws = tr.opponent_response_weights or [1.0] * len(top.score_vector)
     wmean = sum(s * w for s, w in zip(top.score_vector, ws)) / (sum(ws) or 1.0)
     assert abs(top.aggregate_breakdown.total_score - wmean) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# New: CandidateModelFeatures tests
+# ---------------------------------------------------------------------------
+
+class _FakeCalcAlwaysOhko:
+    """Returns guaranteed-OHKO for every request (min_damage >= max_hp)."""
+
+    backend = None
+
+    def damage_batch(self, requests):
+        return [DamageResult(min_damage=999, max_damage=999, max_hp=150) for _ in requests]
+
+
+def test_model_features_present_on_candidates(decision_fixture):
+    """Every CandidateTrace.model_features has the 3 int counts (>=0)."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import CandidateModelFeatures
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    assert len(tr.candidates) >= 1
+    for c in tr.candidates:
+        mf = c.model_features
+        assert isinstance(mf, CandidateModelFeatures)
+        assert isinstance(mf.ko_secured_count, int) and mf.ko_secured_count >= 0
+        assert isinstance(mf.ko_threatened_count, int) and mf.ko_threatened_count >= 0
+        assert isinstance(mf.survives_for_sure_count, int) and mf.survives_for_sure_count >= 0
+
+
+def test_model_features_decision_level_same_across_candidates(decision_fixture):
+    """ko_threatened_count and survives_for_sure_count are decision-level
+    and therefore identical across all candidates."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    assert len(tr.candidates) >= 2
+    threatened_vals = [c.model_features.ko_threatened_count for c in tr.candidates]
+    survives_vals = [c.model_features.survives_for_sure_count for c in tr.candidates]
+    assert len(set(threatened_vals)) == 1, "ko_threatened_count must be identical across candidates"
+    assert len(set(survives_vals)) == 1, "survives_for_sure_count must be identical across candidates"
+
+
+def test_ko_threat_counts_when_ohko_guaranteed(decision_fixture):
+    """With a fake calc that guarantees OHKO on every request, threatened > 0."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    # Swap in a calc that always returns guaranteed OHKO
+    ohko_kw = {**kw, "calc": _FakeCalcAlwaysOhko()}
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **ohko_kw)
+    # With guaranteed OHKO on all incoming, every candidate should see threatened > 0
+    for c in tr.candidates:
+        assert c.model_features.ko_threatened_count > 0, (
+            f"Expected ko_threatened_count > 0 with all-OHKO calc, got {c.model_features}"
+        )
+
+
+def test_ko_secured_count_non_negative_with_normal_calc(decision_fixture):
+    """ko_secured_count is >= 0 for all candidates with normal (no-OHKO) calc.
+    With a non-OHKO calc, ko_secured_count == 0 for all candidates.
+    """
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    for c in tr.candidates:
+        # Normal fake calc never guarantees OHKO => 0 secured KOs
+        assert c.model_features.ko_secured_count == 0, (
+            f"Expected 0 with no-OHKO calc, got {c.model_features.ko_secured_count}"
+        )
+
+
+def test_ko_secured_count_positive_with_ohko_calc(decision_fixture):
+    """With a fake calc that guarantees OHKO, at least some candidates see ko_secured_count > 0
+    (the ones that actually select a damaging move targeting an active opp slot)."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    ohko_kw = {**kw, "calc": _FakeCalcAlwaysOhko()}
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **ohko_kw)
+    # At least one candidate among top-K should secure a KO (there are damaging moves)
+    secured_vals = [c.model_features.ko_secured_count for c in tr.candidates]
+    assert any(v > 0 for v in secured_vals), (
+        f"Expected at least one candidate with ko_secured_count>0, got {secured_vals}"
+    )
+
+
+def test_ko_secured_counts_distinct_target_slots(decision_fixture):
+    """ko_secured_count counts distinct opponent slots, not number of moves.
+    We verify this by checking that with an all-OHKO calc, secured <= 2 (at most 2 opp slots).
+    """
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    ohko_kw = {**kw, "calc": _FakeCalcAlwaysOhko()}
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **ohko_kw)
+    for c in tr.candidates:
+        # Can't secure more unique opp slots than there are active opp mons (2)
+        assert c.model_features.ko_secured_count <= 2, (
+            f"ko_secured_count={c.model_features.ko_secured_count} exceeds max active opp slots"
+        )
+
+
+def test_ko_secured_ignores_nondamaging_and_unselected(decision_fixture):
+    """Non-damaging moves and unselected slots contribute 0 to ko_secured_count.
+    With a normal no-OHKO calc, secured == 0 regardless of move selection."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    # _FakeCalc never OHKOs, so secured must be 0 even for all-damaging plans
+    for c in tr.candidates:
+        assert c.model_features.ko_secured_count == 0

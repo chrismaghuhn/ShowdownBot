@@ -13,6 +13,22 @@ from showdown_bot.battle.evaluate import OutcomeBreakdown
 
 
 @dataclass
+class CandidateModelFeatures:
+    """Per-candidate KO/survive counts for ML feature capture (1b-A).
+
+    Decision-level fields (``ko_threatened_count``, ``survives_for_sure_count``)
+    are identical across all candidates in a given decision — they reflect the
+    position, not the specific move choice. ``ko_secured_count`` is candidate-
+    specific: distinct opponent active slots guaranteed-OHKO'd by this candidate's
+    selected damaging moves.
+    """
+
+    ko_secured_count: int = 0        # candidate-level: distinct opp slots we OHKO
+    ko_threatened_count: int = 0     # decision-level: our mons threatened by opp
+    survives_for_sure_count: int = 0  # decision-level: our mons safe from all known opp moves
+
+
+@dataclass
 class CandidateTrace:
     candidate_id: str
     joint_action: Any
@@ -21,6 +37,7 @@ class CandidateTrace:
     score_vector: list[float]                   # one score per opponent response (parallel to R)
     outcome_breakdowns: list[OutcomeBreakdown]  # parallel to opponent responses
     aggregate_breakdown: OutcomeBreakdown
+    model_features: CandidateModelFeatures = field(default_factory=CandidateModelFeatures)
 
 
 @dataclass
