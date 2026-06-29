@@ -195,7 +195,16 @@ def heuristic_choose_for_request(
                 except Exception:
                     pass
 
-    my_actions = enumerate_my_actions(req)
+    # Drop dead Fake Out / First Impression: a mon that already acted since
+    # switching in can't use them (they auto-fail and waste the turn). Active
+    # index 0/1 maps to our slots a/b.
+    side_mons = state.side(our_side)
+    moved_since_switch = []
+    for slot in ("a", "b"):
+        m = side_mons.get(slot)
+        moved_since_switch.append(bool(m is not None and getattr(m, "moved_since_switch", False)))
+
+    my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
         raise ValueError("no legal joint actions")
 

@@ -55,6 +55,28 @@ def test_legal_pairs_pass_fainted_active_slot():
     assert all(p.slot1.kind == "pass" for p in pairs)
 
 
+def test_dead_fake_out_pruned_when_moved_since_switch():
+    """Bug (user's game, turns 9 & 11): Incineroar kept picking Fake Out though it
+    had been out since turn 1 -> 'But it failed!', wasting the whole turn. Fake Out
+    (move 1) must NOT be offered for a slot whose mon already moved since switch-in."""
+    req = _req()  # Incineroar in slot0, Fake Out = move_index 1
+    acts = enumerate_my_actions(req, moved_since_switch=[True, False])
+    assert acts
+    assert not any(ja.slot0.kind == "move" and ja.slot0.move_index == 1 for ja in acts)
+    # the real attacks are still there (Flare Blitz = move 2)
+    assert any(ja.slot0.kind == "move" and ja.slot0.move_index == 2 for ja in acts)
+
+
+def test_fake_out_kept_on_switch_in_turn():
+    """Fresh switch-in (moved_since_switch False, or unknown) keeps Fake Out legal."""
+    req = _req()
+    on_switch = enumerate_my_actions(req, moved_since_switch=[False, False])
+    assert any(ja.slot0.kind == "move" and ja.slot0.move_index == 1 for ja in on_switch)
+    # backward compatible: no info given -> Fake Out still offered
+    default = enumerate_my_actions(req)
+    assert any(ja.slot0.kind == "move" and ja.slot0.move_index == 1 for ja in default)
+
+
 def test_double_switch_allowed_when_requested():
     acts = enumerate_my_actions(_req(), allow_double_switch=True)
     assert any(

@@ -54,7 +54,9 @@ def _voluntary_switches(req: BattleRequest, active_index: int) -> list[SlotActio
     return out
 
 
-def _slot_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
+def _slot_actions(
+    active_index: int, req: BattleRequest, *, drop_first_turn: bool = False
+) -> list[SlotAction]:
     forced = bool(
         req.force_switch
         and active_index < len(req.force_switch)
@@ -72,12 +74,19 @@ def _slot_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
     if _active_mon_fainted(req, active_index):
         # Active mon fainted with no replacement -> the dead slot must pass.
         return [SlotAction(kind="pass")]
-    moves = [a for a in _slot_move_actions(active_index, req) if not a.terastallize]
+    moves = [
+        a
+        for a in _slot_move_actions(active_index, req, drop_first_turn=drop_first_turn)
+        if not a.terastallize
+    ]
     return moves + _voluntary_switches(req, active_index)
 
 
 def enumerate_my_actions(
-    req: BattleRequest, *, allow_double_switch: bool = False
+    req: BattleRequest,
+    *,
+    allow_double_switch: bool = False,
+    moved_since_switch: list[bool] | None = None,
 ) -> list[JointAction]:
     """Pruned joint-action space for the heuristic.
 
@@ -85,13 +94,19 @@ def enumerate_my_actions(
     - Tera stripped (overlay only) -> ~4x smaller space.
     - Double-switches dropped by default (rarely the one-ply optimum, expensive).
     - Same-target double-switch is always illegal and skipped.
+    - Dead Fake Out / First Impression dropped per slot when ``moved_since_switch``
+      (by active index) says the mon already acted since switching in.
     """
     in_force_phase = bool(req.force_switch and any(req.force_switch))
     if not req.active and not in_force_phase:
         return []
     n_slots = len(req.active) if req.active else len(req.force_switch or [])
-    s0 = _slot_actions(0, req)
-    s1 = _slot_actions(1, req) if n_slots > 1 else [SlotAction(kind="pass")]
+
+    def _df(idx: int) -> bool:
+        return bool(moved_since_switch and idx < len(moved_since_switch) and moved_since_switch[idx])
+
+    s0 = _slot_actions(0, req, drop_first_turn=_df(0))
+    s1 = _slot_actions(1, req, drop_first_turn=_df(1)) if n_slots > 1 else [SlotAction(kind="pass")]
     out: list[JointAction] = []
     for a0, a1 in product(s0, s1):
         if a0.kind == "switch" and a1.kind == "switch":
