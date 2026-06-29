@@ -91,3 +91,49 @@ def test_rollout_config_rejects_invalid_values():
         RolloutConfig(gamma=0)
     with pytest.raises(ValueError, match="top_k must be"):
         RolloutConfig(top_k=0)
+
+
+def test_label_decision_normalizes_and_flags_disagreement():
+    from showdown_bot.learning.teacher import label_decision
+    teacher_values = {"A": 1.0, "B": 3.0, "C": 2.0}   # teacher prefers B
+    heuristic_values = {"A": 5.0, "B": 1.0, "C": 2.0}  # heuristic prefers A
+    out = label_decision(teacher_values, heuristic_values, heuristic_choice_id="A")
+
+    assert out["B"]["teacher_best"] is True
+    assert out["A"]["teacher_best"] is False
+    assert out["A"]["chosen_by_current_heuristic"] is True
+    assert out["B"]["chosen_by_current_heuristic"] is False
+    # within-decision normalization: value - mean(2.0)
+    assert abs(out["B"]["counterfactual_value_normalized_within_decision"] - 1.0) < 1e-9
+    assert abs(out["A"]["value_gap_to_best"] - (1.0 - 3.0)) < 1e-9
+    # ranks (0 = best) differ: teacher ranks B first, heuristic ranks A first
+    assert out["B"]["teacher_rank"] == 0
+    assert out["A"]["heuristic_rank"] == 0
+    assert out["A"]["teacher_rank"] != 0
+
+
+def test_label_decision_tie_break_is_consistent():
+    # tied teacher values: teacher_rank==0 and teacher_best MUST point at the same id
+    from showdown_bot.learning.teacher import label_decision
+    out = label_decision({"A": 1.0, "B": 1.0}, {"A": 0.0, "B": 0.0}, "A")
+    assert out["A"]["teacher_rank"] == 0
+    assert out["A"]["teacher_best"] is True
+    assert out["B"]["teacher_best"] is False
+
+
+def test_label_decision_requires_same_candidate_sets():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="same candidates"):
+        label_decision({"A": 1.0}, {"A": 1.0, "B": 2.0}, "A")
+
+
+def test_label_decision_requires_choice_in_candidates():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="must be one of"):
+        label_decision({"A": 1.0, "B": 2.0}, {"A": 1.0, "B": 2.0}, "Z")
+
+
+def test_label_decision_rejects_empty_values():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="empty"):
+        label_decision({}, {}, "A")

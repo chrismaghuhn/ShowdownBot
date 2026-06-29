@@ -57,3 +57,38 @@ def counterfactual_value(start_state, candidate, responses, *, decide, resolve, 
         w * _rollout_one(start_state, candidate, opp, decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
         for opp, w in responses
     )
+
+
+def _ranks(values: dict) -> dict:
+    """0 = best (highest value). Ties broken by candidate id for determinism."""
+    order = sorted(values, key=lambda c: (-values[c], str(c)))
+    return {c: i for i, c in enumerate(order)}
+
+
+def label_decision(teacher_values: dict, heuristic_values: dict, heuristic_choice_id) -> dict:
+    """Per-candidate labels, all within-decision. ``teacher_values`` and
+    ``heuristic_values`` map candidate_id -> value over the SAME candidate set."""
+    if not teacher_values:
+        raise ValueError("teacher_values must not be empty")
+    if set(teacher_values) != set(heuristic_values):
+        raise ValueError("teacher and heuristic values must cover the same candidates")
+    if heuristic_choice_id not in teacher_values:
+        raise ValueError("heuristic_choice_id must be one of the candidates")
+    mean = sum(teacher_values.values()) / len(teacher_values)
+    best = max(teacher_values.values())
+    t_rank = _ranks(teacher_values)
+    h_rank = _ranks(heuristic_values)
+    best_id = min(t_rank, key=t_rank.get)   # rank 0 — SAME tie-break as _ranks (no inconsistency)
+    return {
+        cid: {
+            "counterfactual_value_raw": v,
+            "counterfactual_value_normalized_within_decision": v - mean,
+            "value_gap_to_best": v - best,
+            "counterfactual_rank": t_rank[cid],
+            "teacher_rank": t_rank[cid],
+            "heuristic_rank": h_rank[cid],
+            "teacher_best": cid == best_id,
+            "chosen_by_current_heuristic": cid == heuristic_choice_id,
+        }
+        for cid, v in teacher_values.items()
+    }
