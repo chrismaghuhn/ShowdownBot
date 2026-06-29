@@ -304,4 +304,4 @@ def choose_with_fallback(
     except Exception as exc:  # noqa: BLE001
         logger.warning("random fallback failed: %s", exc)
 
-    return f"/choose default #{req.rqid}"
+    return f"/choose default|{req.rqid}"

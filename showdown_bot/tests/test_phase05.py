@@ -37,7 +37,7 @@ def test_to_showdown_id():
 
 
 def test_encode_team_preview_with_rqid():
-    assert encode_team_preview([1, 2, 3, 4], rqid=1) == "/choose team 1234 #1"
+    assert encode_team_preview([1, 2, 3, 4], rqid=1) == "/choose team 1234|1"
 
 
 def test_pick_team_preview_default_four_slots():
@@ -59,7 +59,7 @@ def test_choose_for_team_preview_request():
     data = json.loads((FIXTURES / "request_team_preview.json").read_text())
     req = BattleRequest.model_validate(data)
     cmd = choose_for_request(req)
-    assert cmd == "/choose team 1234 #1"
+    assert cmd == "/choose team 1234|1"
 
 
 @pytest.mark.integration

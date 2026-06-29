@@ -19,12 +19,13 @@ def format_slot_action(action: SlotAction) -> str:
 def encode_choose(pair: SlotPair, rqid: int | None = None) -> str:
     body = f"{format_slot_action(pair.slot0)}, {format_slot_action(pair.slot1)}"
     if rqid is not None:
-        return f"/choose {body} #{rqid}"
+        # Showdown reads the rqid after a '|' (server does data.split('|', 2)).
+        return f"/choose {body}|{rqid}"
     return f"/choose {body}"
 
 
 def encode_team_preview(slots: list[int], rqid: int | None = None) -> str:
     team_spec = "".join(str(s) for s in slots)
     if rqid is not None:
-        return f"/choose team {team_spec} #{rqid}"
+        return f"/choose team {team_spec}|{rqid}"
     return f"/choose team {team_spec}"

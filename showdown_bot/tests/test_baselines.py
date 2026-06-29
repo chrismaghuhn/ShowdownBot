@@ -12,7 +12,7 @@ from showdown_bot.engine.state import BattleState, PokemonState
 from showdown_bot.models.request import BattleRequest
 
 FIXTURES = Path(__file__).parent / "fixtures"
-CHOOSE_RE = re.compile(r"^/choose .+, .+ #\d+$")
+CHOOSE_RE = re.compile(r"^/choose .+, .+\|\d+$")
 
 
 def _book():
@@ -78,7 +78,7 @@ def test_max_damage_prefers_attacks_over_passive():
         _req(), state=_state(), book=_book(), our_side="p1",
         oracle=FakeOracle(0.5), speed_oracle=None,
     )
-    body = out[len("/choose "):].split(" #")[0]
+    body = out[len("/choose "):].split("|")[0]
     left, right = body.split(", ")
     assert left.startswith("move")
     assert right.startswith("move")
