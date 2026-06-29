@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.engine.moves import MoveMeta, get_move_meta, to_id
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
+from showdown_bot.engine.typechart import effectiveness
 
 # Revealed support moves we explicitly model as opponent "lines".
 SUPPORT_MOVE_IDS = {
@@ -54,13 +55,49 @@ class OppResponse:
     weight: float = 1.0  # likelihood weight (set from protect priors)
 
 
-def best_damaging_move(mon: PokemonState, dex: SpeciesDex | None) -> MoveMeta:
-    """Strongest plausible attack: best revealed damaging move by base power,
-    else a STAB fallback derived from the species typing."""
+def _types_of(mon: PokemonState | None, dex: SpeciesDex | None) -> list[str]:
+    if mon is None:
+        return []
+    if getattr(mon, "types", None):
+        return list(mon.types)
+    if dex is not None and getattr(mon, "species", None):
+        try:
+            return list(dex.types(mon.species))
+        except Exception:  # noqa: BLE001
+            return []
+    return []
+
+
+def _damage_score(
+    meta: MoveMeta, attacker: PokemonState, target_mon: PokemonState | None, dex: SpeciesDex | None
+) -> float:
+    """Cheap damage proxy: base_power x STAB x type-effectiveness (x accuracy if
+    known). Far better than raw base power for picking an opponent's threat."""
+    score = float(meta.base_power)
+    mtype = meta.move_type
+    if mtype:
+        if mtype in _types_of(attacker, dex):
+            score *= 1.5  # STAB
+        tgt_types = _types_of(target_mon, dex)
+        if tgt_types:
+            score *= effectiveness(mtype, tgt_types)
+    # TODO: accuracy is not yet carried on MoveMeta; multiply by accuracy/100 once
+    # the generator exposes it, so risky low-accuracy moves aren't over-valued.
+    acc = getattr(meta, "accuracy", None)
+    if isinstance(acc, (int, float)) and 0 < acc <= 100:
+        score *= acc / 100.0
+    return score
+
+
+def best_damaging_move(
+    mon: PokemonState, dex: SpeciesDex | None, *, target_mon: PokemonState | None = None
+) -> MoveMeta:
+    """Strongest plausible attack vs ``target_mon`` by the damage proxy (base
+    power x STAB x type effectiveness), else a STAB fallback from species typing."""
     metas = [get_move_meta(n) for n in mon.move_names]
     damaging = [m for m in metas if m.is_damaging]
     if damaging:
-        return max(damaging, key=lambda m: m.base_power)
+        return max(damaging, key=lambda m: _damage_score(m, mon, target_mon, dex))
     if dex is not None:
         for t in dex.types(mon.species):
             if t in STAB_MOVE:
@@ -120,12 +157,13 @@ def predict_responses(
         return speed_oracle.opponent_range(opp_mons[slot], field, opp_side, book=book).max
 
     def attack(slot: str, target_slot: str) -> PlannedAction:
+        target_mon = state.sides.get(our_side, {}).get(target_slot)
         return PlannedAction(
             side=opp_side,
             slot=slot,
             kind="move",
             speed=opp_speed(slot),
-            move=best_damaging_move(opp_mons[slot], dex),
+            move=best_damaging_move(opp_mons[slot], dex, target_mon=target_mon),
             target=(our_side, target_slot),
             is_ours=False,
         )

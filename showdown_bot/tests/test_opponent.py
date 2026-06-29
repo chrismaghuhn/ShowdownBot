@@ -29,6 +29,18 @@ def _state():
     return st
 
 
+def test_best_damaging_move_prefers_super_effective_over_higher_bp():
+    """Stage A: pick by damage proxy (BP x STAB x type effectiveness), not raw BP.
+    Earthquake (100 BP, Ground) does 0 to Dragon/Flying; Dazzling Gleam (80 BP,
+    Fairy) hits for 2x -> it must win despite lower base power."""
+    attacker = PokemonState(species="MysteryMon")
+    attacker.move_names = {"Dazzling Gleam", "Earthquake"}
+    target = PokemonState(species="Dragonite")
+    target.types = ["Dragon", "Flying"]
+    best = best_damaging_move(attacker, dex=None, target_mon=target)
+    assert best.name == "Dazzling Gleam"
+
+
 def test_best_damaging_picks_highest_bp_revealed():
     mon = PokemonState(species="Flutter Mane")
     mon.move_names = {"Moonblast", "Shadow Ball"}  # 95 vs 80
