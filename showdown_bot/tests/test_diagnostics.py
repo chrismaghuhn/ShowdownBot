@@ -1,7 +1,9 @@
 from showdown_bot.battle.diagnostics import (
     format_battle_events,
+    format_decision,
     format_outcome,
     format_rollout_trace,
+    turn_report,
 )
 from showdown_bot.battle.resolve import PreventedAction, TurnOutcome
 from showdown_bot.battle.rollout import RolloutResult, TurnTrace
@@ -66,3 +68,32 @@ def test_format_battle_events_readable():
     assert "70/100" in text
     assert "brn" in text
     assert "fainted" in text
+
+
+def test_format_decision_shows_choice_mode_alternatives():
+    text = format_decision(
+        chosen="(Fake Out->p2a, Protect)",
+        scored=[
+            ("(Fake Out->p2a, Protect)", 8.5),
+            ("(Moonblast->p2a, Protect)", 7.2),
+            ("(Moonblast->p2a, Tailwind)", 6.9),
+        ],
+        mode="neutral",
+    )
+    assert "neutral" in text
+    assert "Fake Out->p2a" in text
+    assert "+8.5" in text
+    assert "Moonblast" in text  # an alternative is listed
+
+
+def test_turn_report_combines_sections():
+    rep = turn_report(
+        battle_text="Turn 3\n  Incineroar used Fake Out",
+        decision_text="decision [mode=neutral]: chose X +8.50",
+        rollout_text="rollout (2 turns) value +0.31",
+    )
+    assert "Fake Out" in rep
+    assert "decision" in rep
+    assert "rollout" in rep
+    # sections are labeled
+    assert "battle" in rep.lower()

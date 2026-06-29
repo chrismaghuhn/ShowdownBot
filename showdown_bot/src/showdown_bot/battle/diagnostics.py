@@ -96,6 +96,31 @@ def format_outcome(outcome: TurnOutcome, our_side: str) -> str:
     return "predicted: " + (" | ".join(parts) if parts else "(no effect)")
 
 
+def format_decision(
+    chosen: str, scored: list[tuple[str, float]], mode: str, max_alternatives: int = 3
+) -> str:
+    """Readable decision block: chosen action + score + top alternatives."""
+    ranked = sorted(scored, key=lambda pair: pair[1], reverse=True)
+    chosen_score = next((s for label, s in ranked if label == chosen), None)
+    header = f"decision [mode={mode}]: chose {chosen}"
+    if chosen_score is not None:
+        header += f" {chosen_score:+.2f}"
+    lines = [header]
+    alts = [(label, s) for label, s in ranked if label != chosen][:max_alternatives]
+    if alts:
+        lines.append("  alternatives:")
+        lines.extend(f"    {label}  {s:+.2f}" for label, s in alts)
+    return "\n".join(lines)
+
+
+def turn_report(battle_text: str, decision_text: str, rollout_text: str | None = None) -> str:
+    """Combine the actual battle transcript and the bot's reasoning into one block."""
+    parts = ["=== turn report ===", "[battle]", battle_text or "(no events)", "[decision]", decision_text]
+    if rollout_text:
+        parts.append(rollout_text)
+    return "\n".join(parts)
+
+
 def format_rollout_trace(result: RolloutResult) -> str:
     """Readable rollout timeline: per-turn order, KOs, hp snapshot, score."""
     if not result.trace:
