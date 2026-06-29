@@ -28,6 +28,7 @@ class PokemonSlot(BaseModel):
     stats: dict[str, int] = Field(default_factory=dict)
     moves: list[str] = []
     base_types: list[str] = Field(default_factory=list, alias="baseTypes")
+    item: str = ""
 
     model_config = {"populate_by_name": True}
 
@@ -39,11 +40,14 @@ class SideInfo(BaseModel):
 
 
 class BattleRequest(BaseModel):
-    active: list[ActiveSlot] = []
+    # A doubles side with one Pokémon left serializes the empty slot as null,
+    # e.g. "active": [ {...}, null ], so entries are Optional.
+    active: list[ActiveSlot | None] = []
     side: SideInfo = Field(default_factory=SideInfo)
-    rqid: int
+    rqid: int = 0
     force_switch: list[bool] | None = Field(default=None, alias="forceSwitch")
     team_preview: bool | None = Field(default=None, alias="teamPreview")
     max_team_size: int | None = Field(default=None, alias="maxTeamSize")
+    wait: bool = False
 
     model_config = {"populate_by_name": True}

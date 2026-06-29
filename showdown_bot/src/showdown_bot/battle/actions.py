@@ -38,7 +38,12 @@ class JointAction:
 def _voluntary_switches(req: BattleRequest, active_index: int) -> list[SlotAction]:
     """Single-slot voluntary switch targets (legal_actions only emits switches on
     force-switch; the heuristic needs them as defensive options too)."""
-    if req.active and active_index < len(req.active) and req.active[active_index].trapped:
+    if (
+        req.active
+        and active_index < len(req.active)
+        and req.active[active_index] is not None
+        and req.active[active_index].trapped
+    ):
         return []
     out: list[SlotAction] = []
     for mon in req.side.pokemon:
@@ -58,6 +63,12 @@ def _slot_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
     if forced:
         # legal_actions already yields forced switch targets / pass for this slot.
         return _slot_move_actions(active_index, req)
+    if req.force_switch and any(req.force_switch):
+        # Force-switch phase but this slot isn't switching -> it just passes.
+        return [SlotAction(kind="pass")]
+    if req.active and active_index < len(req.active) and req.active[active_index] is None:
+        # Empty slot (one mon left in doubles): nothing to choose.
+        return [SlotAction(kind="pass")]
     moves = [a for a in _slot_move_actions(active_index, req) if not a.terastallize]
     return moves + _voluntary_switches(req, active_index)
 
@@ -72,10 +83,12 @@ def enumerate_my_actions(
     - Double-switches dropped by default (rarely the one-ply optimum, expensive).
     - Same-target double-switch is always illegal and skipped.
     """
-    if not req.active:
+    in_force_phase = bool(req.force_switch and any(req.force_switch))
+    if not req.active and not in_force_phase:
         return []
+    n_slots = len(req.active) if req.active else len(req.force_switch or [])
     s0 = _slot_actions(0, req)
-    s1 = _slot_actions(1, req) if len(req.active) > 1 else [SlotAction(kind="pass")]
+    s1 = _slot_actions(1, req) if n_slots > 1 else [SlotAction(kind="pass")]
     out: list[JointAction] = []
     for a0, a1 in product(s0, s1):
         if a0.kind == "switch" and a1.kind == "switch":
