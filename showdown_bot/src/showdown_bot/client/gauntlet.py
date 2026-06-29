@@ -22,6 +22,18 @@ logger = logging.getLogger(__name__)
 
 LOCAL_SERVER = "ws://localhost:8000/showdown/websocket"
 
+# Race conditions, not bad choices: the server rejects a choice we sent for a
+# turn that already resolved. These are harmless (the rqid guard protects us) so
+# they must not count against the strict invalid-choice criterion.
+_BENIGN_CHOICE_ERRORS = ("too late", "nothing to choose")
+
+
+def _is_real_invalid(text: str | None) -> bool:
+    low = (text or "").lower()
+    if "invalid choice" not in low and "can't" not in low:
+        return False
+    return not any(b in low for b in _BENIGN_CHOICE_ERRORS)
+
 
 def agent_choose(
     agent: str,
@@ -103,6 +115,9 @@ class _Client:
 
     async def handle_request(self, room: str, payload: str) -> None:
         req = BattleRequest.model_validate(json.loads(payload))
+        if req.wait:
+            # Opponent's turn; we've already locked in. Nothing to choose.
+            return
         state = self._state_for(room, req)
         start = time.perf_counter()
         try:
@@ -113,7 +128,7 @@ class _Client:
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
             self.crashes += 1
-            choose = f"/choose default #{req.rqid}"
+            choose = f"/choose default|{req.rqid}"
         self.latencies.append(time.perf_counter() - start)
         await self.conn.send(f"{room}|{choose}")
 
@@ -134,24 +149,31 @@ async def _run_client(
             for room in {p.room for p in parsed_list if p.room.startswith("battle-")}:
                 client.room_raw.setdefault(room, []).append(raw)
             for parsed in parsed_list:
-                if parsed.prefix == "pm" and parsed.args and accept_from:
-                    text = parsed.args[-1]
-                    if "/challenge" in text and accept_from.lower() in (parsed.args[0] or "").lower():
-                        await client.conn.send(f"|/accept {accept_from}")
-                if parsed.prefix == "pm" and parsed.args and "Invalid choice" in parsed.args[-1]:
-                    client.invalid += 1
-                if parsed.room.startswith("battle-"):
-                    if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
-                        await client.conn.send(f"|/join {parsed.room}")
-                    if parsed.prefix == "error" and "choice" in (parsed.args[0] if parsed.args else "").lower():
+                # Never let a single bad frame kill the loop and stall the game.
+                try:
+                    if parsed.prefix == "pm" and parsed.args and accept_from:
+                        # Challenge PM: |pm| sender| receiver|/challenge <format>|...
+                        # "/challenge" is not in the trailing arg, so scan all args.
+                        joined = "|".join(a or "" for a in parsed.args)
+                        sender = (parsed.args[0] or "").strip().lower()
+                        if "/challenge" in joined and accept_from.lower() in sender:
+                            await client.conn.send(f"|/accept {accept_from}")
+                    if parsed.prefix == "pm" and parsed.args and _is_real_invalid(parsed.args[-1]):
                         client.invalid += 1
-                    if parsed.prefix == "request":
-                        await client.handle_request(parsed.room, parsed.payload)
-                    if parsed.prefix in ("win", "tie"):
-                        winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
-                        client.room_raw.pop(parsed.room, None)
-                        if on_result is not None:
-                            await on_result(winner)
+                    if parsed.room.startswith("battle-"):
+                        if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
+                            await client.conn.send(f"|/join {parsed.room}")
+                        if parsed.prefix == "error" and _is_real_invalid(parsed.args[0] if parsed.args else ""):
+                            client.invalid += 1
+                        if parsed.prefix == "request":
+                            await client.handle_request(parsed.room, parsed.payload)
+                        if parsed.prefix in ("win", "tie"):
+                            winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
+                            client.room_raw.pop(parsed.room, None)
+                            if on_result is not None:
+                                await on_result(winner)
+                except Exception as exc:  # noqa: BLE001 - keep the loop alive
+                    logger.warning("[%s] frame error (%s): %s", client.name, parsed.prefix, exc)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[%s] client loop error: %s", client.name, exc)
 
@@ -186,6 +208,14 @@ async def run_local_gauntlet(
         packed = load_packed_team(team_path)
     except Exception:  # noqa: BLE001
         packed = ""
+
+    # Unique names per run so a killed run's lingering battles aren't rejoined
+    # (with --no-security, /trn re-attaches to the same user and its open games).
+    import random
+
+    suffix = f"{random.randint(1000, 9999)}"
+    hero_name = f"{hero_name}{suffix}"
+    villain_name = f"{villain_name}{suffix}"
 
     hero_conn = ShowdownConnection(server_url)
     villain_conn = ShowdownConnection(server_url)
@@ -239,7 +269,9 @@ async def run_local_gauntlet(
     chal_task = asyncio.create_task(challenger())
 
     try:
-        await asyncio.wait_for(stop.wait(), timeout=max(60.0, games * 30.0))
+        # VGC games run ~15-25 turns and each decision can take a couple seconds
+        # (Node calc per turn), so budget generously per game.
+        await asyncio.wait_for(stop.wait(), timeout=max(180.0, games * 150.0))
     except asyncio.TimeoutError:
         logger.warning("gauntlet timed out")
         stop.set()

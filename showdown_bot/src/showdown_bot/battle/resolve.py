@@ -8,6 +8,9 @@ from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 SPREAD_MULT = 0.75  # doubles damage reduction for spread moves
 
+# Moves that only work on the turn the user switched in (fail otherwise).
+_FIRST_TURN_MOVES = frozenset({"fakeout", "firstimpression"})
+
 SlotId = tuple[str, str]  # (side, slot) e.g. ("p1", "a")
 
 # damage_fn(action, target_mon) -> fraction of target's max HP dealt (0..1+)
@@ -210,6 +213,21 @@ def resolve_turn(
             continue
 
         if action.kind == "protect":
+            amon = state.sides.get(action.side, {}).get(action.slot)
+            # Consecutive Protect almost always fails (Showdown: ~1/3 on the 2nd,
+            # worse after). Don't rely on it -> model it as failing so the policy
+            # stops spamming Protect into a KO.
+            if amon is not None and getattr(amon, "consecutive_protect", 0) >= 1:
+                outcome.flags.add(f"protect_failed:{action.side}{action.slot}")
+                # A failed Protect wastes the whole turn: the mon does nothing
+                # and still eats the incoming hit. Charge it the same lost-action
+                # tempo cost an interrupted attack pays, otherwise Protect's +4
+                # priority lets a doomed Protect dodge the penalty and the policy
+                # spams it instead of actually attacking.
+                outcome.prevented_actions.append(
+                    PreventedAction(action.side, action.slot, "protect_failed")
+                )
+                continue
             protected.add(key)
             outcome.flags.add(f"protect:{action.side}{action.slot}")
             continue
@@ -221,6 +239,13 @@ def resolve_turn(
         move = action.move
         if move is None:
             continue
+
+        # Fake Out / First Impression only work the turn the user switched in.
+        if move.id in _FIRST_TURN_MOVES:
+            amon = state.sides.get(action.side, {}).get(action.slot)
+            if amon is not None and getattr(amon, "moved_since_switch", False):
+                outcome.flags.add("wasted_move")
+                continue
 
         if move.id in ("followme", "ragepowder"):
             redirect_slot[action.side] = action.slot

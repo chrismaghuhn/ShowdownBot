@@ -22,4 +22,4 @@ def test_encode_choose_with_rqid():
         slot0=SlotAction(kind="move", move_index=1, target=1),
         slot1=SlotAction(kind="move", move_index=3),
     )
-    assert encode_choose(pair, rqid=2) == "/choose move 1 1, move 3 #2"
+    assert encode_choose(pair, rqid=2) == "/choose move 1 1, move 3|2"

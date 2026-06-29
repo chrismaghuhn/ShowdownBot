@@ -61,6 +61,7 @@ class PokemonState:
     fainted: bool = False
     types: list[str] = field(default_factory=list)
     consecutive_protect: int = 0  # trailing run of Protect-type moves used
+    moved_since_switch: bool = False  # has acted since last switch-in (Fake Out gate)
 
     @property
     def hp_fraction(self) -> float:
@@ -172,6 +173,7 @@ class BattleState:
                 mid = to_id(event.details)
                 mon.moves.add(mid)
                 mon.move_names.add(event.details)
+                mon.moved_since_switch = True
                 if mid in _PROTECT_MOVE_IDS:
                     mon.consecutive_protect += 1
                 else:
