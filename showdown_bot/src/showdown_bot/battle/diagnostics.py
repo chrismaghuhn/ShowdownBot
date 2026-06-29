@@ -9,10 +9,69 @@ from __future__ import annotations
 
 from showdown_bot.battle.resolve import TurnOutcome
 from showdown_bot.battle.rollout import RolloutResult
+from showdown_bot.engine.log_parser import HpStatus, LogEvent, PokemonId
 
 
 def _slot(key) -> str:
     return f"{key[0]}{key[1]}"
+
+
+def _name(pid: PokemonId | None) -> str:
+    return pid.name if pid is not None else "?"
+
+
+def _hp(hp: HpStatus | None) -> str:
+    if hp is None:
+        return "?"
+    s = f"{hp.current}/{hp.maximum}" if hp.maximum else str(hp.current)
+    if hp.status:
+        s += f" {hp.status}"
+    if hp.fainted:
+        s += " (fnt)"
+    return s
+
+
+def _from(tags: list[str]) -> str:
+    for tag in tags:
+        if tag.startswith("[from]"):
+            return f" ({tag[len('[from]'):].strip()})"
+    return ""
+
+
+def format_battle_events(events: list[LogEvent]) -> str:
+    """Readable turn-by-turn transcript of the actual game from parsed log events."""
+    lines: list[str] = []
+    for e in events:
+        t = e.type
+        if t == "turn":
+            lines.append(f"Turn {e.amount}")
+        elif t == "move":
+            tgt = f" -> {_name(e.target)}" if e.target else ""
+            lines.append(f"  {_name(e.pokemon)} used {e.details}{tgt}")
+        elif t == "switch":
+            detail = f" ({e.details})" if e.details else ""
+            lines.append(f"  {_name(e.pokemon)} switched in{detail}")
+        elif t in ("damage", "sethp"):
+            lines.append(f"  {_name(e.pokemon)} hurt{_from(e.tags)} -> {_hp(e.hp)}")
+        elif t == "heal":
+            lines.append(f"  {_name(e.pokemon)} healed{_from(e.tags)} -> {_hp(e.hp)}")
+        elif t == "faint":
+            lines.append(f"  {_name(e.pokemon)} fainted")
+        elif t == "status":
+            lines.append(f"  {_name(e.pokemon)} is now {e.value}{_from(e.tags)}")
+        elif t == "curestatus":
+            lines.append(f"  {_name(e.pokemon)} cured {e.value}")
+        elif t == "boost" and e.amount is not None:
+            lines.append(f"  {_name(e.pokemon)} {e.value} {e.amount:+d}")
+        elif t == "weather":
+            lines.append(f"  weather: {e.value or 'cleared'}")
+        elif t in ("fieldstart", "fieldend"):
+            lines.append(f"  field {e.value} {'started' if t == 'fieldstart' else 'ended'}")
+        elif t in ("sidestart", "sideend"):
+            lines.append(f"  {e.side} {e.value} {'up' if t == 'sidestart' else 'down'}")
+        elif t in ("item", "enditem"):
+            lines.append(f"  {_name(e.pokemon)} {'revealed' if t == 'item' else 'lost'} item {e.value}")
+    return "\n".join(lines)
 
 
 def format_outcome(outcome: TurnOutcome, our_side: str) -> str:

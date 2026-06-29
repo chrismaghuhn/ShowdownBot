@@ -1,6 +1,11 @@
-from showdown_bot.battle.diagnostics import format_outcome, format_rollout_trace
+from showdown_bot.battle.diagnostics import (
+    format_battle_events,
+    format_outcome,
+    format_rollout_trace,
+)
 from showdown_bot.battle.resolve import PreventedAction, TurnOutcome
 from showdown_bot.battle.rollout import RolloutResult, TurnTrace
+from showdown_bot.engine.log_parser import parse_log
 
 
 def test_format_rollout_trace_is_readable():
@@ -42,3 +47,22 @@ def test_format_outcome_summarizes_kos_damage_tempo():
 
 def test_format_outcome_no_effect():
     assert "no effect" in format_outcome(TurnOutcome(), "p1").lower()
+
+
+def test_format_battle_events_readable():
+    log = "\n".join(
+        [
+            "|turn|1",
+            "|move|p1a: Incineroar|Fake Out|p2a: Flutter Mane",
+            "|-damage|p2a: Flutter Mane|70/100",
+            "|-status|p1a: Incineroar|brn|[from] item: Flame Orb",
+            "|faint|p2a: Flutter Mane",
+        ]
+    )
+    text = format_battle_events(parse_log(log))
+    assert "Turn 1" in text
+    assert "Fake Out" in text
+    assert "Flutter Mane" in text
+    assert "70/100" in text
+    assert "brn" in text
+    assert "fainted" in text
