@@ -18,371 +18,38 @@
 
 ---
 
-## Task 1: `schema.py` — frozen contract + JSONL
+## Completed work — DO NOT reimplement
 
-> ✅ **DONE + hardened per review.** The committed `schema.py` is STRICTER than the
-> snippet below: `validate_row` enforces exact feature/metadata/label key sets
-> (missing AND unknown), `to_jsonl_line` validates before serializing and drops
-> `default=str`, `Row` is frozen, and `heuristic_rank` is LABEL-only (not a feature)
-> — `format_id` is the only intentional feature/metadata overlap. See the two
-> `feat(learning)` commits; snippet kept for context only.
+These tasks are committed and green (full suite 254). They are described by their
+**actual committed guarantees**, not a code snippet — read the commits, do not
+rebuild from this section.
 
-**Files:**
-- Create: `src/showdown_bot/learning/__init__.py`, `src/showdown_bot/learning/schema.py`
-- Test: `tests/test_ml_schema.py`
+### Task 1: `schema.py` — frozen contract + JSONL — ✅ DONE (commits `aa96dbf`, `3ec740b`)
+- [x] `FEATURE_COLUMNS` (4 groups) + `METADATA_KEYS` + `LABEL_KEYS`; `Row(features, metadata, label)` is **frozen**.
+- [x] `validate_row` enforces **exact** key sets for features / metadata / label — rejects BOTH missing and unknown keys.
+- [x] `to_jsonl_line` **validates before serializing**, uses `separators=(",", ":")` and **no `default=str`** (non-JSON types crash, never silently stringify); `from_jsonl_line` is the inverse.
+- [x] `heuristic_rank` is **LABEL-only** (the heuristic *scores/gaps* are the features); `format_id` is the **only** intentional feature/metadata overlap.
+- [x] `tests/test_ml_schema.py` (10): roundtrip, outcome-fields-are-metadata, unknown/missing feature·metadata·label keys, unique columns, section-overlap rule, validate-on-write.
 
-- [ ] **Step 1: Write the failing tests**
-
-```python
-# tests/test_ml_schema.py
-import pytest
-
-from showdown_bot.learning.schema import (
-    FEATURE_COLUMNS, METADATA_KEYS, LABEL_KEYS, Row,
-    validate_row, to_jsonl_line, from_jsonl_line,
-)
-
-
-def _row():
-    features = {c: 0 for c in FEATURE_COLUMNS}
-    metadata = {k: "x" for k in METADATA_KEYS}
-    label = {k: 0 for k in LABEL_KEYS}
-    return Row(features=features, metadata=metadata, label=label)
-
-
-def test_outcome_fields_are_metadata_not_features():
-    # the leakage guard: outcome/future fields must NOT be feature columns
-    for forbidden in ("game_outcome", "winner", "final_turn", "teacher_trace"):
-        assert forbidden not in FEATURE_COLUMNS
-        assert forbidden in METADATA_KEYS
-
-
-def test_jsonl_roundtrip_is_identity():
-    row = _row()
-    back = from_jsonl_line(to_jsonl_line(row))
-    assert back.features == row.features
-    assert back.metadata == row.metadata
-    assert back.label == row.label
-
-
-def test_validate_row_rejects_unknown_feature_key():
-    row = _row()
-    row.features["not_a_real_feature"] = 1
-    with pytest.raises(ValueError, match="unknown feature"):
-        validate_row(row)
-
-
-def test_validate_row_requires_versioning_metadata():
-    row = _row()
-    del row.metadata["schema_version"]
-    with pytest.raises(ValueError, match="missing metadata"):
-        validate_row(row)
-```
-
-- [ ] **Step 2: Run them to verify they fail**
-
-Run: `cd showdown_bot && python -m pytest tests/test_ml_schema.py -q`
-Expected: FAIL with `ModuleNotFoundError: No module named 'showdown_bot.learning'`
-
-- [ ] **Step 3: Create the package marker** — `src/showdown_bot/learning/__init__.py` with a single line:
-
-```python
-"""Phase 3 learning: training-data contract + counterfactual teacher."""
-```
-
-- [ ] **Step 4: Create `src/showdown_bot/learning/schema.py`**
-
-```python
-"""Frozen training-data contract for the reranker (Phase 3, slice 1).
-
-features = ONLY decision-time info. metadata = outcome/versioning/debug (never a
-feature). label = counterfactual teacher value/ranks. One JSONL row per
-(decision x candidate); group by metadata.decision_id / metadata.game_id.
-"""
-
-from __future__ import annotations
-
-import json
-from dataclasses import dataclass, field
-
-# --- feature columns, 4 frozen groups (decision-time info only) -------------
-CONTEXT_FEATURES = [
-    "game_mode", "turn_number", "endgame_flag", "our_alive_count", "opp_alive_count",
-    "our_total_hp_frac", "opp_total_hp_frac", "field_weather", "field_terrain",
-    "tailwind_ours", "tailwind_opp", "trick_room_active", "screens_ours",
-    "screens_opp", "speed_control_state", "format_id", "mirror_flag",
-]
-ACTION_FEATURES = [
-    "slot1_action_type", "slot2_action_type", "slot1_move_id", "slot2_move_id",
-    "slot1_move_type", "slot2_move_type", "slot1_move_category", "slot2_move_category",
-    "slot1_target_kind", "slot2_target_kind", "slot1_target_slot", "slot2_target_slot",
-    "slot1_priority", "slot2_priority", "slot1_is_damaging", "slot2_is_damaging",
-    "slot1_is_protect", "slot2_is_protect", "slot1_is_switch", "slot2_is_switch",
-    "tera_used", "slot1_actor_species_id", "slot2_actor_species_id",
-    "slot1_switch_target_species_id", "slot2_switch_target_species_id",
-    "slot1_target_species_id_if_known", "slot2_target_species_id_if_known",
-]
-HEURISTIC_FEATURES = [
-    "heuristic_aggregate_score", "heuristic_rank", "score_gap_to_top",
-    "score_gap_to_second", "score_min_vs_opp", "score_mean_vs_opp",
-    "score_var_vs_opp", "score_worst_response", "predicted_outgoing_damage",
-    "predicted_incoming_damage", "out_in_ratio", "predicted_kos_for",
-    "predicted_kos_against", "ko_secured_count", "ko_threatened_count",
-    "survives_for_sure_count", "protect_stall_penalty", "partner_abandon_penalty",
-    "fakeout_invalid_penalty", "action_economy_score",
-]
-TEMPO_FEATURES = [
-    "we_outspeed_count", "they_outspeed_count", "speed_tie_count",
-    "our_fastest_active_speed", "opp_fastest_active_speed", "must_react_reason_flags",
-    "protect_prior_target1", "protect_prior_target2", "response_count",
-    "opponent_response_entropy", "value_range_across_opp_responses",
-]
-FEATURE_COLUMNS = CONTEXT_FEATURES + ACTION_FEATURES + HEURISTIC_FEATURES + TEMPO_FEATURES
-
-METADATA_KEYS = [
-    "game_id", "decision_id", "candidate_index", "format_id", "game_outcome",
-    "final_turn", "winner", "teacher_trace", "schema_version",
-    "feature_extractor_version", "teacher_version", "git_sha", "team_hash",
-    "config_hash", "teacher_config",
-]
-LABEL_KEYS = [
-    "counterfactual_value_raw", "counterfactual_value_normalized_within_decision",
-    "value_gap_to_best", "counterfactual_rank", "teacher_rank", "teacher_best",
-    "chosen_by_current_heuristic", "heuristic_rank",
-]
-
-_FEATURE_SET = frozenset(FEATURE_COLUMNS)
-_REQUIRED_META = frozenset({"schema_version", "decision_id", "game_id"})
-
-
-@dataclass
-class Row:
-    features: dict
-    metadata: dict
-    label: dict = field(default_factory=dict)
-
-
-def validate_row(row: Row) -> None:
-    unknown = set(row.features) - _FEATURE_SET
-    if unknown:
-        raise ValueError(f"unknown feature key(s): {sorted(unknown)}")
-    missing = _REQUIRED_META - set(row.metadata)
-    if missing:
-        raise ValueError(f"missing metadata: {sorted(missing)}")
-
-
-def to_jsonl_line(row: Row) -> str:
-    return json.dumps(
-        {"features": row.features, "metadata": row.metadata, "label": row.label},
-        sort_keys=True, default=str,
-    )
-
-
-def from_jsonl_line(line: str) -> Row:
-    d = json.loads(line)
-    return Row(features=d["features"], metadata=d["metadata"], label=d.get("label", {}))
-```
-
-- [ ] **Step 5: Run tests to verify they pass**
-
-Run: `cd showdown_bot && python -m pytest tests/test_ml_schema.py -q` then `cd showdown_bot && python -m pytest -q`
-Expected: PASS (suite was 237; expect 241).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add showdown_bot/src/showdown_bot/learning/__init__.py showdown_bot/src/showdown_bot/learning/schema.py showdown_bot/tests/test_ml_schema.py
-git commit -m "feat(learning): reranker data contract (frozen columns, metadata, JSONL)"
-```
+### Task 2: `teacher.py` counterfactual return — ✅ DONE (commits `3d7341a`, `ad8700b`)
+- [x] `RolloutConfig(H, gamma, top_k, use_leaf)` with `__post_init__` validation: `H >= 0`, `gamma in (0, 1]`, `top_k > 0`.
+- [x] `counterfactual_value(start_state, candidate, responses, *, decide, resolve, leaf, cfg)` — incremental transition rewards + ONE bootstrap leaf at `gamma^(H+1)` (no double-count); `H=0` with `use_leaf=False` equals the one-ply aggregate; weighted mean over the response set; rejects empty responses / weights not summing to 1 / negative weights.
+- [x] `tests/test_teacher_rollout.py` (7): H=0==one-ply, no-double-count formula, response-weights-applied, empty/sum/negative rejection, RolloutConfig validation.
 
 ---
 
-## Task 2: `teacher.py` — counterfactual return (no double-count, H=0 sanity)
+## Task 3: `teacher.py` — within-decision normalization + dual labels  (OPEN)
 
-The teacher is a PURE function over injectable rollout primitives so it tests
-without Node/calc:
-- `decide(state, side) -> action` — the heuristic move for a side in a follow-up turn.
-- `resolve(state, our_action, opp_action) -> (next_state, transition_reward)` — one
-  turn; `transition_reward` is the INCREMENTAL `score_outcome` of that turn.
-- `leaf(state) -> float` — the static one-ply board value at the horizon.
-
-**Files:**
-- Create: `src/showdown_bot/learning/teacher.py`
-- Test: `tests/test_teacher_rollout.py`
-
-- [ ] **Step 1: Write the failing tests**
-
-```python
-# tests/test_teacher_rollout.py
-import pytest
-
-from showdown_bot.learning.teacher import RolloutConfig, counterfactual_value
-
-
-def _fakes(rewards_by_turn, leaf_value):
-    """resolve/decide/leaf fakes. State is just an int turn counter; each turn's
-    transition_reward is rewards_by_turn[turn]. decide returns a dummy action."""
-    def decide(state, side):
-        return ("dummy", side)
-
-    def resolve(state, our_action, opp_action):
-        turn = state
-        return turn + 1, rewards_by_turn[turn]
-
-    def leaf(state):
-        return leaf_value
-
-    return decide, resolve, leaf
-
-
-def test_h0_no_leaf_equals_one_ply_aggregate():
-    # two responses, weights 0.25/0.75; H=0, leaf off -> weighted mean of turn-0 reward
-    decide, resolve, leaf = _fakes({0: 2.0}, leaf_value=99.0)
-    cfg = RolloutConfig(H=0, gamma=0.75, use_leaf=False)
-    v = counterfactual_value(
-        start_state=0, candidate="c", responses=[("r1", 0.25), ("r2", 0.75)],
-        decide=decide, resolve=resolve, leaf=leaf, cfg=cfg,
-    )
-    assert v == 2.0  # one-ply aggregate, no leaf, no follow-ups
-
-
-def test_return_formula_no_double_count():
-    # H=2 follow-ups; rewards r0=1, r1=2, r2=3; leaf=10; gamma=0.5
-    # v = 1 + 0.5*2 + 0.25*3 + 0.5^3 * 10 = 1 + 1 + 0.75 + 1.25 = 4.0
-    decide, resolve, leaf = _fakes({0: 1.0, 1: 2.0, 2: 3.0}, leaf_value=10.0)
-    cfg = RolloutConfig(H=2, gamma=0.5, use_leaf=True)
-    v = counterfactual_value(
-        start_state=0, candidate="c", responses=[("r", 1.0)],
-        decide=decide, resolve=resolve, leaf=leaf, cfg=cfg,
-    )
-    assert abs(v - 4.0) < 1e-9
-
-
-def test_response_weights_are_applied():
-    # responses give DIFFERENT rewards, so a teacher that ignored weights would fail
-    def decide(state, side):
-        return ("dummy", side)
-
-    def resolve(state, our_action, opp_action):
-        return state + 1, (2.0 if opp_action == "r1" else 6.0)
-
-    def leaf(state):
-        return 0.0
-
-    cfg = RolloutConfig(H=0, gamma=0.75, use_leaf=False)
-    v = counterfactual_value(
-        start_state=0, candidate="c", responses=[("r1", 0.25), ("r2", 0.75)],
-        decide=decide, resolve=resolve, leaf=leaf, cfg=cfg,
-    )
-    assert abs(v - 5.0) < 1e-9  # 0.25*2 + 0.75*6
-
-
-def test_rejects_empty_responses():
-    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
-    cfg = RolloutConfig(H=0, use_leaf=False)
-    with pytest.raises(ValueError, match="empty"):
-        counterfactual_value(start_state=0, candidate="c", responses=[],
-                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
-
-
-def test_rejects_weights_not_summing_to_one():
-    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
-    cfg = RolloutConfig(H=0, use_leaf=False)
-    with pytest.raises(ValueError, match="sum to 1"):
-        counterfactual_value(start_state=0, candidate="c", responses=[("r1", 0.3), ("r2", 0.3)],
-                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
-
-
-def test_rejects_negative_weight():
-    decide, resolve, leaf = _fakes({0: 1.0}, leaf_value=0.0)
-    cfg = RolloutConfig(H=0, use_leaf=False)
-    with pytest.raises(ValueError, match="non-negative"):
-        counterfactual_value(start_state=0, candidate="c", responses=[("r1", 1.3), ("r2", -0.3)],
-                             decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
-```
-
-- [ ] **Step 2: Run them to verify they fail**
-
-Run: `cd showdown_bot && python -m pytest tests/test_teacher_rollout.py -q`
-Expected: FAIL with `ImportError: cannot import name 'counterfactual_value'`
-
-- [ ] **Step 3: Implement `src/showdown_bot/learning/teacher.py`**
-
-```python
-"""Fixed-horizon counterfactual teacher (Phase 3, slice 1).
-
-Return = incremental transition rewards + ONE bootstrap leaf, never evaluating the
-same state twice. H = follow-up turns after the candidate turn (1 + H transitions).
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass
-
-US = "us"
-THEM = "them"
-
-
-@dataclass
-class RolloutConfig:
-    H: int = 4          # heuristic follow-up turns after the fixed candidate turn
-    gamma: float = 0.75
-    top_k: int = 6
-    use_leaf: bool = True
-
-
-def _rollout_one(start_state, candidate, first_opp, *, decide, resolve, leaf, cfg) -> float:
-    # transition 0: the fixed candidate + this opponent response (gamma^0 = 1)
-    state, reward = resolve(start_state, candidate, first_opp)
-    v = reward
-    for t in range(1, cfg.H + 1):  # H follow-up turns, heuristic both sides
-        state, reward = resolve(state, decide(state, US), decide(state, THEM))
-        v += (cfg.gamma ** t) * reward
-    if cfg.use_leaf:
-        v += (cfg.gamma ** (cfg.H + 1)) * leaf(state)  # bootstrap, strictly after last transition
-    return v
-
-
-def counterfactual_value(start_state, candidate, responses, *, decide, resolve, leaf, cfg) -> float:
-    """Weighted mean over the (candidate-independent) opponent response set.
-    ``responses`` is a list of (opponent_action, weight); weights must be
-    non-negative and sum to 1 — otherwise the label silently mis-normalizes."""
-    if not responses:
-        raise ValueError("responses must not be empty")
-    total_w = 0.0
-    for _, w in responses:
-        if w < 0:
-            raise ValueError("response weight must be non-negative")
-        total_w += w
-    if abs(total_w - 1.0) > 1e-6:
-        raise ValueError("response weights must sum to 1")
-    return sum(
-        w * _rollout_one(start_state, candidate, opp, decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
-        for opp, w in responses
-    )
-```
-
-- [ ] **Step 4: Run tests then the full suite**
-
-Run: `cd showdown_bot && python -m pytest tests/test_teacher_rollout.py -q` then `cd showdown_bot && python -m pytest -q`
-Expected: PASS (suite expect 244).
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add showdown_bot/src/showdown_bot/learning/teacher.py showdown_bot/tests/test_teacher_rollout.py
-git commit -m "feat(learning): counterfactual teacher return (no double-count, H=0 sanity)"
-```
-
----
-
-## Task 3: `teacher.py` — within-decision normalization + dual labels
+The only remaining task in this plan. Appends `label_decision` (+ a `_ranks`
+helper) to the existing `teacher.py`. All labels are computed **within one
+decision**; the teacher's tie-break for "best" must match `_ranks` exactly so
+`teacher_rank == 0` and `teacher_best` never disagree.
 
 **Files:**
 - Modify: `src/showdown_bot/learning/teacher.py`
 - Test: `tests/test_teacher_rollout.py`
 
-- [ ] **Step 1: Write the failing tests** (append)
+- [ ] **Step 1: Write the failing tests** (append to `tests/test_teacher_rollout.py`)
 
 ```python
 def test_label_decision_normalizes_and_flags_disagreement():
@@ -423,14 +90,20 @@ def test_label_decision_requires_choice_in_candidates():
     from showdown_bot.learning.teacher import label_decision
     with pytest.raises(ValueError, match="must be one of"):
         label_decision({"A": 1.0, "B": 2.0}, {"A": 1.0, "B": 2.0}, "Z")
+
+
+def test_label_decision_rejects_empty_values():
+    from showdown_bot.learning.teacher import label_decision
+    with pytest.raises(ValueError, match="empty"):
+        label_decision({}, {}, "A")
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd showdown_bot && python -m pytest tests/test_teacher_rollout.py::test_label_decision_normalizes_and_flags_disagreement -q`
+Run: `cd showdown_bot && python -m pytest tests/test_teacher_rollout.py -q`
 Expected: FAIL with `ImportError: cannot import name 'label_decision'`
 
-- [ ] **Step 3: Implement `label_decision`** (append to `teacher.py`)
+- [ ] **Step 3: Implement `label_decision`** (append to `src/showdown_bot/learning/teacher.py`)
 
 ```python
 def _ranks(values: dict) -> dict:
@@ -471,7 +144,7 @@ def label_decision(teacher_values: dict, heuristic_values: dict, heuristic_choic
 - [ ] **Step 4: Run tests then the full suite**
 
 Run: `cd showdown_bot && python -m pytest tests/test_teacher_rollout.py -q` then `cd showdown_bot && python -m pytest -q`
-Expected: PASS (suite expect 245).
+Expected: PASS (suite was 254; expect 259 with the 5 new tests).
 
 - [ ] **Step 5: Commit**
 
@@ -483,6 +156,7 @@ git commit -m "feat(learning): within-decision normalization + dual (heuristic/t
 ---
 
 ## Self-Review notes
-- **Spec coverage (this plan = contract + teacher):** frozen 4-group columns + metadata (incl. versioning) + label keys + JSONL + feature-availability guard (T1); counterfactual return with no-double-count + H=0==one-ply + weighted-mean-over-R (T2); within-decision normalization + dual labels + disagreement (T3). **Deferred to Plan 1b:** real feature extraction from the decision (the 4 groups), the self-play export driver with decision sampling, the opponent **limited-view** rollout adapter, `git_sha`/`team_hash`/`config_hash` population, and end-to-end determinism/schema-version dataset tests.
+- **Spec coverage (this plan = contract + teacher):** done — frozen 4-group columns + metadata (incl. versioning) + label keys + JSONL + leakage guard (T1); counterfactual return with no-double-count + H=0==one-ply + weighted-mean-over-R + config/weight validation (T2); within-decision normalization + dual labels + consistent tie-break + guards (T3). **Deferred to Plan 1b:** real feature extraction from the decision (the 4 groups), the self-play export driver with decision sampling, the opponent **limited-view** rollout adapter, `git_sha`/`team_hash`/`config_hash` population, and end-to-end determinism/schema-version dataset tests.
 - **Type consistency:** `Row(features, metadata, label)`, `validate_row`, `to_jsonl_line`/`from_jsonl_line`, `RolloutConfig(H, gamma, top_k, use_leaf)`, `counterfactual_value(start_state, candidate, responses, *, decide, resolve, leaf, cfg)`, `label_decision(teacher_values, heuristic_values, heuristic_choice_id)` — consistent across tasks.
+- **No stale snippets:** Tasks 1–2 are described by committed guarantees only (no re-buildable code); Task 3 carries the single source of truth for `label_decision`.
 - **No Node/calc dependency** — all rollout primitives injected; Plan 1b supplies the real adapters.
