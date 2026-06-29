@@ -115,6 +115,73 @@ assert _ALL_BUCKETED == frozenset(FEATURE_COLUMNS), (
 
 
 # ---------------------------------------------------------------------------
+# Group-1 helpers
+# ---------------------------------------------------------------------------
+
+def _opp_side(our_side: str) -> str:
+    return "p2" if our_side == "p1" else "p1"
+
+
+def _active_living(state, side: str) -> list:
+    """Return PokemonState objects in slots 'a'/'b' that are not fainted."""
+    return [
+        m for s, m in state.side(side).items()
+        if s in ("a", "b") and m is not None and not m.fainted
+    ]
+
+
+def _speed_control_state(field, our_side: str, opp: str) -> str:
+    o = bool(field.tailwind.get(our_side, False))
+    p = bool(field.tailwind.get(opp, False))
+    tr = bool(field.trick_room)
+    if tr and (o or p):
+        return "mixed"
+    if tr:
+        return "trick_room"
+    if o and p:
+        return "tailwind_both"
+    if o:
+        return "tailwind_ours"
+    if p:
+        return "tailwind_opp"
+    return "none"
+
+
+def _group1_context(state, request, trace, ctx: "FeatureContext") -> dict:
+    our_side = ctx.our_side
+    opp = _opp_side(our_side)
+    field = state.field
+    our_alive = sum(
+        1 for p in request.side.pokemon
+        if "fnt" not in (p.condition or "")
+    )
+    opp_faints = sum(
+        1 for m in state.side(opp).values()
+        if getattr(m, "fainted", False)
+    )
+    opp_alive = max(0, 4 - opp_faints)
+    return {
+        "game_mode": trace.game_mode if trace.game_mode is not None else SENTINEL_CAT_NONE,
+        "turn_number": ctx.turn_number,
+        "endgame_flag": our_alive <= 1,
+        "our_alive_count": our_alive,
+        "opp_alive_count": opp_alive,
+        "our_total_hp_frac": sum(m.hp_fraction for m in _active_living(state, our_side)),
+        "opp_total_hp_frac": sum(m.hp_fraction for m in _active_living(state, opp)),
+        "field_weather": field.weather or SENTINEL_CAT_NONE,
+        "field_terrain": field.terrain or SENTINEL_CAT_NONE,
+        "tailwind_ours": bool(field.tailwind.get(our_side, False)),
+        "tailwind_opp": bool(field.tailwind.get(opp, False)),
+        "trick_room_active": bool(field.trick_room),
+        "screens_ours": SENTINEL_CAT_UNTRACKED,
+        "screens_opp": SENTINEL_CAT_UNTRACKED,
+        "speed_control_state": _speed_control_state(field, our_side, opp),
+        "format_id": ctx.format_id,
+        "mirror_flag": ctx.mirror_flag,
+    }
+
+
+# ---------------------------------------------------------------------------
 # FeatureContext DTO
 # ---------------------------------------------------------------------------
 
@@ -181,11 +248,14 @@ def extract_features(trace, state, request, context: FeatureContext) -> list[Row
     This scaffold sets every feature to its typed sentinel; later tasks replace
     stubs with real values group by group, without breaking these gates.
     """
+    g1 = _group1_context(state, request, trace, context)
     rows = []
     for i, cand in enumerate(trace.candidates):
+        features = _stub_features()
+        features.update(g1)
         rows.append(
             Row(
-                features=_stub_features(),
+                features=features,
                 metadata=_metadata(context, i),
                 label=_stub_label(),
             )
