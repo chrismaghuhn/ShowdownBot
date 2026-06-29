@@ -130,3 +130,31 @@ def test_evaluate_line_integration_with_fake_dmg():
     score, out = evaluate_line(st, [mine], [theirs], dmg, our_side="p1")
     assert out.my_kos == 1
     assert score > 0
+
+
+def test_evaluate_line_rollout_additive_at_horizon_zero():
+    """Invariant I-7: Rollout(H=0) == no rollout."""
+    st = _model_state()
+    moon = get_move_meta("Moonblast")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.3 if action.is_ours else 0.0
+
+    base = evaluate_line(st, [mine], [], dmg, our_side="p1")[0]
+    h0 = evaluate_line(st, [mine], [], dmg, our_side="p1", rollout_horizon=0)[0]
+    assert h0 == base
+
+
+def test_evaluate_line_rollout_values_status_chip():
+    st = _model_state()
+    st.sides["p2"]["a"].status = "brn"  # burned opponent chips over the horizon
+    moon = get_move_meta("Moonblast")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.1 if action.is_ours else 0.0  # opp survives turn 0, then chips
+
+    h0 = evaluate_line(st, [mine], [], dmg, our_side="p1", rollout_horizon=0)[0]
+    h2 = evaluate_line(st, [mine], [], dmg, our_side="p1", rollout_horizon=2)[0]
+    assert h2 > h0

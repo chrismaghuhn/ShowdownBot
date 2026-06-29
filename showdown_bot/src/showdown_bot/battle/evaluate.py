@@ -211,6 +211,43 @@ class DamageModel:
         return not self.oracle.damage(req).can_ohko
 
 
+def _rollout_value(
+    state: BattleState,
+    all_actions: list[PlannedAction],
+    outcome: TurnOutcome,
+    our_side: str,
+    weights: EvalWeights,
+    field: FieldState | None,
+    horizon: int,
+    gamma: float,
+) -> float:
+    """Discounted multi-turn condition rollout value for a line (spec §6).
+
+    v1 rolls residual conditions forward (no follow-up attackers yet): seeds the
+    ConditionState from the post-turn state, applies the line's inflicted status,
+    and sums the discounted residual score. Honors I-5 (no double-count: residuals
+    are not in the turn-0 damage) and I-6 (no new calcs).
+    """
+    from showdown_bot.battle.rollout import RolloutBudget, RolloutWeights, rollout
+    from showdown_bot.battle.rollout_adapter import apply_line_effects, conditions_from_battle
+
+    cstate = conditions_from_battle(state)
+    apply_line_effects(cstate, all_actions)
+
+    post_hp: dict[SlotId, float] = {}
+    for side, slots in state.sides.items():
+        for slot, mon in slots.items():
+            if slot in ("a", "b") and mon is not None:
+                key = (side, slot)
+                post_hp[key] = max(0.0, mon.hp_fraction + outcome.hp_delta.get(key, 0.0))
+
+    rw = RolloutWeights(
+        ko=weights.ko, faint=-weights.faint, dmg_dealt=weights.dmg_dealt, dmg_taken=weights.dmg_taken
+    )
+    budget = RolloutBudget(horizon=horizon, gamma=gamma, trick_room=bool(field and field.trick_room))
+    return rollout([], cstate, post_hp, our_side=our_side, budget=budget, weights=rw).value
+
+
 def evaluate_line(
     state: BattleState,
     my_actions: list[PlannedAction],
@@ -220,8 +257,16 @@ def evaluate_line(
     our_side: str,
     weights: EvalWeights | None = None,
     field: FieldState | None = None,
+    rollout_horizon: int = 0,
+    rollout_gamma: float = 0.7,
 ) -> tuple[float, TurnOutcome]:
-    outcome = resolve_turn(
-        state, my_actions + opp_actions, damage_fn, our_side=our_side, field=field
-    )
-    return score_outcome(outcome, our_side, weights), outcome
+    field = field or state.field
+    all_actions = my_actions + opp_actions
+    outcome = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field)
+    score = score_outcome(outcome, our_side, weights)
+    if rollout_horizon > 0:
+        score += _rollout_value(
+            state, all_actions, outcome, our_side, weights or EvalWeights(),
+            field, rollout_horizon, rollout_gamma,
+        )
+    return score, outcome

@@ -53,3 +53,23 @@ def conditions_from_battle(state: BattleState) -> ConditionState:
         cs.field[terrain] = ConditionInstance(terrain, duration=None)
 
     return cs
+
+
+def apply_line_effects(cstate: ConditionState, actions) -> None:
+    """Apply a chosen line's guaranteed primary-status moves to the ConditionState
+    so the rollout values inflicting status (e.g. Will-O-Wisp chip over H turns).
+
+    v1 scope: only guaranteed primary status (``move.status`` set), only onto an
+    unstatused target. Type immunity (e.g. Fire can't be burned) is a documented
+    later refinement; secondary-chance statuses are not applied.
+    """
+    for action in actions:
+        if getattr(action, "kind", None) != "move" or action.move is None:
+            continue
+        status = getattr(action.move, "status", None)
+        target = action.target
+        if not status or target is None:
+            continue
+        mon = cstate.mons.get(target)
+        if mon is not None and mon.status is None:
+            mon.status = status
