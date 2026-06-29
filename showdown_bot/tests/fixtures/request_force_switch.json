@@ -1,0 +1,16 @@
+{
+  "forceSwitch": [true, false],
+  "active": [
+    {"moves": [{"move": "Protect", "id": "protect", "pp": 16, "maxpp": 16, "target": "self", "disabled": false}]},
+    {"moves": [{"move": "Heat Wave", "id": "heatwave", "pp": 16, "maxpp": 16, "target": "allAdjacentFoes", "disabled": false}]}
+  ],
+  "side": {
+    "pokemon": [
+      {"ident": "p1: A", "details": "A", "condition": "0 fnt", "active": true, "moves": []},
+      {"ident": "p1: B", "details": "B", "condition": "100/100", "active": true, "moves": []},
+      {"ident": "p1: C", "details": "C", "condition": "100/100", "active": false, "moves": []},
+      {"ident": "p1: D", "details": "D", "condition": "100/100", "active": false, "moves": []}
+    ]
+  },
+  "rqid": 5
+}
