@@ -246,7 +246,7 @@ def heuristic_choose_for_request(
             (_label_ja(req, ja), aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
             for ja, scores in items
         ]
-        report.append(format_decision(_label_ja(req, best_ja), ranked, str(mode)))
+        report.append(format_decision(_label_ja(req, best_ja), ranked, getattr(mode, "name", str(mode))))
 
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
