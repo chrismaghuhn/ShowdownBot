@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
+from showdown_bot.battle.legal_actions import enumerate_slot_pairs
 from showdown_bot.models.actions import SlotAction
 from showdown_bot.models.request import BattleRequest
 
@@ -33,6 +34,25 @@ def test_double_switch_dropped_by_default():
     assert not any(
         ja.slot0.kind == "switch" and ja.slot1.kind == "switch" for ja in acts
     )
+
+
+def test_fainted_active_slot_passes_not_moves():
+    """Regression (real game stall): slot1's active mon (Landorus) had fainted
+    with no replacement, so the slot stays in ``active`` with moves but the
+    server expects ``pass``. The bot emitted 'move 1 1, move 1 1' -> server
+    rejected ('more choices than unfainted Pokemon') -> game hung. The fainted
+    slot must pass; the living slot still gets real moves."""
+    acts = enumerate_my_actions(_req("request_fainted_active_slot.json"))
+    assert acts
+    assert all(ja.slot1.kind == "pass" for ja in acts)
+    assert any(ja.slot0.kind == "move" for ja in acts)
+
+
+def test_legal_pairs_pass_fainted_active_slot():
+    """Same fix in the baseline path (legal_actions.enumerate_slot_pairs)."""
+    pairs = enumerate_slot_pairs(_req("request_fainted_active_slot.json"))
+    assert pairs
+    assert all(p.slot1.kind == "pass" for p in pairs)
 
 
 def test_double_switch_allowed_when_requested():

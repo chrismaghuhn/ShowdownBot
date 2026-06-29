@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from itertools import product
 
-from showdown_bot.battle.legal_actions import _slot_move_actions
+from showdown_bot.battle.legal_actions import _active_mon_fainted, _slot_move_actions
 from showdown_bot.models.actions import SlotAction, SlotPair
 from showdown_bot.models.request import BattleRequest
 
@@ -68,6 +68,9 @@ def _slot_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
         return [SlotAction(kind="pass")]
     if req.active and active_index < len(req.active) and req.active[active_index] is None:
         # Empty slot (one mon left in doubles): nothing to choose.
+        return [SlotAction(kind="pass")]
+    if _active_mon_fainted(req, active_index):
+        # Active mon fainted with no replacement -> the dead slot must pass.
         return [SlotAction(kind="pass")]
     moves = [a for a in _slot_move_actions(active_index, req) if not a.terastallize]
     return moves + _voluntary_switches(req, active_index)

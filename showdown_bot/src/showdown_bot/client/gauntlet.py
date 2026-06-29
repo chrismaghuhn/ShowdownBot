@@ -101,6 +101,8 @@ class _Client:
         self.packed_team = packed_team
         self.trace = trace
         self.room_raw: dict[str, list[str]] = {}
+        self.last_choose: dict[str, str] = {}
+        self.last_request: dict[str, str] = {}
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
@@ -124,6 +126,7 @@ class _Client:
         if req.wait:
             # Opponent's turn; we've already locked in. Nothing to choose.
             return
+        self.last_request[room] = payload
         state = self._state_for(room, req)
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
         start = time.perf_counter()
@@ -137,6 +140,7 @@ class _Client:
             self.crashes += 1
             choose = f"/choose default|{req.rqid}"
         self.latencies.append(time.perf_counter() - start)
+        self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
         if report is not None and not req.team_preview:
             try:
@@ -180,8 +184,16 @@ async def _run_client(
                     if parsed.room.startswith("battle-"):
                         if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
                             await client.conn.send(f"|/join {parsed.room}")
-                        if parsed.prefix == "error" and _is_real_invalid(parsed.args[0] if parsed.args else ""):
-                            client.invalid += 1
+                        if parsed.prefix == "error":
+                            err_text = parsed.args[0] if parsed.args else ""
+                            if _is_real_invalid(err_text):
+                                client.invalid += 1
+                                logger.warning(
+                                    "[%s] INVALID CHOICE in %s: server=%r | sent=%r | request=%s",
+                                    client.name, parsed.room, err_text,
+                                    client.last_choose.get(parsed.room),
+                                    client.last_request.get(parsed.room, "")[:400],
+                                )
                         if parsed.prefix == "request":
                             await client.handle_request(parsed.room, parsed.payload)
                         if parsed.prefix in ("win", "tie"):

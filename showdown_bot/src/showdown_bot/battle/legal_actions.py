@@ -41,6 +41,17 @@ def _move_targets(move_target: str) -> list[int | None]:
     return [1, 2]
 
 
+def _active_mon_fainted(req: BattleRequest, active_index: int) -> bool:
+    """Whether the mon in our ``active_index``-th active slot has fainted.
+
+    A fainted active mon with no replacement keeps its slot in ``active`` (still
+    listing the dead mon's moves), but Showdown expects ``pass`` for it; a move
+    there is rejected ("more choices than unfainted Pokemon") and stalls the game.
+    """
+    actives = [p for p in req.side.pokemon if p.active]
+    return active_index < len(actives) and "fnt" in actives[active_index].condition
+
+
 def _slot_move_actions(active_index: int, req: BattleRequest) -> list[SlotAction]:
     forced = bool(
         req.force_switch
@@ -57,6 +68,9 @@ def _slot_move_actions(active_index: int, req: BattleRequest) -> list[SlotAction
     active = req.active[active_index]
     # Empty slot (doubles with one mon left): nothing to choose, just pass.
     if active is None:
+        return [SlotAction(kind="pass")]
+    # Active mon fainted with no replacement -> the dead slot must pass.
+    if _active_mon_fainted(req, active_index):
         return [SlotAction(kind="pass")]
     # Choice items lock the holder into the FIRST move it selects. Clicking a
     # non-damaging move (e.g. Protect) therefore locks the mon into that move
