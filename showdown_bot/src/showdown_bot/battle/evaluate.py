@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -19,6 +20,18 @@ SlotId = tuple[str, str]
 _WEATHER_MAP = {
     "rain": "Rain", "sun": "Sun", "sand": "Sand", "snow": "Snow", "hail": "Hail",
 }
+
+
+def _our_roll(res) -> float:
+    """How optimistically to read OUR own attack's damage roll. Default ``min``
+    (guaranteed-KO semantics) makes the bot under-commit to KOs it actually lands;
+    ``SHOWDOWN_OUR_ROLL = min | mean | max`` tunes it for play-quality A/Bs."""
+    mode = os.environ.get("SHOWDOWN_OUR_ROLL", "min").lower()
+    if mode == "max":
+        return res.max_damage
+    if mode == "mean":
+        return (res.min_damage + res.max_damage) / 2.0
+    return res.min_damage
 
 
 def build_field_payload(field: FieldState) -> dict:
@@ -181,7 +194,7 @@ class DamageModel:
         res = self.oracle.get(self.oracle.request(req))
         if res.max_hp <= 0:
             return 0.0
-        roll = res.min_damage if action.is_ours else res.max_damage
+        roll = _our_roll(res) if action.is_ours else res.max_damage
         return roll / res.max_hp
 
     # --- the three named spread_mode helpers (footgun-proof, never one flag) ---
