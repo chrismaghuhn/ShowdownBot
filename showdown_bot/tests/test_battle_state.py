@@ -19,6 +19,21 @@ def test_parse_details():
     assert d.gender == "M"
 
 
+def test_consecutive_protect_counts_and_resets():
+    log = (
+        "|switch|p2a: Amoonguss|Amoonguss, L50|100/100\n"
+        "|move|p2a: Amoonguss|Protect|\n"
+        "|turn|2\n"
+        "|move|p2a: Amoonguss|Protect|\n"
+    )
+    st = BattleState.from_log_text(log)
+    assert st.sides["p2"]["a"].consecutive_protect == 2
+
+    # a non-protect move resets the streak
+    st.apply_event(parse_log("|move|p2a: Amoonguss|Spore|p1a")[0])
+    assert st.sides["p2"]["a"].consecutive_protect == 0
+
+
 def test_two_active_per_side_after_turn1():
     events = [e for e in parse_log(LOG.read_text(encoding="utf-8"))]
     # Only feed up to first turn marker to check the opening switch-ins.

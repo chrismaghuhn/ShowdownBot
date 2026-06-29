@@ -69,3 +69,21 @@ def test_predict_responses_targets_our_alive_slots():
     aggro = next(r for r in resps if r.label == "aggro->a")
     targets = {a.target for a in aggro.actions if a.kind == "move"}
     assert ("p1", "a") in targets
+
+
+def test_consecutive_protect_lowers_protect_weight():
+    from showdown_bot.engine.belief.protect_priors import ProtectPriors
+
+    priors = ProtectPriors(
+        default=0.5, threatened_bump=0.0, consecutive_penalty=0.4, species={}
+    )
+    st = _state()
+    base = predict_responses(st, "p1", "p2", dex=None, priors=priors)
+    base_protect = next(r for r in base if "protect" in r.label).weight
+
+    # opp slot a has just spammed Protect twice -> a third should be discounted
+    st.sides["p2"]["a"].consecutive_protect = 2
+    after = predict_responses(st, "p1", "p2", dex=None, priors=priors)
+    after_protect = next(r for r in after if "protect" in r.label).weight
+
+    assert after_protect < base_protect

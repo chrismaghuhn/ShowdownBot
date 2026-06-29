@@ -149,6 +149,17 @@ def heuristic_choose_for_request(
         except Exception:
             dex = None
 
+    # Enrich our active mons' typing so the resolver can apply Grass / powder
+    # immunity (e.g. our Grass-type ignoring an opponent's Rage Powder). Cached
+    # per species in the dex, so this is effectively free after the first turn.
+    if dex is not None:
+        for slot, mon in state.side(our_side).items():
+            if slot in ("a", "b") and mon is not None and not mon.types and mon.species:
+                try:
+                    mon.types = list(dex.types(mon.species))
+                except Exception:
+                    pass
+
     my_actions = enumerate_my_actions(req)
     if not my_actions:
         raise ValueError("no legal joint actions")
@@ -261,17 +272,24 @@ def choose_with_fallback(
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
     if state is not None and book is not None:
+        # NOTE: a ThreadPoolExecutor context manager would block in __exit__
+        # waiting for the worker, defeating the timeout. We shut it down with
+        # wait=False so the fallback returns immediately. (Python threads cannot
+        # be force-killed; a true time budget inside the evaluator/oracle is the
+        # long-term fix -- the orphaned worker just finishes and is discarded.)
+        ex = ThreadPoolExecutor(max_workers=1)
         try:
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(
-                    heuristic_choose_for_request,
-                    req, state=state, book=book, our_side=our_side, **deps,
-                )
-                return fut.result(timeout=hard_timeout)
+            fut = ex.submit(
+                heuristic_choose_for_request,
+                req, state=state, book=book, our_side=our_side, **deps,
+            )
+            return fut.result(timeout=hard_timeout)
         except FutureTimeout:
             logger.warning("heuristic timed out after %ss, falling back", hard_timeout)
         except Exception as exc:  # noqa: BLE001 - intentional catch-all for robustness
             logger.warning("heuristic failed, falling back: %s", exc)
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
 
     try:
         from showdown_bot.battle.baselines import max_damage_choice

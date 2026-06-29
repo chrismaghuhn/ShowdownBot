@@ -182,7 +182,9 @@ def predict_responses(
         threatened_slots = threatened_slots or set()
         pslot = opp_slots[0]
         p_protect = priors.rate(
-            opp_mons[pslot].species, threatened=pslot in threatened_slots
+            opp_mons[pslot].species,
+            threatened=pslot in threatened_slots,
+            consecutive=opp_mons[pslot].consecutive_protect,
         )
         non_protect = [r for r in responses if "protect" not in r.label]
         for r in responses:

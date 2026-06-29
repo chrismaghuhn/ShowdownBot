@@ -139,14 +139,37 @@ class DamageModel:
             attacker=attacker, defender=defender, move=move, field=dict(self.field_payload)
         )
 
+    def _alive_slots(self, side: str) -> list[str]:
+        out = []
+        for slot, mon in self.state.sides.get(side, {}).items():
+            if slot in ("a", "b") and not mon.fainted and mon.hp_fraction > 0:
+                out.append(slot)
+        return out
+
+    def _candidate_targets(self, action: PlannedAction) -> list[SlotId]:
+        """Every slot a damaging move might actually hit this turn, so redirect /
+        retarget / spread resolution never needs a calc that wasn't prefetched."""
+        def_side = "p2" if action.side == "p1" else "p1"
+        targets: list[SlotId] = [(def_side, s) for s in self._alive_slots(def_side)]
+        if action.move and action.move.target == "allAdjacent":
+            targets += [(action.side, s) for s in self._alive_slots(action.side) if s != action.slot]
+        if action.target and action.target not in targets:
+            targets.append(action.target)
+        return targets
+
     def prefetch(self, action_groups: Iterable[list[PlannedAction]]) -> None:
-        """Enqueue every damaging calc across all candidate lines, then flush
-        once -> a single Node round trip per decision."""
+        """Enqueue every damaging calc across all candidate lines (against every
+        plausible target), then flush once -> a single Node round trip per
+        decision regardless of redirect/retarget/spread retargeting."""
         for actions in action_groups:
             for a in actions:
-                if a.kind == "move" and a.move and a.move.is_damaging and a.target:
-                    if (a.side, a.slot) in self.hyps and a.target in self.hyps:
-                        self.oracle.request(self._request(a, a.target))
+                if a.kind != "move" or not a.move or not a.move.is_damaging:
+                    continue
+                if (a.side, a.slot) not in self.hyps:
+                    continue
+                for tgt in self._candidate_targets(a):
+                    if tgt in self.hyps:
+                        self.oracle.request(self._request(a, tgt))
         self.oracle.flush()
 
     def damage_fn(self, action: PlannedAction, target_mon) -> float:

@@ -85,6 +85,7 @@ class _Client:
         self.room_raw: dict[str, list[str]] = {}
         self.latencies: list[float] = []
         self.invalid = 0
+        self.crashes = 0
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
@@ -111,6 +112,7 @@ class _Client:
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
+            self.crashes += 1
             choose = f"/choose default #{req.rqid}"
         self.latencies.append(time.perf_counter() - start)
         await self.conn.send(f"{room}|{choose}")
@@ -249,4 +251,5 @@ async def run_local_gauntlet(
 
     stats.latencies = hero.latencies
     stats.invalid_choices = hero.invalid + villain.invalid
+    stats.crashes = hero.crashes + villain.crashes
     return stats

@@ -138,6 +138,39 @@ def test_rage_powder_redirects_single_target():
     assert out.hp_delta[("p2", "a")] == 0.0
 
 
+def test_rage_powder_does_not_redirect_grass_attacker():
+    st = _doubles_state()
+    st.sides["p1"]["a"].types = ["Grass"]  # Grass-types ignore powder redirection
+    rage = get_move_meta("Rage Powder")
+    moon = get_move_meta("Moonblast")
+    redir = PlannedAction("p2", "b", "move", speed=150, move=rage, is_ours=False)
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.5
+
+    out = resolve_turn(st, [redir, mine], dmg, our_side="p1")
+    assert out.redirected_hits == []  # Grass attacker is immune to Rage Powder
+    assert out.hp_delta[("p2", "a")] == -0.5
+    assert out.hp_delta[("p2", "b")] == 0.0
+
+
+def test_rage_powder_still_redirects_non_grass_attacker():
+    st = _doubles_state()
+    st.sides["p1"]["a"].types = ["Fire", "Dark"]  # Incineroar typing, not immune
+    rage = get_move_meta("Rage Powder")
+    moon = get_move_meta("Moonblast")
+    redir = PlannedAction("p2", "b", "move", speed=150, move=rage, is_ours=False)
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.5
+
+    out = resolve_turn(st, [redir, mine], dmg, our_side="p1")
+    assert len(out.redirected_hits) == 1
+    assert out.hp_delta[("p2", "b")] == -0.5
+
+
 def test_spread_move_hits_both_foes_reduced():
     st = _doubles_state()
     heat = get_move_meta("Heat Wave")  # allAdjacentFoes

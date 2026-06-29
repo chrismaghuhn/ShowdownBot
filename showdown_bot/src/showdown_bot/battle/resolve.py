@@ -254,7 +254,12 @@ def resolve_turn(
             and alive.get((def_side, rslot))
         ):
             attacker_mon = state.sides.get(action.side, {}).get(action.slot)
-            if can_redirect(redirect_move.get(def_side, ""), attacker_mon):
+            attacker_types = (
+                list(attacker_mon.types)
+                if attacker_mon is not None and getattr(attacker_mon, "types", None)
+                else None
+            )
+            if can_redirect(redirect_move.get(def_side, ""), attacker_mon, attacker_types):
                 new_tgt = (def_side, rslot)
                 outcome.redirected_hits.append(RedirectedHit(key, tgt, new_tgt, move.id))
                 tgt = new_tgt

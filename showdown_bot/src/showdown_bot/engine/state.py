@@ -7,6 +7,10 @@ from showdown_bot.engine.log_parser import LogEvent, parse_log
 from showdown_bot.models.request import BattleRequest
 
 _BOOST_KEYS = ("atk", "def", "spa", "spd", "spe", "accuracy", "evasion")
+_PROTECT_MOVE_IDS = frozenset({
+    "protect", "detect", "wideguard", "quickguard", "spikyshield",
+    "kingsshield", "banefulbunker", "silktrap", "burningbulwark", "maxguard",
+})
 
 
 def to_id(name: str) -> str:
@@ -55,6 +59,8 @@ class PokemonState:
     tera_type: str | None = None
     terastallized: bool = False
     fainted: bool = False
+    types: list[str] = field(default_factory=list)
+    consecutive_protect: int = 0  # trailing run of Protect-type moves used
 
     @property
     def hp_fraction(self) -> float:
@@ -163,8 +169,13 @@ class BattleState:
             mon.hp = 0
         elif et == "move":
             if event.details:
-                mon.moves.add(to_id(event.details))
+                mid = to_id(event.details)
+                mon.moves.add(mid)
                 mon.move_names.add(event.details)
+                if mid in _PROTECT_MOVE_IDS:
+                    mon.consecutive_protect += 1
+                else:
+                    mon.consecutive_protect = 0
         elif et == "item":
             mon.item = event.value
             mon.item_known = True
@@ -218,6 +229,8 @@ def merge_request(req: BattleRequest, state: BattleState) -> BattleState:
         mon.level = details.level
         if details.gender:
             mon.gender = details.gender
+        if poke.base_types and not mon.types:
+            mon.types = list(poke.base_types)
         for move_id in poke.moves:
             mon.moves.add(to_id(move_id))
 
