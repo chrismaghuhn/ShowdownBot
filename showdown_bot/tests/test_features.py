@@ -454,3 +454,86 @@ def test_g2_target_species_unknown_for_unrevealed_opp(g2_features_fixture):
     f = _group2_action(cand, req, empty_state, ctx)
     assert f["slot1_target_species_id_if_known"] == SENTINEL_CAT_UNKNOWN
     assert f["slot2_target_species_id_if_known"] == SENTINEL_CAT_UNKNOWN
+
+
+# ---------------------------------------------------------------------------
+# Group-3 eval (trace-only) + Group-4 tempo/risk tests (Task 4)
+# ---------------------------------------------------------------------------
+
+import math
+from statistics import pvariance
+
+
+def _feat0(features_fixture):
+    trace, state, req, ctx = features_fixture
+    from showdown_bot.learning.features import extract_features
+    return trace, extract_features(trace, state, req, ctx)
+
+
+def test_g3_reads_from_trace_exactly(features_fixture):
+    trace, rows = _feat0(features_fixture)
+    for cand, row in zip(trace.candidates, rows):
+        f = row.features
+        assert f["heuristic_aggregate_score"] == cand.aggregate_score
+        assert f["predicted_outgoing_damage"] == cand.aggregate_breakdown.predicted_outgoing_damage
+        assert f["predicted_incoming_damage"] == cand.aggregate_breakdown.predicted_incoming_damage
+        assert f["ko_secured_count"] == cand.model_features.ko_secured_count
+        assert f["ko_threatened_count"] == cand.model_features.ko_threatened_count
+        assert f["survives_for_sure_count"] == cand.model_features.survives_for_sure_count
+        assert f["protect_stall_penalty"] == cand.aggregate_breakdown.protect_stall_penalty
+        assert f["predicted_kos_for"] == cand.aggregate_breakdown.my_kos
+        assert f["predicted_kos_against"] == cand.aggregate_breakdown.my_faints
+        if cand.score_vector:
+            assert f["score_min_vs_opp"] == min(cand.score_vector)
+            assert f["score_worst_response"] == min(cand.score_vector)
+            assert f["value_range_across_opp_responses"] == max(cand.score_vector) - min(cand.score_vector)
+
+
+def test_g3_sentinels_fakeout_action_economy_zero(features_fixture):
+    _, rows = _feat0(features_fixture)
+    for row in rows:
+        assert row.features["fakeout_invalid_penalty"] == 0.0
+        assert row.features["action_economy_score"] == 0.0
+
+
+def test_g3_score_gap_top_is_zero_for_rank0(features_fixture):
+    trace, rows = _feat0(features_fixture)
+    assert rows[0].features["score_gap_to_top"] == 0.0   # candidates rank-sorted
+
+
+def test_g3_no_calc_import_in_features():
+    # the no-recompute guard: features.py must not import calc/oracle/DamageModel
+    import showdown_bot.learning.features as feat, inspect
+    src = inspect.getsource(feat)
+    assert "DamageModel" not in src and "damage_batch" not in src and "CalcClient" not in src
+
+
+def test_g4_response_count_and_value_range(features_fixture):
+    trace, rows = _feat0(features_fixture)
+    for cand, row in zip(trace.candidates, rows):
+        assert row.features["response_count"] == len(trace.opponent_responses)
+
+
+def test_g4_entropy_uniform(features_fixture):
+    # uniform weights -> entropy ~ log2(n); degenerate/empty -> 0
+    from showdown_bot.learning.features import _entropy
+    assert abs(_entropy([0.5, 0.5]) - 1.0) < 1e-9
+    assert _entropy([1.0]) == 0.0
+    assert _entropy([]) == 0.0
+
+
+def test_g4_must_react_flag(features_fixture):
+    trace, rows = _feat0(features_fixture)
+    expected = 1 if trace.game_mode == "MUST_REACT" else 0
+    assert rows[0].features["must_react_reason_flags"] == expected
+
+
+def test_g4_protect_priors(features_fixture):
+    trace, state, req, ctx = features_fixture
+    from showdown_bot.learning.features import extract_features
+    ctx.protect_priors_by_opp_slot = None
+    f = extract_features(trace, state, req, ctx)[0].features
+    assert f["protect_prior_target1"] == 0.0 and f["protect_prior_target2"] == 0.0
+    ctx.protect_priors_by_opp_slot = {"a": 0.7, "b": 0.2}
+    f = extract_features(trace, state, req, ctx)[0].features
+    assert f["protect_prior_target1"] == 0.7 and f["protect_prior_target2"] == 0.2

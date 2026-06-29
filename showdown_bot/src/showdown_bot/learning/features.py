@@ -6,7 +6,9 @@ SCAFFOLD: every feature is a sentinel stub; later tasks fill real values.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from statistics import pvariance
 
 from showdown_bot.learning.schema import (
     FEATURE_COLUMNS,
@@ -462,6 +464,89 @@ def _group1_context(state, request, trace, ctx: "FeatureContext") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Group-3 + Group-4 helpers
+# ---------------------------------------------------------------------------
+
+
+def _entropy(weights) -> float:
+    """Shannon entropy in bits for a weight distribution.
+
+    Returns 0.0 for empty, zero-sum, or single-element inputs (no uncertainty).
+    """
+    ws = [w for w in (weights or []) if w > 0]
+    tot = sum(ws)
+    if tot <= 0 or len(ws) <= 1:
+        return 0.0
+    return -sum((w / tot) * math.log2(w / tot) for w in ws)
+
+
+def _speed_counts(state, ctx: "FeatureContext") -> tuple[int, int, int, int, int]:
+    """Return (we_outspeed, they_outspeed, ties, our_fastest, opp_fastest).
+
+    V1 sentinel: PokemonState does not carry a base_speed attribute, and
+    SpeedOracle.our_speed() requires base_speed as a caller-supplied argument.
+    Without a clean way to look up base stats from state alone (would require
+    importing the calc backend — which violates the no-recompute gate), we
+    return all-zeros here.  A future task can wire this up once base stats are
+    tracked in PokemonState or a lightweight lookup table is added to context.
+    """
+    return (0, 0, 0, 0, 0)
+
+
+def _group3_eval(candidate, trace) -> dict:
+    """Group-3 eval features: read ONLY from trace, never recompute."""
+    sv = candidate.score_vector or []
+    bd = candidate.aggregate_breakdown
+    mf = candidate.model_features
+    cands = trace.candidates
+    top = cands[0].aggregate_score if cands else candidate.aggregate_score
+    second = cands[1].aggregate_score if len(cands) > 1 else top
+    out = bd.predicted_outgoing_damage
+    inc = bd.predicted_incoming_damage
+    return {
+        "heuristic_aggregate_score": candidate.aggregate_score,
+        "score_gap_to_top": candidate.aggregate_score - top,
+        "score_gap_to_second": candidate.aggregate_score - second,
+        "score_min_vs_opp": min(sv) if sv else 0.0,
+        "score_mean_vs_opp": (sum(sv) / len(sv)) if sv else 0.0,
+        "score_var_vs_opp": pvariance(sv) if len(sv) > 1 else 0.0,
+        "score_worst_response": min(sv) if sv else 0.0,
+        "predicted_outgoing_damage": out,
+        "predicted_incoming_damage": inc,
+        "out_in_ratio": out / (inc + 1e-6),
+        "predicted_kos_for": bd.my_kos,
+        "predicted_kos_against": bd.my_faints,
+        "ko_secured_count": mf.ko_secured_count,
+        "ko_threatened_count": mf.ko_threatened_count,
+        "survives_for_sure_count": mf.survives_for_sure_count,
+        "protect_stall_penalty": bd.protect_stall_penalty,
+        "partner_abandon_penalty": bd.partner_abandon_penalty,
+        "fakeout_invalid_penalty": 0.0,      # sentinel (future task)
+        "action_economy_score": 0.0,          # sentinel (future task)
+    }
+
+
+def _group4_tempo(candidate, trace, state, ctx: "FeatureContext") -> dict:
+    """Group-4 tempo/risk features: trace + state + context."""
+    sv = candidate.score_vector or []
+    priors = ctx.protect_priors_by_opp_slot or {}
+    we, they, ties, our_fast, opp_fast = _speed_counts(state, ctx)
+    return {
+        "we_outspeed_count": we,
+        "they_outspeed_count": they,
+        "speed_tie_count": ties,
+        "our_fastest_active_speed": our_fast,
+        "opp_fastest_active_speed": opp_fast,
+        "must_react_reason_flags": 1 if trace.game_mode == "MUST_REACT" else 0,
+        "protect_prior_target1": float(priors.get("a", 0.0)),
+        "protect_prior_target2": float(priors.get("b", 0.0)),
+        "response_count": len(trace.opponent_responses),
+        "opponent_response_entropy": _entropy(trace.opponent_response_weights),
+        "value_range_across_opp_responses": (max(sv) - min(sv)) if sv else 0.0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # FeatureContext DTO
 # ---------------------------------------------------------------------------
 
@@ -534,6 +619,8 @@ def extract_features(trace, state, request, context: FeatureContext) -> list[Row
         features = _stub_features()
         features.update(g1)
         features.update(_group2_action(cand, request, state, context))
+        features.update(_group3_eval(cand, trace))
+        features.update(_group4_tempo(cand, trace, state, context))
         rows.append(
             Row(
                 features=features,
