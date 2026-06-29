@@ -147,3 +147,30 @@ def build_hypotheses(
         slot: hypothesis_from_state(mon, book)
         for slot, mon in state.side(side).items()
     }
+
+
+def load_likely_sets(path: Path, *, is_valid_species=None) -> dict[str, SpeciesSpreads]:
+    """Curated probable opponent sets. Returns {to_id(species): SpeciesSpreads}
+    with both presets = the single likely set. Keys are canonicalized via to_id;
+    when ``is_valid_species`` is given, an unknown species key raises (fail loud).
+    Missing file -> empty. nature/evs are required; item is optional (no prior)."""
+    from showdown_bot.engine.state import to_id
+
+    if not Path(path).exists():
+        return {}
+    with Path(path).open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    out: dict[str, SpeciesSpreads] = {}
+    for name, entry in (data.get("species") or {}).items():
+        if is_valid_species is not None and not is_valid_species(name):
+            raise ValueError(f"likely_sets: unknown species key {name!r}")
+        if "nature" not in entry or "evs" not in entry:
+            raise ValueError(f"likely_sets: {name!r} missing nature/evs")
+        item = entry.get("item")
+        preset = SpreadPreset(
+            nature=entry["nature"],
+            evs={k: int(v) for k, v in (entry.get("evs") or {}).items()},
+            items=[item] if item else [],
+        )
+        out[to_id(name)] = SpeciesSpreads(offense=preset, defense=preset)
+    return out
