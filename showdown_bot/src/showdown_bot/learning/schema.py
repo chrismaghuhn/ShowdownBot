@@ -28,7 +28,9 @@ ACTION_FEATURES = [
     "slot1_target_species_id_if_known", "slot2_target_species_id_if_known",
 ]
 HEURISTIC_FEATURES = [
-    "heuristic_aggregate_score", "heuristic_rank", "score_gap_to_top",
+    # NB: the heuristic's *rank* is a LABEL (heuristic_rank, for teacher-vs-heuristic
+    # disagreement); the heuristic's *scores/gaps* below are the model features.
+    "heuristic_aggregate_score", "score_gap_to_top",
     "score_gap_to_second", "score_min_vs_opp", "score_mean_vs_opp",
     "score_var_vs_opp", "score_worst_response", "predicted_outgoing_damage",
     "predicted_incoming_damage", "out_in_ratio", "predicted_kos_for",
@@ -57,10 +59,13 @@ LABEL_KEYS = [
 ]
 
 _FEATURE_SET = frozenset(FEATURE_COLUMNS)
-_REQUIRED_META = frozenset({"schema_version", "decision_id", "game_id"})
+_META_SET = frozenset(METADATA_KEYS)
+_LABEL_SET = frozenset(LABEL_KEYS)
+# format_id intentionally appears in BOTH features (model-relevant) and metadata
+# (dataset-relevant); it is the only allowed feature/metadata overlap.
 
 
-@dataclass
+@dataclass(frozen=True)
 class Row:
     features: dict
     metadata: dict
@@ -68,18 +73,27 @@ class Row:
 
 
 def validate_row(row: Row) -> None:
-    unknown = set(row.features) - _FEATURE_SET
-    if unknown:
-        raise ValueError(f"unknown feature key(s): {sorted(unknown)}")
-    missing = _REQUIRED_META - set(row.metadata)
-    if missing:
-        raise ValueError(f"missing metadata: {sorted(missing)}")
+    """Strict frozen-contract check: features / metadata / label must each be
+    EXACTLY the declared key set (no missing, no unknown). Catches broken JSONL at
+    write time instead of at training time."""
+    for name, keys, allowed in (
+        ("feature", set(row.features), _FEATURE_SET),
+        ("metadata", set(row.metadata), _META_SET),
+        ("label", set(row.label), _LABEL_SET),
+    ):
+        unknown = keys - allowed
+        if unknown:
+            raise ValueError(f"unknown {name} key(s): {sorted(unknown)}")
+        missing = allowed - keys
+        if missing:
+            raise ValueError(f"missing {name} key(s): {sorted(missing)}")
 
 
 def to_jsonl_line(row: Row) -> str:
+    validate_row(row)  # never write a broken row
     return json.dumps(
         {"features": row.features, "metadata": row.metadata, "label": row.label},
-        sort_keys=True, default=str,
+        sort_keys=True, separators=(",", ":"),   # no default=str: non-JSON types must crash
     )
 
 

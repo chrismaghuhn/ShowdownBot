@@ -39,3 +39,44 @@ def test_validate_row_requires_versioning_metadata():
     del row.metadata["schema_version"]
     with pytest.raises(ValueError, match="missing metadata"):
         validate_row(row)
+
+
+def test_feature_columns_are_unique():
+    assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
+    assert len(METADATA_KEYS) == len(set(METADATA_KEYS))
+    assert len(LABEL_KEYS) == len(set(LABEL_KEYS))
+
+
+def test_sections_do_not_accidentally_overlap_except_allowed():
+    allowed = {"format_id"}
+    assert (set(FEATURE_COLUMNS) & set(METADATA_KEYS)) <= allowed
+    assert not (set(FEATURE_COLUMNS) & set(LABEL_KEYS))
+    assert not (set(METADATA_KEYS) & set(LABEL_KEYS))
+
+
+def test_validate_row_rejects_missing_feature_key():
+    row = _row()
+    del row.features[FEATURE_COLUMNS[0]]
+    with pytest.raises(ValueError, match="missing feature"):
+        validate_row(row)
+
+
+def test_validate_row_rejects_missing_label_key():
+    row = _row()
+    del row.label[LABEL_KEYS[0]]
+    with pytest.raises(ValueError, match="missing label"):
+        validate_row(row)
+
+
+def test_validate_row_rejects_unknown_metadata_key():
+    row = _row()
+    row.metadata["bogus_meta"] = 1
+    with pytest.raises(ValueError, match="unknown metadata"):
+        validate_row(row)
+
+
+def test_to_jsonl_validates_before_serializing():
+    row = _row()
+    row.features["bad"] = 1
+    with pytest.raises(ValueError):
+        to_jsonl_line(row)
