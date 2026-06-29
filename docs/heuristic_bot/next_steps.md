@@ -9,9 +9,10 @@ weight, a damage roll). That path is exhausted and the mirror benchmark misleads
 ## 1. Consolidate / review / merge the branch
 
 The current state is coherent (move/condition system, own-team truth, opponent
-realism, Protect/Fake-Out fixes, tests green) — a good review/merge candidate.
-Close it out: relocate these docs (done), final test matrix (documented), a
-merge description, then review/merge.
+realism, Protect/Fake-Out fixes, the isolated Phase 3 slice-1a `learning/` package,
+259 tests green) — a good review/merge candidate. Close it out: relocate these docs
+(done), final test matrix (documented), a merge description (updated for 1a), then
+review/merge **as the stable baseline before the invasive slice 1b**.
 
 ## 2. ML pivot — Phase 3: Learned Action Reranker (the real path past ~37%)
 
@@ -27,10 +28,20 @@ candidate joint actions — not a full policy network.
   remains the safety floor (fallback chain unchanged).
 
 This is **multi-part** (data generation → features → label definition → model →
-training → integration → evaluation) and must be decomposed into sub-projects;
-design the first slice (likely: data generation + a frozen feature schema) on its
-own. We already have the honest signal (self-play) and correct features as the
-foundation.
+training → integration → evaluation) and must be decomposed into sub-projects.
+
+**Status:** slice 1 (data + frozen contract) is split into 1a and 1b by risk class.
+- **Slice 1a — ✅ DONE** (isolated `learning/` package: schema + counterfactual
+  teacher, 22 pure/fake tests, no `battle/` changes). Merge this as a stable
+  baseline *before* 1b.
+- **Slice 1b — NEXT, design-first:** real feature extraction from the decision +
+  self-play JSONL export. This is the first **invasive** ML step (touches
+  `decision.py`, feature extraction from `BattleState`, opponent limited-view,
+  self-play runner, calc cost, determinism) — so **brainstorm/spec it before
+  building**. Open design questions: where in the decision flow to tap
+  candidates/features; how to mint `decision_id`/`game_id`; how `export.py` samples
+  decisions; how to avoid limited-view leaks; how the teacher binds to the real
+  `resolve`/`decide`/`leaf`; how JSONL is written + versioned.
 
 ## 3. Finalize the "brain document"
 

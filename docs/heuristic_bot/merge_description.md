@@ -7,9 +7,11 @@ _Branch `docs/heuristic-moves-conditions-spec` → `main`. Use as the PR body._
 Brings the one-ply HeuristicBot from "loses every game to a damage-maximizer
 (0/16)" to a coherent bot with **principled, correct models on both sides**
 (own real sets + opponent likely-sets + speed truth) and no visible decision
-pathologies. Built via spec → plan → TDD, full suite green (237). Performance is
+pathologies. Built via spec → plan → TDD, full suite green (259). Performance is
 ~30–37% vs `max_damage` in the local mirror — a guardrail, not a rating (see
-[benchmarking.md](benchmarking.md)).
+[benchmarking.md](benchmarking.md)). Also lands **Phase 3 slice 1a** — an
+isolated `learning/` package (ML data contract + counterfactual teacher) with **no
+`battle/` changes** (see below).
 
 ## What changed
 
@@ -27,6 +29,14 @@ pathologies. Built via spec → plan → TDD, full suite green (237). Performanc
   prune dead Fake Out; opponent best-move by damage (type-aware).
 - **Tooling** — decision diagnostics (metrics + turn trace), local gauntlet and
   heuristic-vs-heuristic self-play, A/B env knobs.
+- **Phase 3 slice 1a (ML foundation, isolated)** — new `src/showdown_bot/learning/`:
+  `schema.py` (frozen 4-group feature/metadata/label contract + strict
+  validate-on-write JSONL) and `teacher.py` (fixed-horizon counterfactual rollout
+  teacher: no-double-count return, H=0==one-ply, within-decision dual
+  heuristic/teacher labels). Pure + injectable (`decide`/`resolve`/`leaf`) →
+  unit-tested with fakes, **no Node/calc, no `battle/` or `decision.py` changes**.
+  The invasive slice 1b (real feature extraction + self-play export) is a separate,
+  design-first follow-up.
 
 ## Bugs found & fixed
 
@@ -45,7 +55,8 @@ pathologies. Built via spec → plan → TDD, full suite green (237). Performanc
 
 | Check | Result |
 |---|---|
-| `pytest` (full suite) | **237 passed** |
+| `pytest` (full suite) | **259 passed** (237 heuristic + 22 learning slice-1a) |
+| learning slice-1a units | schema 10 + teacher 12, pure/fake (no Node/calc) |
 | lint | no linter configured in `pyproject` (tests are the gate) |
 | gauntlet vs `max_damage` (full stack) | 4–6/16, **invalid_choices=0, crashes=0** |
 | 30-game confirm (earlier stack) | 9/30 ≈ 30% (small-N) |
@@ -74,6 +85,6 @@ target**. Further scalar tuning against it is explicitly out of scope.
 
 ## Test plan
 
-- [ ] `cd showdown_bot && python -m pytest -q` → 237 passed.
+- [ ] `cd showdown_bot && python -m pytest -q` → 259 passed.
 - [ ] `node pokemon-showdown start --no-security` on :8000, then a 2-game gauntlet
       `--format gen9vgc2024regg` → completes, `invalid_choices=0 crashes=0`.

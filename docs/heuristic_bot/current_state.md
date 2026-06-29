@@ -39,9 +39,26 @@ and the curated opponent likely-sets.
 `SHOWDOWN_DECISION_DIFF`. Each gates one change so on/off is bit-identical except
 that change.
 
+## Phase 3 (learned reranker) — slice 1a done
+
+A new **isolated** `src/showdown_bot/learning/` package holds the first ML slice's
+data contract + teacher — **no `battle/` or `decision.py` changes yet**:
+- `schema.py` — frozen 4-group feature / metadata / label columns, strict
+  validate-on-write JSONL (`heuristic_rank` label-only; `format_id` the only
+  feature/metadata overlap).
+- `teacher.py` — `RolloutConfig` (validated), `counterfactual_value` (incremental
+  rewards + one bootstrap leaf, no double-count, H=0==one-ply, weight guards),
+  `label_decision` (within-decision normalization + dual heuristic/teacher labels,
+  consistent tie-break).
+- Built against **injectable** `decide`/`resolve`/`leaf` → unit-tested with fakes,
+  no Node/calc. The real feature extraction + self-play export are **slice 1b**
+  (design-first; touches `decision.py`). See
+  [next_steps.md](next_steps.md) and the `learning` plan/spec under
+  `docs/superpowers/`.
+
 ## Tests & performance
 
-- Full suite green (237 tests at time of writing).
+- Full suite green (259 tests: 237 heuristic + 22 learning slice-1a).
 - ~30–37% vs `max_damage` in the local mirror gauntlet with **principled correct
   models on both sides** — but this number is a **guardrail, not a rating**
   ([benchmarking.md](benchmarking.md) explains why the mirror benchmark rewards
