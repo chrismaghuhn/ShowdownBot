@@ -293,6 +293,25 @@ def _rollout_value(
     return rollout([], cstate, post_hp, our_side=our_side, budget=budget, weights=rw).value
 
 
+def _has_genuine_tie(all_actions: list[PlannedAction], field: FieldState | None) -> bool:
+    """True iff an our-action and an opp-action share the full ordering key
+    (order rank, dynamic priority, effective speed) -- a real speed tie, not just
+    an equal raw number. Detected after pruning, before sequential execution."""
+    from showdown_bot.battle.resolve import _order_rank, move_priority
+
+    tr = bool(field and field.trick_room)
+
+    def base_key(a: PlannedAction):
+        pr = move_priority(a.move, field) if (a.kind == "move" and a.move) else (
+            4 if a.kind == "protect" else 0
+        )
+        return (_order_rank(a), -pr, a.speed if tr else -a.speed)
+
+    ours = [base_key(a) for a in all_actions if a.is_ours]
+    opp = [base_key(a) for a in all_actions if not a.is_ours]
+    return any(k in opp for k in ours)
+
+
 def evaluate_line(
     state: BattleState,
     my_actions: list[PlannedAction],
@@ -305,14 +324,26 @@ def evaluate_line(
     rollout_horizon: int = 0,
     rollout_gamma: float = 0.7,
     endgame: bool = False,
+    _force_tie_break: str | None = None,
 ) -> tuple[float, TurnOutcome]:
     field = field or state.field
     all_actions = my_actions + opp_actions
-    outcome = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field)
-    score = score_outcome(outcome, our_side, weights, endgame=endgame)
-    if rollout_horizon > 0:
-        score += _rollout_value(
-            state, all_actions, outcome, our_side, weights or EvalWeights(),
-            field, rollout_horizon, rollout_gamma,
-        )
-    return score, outcome
+
+    def _one(tb: str) -> tuple[float, TurnOutcome]:
+        out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
+        sc = score_outcome(out, our_side, weights, endgame=endgame)
+        if rollout_horizon > 0:
+            sc += _rollout_value(
+                state, all_actions, out, our_side, weights or EvalWeights(),
+                field, rollout_horizon, rollout_gamma,
+            )
+        return sc, out
+
+    if _force_tie_break is not None:
+        return _one(_force_tie_break)
+    if _has_genuine_tie(all_actions, field):
+        # Tie EV: average both orderings. Same prefetched oracle cache -> no new calcs.
+        s_first, _ = _one("ours_first")
+        s_last, out_last = _one("ours_last")
+        return 0.5 * (s_first + s_last), out_last
+    return _one("ours_last")

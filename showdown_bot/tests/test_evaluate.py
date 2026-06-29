@@ -188,3 +188,62 @@ def test_evaluate_line_rollout_values_status_chip():
     h0 = evaluate_line(st, [mine], [], dmg, our_side="p1", rollout_horizon=0)[0]
     h2 = evaluate_line(st, [mine], [], dmg, our_side="p1", rollout_horizon=2)[0]
     assert h2 > h0
+
+
+def _mirror_state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    return st
+
+
+def _move(side, ours):
+    return PlannedAction(side, "a", "move", speed=100, move=get_move_meta("Flare Blitz"),
+                         target=("p2" if ours else "p1", "a"), is_ours=ours)
+
+
+def test_tie_ev_averages_two_orderings():
+    st = _mirror_state()
+
+    def damage_fn(action, target_mon):
+        return 0.5
+
+    ours = [_move("p1", True)]
+    opp = [_move("p2", False)]
+    score, _ = evaluate_line(st, ours, opp, damage_fn, our_side="p1")
+    score_last, _ = evaluate_line(st, ours, opp, damage_fn, our_side="p1", _force_tie_break="ours_last")
+    score_first, _ = evaluate_line(st, ours, opp, damage_fn, our_side="p1", _force_tie_break="ours_first")
+    assert abs(score - 0.5 * (score_first + score_last)) < 1e-9
+
+
+def test_no_tie_is_bit_identical():
+    st = _mirror_state()
+
+    def damage_fn(action, target_mon):
+        return 0.4
+
+    ours = [PlannedAction("p1", "a", "move", speed=130, move=get_move_meta("Flare Blitz"),
+                          target=("p2", "a"), is_ours=True)]   # faster -> no tie
+    opp = [PlannedAction("p2", "a", "move", speed=80, move=get_move_meta("Flare Blitz"),
+                         target=("p1", "a"), is_ours=False)]
+    score_ev, _ = evaluate_line(st, ours, opp, damage_fn, our_side="p1")
+    score_plain, _ = evaluate_line(st, ours, opp, damage_fn, our_side="p1", _force_tie_break="ours_last")
+    assert score_ev == score_plain  # no tie -> single pass, unchanged
+
+
+def test_tie_ev_makes_no_new_oracle_calls():
+    st = _mirror_state()
+    calls = {"n": 0}
+
+    def damage_fn(action, target_mon):
+        calls["n"] += 1
+        return 0.5  # 50% per hit -> no KO -> no action cancellation, so calls are stable
+
+    ours = [_move("p1", True)]
+    opp = [_move("p2", False)]
+    evaluate_line(st, ours, opp, damage_fn, our_side="p1")            # tie-EV: two passes
+    two_pass = calls["n"]
+    calls["n"] = 0
+    evaluate_line(st, ours, opp, damage_fn, our_side="p1", _force_tie_break="ours_last")  # one pass
+    one_pass = calls["n"]
+    assert two_pass == 2 * one_pass  # second pass adds exactly one pass of (cacheable) lookups, nothing extra
