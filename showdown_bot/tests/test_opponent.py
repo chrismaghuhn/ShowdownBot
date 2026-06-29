@@ -99,3 +99,49 @@ def test_consecutive_protect_lowers_protect_weight():
     after_protect = next(r for r in after if "protect" in r.label).weight
 
     assert after_protect < base_protect
+
+
+def test_item_for_speed_precedence():
+    from showdown_bot.battle.opponent import _item_for_speed
+    from showdown_bot.engine.state import PokemonState
+    assert _item_for_speed(PokemonState(species="Landorus-Therian"), ["Choice Scarf"]) == "Choice Scarf"  # unknown -> curated
+    revealed = PokemonState(species="Landorus-Therian", item="Sitrus Berry", item_known=True)
+    assert _item_for_speed(revealed, ["Choice Scarf"]) == "Sitrus Berry"                                   # revealed wins
+    lost = PokemonState(species="Landorus-Therian", item=None, item_known=True, item_lost=True)
+    assert _item_for_speed(lost, ["Choice Scarf"]) is None                                                 # known-lost -> None
+
+
+class _SpeFake:
+    def stats_batch(self, specs):
+        return [{"spe": 100} for _ in specs]
+
+    def types_batch(self, species):
+        return [["Normal"] for _ in species]
+
+
+def test_opponent_speed_curated_vs_fallback(monkeypatch):
+    from showdown_bot.battle.opponent import _opponent_speed
+    from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.engine.state import PokemonState, FieldState
+    from showdown_bot.engine.belief.hypotheses import (
+        SpeciesSpreads, SpreadPreset, load_spread_book,
+    )
+    from showdown_bot.engine.format_config import load_format_config
+
+    oracle = SpeedOracle(stats_backend=_SpeFake())
+    book = load_spread_book(load_format_config("gen9vgc2026regi").meta_path("default_spreads"))
+    p = SpreadPreset(nature="Careful", evs={"hp": 252}, items=["Sitrus Berry"])  # non-scarf, no spe
+    opp_sets = {"incineroar": SpeciesSpreads(offense=p, defense=p)}
+    field = FieldState()
+    inc = PokemonState(species="Incineroar")        # curated
+    tor = PokemonState(species="Tornadus")          # un-curated
+
+    monkeypatch.setenv("SHOWDOWN_OPP_SPEED", "1")
+    curated = _opponent_speed(inc, field, "p2", speed_oracle=oracle, book=book, opp_sets=opp_sets)
+    fallback = _opponent_speed(tor, field, "p2", speed_oracle=oracle, book=book, opp_sets=opp_sets)
+    monkeypatch.setenv("SHOWDOWN_OPP_SPEED", "0")
+    knob_off = _opponent_speed(inc, field, "p2", speed_oracle=oracle, book=book, opp_sets=opp_sets)
+
+    assert curated == 100      # likely, non-scarf
+    assert fallback == 150     # un-curated -> opponent_range.max (base 100, scarf assumed -> x1.5)
+    assert knob_off == 150     # knob off -> always max

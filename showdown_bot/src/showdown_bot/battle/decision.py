@@ -243,6 +243,7 @@ def heuristic_choose_for_request(
     opp_resps = predict_responses(
         state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
         dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+        opp_sets=opp_sets,
     )
     resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
 

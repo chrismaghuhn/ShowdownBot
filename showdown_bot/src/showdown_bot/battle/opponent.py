@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from dataclasses import dataclass, field
 
 from showdown_bot.battle.resolve import PlannedAction
@@ -121,6 +123,32 @@ def _alive_slots(side_mons: dict[str, PokemonState]) -> list[str]:
     ]
 
 
+def _item_for_speed(mon, curated_items):
+    """Item that determines Scarf speed. Revealed item / known-absence beats the
+    curated item; the curated item is used only when the item is unknown."""
+    if getattr(mon, "item_lost", False):
+        return None
+    if mon.item_known:
+        return mon.item
+    return curated_items[0] if curated_items else None
+
+
+def _opponent_speed(mon, field, opp_side, *, speed_oracle, book, opp_sets):
+    """Resolver speed for an opponent mon: the realistic likely-set point for a
+    curated species (Scarf-aware), else the pessimistic opponent_range.max."""
+    use_likely = (
+        os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0"
+        and opp_sets
+        and to_id(mon.species) in opp_sets
+    )
+    if use_likely:
+        preset = opp_sets[to_id(mon.species)].defense
+        return speed_oracle.likely_speed(
+            mon, field, opp_side, preset, _item_for_speed(mon, preset.items)
+        )
+    return speed_oracle.opponent_range(mon, field, opp_side, book=book).max
+
+
 def predict_responses(
     state: BattleState,
     our_side: str,
@@ -133,6 +161,7 @@ def predict_responses(
     max_candidates: int = 5,
     priors=None,
     threatened_slots: set[str] | None = None,
+    opp_sets: dict | None = None,
 ) -> list[OppResponse]:
     """A small set of plausible opponent joint responses for one-ply scoring.
 
@@ -154,7 +183,9 @@ def predict_responses(
     def opp_speed(slot: str) -> int:
         if speed_oracle is None or book is None:
             return 0
-        return speed_oracle.opponent_range(opp_mons[slot], field, opp_side, book=book).max
+        return _opponent_speed(
+            opp_mons[slot], field, opp_side, speed_oracle=speed_oracle, book=book, opp_sets=opp_sets
+        )
 
     def attack(slot: str, target_slot: str) -> PlannedAction:
         target_mon = state.sides.get(our_side, {}).get(target_slot)
