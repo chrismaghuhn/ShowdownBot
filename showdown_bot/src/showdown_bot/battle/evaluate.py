@@ -155,6 +155,7 @@ class DamageModel:
         book: SpreadBook,
         oracle: DamageOracle | None = None,
         field: FieldState | None = None,
+        our_spreads: dict | None = None,
     ) -> None:
         self.state = state
         self.our_side = our_side
@@ -163,11 +164,16 @@ class DamageModel:
         self.oracle = oracle or DamageOracle()
         self.field = field or state.field
         self.field_payload = build_field_payload(self.field)
-        self.hyps = {
-            (side, slot): hypothesis_from_state(mon, book)
-            for side, slots in state.sides.items()
-            for slot, mon in slots.items()
-        }
+        # For OUR mons, use the real team spread (Stage C) instead of the worst-
+        # case book preset: correct in both directions (tanks stay bulky, glass
+        # cannons stay frail). Opponent mons keep the worst-case presets.
+        self.hyps = {}
+        for side, slots in state.sides.items():
+            for slot, mon in slots.items():
+                hyp = hypothesis_from_state(mon, book)
+                if side == our_side and our_spreads and mon.species in our_spreads:
+                    hyp.spreads = our_spreads[mon.species]
+                self.hyps[(side, slot)] = hyp
 
     def _request(self, action: PlannedAction, target_key: SlotId) -> DamageRequest:
         move = action.move.name

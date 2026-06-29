@@ -18,6 +18,7 @@ from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming
 from showdown_bot.team.pack import load_packed_team
+from showdown_bot.team.spreads import our_spreads_from_packed
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ def agent_choose(
     our_side: str | None,
     priors=None,
     report: list[str] | None = None,
+    our_spreads: dict | None = None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -62,7 +64,8 @@ def agent_choose(
         except Exception:  # noqa: BLE001
             return choose_for_request(req)
     return choose_with_fallback(
-        req, state=state, book=book, our_side=our_side, priors=priors, report=report
+        req, state=state, book=book, our_side=our_side, priors=priors, report=report,
+        our_spreads=our_spreads,
     )
 
 
@@ -99,6 +102,10 @@ class _Client:
         self.priors = priors
         self.format_id = format_id
         self.packed_team = packed_team
+        # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
+        # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
+        _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
+        self.our_spreads = our_spreads_from_packed(packed_team) if (packed_team and _real) else None
         self.trace = trace
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
@@ -134,6 +141,7 @@ class _Client:
             choose = agent_choose(
                 self.agent, req, state=state, book=self.book,
                 our_side=req.side.id, priors=self.priors, report=report,
+                our_spreads=self.our_spreads,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)

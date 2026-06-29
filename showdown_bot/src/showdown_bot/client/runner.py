@@ -17,6 +17,7 @@ from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming, parse_message
 from showdown_bot.team.pack import load_packed_team
+from showdown_bot.team.spreads import our_spreads_from_packed
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ _last_rqid: dict[str, int] = {}
 # Per-room accumulated raw protocol frames, used to rebuild BattleState each turn.
 _room_raw: dict[str, list[str]] = {}
 _active_format: str | None = None
+_our_spreads: dict | None = None  # our own team's real spreads (Stage C)
 _book_cache: dict[str, SpreadBook | None] = {}
 _priors_cache: dict[str, ProtectPriors | None] = {}
 
@@ -86,7 +88,8 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
     if book is not None:
         priors = _get_priors(_active_format)
         choose = choose_with_fallback(
-            req, state=state, book=book, our_side=req.side.id, priors=priors, report=report
+            req, state=state, book=book, our_side=req.side.id, priors=priors, report=report,
+            our_spreads=_our_spreads,
         )
     else:
         choose = choose_for_request(req)
@@ -196,10 +199,11 @@ async def _connect_and_login(settings: Settings) -> ShowdownConnection:
 
 
 async def run_ladder_search(settings: Settings, max_battles: int = 1) -> int:
-    global _active_format
+    global _active_format, _our_spreads
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
+    _our_spreads = our_spreads_from_packed(packed_team)
     await conn.send(f"|/utm {packed_team}")
     await asyncio.sleep(0.3)
     await conn.send(f"|/search {settings.format_id}")
@@ -213,10 +217,11 @@ async def run_challenge(
     max_battles: int = 1,
 ) -> int:
     """Challenge a player (use when VGC ladder is closed)."""
-    global _active_format
+    global _active_format, _our_spreads
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
+    _our_spreads = our_spreads_from_packed(packed_team)
     await conn.send(f"|/utm {packed_team}")
     await asyncio.sleep(0.3)
     await conn.send(f"|/challenge {opponent}, {settings.format_id}")

@@ -155,6 +155,7 @@ def heuristic_choose_for_request(
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
+    our_spreads: dict | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -240,7 +241,10 @@ def heuristic_choose_for_request(
     )
     resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
 
-    model = DamageModel(state, our_side, opp_side, book=book, oracle=oracle, field=state.field)
+    model = DamageModel(
+        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+        our_spreads=our_spreads,
+    )
     groups = list(plans.values()) + [r.actions for r in opp_resps]
     model.prefetch(groups)
 
