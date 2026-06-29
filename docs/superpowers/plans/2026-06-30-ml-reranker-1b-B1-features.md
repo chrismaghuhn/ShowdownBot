@@ -46,7 +46,7 @@ class FeatureContext:
     dex: object | None = None         # to_id(species) + species lookups (G2)
     move_meta: object | None = None   # move_id -> MoveMeta (G2)
     speed_oracle: object | None = None  # effective speeds (G4)
-    priors: object | None = None      # protect priors (G4)
+    protect_priors_by_opp_slot: dict[str, float] | None = None  # normalized {"a": p, "b": p} (G4) — pass a flat dict, not the raw priors object, to keep features.py decoupled
 ```
 
 ## Exhaustive column → source mapping (the contract)
@@ -61,7 +61,7 @@ class FeatureContext:
 | `turn_number` | `context.turn_number` (== `state.turn`) |
 | `endgame_flag` | `our_alive_count <= 1` |
 | `our_alive_count` | count `request.side.pokemon` with `"fnt" not in condition` (authoritative) |
-| `opp_alive_count` | `4 - opp_faints_observed` (revealed estimate: count non-fainted opp mons known in `state.side(opp)`); document the asymmetry |
+| `opp_alive_count` | `max(0, 4 - observed_opp_faints)` (revealed estimate, **NOT ground truth** — do NOT "count known non-fainted opp mons", which would read unrevealed mons as dead; document the asymmetry in code + test) |
 | `our_total_hp_frac` | sum `hp_fraction` over our active living mons |
 | `opp_total_hp_frac` | sum `hp_fraction` over opp active living mons |
 | `field_weather` | `state.field.weather or SENTINEL_CAT_NONE` |
@@ -125,8 +125,8 @@ class FeatureContext:
 | `our_fastest_active_speed` | max our active effective speed |
 | `opp_fastest_active_speed` | max opp active effective speed |
 | `must_react_reason_flags` | v1 coarse: `int(trace.game_mode == "MUST_REACT")` (granular reasons not exposed by `compute_game_mode`; documented) |
-| `protect_prior_target1` | `context.priors` protect prior for opp slot a, else `0.0` |
-| `protect_prior_target2` | `context.priors` protect prior for opp slot b, else `0.0` |
+| `protect_prior_target1` | `(context.protect_priors_by_opp_slot or {}).get("a", 0.0)` |
+| `protect_prior_target2` | `(context.protect_priors_by_opp_slot or {}).get("b", 0.0)` |
 | `response_count` | `len(trace.opponent_responses)` |
 | `opponent_response_entropy` | Shannon entropy of `trace.opponent_response_weights` (0.0 if empty/degenerate) |
 | `value_range_across_opp_responses` | `max(candidate.score_vector) - min(candidate.score_vector)` |
@@ -205,8 +205,22 @@ def test_gate_group1_identical_across_candidates(features_fixture):
 
 **Files:** Modify `features.py`; Test `tests/test_features.py`.
 
-- [ ] **Step 1: tests** — `test_g2_move_slot_resolves_id_type_category_priority` (a move SlotAction → real move_id/type/category/priority/is_damaging from `move_meta`), `test_g2_switch_slot_sentinels_and_species` (switch → move fields `"__none__"`, `switch_target_species_id` resolved), `test_g2_pass_slot_all_sentinels`, `test_g2_target_kind_and_slot` (foe/ally/self/`__none__`, slot int or `-1`), `test_g2_tera_used`, `test_g2_target_species_unknown_sentinel` (opp species not revealed → `"__unknown__"`).
-- [ ] **Step 2: fail.** **Step 3:** implement `_group2_action(candidate, request, state, context)` per the G2 table (a per-slot helper over `candidate.joint_action.slot0/slot1`; resolve `move_index`→`request.active[i].moves`, `target_ident`→bench species, `dex.to_id`; pin `is_protect`). **Step 4:** green + suite + commit.
+- [ ] **Step 0: PIN `is_protect` (discovery, do before coding).** Locate the
+  canonical Protect detection the bot already uses (grep `consecutive_protect`,
+  Fake-Out/Protect pruning in `legal_actions`/`enumerate_my_actions`, `effect_class`
+  "protect", move `flags`). **Reuse it if it exists — no second Protect definition.**
+  If none is reusable, implement a local helper with a test for both branches:
+  ```python
+  _PROTECT_MOVES = frozenset({"protect", "detect", "spikyshield", "kingsshield",
+      "banefulbunker", "silktrap", "burningbulwark", "maxguard", "wideguard",
+      "quickguard", "craftyshield"})
+  def is_protect_move(move_id, meta) -> bool:
+      return (move_id in _PROTECT_MOVES
+              or "protect" in getattr(meta, "effect_classes", ())
+              or "protect" in getattr(meta, "flags", frozenset()))
+  ```
+- [ ] **Step 1: tests** — `test_g2_move_slot_resolves_id_type_category_priority` (a move SlotAction → real move_id/type/category/priority/is_damaging from `move_meta`), `test_g2_is_protect_true_and_false` (a Protect move → `True`; a non-Protect status move → `False`), `test_g2_switch_slot_sentinels_and_species` (switch → move fields `"__none__"`, `switch_target_species_id` resolved), `test_g2_pass_slot_all_sentinels`, `test_g2_target_kind_and_slot` (foe/ally/self/`__none__`, slot int or `-1`), `test_g2_tera_used`, `test_g2_target_species_unknown_sentinel` (opp species not revealed → `"__unknown__"`).
+- [ ] **Step 2: fail.** **Step 3:** implement `_group2_action(candidate, request, state, context)` per the G2 table (a per-slot helper over `candidate.joint_action.slot0/slot1`; resolve `move_index`→`request.active[i].moves`, `target_ident`→bench species, `dex.to_id`; `is_protect` via the pinned detection from Step 0). **Step 4:** green + suite + commit.
 
 ### Task 4: Group 3 (eval, trace-only) + Group 4 (tempo/risk) + no-recompute gate
 
@@ -214,7 +228,7 @@ def test_gate_group1_identical_across_candidates(features_fixture):
 
 - [ ] **Step 1: tests** —
   `test_g3_reads_only_from_trace` (the **no-recompute gate**: monkeypatch/forbid any calc/DamageModel use — G3 values must equal the trace's `aggregate_score`/`score_vector`/`aggregate_breakdown`/`model_features` exactly), `test_g3_ko_counts_from_model_features`, `test_g3_sentinels_fakeout_action_economy_zero`,
-  `test_g4_response_count_and_entropy` (from `trace.opponent_responses`/weights), `test_g4_value_range` (`max-min` of score_vector), `test_g4_speed_counts` (from `speed_oracle` on a known-speed fixture), `test_g4_must_react_flag` (coarse `int(game_mode=="MUST_REACT")`).
+  `test_g4_response_count_and_entropy` (from `trace.opponent_responses`/weights), `test_g4_value_range` (`max-min` of score_vector), `test_g4_speed_counts` (from `speed_oracle` on a known-speed fixture), `test_g4_must_react_flag` (coarse `int(game_mode=="MUST_REACT")`), `test_g4_protect_priors` (`protect_priors_by_opp_slot=None` → `0.0`/`0.0`; `{"a": 0.7, "b": 0.2}` → mapped).
 - [ ] **Step 2: fail.** **Step 3:** implement `_group3_eval(candidate, trace)` (ONLY trace reads + the two `0.0` sentinels) and `_group4_tempo(candidate, trace, state, context)` (trace + `speed_oracle` + `priors`). **Step 4:** green + full suite + commit.
 
 ---
@@ -231,4 +245,4 @@ def test_gate_group1_identical_across_candidates(features_fixture):
 ## Self-Review notes
 - **Spec coverage:** all 4 groups mapped per-column; sentinels central; gates are tests. **Deferred:** `DatasetExporter` + IDs + JSONL (1b-B2), client hook + E2E (1b-B3).
 - **No Node/calc:** every G3 value comes from the trace; G2/G1/G4 are deterministic reads of request/state/dex/move_meta/speed_oracle/context.
-- **v1 documented approximations:** `screens=__untracked__`, `fakeout/action_economy=0.0`, `must_react_reason_flags` coarse, `score_worst_response==score_min_vs_opp`, `opp_alive_count` revealed-estimate, switch candidates' decision-level threat (from the 1b-A amendment).
+- **v1 documented approximations:** `screens=__untracked__`; `fakeout/action_economy=0.0`; `must_react_reason_flags` coarse (`0`/`1`, bitflags later); `score_worst_response==score_min_vs_opp` (frozen schema); `opp_alive_count` = `max(0, 4−observed_faints)` **revealed-estimate, NOT ground truth** (asymmetric with the authoritative `our_alive_count`); **G4 speed counts are pre-action (decision-level) speed state** — like the switch-candidate threat from the 1b-A amendment, switch candidates reflect pre-switch speed; `protect_priors_by_opp_slot` passed as a flat normalized dict to keep `features.py` decoupled.
