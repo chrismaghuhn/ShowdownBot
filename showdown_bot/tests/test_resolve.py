@@ -273,3 +273,17 @@ def test_status_move_no_damage_records_flag():
 
     out = resolve_turn(st, [act], dmg, our_side="p1")
     assert any(f.startswith("status:tailwind") for f in out.flags)
+
+
+def _atk(side, slot, speed, ours):
+    return PlannedAction(side, slot, "move", speed=speed, move=get_move_meta("Tackle"),
+                         target=("p2" if ours else "p1", "a"), is_ours=ours)
+
+
+def test_tie_break_orders_both_ways():
+    ours = _atk("p1", "a", 100, True)
+    opp = _atk("p2", "a", 100, False)
+    last = sort_actions([opp, ours], tie_break="ours_last")
+    first = sort_actions([opp, ours], tie_break="ours_first")
+    assert last[0] is opp and last[1] is ours      # ours acts last (default)
+    assert first[0] is ours and first[1] is opp     # ours acts first
