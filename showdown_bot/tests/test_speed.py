@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from showdown_bot.engine.belief.hypotheses import load_spread_book
+from showdown_bot.engine.belief.hypotheses import SpreadPreset, load_spread_book
 from showdown_bot.engine.calc.client import SubprocessCalcBackend
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.speed import (
@@ -76,3 +76,40 @@ def test_speed_oracle_real_stats_query():
     rng = oracle.opponent_range(mon, FieldState(), "p2", book=book)
     # Flutter Mane base spe 135; max (252+ , scarf) clearly exceeds min.
     assert rng.max > rng.min > 0
+
+
+# ---------------------------------------------------------------------------
+# T1: SpeedOracle.likely_speed + base-speed cache
+# ---------------------------------------------------------------------------
+
+
+class FakeBackend:
+    def __init__(self, spe):
+        self.spe = spe
+        self.calls = 0
+
+    def stats_batch(self, specs):
+        self.calls += 1
+        return [{"spe": self.spe} for _ in specs]
+
+    def types_batch(self, species):
+        return [["Normal"] for _ in species]
+
+
+def test_likely_speed_reads_scarf_only_from_item_for_speed():
+    oracle = SpeedOracle(stats_backend=FakeBackend(spe=100))
+    mon, field = PokemonState(species="Incineroar"), FieldState()
+    preset = SpreadPreset(nature="Careful", evs={"hp": 252}, items=["Sitrus Berry"])
+    assert oracle.likely_speed(mon, field, "p2", preset, "Choice Scarf") == 150   # scarf x1.5
+    assert oracle.likely_speed(mon, field, "p2", preset, "Booster Energy") == 100  # booster != scarf speed
+    assert oracle.likely_speed(mon, field, "p2", preset, None) == 100
+
+
+def test_base_speed_is_cached():
+    fb = FakeBackend(spe=100)
+    oracle = SpeedOracle(stats_backend=fb)
+    mon, field = PokemonState(species="Incineroar"), FieldState()
+    preset = SpreadPreset(nature="Careful", evs={"hp": 252}, items=[])
+    oracle.likely_speed(mon, field, "p2", preset, None)
+    oracle.likely_speed(mon, field, "p2", preset, None)
+    assert fb.calls == 1  # second call hit the cache
