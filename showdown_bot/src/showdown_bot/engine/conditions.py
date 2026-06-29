@@ -17,6 +17,9 @@ _STATUS_RESIDUAL: dict[str, float] = {
     "brn": 1 / 16,
     "psn": 1 / 8,
 }
+_WEATHER_RESIDUAL: dict[str, float] = {"sandstorm": -1 / 16}
+_TERRAIN_HEAL: dict[str, float] = {"grassyterrain": 1 / 16}
+_LEECH_SEED = 1 / 8
 
 
 @dataclass
@@ -57,19 +60,70 @@ def _apply(hp: dict[SlotId, float], key: SlotId, delta: float, source: str,
     events.append(ResidualEvent(key=key, source=source, delta=actual))
 
 
-def step(cstate: ConditionState, hp: dict[SlotId, float]) -> list[ResidualEvent]:
-    """Advance conditions one turn: apply residuals, returning the events.
+def _decrement(conditions: dict[str, ConditionInstance]) -> None:
+    for name in list(conditions):
+        inst = conditions[name]
+        if inst.duration is not None:
+            inst.duration -= 1
+            if inst.duration <= 0:
+                del conditions[name]
 
-    (Durations and side/field residuals are added in Task B2.)
+
+def step(
+    cstate: ConditionState,
+    hp: dict[SlotId, float],
+    *,
+    weather_immune: frozenset[SlotId] | set[SlotId] = frozenset(),
+    grounded: set[SlotId] | None = None,
+) -> list[ResidualEvent]:
+    """Advance conditions one turn in Showdown residual order (spec §7.3):
+    field (weather/terrain residual + duration), side durations, status/volatile
+    residuals, then volatile durations. Returns the residual events for tracing.
+
+    ``grounded=None`` means "treat every mon as grounded" (terrain affects all).
     """
     events: list[ResidualEvent] = []
+
+    # 1. field: weather/terrain residual, then field durations
+    for name in list(cstate.field):
+        mag = _WEATHER_RESIDUAL.get(name)
+        if mag:
+            for key in hp:
+                if key not in weather_immune:
+                    _apply(hp, key, mag, name, events)
+        heal = _TERRAIN_HEAL.get(name)
+        if heal:
+            for key in hp:
+                if grounded is None or key in grounded:
+                    _apply(hp, key, heal, name, events)
+    _decrement(cstate.field)
+
+    # 2. side durations
+    for side_conditions in cstate.sides.values():
+        _decrement(side_conditions)
+
+    # 3. status + volatile residuals
     for key, mon in cstate.mons.items():
         if mon.status == "tox":
             stage = max(1, mon.status_counter)
             _apply(hp, key, -(stage / 16), "tox", events)
             mon.status_counter = stage + 1
-            continue
-        mag = _STATUS_RESIDUAL.get(mon.status or "")
-        if mag:
-            _apply(hp, key, -mag, mon.status, events)
+        else:
+            mag = _STATUS_RESIDUAL.get(mon.status or "")
+            if mag:
+                _apply(hp, key, -mag, mon.status, events)
+
+        seed = mon.volatiles.get("leechseed")
+        if seed is not None and key in hp:
+            before = hp[key]
+            _apply(hp, key, -_LEECH_SEED, "leechseed", events)
+            drained = before - hp[key]
+            seeder = seed.params.get("seeder")
+            if seeder is not None and drained > 0:
+                _apply(hp, seeder, drained, "leechseed", events)
+
+    # 4. volatile durations
+    for mon in cstate.mons.values():
+        _decrement(mon.volatiles)
+
     return events
