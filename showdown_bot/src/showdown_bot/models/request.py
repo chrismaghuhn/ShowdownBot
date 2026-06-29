@@ -25,6 +25,7 @@ class PokemonSlot(BaseModel):
     details: str
     condition: str
     active: bool
+    stats: dict[str, int] = Field(default_factory=dict)
     moves: list[str] = []
     base_types: list[str] = Field(default_factory=list, alias="baseTypes")
 

@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from statistics import mean, pvariance
+from typing import TypeVar
+
+from showdown_bot.engine.belief.game_mode import GameMode
+
+K = TypeVar("K")
+
+
+def aggregate_scores(
+    scores: list[float],
+    mode: GameMode,
+    *,
+    risk_lambda: float = 0.5,
+    weights: list[float] | None = None,
+) -> float:
+    """Collapse the per-opponent-response scores of ONE of our actions into a
+    single value, with a game_mode-dependent operator:
+
+    - must_react -> min   (worst case: assume the opponent picks their best reply)
+    - ahead      -> mean  (we can afford the average line; protect reads net out)
+    - neutral    -> mean - lambda * variance  (risk-averse: avoid high-variance lines)
+
+    ``weights`` (opponent-response likelihoods from protect priors) turn the mean
+    / variance into weighted versions for the ahead / neutral operators.
+    """
+    if not scores:
+        return 0.0
+    if mode == GameMode.MUST_REACT:
+        return min(scores)
+
+    use_weights = weights is not None and len(weights) == len(scores) and sum(weights) > 0
+    if use_weights:
+        wsum = sum(weights)
+        wmean = sum(s * w for s, w in zip(scores, weights)) / wsum
+        if mode == GameMode.AHEAD:
+            return wmean
+        wvar = sum(w * (s - wmean) ** 2 for s, w in zip(scores, weights)) / wsum
+        return wmean - risk_lambda * wvar
+
+    if mode == GameMode.AHEAD:
+        return mean(scores)
+    if len(scores) == 1:
+        return scores[0]
+    return mean(scores) - risk_lambda * pvariance(scores)
+
+
+def pick_best(
+    items: list[tuple[K, list[float]]],
+    mode: GameMode,
+    *,
+    risk_lambda: float = 0.5,
+    weights: list[float] | None = None,
+) -> tuple[K, float]:
+    """Argmax over our candidate actions of the aggregated score."""
+    best_key: K | None = None
+    best_val = float("-inf")
+    for key, scores in items:
+        val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=weights)
+        if val > best_val:
+            best_val = val
+            best_key = key
+    return best_key, best_val
+
+
+def tera_decision(base_value: float, tera_value: float, *, margin: float = 1.0) -> bool:
+    """Tera is a one-shot resource: only spend it when the Tera line beats the
+    non-Tera line by more than ``margin`` (avoid burning Tera for chip)."""
+    return tera_value - base_value > margin

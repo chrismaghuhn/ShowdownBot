@@ -41,12 +41,49 @@ def run_validate_log(args) -> None:
         )
 
 
+def run_gauntlet(args) -> None:
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    settings = Settings.from_env()
+    stats = asyncio.run(
+        run_local_gauntlet(
+            games=args.games,
+            hero_agent="heuristic",
+            villain_agent=args.villain,
+            format_id=args.format_id,
+            team_path=settings.team_path,
+        )
+    )
+    p95 = stats.latency_p95()
+    print(f"gauntlet vs {args.villain}: {stats.hero_wins}/{stats.games} wins "
+          f"({stats.winrate * 100:.1f}%), ties={stats.ties}")
+    print(f"  invalid_choices={stats.invalid_choices} crashes={stats.crashes} "
+          f"latency_p95={p95 * 1000:.0f}ms")
+
+    if args.strict:
+        threshold = 0.60 if args.villain == "random" else 0.55
+        failures = []
+        if stats.games < 50:
+            failures.append(f"games {stats.games} < 50")
+        if stats.winrate < threshold:
+            failures.append(f"winrate {stats.winrate:.2f} < {threshold}")
+        if stats.invalid_choices > 0:
+            failures.append(f"invalid_choices={stats.invalid_choices}")
+        if stats.crashes > 0:
+            failures.append(f"crashes={stats.crashes}")
+        if p95 >= 1.5:
+            failures.append(f"latency_p95 {p95:.2f}s >= 1.5s")
+        if failures:
+            raise SystemExit("gauntlet FAILED: " + "; ".join(failures))
+        print("gauntlet PASSED strict thresholds")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
-        choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log"],
-        help="ladder/challenge/smoke/replay-fixture/validate-log",
+        choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet"],
+        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -91,7 +128,24 @@ def main() -> None:
         "--format",
         dest="format_id",
         default="gen9vgc2026regi",
-        help="Format id for config/spread selection (validate-log)",
+        help="Format id for config/spread selection (validate-log/gauntlet)",
+    )
+    parser.add_argument(
+        "--games",
+        type=int,
+        default=10,
+        help="Number of games to play (gauntlet)",
+    )
+    parser.add_argument(
+        "--villain",
+        default="max_damage",
+        choices=["max_damage", "random", "heuristic"],
+        help="Baseline opponent agent (gauntlet)",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Enforce Phase 2 exit thresholds and exit non-zero on failure (gauntlet)",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
@@ -102,6 +156,10 @@ def main() -> None:
 
     if args.command == "validate-log":
         run_validate_log(args)
+        return
+
+    if args.command == "gauntlet":
+        run_gauntlet(args)
         return
 
     settings = Settings.from_env()

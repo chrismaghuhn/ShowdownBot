@@ -125,3 +125,55 @@ def compute_game_mode(
     if we_get_ko:
         return GameMode.AHEAD
     return GameMode.NEUTRAL
+
+
+def _faints(state: BattleState, side: str) -> int:
+    return sum(1 for m in state.side(side).values() if m.fainted)
+
+
+def classify_game_mode(
+    state: BattleState,
+    *,
+    our_side: str,
+    calc: CalcClient,
+    book: SpreadBook,
+    low_hp_threshold: float = 0.35,
+) -> GameMode:
+    """Extended classifier: the calc-based KO check (``compute_game_mode``) plus
+    mon-count and speed-control signals. Single source of truth -- this wraps
+    ``compute_game_mode`` rather than duplicating its damage logic.
+
+    must_react: opponent threatens a guaranteed KO, OR we are down mons, OR the
+                opponent has active speed control while we are not ahead.
+    ahead:      we guarantee a KO and survive, OR we are up mons, OR the opponent
+                has a low-HP target, OR we hold speed control and are not behind.
+    neutral:    otherwise.
+    """
+    base = compute_game_mode(state, our_side=our_side, calc=calc, book=book)
+    opp_side = _opp_side(our_side)
+    mon_diff = _faints(state, opp_side) - _faints(state, our_side)  # >0 => we are ahead
+    opp_tailwind = bool(state.field.tailwind.get(opp_side, False))
+    our_tailwind = bool(state.field.tailwind.get(our_side, False))
+    opp_low_hp = any(
+        0.0 < m.hp_fraction <= low_hp_threshold for m in _active_living(state, opp_side)
+    )
+
+    # must_react dominates.
+    if base == GameMode.MUST_REACT:
+        return GameMode.MUST_REACT
+    if mon_diff < 0:
+        return GameMode.MUST_REACT
+    if opp_tailwind and mon_diff <= 0 and base != GameMode.AHEAD:
+        return GameMode.MUST_REACT
+
+    # ahead signals.
+    if base == GameMode.AHEAD:
+        return GameMode.AHEAD
+    if mon_diff > 0:
+        return GameMode.AHEAD
+    if opp_low_hp:
+        return GameMode.AHEAD
+    if our_tailwind and mon_diff >= 0:
+        return GameMode.AHEAD
+
+    return GameMode.NEUTRAL

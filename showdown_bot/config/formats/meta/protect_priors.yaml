@@ -1,4 +1,19 @@
-# Stub for Phase 2 (Fallback B): per-species prior probability of clicking Protect.
-# Not used in Phase 1. Default prior applied when a species is absent.
-default_prior: 0.25
-species: {}
+# Per-species prior probability that the opponent clicks Protect/Detect.
+#
+# Schema:
+#   default: base_rate applied to any species not listed
+#   threatened_bump: added to the rate when we threaten a KO on that mon this
+#                    turn (people protect more when scared of a KO)
+#   consecutive_penalty: multiplier applied per consecutive prior Protect
+#                        (Protect's success chance drops if used last turn)
+#   species: per-species base_rate overrides
+default: 0.18
+threatened_bump: 0.45
+consecutive_penalty: 0.4
+species:
+  Incineroar: 0.16
+  Amoonguss: 0.22
+  Rillaboom: 0.18
+  Flutter Mane: 0.14
+  Urshifu: 0.10
+  Chien-Pao: 0.10

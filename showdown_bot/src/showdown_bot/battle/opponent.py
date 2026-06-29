@@ -1,0 +1,198 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.engine.moves import MoveMeta, get_move_meta, to_id
+from showdown_bot.engine.state import BattleState, FieldState, PokemonState
+
+# Revealed support moves we explicitly model as opponent "lines".
+SUPPORT_MOVE_IDS = {
+    "trickroom", "tailwind", "fakeout", "spore", "ragepowder",
+    "followme", "icywind", "willowisp", "widerguard", "wideguard",
+}
+_SUPPORT_PRIORITY = [
+    "trickroom", "tailwind", "fakeout", "ragepowder", "followme",
+    "icywind", "spore", "willowisp", "wideguard",
+]
+
+# Representative STAB move per type for opponents whose moves are unrevealed.
+STAB_MOVE = {
+    "Normal": "Hyper Voice", "Fire": "Heat Wave", "Water": "Surf",
+    "Grass": "Energy Ball", "Electric": "Thunderbolt", "Ice": "Ice Beam",
+    "Fighting": "Close Combat", "Poison": "Sludge Bomb", "Ground": "Earth Power",
+    "Flying": "Air Slash", "Psychic": "Psychic", "Bug": "Bug Buzz",
+    "Rock": "Rock Slide", "Ghost": "Shadow Ball", "Dragon": "Draco Meteor",
+    "Dark": "Dark Pulse", "Steel": "Flash Cannon", "Fairy": "Moonblast",
+}
+
+
+class SpeciesDex:
+    """Memoized species -> typing, backed by the calc bridge dex."""
+
+    def __init__(self, backend=None) -> None:
+        if backend is None:
+            from showdown_bot.engine.calc.client import SubprocessCalcBackend
+
+            backend = SubprocessCalcBackend()
+        self.backend = backend
+        self._cache: dict[str, list[str]] = {}
+
+    def types(self, species: str) -> list[str]:
+        if species not in self._cache:
+            self._cache[species] = self.backend.types_batch([species])[0]
+        return self._cache[species]
+
+
+@dataclass
+class OppResponse:
+    """One candidate opponent joint response for one ply."""
+
+    actions: list[PlannedAction]
+    label: str
+    flags: set[str] = field(default_factory=set)
+    weight: float = 1.0  # likelihood weight (set from protect priors)
+
+
+def best_damaging_move(mon: PokemonState, dex: SpeciesDex | None) -> MoveMeta:
+    """Strongest plausible attack: best revealed damaging move by base power,
+    else a STAB fallback derived from the species typing."""
+    metas = [get_move_meta(n) for n in mon.move_names]
+    damaging = [m for m in metas if m.is_damaging]
+    if damaging:
+        return max(damaging, key=lambda m: m.base_power)
+    if dex is not None:
+        for t in dex.types(mon.species):
+            if t in STAB_MOVE:
+                return get_move_meta(STAB_MOVE[t])
+    return get_move_meta("Tackle")
+
+
+def revealed_support(mon: PokemonState) -> MoveMeta | None:
+    revealed = {to_id(n) for n in mon.move_names}
+    for sid in _SUPPORT_PRIORITY:
+        if sid in revealed:
+            return get_move_meta(sid)
+    return None
+
+
+def _alive_slots(side_mons: dict[str, PokemonState]) -> list[str]:
+    return [
+        slot
+        for slot, mon in side_mons.items()
+        if not mon.fainted and mon.hp_fraction > 0 and slot in ("a", "b")
+    ]
+
+
+def predict_responses(
+    state: BattleState,
+    our_side: str,
+    opp_side: str,
+    *,
+    speed_oracle=None,
+    book=None,
+    dex: SpeciesDex | None = None,
+    field: FieldState | None = None,
+    max_candidates: int = 5,
+    priors=None,
+    threatened_slots: set[str] | None = None,
+) -> list[OppResponse]:
+    """A small set of plausible opponent joint responses for one-ply scoring.
+
+    Candidates: aggressive (focus each of our slots), a Protect read, a revealed
+    support line, and a pivot/switch. Opponent speed is the pessimistic upper
+    bound (assume they outspeed) when a SpeedOracle+book is provided.
+
+    When ``priors`` (ProtectPriors) is given, each response gets a likelihood
+    ``weight``: the Protect read carries the species' Protect prior (bumped if we
+    threaten a KO on it -- the KO-line discount), the rest split the remainder.
+    """
+    field = field or state.field
+    opp_mons = state.sides.get(opp_side, {})
+    opp_slots = _alive_slots(opp_mons)
+    our_slots = _alive_slots(state.sides.get(our_side, {})) or ["a"]
+    if not opp_slots:
+        return []
+
+    def opp_speed(slot: str) -> int:
+        if speed_oracle is None or book is None:
+            return 0
+        return speed_oracle.opponent_range(opp_mons[slot], field, opp_side, book=book).max
+
+    def attack(slot: str, target_slot: str) -> PlannedAction:
+        return PlannedAction(
+            side=opp_side,
+            slot=slot,
+            kind="move",
+            speed=opp_speed(slot),
+            move=best_damaging_move(opp_mons[slot], dex),
+            target=(our_side, target_slot),
+            is_ours=False,
+        )
+
+    def protect(slot: str) -> PlannedAction:
+        return PlannedAction(
+            side=opp_side, slot=slot, kind="protect", speed=opp_speed(slot),
+            move=get_move_meta("Protect"), is_ours=False,
+        )
+
+    def support(slot: str, meta: MoveMeta) -> PlannedAction:
+        target = (our_side, our_slots[0]) if meta.hits_foe else None
+        return PlannedAction(
+            side=opp_side, slot=slot, kind="move", speed=opp_speed(slot),
+            move=meta, target=target, is_ours=False,
+        )
+
+    def switch(slot: str) -> PlannedAction:
+        return PlannedAction(
+            side=opp_side, slot=slot, kind="switch", speed=opp_speed(slot), is_ours=False,
+        )
+
+    responses: list[OppResponse] = []
+
+    # Aggressive: focus-fire each of our alive slots (cap at 2).
+    for tgt in our_slots[:2]:
+        responses.append(
+            OppResponse([attack(s, tgt) for s in opp_slots], label=f"aggro->{tgt}")
+        )
+
+    # Protect read on the first opp slot, partner attacks.
+    if len(opp_slots) >= 1:
+        acts = [protect(opp_slots[0])]
+        acts += [attack(s, our_slots[0]) for s in opp_slots[1:]]
+        responses.append(OppResponse(acts, label="protect+aggro", flags={"protect_read"}))
+
+    # Revealed support line on whichever slot has one.
+    for s in opp_slots:
+        meta = revealed_support(opp_mons[s])
+        if meta is not None:
+            acts = [support(s, meta)]
+            acts += [attack(o, our_slots[0]) for o in opp_slots if o != s]
+            responses.append(OppResponse(acts, label=f"support:{meta.id}", flags={"support"}))
+            break
+
+    # Pivot: first opp slot switches (no damage this turn), partner attacks.
+    if len(opp_slots) >= 2:
+        acts = [switch(opp_slots[0]), attack(opp_slots[1], our_slots[0])]
+        responses.append(OppResponse(acts, label="pivot", flags={"switch"}))
+
+    responses = responses[:max_candidates]
+
+    if priors is not None and responses:
+        threatened_slots = threatened_slots or set()
+        pslot = opp_slots[0]
+        p_protect = priors.rate(
+            opp_mons[pslot].species, threatened=pslot in threatened_slots
+        )
+        non_protect = [r for r in responses if "protect" not in r.label]
+        for r in responses:
+            if "protect" in r.label:
+                r.weight = p_protect
+            else:
+                r.weight = (1.0 - p_protect) / len(non_protect) if non_protect else 0.0
+        total = sum(r.weight for r in responses)
+        if total > 0:
+            for r in responses:
+                r.weight /= total
+
+    return responses

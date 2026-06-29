@@ -6,9 +6,13 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from showdown_bot.battle.decision import choose_for_request
+from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
 from showdown_bot.client.connection import ShowdownConnection, authenticate, join_lobby
 from showdown_bot.config import Settings
+from showdown_bot.engine.belief.hypotheses import SpreadBook, load_spread_book
+from showdown_bot.engine.belief.protect_priors import ProtectPriors, load_protect_priors
+from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming, parse_message
 from showdown_bot.team.pack import load_packed_team
@@ -18,6 +22,36 @@ logger = logging.getLogger(__name__)
 LOG_DIR = Path("logs")
 _battle_logs: dict[str, Path] = {}
 _last_rqid: dict[str, int] = {}
+# Per-room accumulated raw protocol frames, used to rebuild BattleState each turn.
+_room_raw: dict[str, list[str]] = {}
+_active_format: str | None = None
+_book_cache: dict[str, SpreadBook | None] = {}
+_priors_cache: dict[str, ProtectPriors | None] = {}
+
+
+def _get_book(format_id: str | None) -> SpreadBook | None:
+    if not format_id:
+        return None
+    if format_id not in _book_cache:
+        try:
+            cfg = load_format_config(format_id)
+            _book_cache[format_id] = load_spread_book(cfg.meta_path("default_spreads"))
+        except Exception as exc:  # noqa: BLE001 - format may be unsupported (e.g. random)
+            logger.info("no spread book for %s (%s); heuristic disabled", format_id, exc)
+            _book_cache[format_id] = None
+    return _book_cache[format_id]
+
+
+def _get_priors(format_id: str | None) -> ProtectPriors | None:
+    if not format_id:
+        return None
+    if format_id not in _priors_cache:
+        try:
+            cfg = load_format_config(format_id)
+            _priors_cache[format_id] = load_protect_priors(cfg.meta_path("protect_priors"))
+        except Exception:  # noqa: BLE001
+            _priors_cache[format_id] = None
+    return _priors_cache[format_id]
 
 
 def _log_battle_line(room: str, raw: str) -> None:
@@ -33,7 +67,25 @@ def _log_battle_line(room: str, raw: str) -> None:
 async def handle_battle_message(conn: ShowdownConnection, room: str, payload: str) -> None:
     req = BattleRequest.model_validate(json.loads(payload))
     _last_rqid[room] = req.rqid
-    choose = choose_for_request(req)
+
+    book = _get_book(_active_format)
+    state: BattleState | None = None
+    if book is not None and not req.team_preview:
+        try:
+            state = BattleState.from_log_text("\n".join(_room_raw.get(room, [])))
+            merge_request(req, state)
+        except Exception as exc:  # noqa: BLE001 - never block a turn on state build
+            logger.warning("state build failed in %s: %s", room, exc)
+            state = None
+
+    if book is not None:
+        priors = _get_priors(_active_format)
+        choose = choose_with_fallback(
+            req, state=state, book=book, our_side=req.side.id, priors=priors
+        )
+    else:
+        choose = choose_for_request(req)
+
     await conn.send(f"{room}|{choose}")
     kind = "team preview" if req.team_preview else "battle"
     logger.info("sent %s (%s)", choose, kind)
@@ -58,7 +110,11 @@ async def _run_battle_loop(
     active_battles: set[str] = set()
 
     async for raw in conn.messages():
-        for parsed in parse_incoming(raw):
+        parsed_list = list(parse_incoming(raw))
+        for room in {p.room for p in parsed_list if p.room.startswith("battle-")}:
+            _room_raw.setdefault(room, []).append(raw)
+            _log_battle_line(room, raw)
+        for parsed in parsed_list:
             if parsed.prefix == "popup" and parsed.args:
                 popup = parsed.args[0]
                 logger.warning("popup: %s", popup[:200])
@@ -80,7 +136,6 @@ async def _run_battle_loop(
                 continue
 
             if parsed.room.startswith("battle-"):
-                _log_battle_line(parsed.room, raw)
                 if parsed.prefix == "error":
                     await _send_default_choose(conn, parsed.room)
                 if parsed.prefix == "request":
@@ -89,6 +144,7 @@ async def _run_battle_loop(
                     if parsed.room in active_battles:
                         battles_finished += 1
                         active_battles.discard(parsed.room)
+                        _room_raw.pop(parsed.room, None)
                         logger.info(
                             "battle ended in %s (%d/%d)",
                             parsed.room,
@@ -119,6 +175,8 @@ async def _connect_and_login(settings: Settings) -> ShowdownConnection:
 
 
 async def run_ladder_search(settings: Settings, max_battles: int = 1) -> int:
+    global _active_format
+    _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
     await conn.send(f"|/utm {packed_team}")
@@ -134,6 +192,8 @@ async def run_challenge(
     max_battles: int = 1,
 ) -> int:
     """Challenge a player (use when VGC ladder is closed)."""
+    global _active_format
+    _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
     await conn.send(f"|/utm {packed_team}")

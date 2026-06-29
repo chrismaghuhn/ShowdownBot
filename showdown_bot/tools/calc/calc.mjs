@@ -61,6 +61,26 @@ function toRolls(damage) {
   return Array.from(damage);
 }
 
+function runStats(gen, req) {
+  const mon = buildPokemon(gen, req.mon, null);
+  return {
+    id: req.id,
+    stats: {
+      hp: mon.stats.hp,
+      atk: mon.stats.atk,
+      def: mon.stats.def,
+      spa: mon.stats.spa,
+      spd: mon.stats.spd,
+      spe: mon.stats.spe,
+    },
+  };
+}
+
+function runTypes(gen, req) {
+  const mon = buildPokemon(gen, { species: req.species }, null);
+  return { id: req.id, types: mon.types || [] };
+}
+
 function runOne(gen, req) {
   const attacker = buildPokemon(gen, req.attacker, req.move);
   const defender = buildPokemon(gen, req.defender);
@@ -117,6 +137,8 @@ async function main() {
     try {
       const genNum = req.gen || 9;
       if (!gens.has(genNum)) gens.set(genNum, Generations.get(genNum));
+      if (req.kind === "stats") return runStats(gens.get(genNum), req);
+      if (req.kind === "types") return runTypes(gens.get(genNum), req);
       return runOne(gens.get(genNum), req);
     } catch (e) {
       return { id: req.id, error: e.message };

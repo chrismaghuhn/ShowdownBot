@@ -81,3 +81,26 @@ async def authenticate(conn: ShowdownConnection, settings: Settings) -> str:
 
 async def join_lobby(conn: ShowdownConnection) -> None:
     await conn.send("|/join lobby")
+
+
+async def authenticate_local(conn: ShowdownConnection, username: str) -> str:
+    """Log in to a ``--no-security`` local server with no assertion.
+
+    Such servers accept ``/trn name,0,`` (empty assertion) for any free name,
+    which is all the gauntlet needs."""
+    await wait_for_challstr(conn)
+    await conn.send(f"|/trn {username},0,")
+
+    async def _wait_updateuser() -> str:
+        async for raw in conn.messages():
+            msg = parse_message(raw)
+            if msg.prefix == "nametaken":
+                raise AuthError(f"username taken: {username}")
+            if msg.prefix == "updateuser":
+                user = msg.args[0] if msg.args else ""
+                if user.strip().lower().startswith(username.lower()[:1]):
+                    return user.strip()
+                return user.strip()
+        raise AuthError("connection closed before updateuser")
+
+    return await asyncio.wait_for(_wait_updateuser(), timeout=30.0)

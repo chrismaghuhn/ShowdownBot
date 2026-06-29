@@ -1,0 +1,277 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field, replace
+
+from showdown_bot.engine.moves import MoveMeta, blocks_move, can_redirect, move_priority
+from showdown_bot.engine.state import BattleState, FieldState, PokemonState
+
+SPREAD_MULT = 0.75  # doubles damage reduction for spread moves
+
+SlotId = tuple[str, str]  # (side, slot) e.g. ("p1", "a")
+
+# damage_fn(action, target_mon) -> fraction of target's max HP dealt (0..1+)
+DamageFn = Callable[["PlannedAction", PokemonState], float]
+
+
+@dataclass
+class PlannedAction:
+    """One slot's intended action for a single turn.
+
+    Decoupled from /choose encoding (legal_actions) and from JointAction (Task 4)
+    so the resolver can be unit-tested with scripted inputs.
+    """
+
+    side: str
+    slot: str
+    kind: str  # "move" | "switch" | "protect" | "pass"
+    speed: int = 0
+    move: MoveMeta | None = None
+    target: SlotId | None = None
+    is_ours: bool = False
+    is_tera: bool = False
+
+    @property
+    def key(self) -> SlotId:
+        return (self.side, self.slot)
+
+
+@dataclass
+class PreventedAction:
+    side: str
+    slot: str
+    reason: str  # "fainted_before_acting" | "flinch"
+
+
+@dataclass
+class ProtectedHit:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+
+
+@dataclass
+class RedirectedHit:
+    attacker: SlotId
+    original_target: SlotId
+    new_target: SlotId
+    move_id: str
+
+
+@dataclass
+class SpeedEvent:
+    side: str
+    slot: str
+    speed: int
+    order_index: int
+
+
+@dataclass
+class TurnOutcome:
+    my_kos: int = 0
+    opp_kos: int = 0
+    my_faints: int = 0
+    opp_faints: int = 0
+    hp_delta: dict[SlotId, float] = field(default_factory=dict)  # new_frac - start_frac
+    prevented_actions: list[PreventedAction] = field(default_factory=list)
+    protected_hits: list[ProtectedHit] = field(default_factory=list)
+    redirected_hits: list[RedirectedHit] = field(default_factory=list)
+    speed_events: list[SpeedEvent] = field(default_factory=list)
+    tera_used_by_me: bool = False
+    tera_used_by_opp: bool = False
+    flags: set[str] = field(default_factory=set)
+
+
+def _order_rank(action: PlannedAction) -> int:
+    # Switches resolve before all moves regardless of speed.
+    return 0 if action.kind == "switch" else 1
+
+
+def sort_actions(actions: list[PlannedAction], field: FieldState | None = None) -> list[PlannedAction]:
+    """Approximate PS action queue: order asc, then priority desc, then speed.
+
+    Speed is DESC normally, ASC under Trick Room (TR is sort logic only -- it is
+    not baked into the speed numbers). Speed ties resolve pessimistically: our
+    mon acts last. This is an explicit assumption; Step 11 refines tie handling.
+    """
+    tr = bool(field and field.trick_room)
+
+    def keyfn(a: PlannedAction):
+        pr = move_priority(a.move, field) if (a.kind == "move" and a.move) else (
+            4 if a.kind == "protect" else 0
+        )
+        speed_sort = a.speed if tr else -a.speed
+        tie = 1 if a.is_ours else 0  # ours loses ties
+        return (_order_rank(a), -pr, speed_sort, tie)
+
+    return sorted(actions, key=keyfn)
+
+
+def resolve_turn(
+    state: BattleState,
+    actions: list[PlannedAction],
+    damage_fn: DamageFn,
+    *,
+    our_side: str = "p1",
+    field: FieldState | None = None,
+) -> TurnOutcome:
+    """Approximate one-ply tactical resolution (layers 2A + 2B).
+
+    Assumptions (documented, not hidden):
+    - One representative damage number per hit (from damage_fn); no roll spread.
+    - KO removes the victim's not-yet-taken action (KO-before-act).
+    - Protect set by a protect action blocks subsequent foe-targeting moves.
+    - Switches are treated as "actor does nothing this turn" (bench unmodeled).
+    - Status moves deal no HP damage here (their tempo is scored via flags).
+    - 2B: Fake Out flinch, Follow Me / Rage Powder redirection (with immunity
+      filter), spread moves (x0.75 to every adjacent target), single-target
+      failed-target retargeting, switch-before-move ordering.
+    - Speed ties stay pessimistic (our mon acts last).
+    """
+    field = field or state.field
+    outcome = TurnOutcome()
+
+    start_frac: dict[SlotId, float] = {}
+    cur_frac: dict[SlotId, float] = {}
+    alive: dict[SlotId, bool] = {}
+    for side, slots in state.sides.items():
+        for slot, mon in slots.items():
+            key = (side, slot)
+            frac = mon.hp_fraction
+            start_frac[key] = frac
+            cur_frac[key] = frac
+            alive[key] = not mon.fainted and frac > 0
+
+    protected: set[SlotId] = set()
+    cancelled: set[SlotId] = set()
+    flinched: set[SlotId] = set()
+    redirect_slot: dict[str, str] = {}
+    redirect_move: dict[str, str] = {}
+
+    for action in actions:
+        if action.is_tera:
+            if action.is_ours:
+                outcome.tera_used_by_me = True
+            else:
+                outcome.tera_used_by_opp = True
+
+    def opp_of(side: str) -> str:
+        return "p2" if side == "p1" else "p1"
+
+    def alive_slots(side: str) -> list[str]:
+        return [s for (sd, s), ok in alive.items() if sd == side and ok]
+
+    def apply_hit(attacker_key: SlotId, attacker_action: PlannedAction, tgt_key: SlotId, spread: bool) -> None:
+        move = attacker_action.move
+        if tgt_key in protected and blocks_move(move, field):
+            outcome.protected_hits.append(ProtectedHit(attacker_key, tgt_key, move.id))
+            return
+        tgt_mon = state.sides.get(tgt_key[0], {}).get(tgt_key[1])
+        if tgt_mon is None:
+            return
+        act_for_dmg = (
+            attacker_action
+            if attacker_action.target == tgt_key
+            else replace(attacker_action, target=tgt_key)
+        )
+        dealt = max(0.0, float(damage_fn(act_for_dmg, tgt_mon)))
+        if spread:
+            dealt *= SPREAD_MULT
+        new_frac = max(0.0, cur_frac[tgt_key] - dealt)
+        cur_frac[tgt_key] = new_frac
+        if "flinch" in move.flags and new_frac > 0.0 and alive.get(tgt_key):
+            flinched.add(tgt_key)
+        if new_frac <= 0.0 and alive.get(tgt_key):
+            alive[tgt_key] = False
+            cancelled.add(tgt_key)
+            if tgt_key[0] == our_side:
+                outcome.opp_kos += 1
+                outcome.my_faints += 1
+            else:
+                outcome.my_kos += 1
+                outcome.opp_faints += 1
+
+    for idx, action in enumerate(sort_actions(actions, field)):
+        key = action.key
+        if action.kind == "move" and action.move:
+            outcome.speed_events.append(
+                SpeedEvent(action.side, action.slot, action.speed, idx)
+            )
+
+        if key in cancelled or not alive.get(key, True):
+            outcome.prevented_actions.append(
+                PreventedAction(action.side, action.slot, "fainted_before_acting")
+            )
+            continue
+        if key in flinched:
+            outcome.prevented_actions.append(
+                PreventedAction(action.side, action.slot, "flinch")
+            )
+            continue
+
+        if action.kind == "protect":
+            protected.add(key)
+            outcome.flags.add(f"protect:{action.side}{action.slot}")
+            continue
+        if action.kind in ("switch", "pass"):
+            if action.kind == "switch":
+                outcome.flags.add(f"switch:{action.side}{action.slot}")
+            continue
+
+        move = action.move
+        if move is None:
+            continue
+
+        if move.id in ("followme", "ragepowder"):
+            redirect_slot[action.side] = action.slot
+            redirect_move[action.side] = move.id
+            outcome.flags.add(f"status:{move.id}:{action.side}{action.slot}")
+            continue
+        if not move.is_damaging:
+            outcome.flags.add(f"status:{move.id}:{action.side}{action.slot}")
+            continue
+
+        def_side = opp_of(action.side)
+
+        if move.is_spread:
+            targets = [(def_side, s) for s in alive_slots(def_side)]
+            if move.target == "allAdjacent":
+                targets += [(action.side, s) for s in alive_slots(action.side) if s != action.slot]
+            if not targets:
+                outcome.flags.add("wasted_move")
+                continue
+            for tgt in targets:
+                apply_hit(key, action, tgt, spread=True)
+            continue
+
+        tgt = action.target
+        rslot = redirect_slot.get(def_side)
+        if (
+            rslot
+            and tgt is not None
+            and tgt[0] == def_side
+            and tgt[1] != rslot
+            and alive.get((def_side, rslot))
+        ):
+            attacker_mon = state.sides.get(action.side, {}).get(action.slot)
+            if can_redirect(redirect_move.get(def_side, ""), attacker_mon):
+                new_tgt = (def_side, rslot)
+                outcome.redirected_hits.append(RedirectedHit(key, tgt, new_tgt, move.id))
+                tgt = new_tgt
+
+        if tgt is None or not alive.get(tgt, False):
+            alt = [(def_side, s) for s in alive_slots(def_side)]
+            if alt:
+                if tgt is not None:
+                    outcome.flags.add("retarget")
+                tgt = alt[0]
+            else:
+                outcome.flags.add("wasted_move")
+                continue
+
+        apply_hit(key, action, tgt, spread=False)
+
+    for key in start_frac:
+        outcome.hp_delta[key] = cur_frac[key] - start_frac[key]
+
+    return outcome

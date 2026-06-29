@@ -77,6 +77,53 @@ class SubprocessCalcBackend:
 
         return [DamageResult.from_json(item) for item in data]
 
+    def _run(self, payload: list[dict]) -> list[dict]:
+        try:
+            proc = subprocess.run(
+                [self.node, self.script],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                cwd=str(self.calc_dir),
+                timeout=self.timeout,
+            )
+        except FileNotFoundError as exc:
+            raise CalcError(f"node executable not found: {self.node}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise CalcError(f"calc subprocess timed out after {self.timeout}s") from exc
+        if proc.returncode != 0:
+            raise CalcError(
+                f"calc subprocess failed (rc={proc.returncode}): {proc.stderr.strip()}"
+            )
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise CalcError(f"calc returned invalid JSON: {proc.stdout[:200]!r}") from exc
+        if isinstance(data, dict) and data.get("error"):
+            raise CalcError(f"calc error: {data['error']}")
+        return data
+
+    def stats_batch(self, specs: list) -> list[dict]:
+        """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
+        if not specs:
+            return []
+        payload = []
+        for idx, spec in enumerate(specs):
+            payload.append({"id": f"s{idx}", "kind": "stats", "gen": 9, "mon": spec.to_payload()})
+        data = self._run(payload)
+        return [item["stats"] for item in data]
+
+    def types_batch(self, species: list[str]) -> list[list[str]]:
+        """Look up the (base) typing for a batch of species."""
+        if not species:
+            return []
+        payload = [
+            {"id": f"t{idx}", "kind": "types", "gen": 9, "species": sp}
+            for idx, sp in enumerate(species)
+        ]
+        data = self._run(payload)
+        return [item.get("types", []) for item in data]
+
 
 class CalcClient:
     """Caller-facing API. Does not know whether the backend is a one-shot
