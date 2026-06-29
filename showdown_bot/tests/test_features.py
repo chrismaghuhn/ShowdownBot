@@ -161,3 +161,296 @@ def test_g1_alive_counts_and_endgame(features_fixture):
     assert isinstance(f["our_alive_count"], int) and f["our_alive_count"] >= 0
     assert isinstance(f["opp_alive_count"], int) and 0 <= f["opp_alive_count"] <= 4
     assert f["endgame_flag"] == (f["our_alive_count"] <= 1)
+
+
+# ---------------------------------------------------------------------------
+# Group-2 candidate-action tests (Task 3)
+# ---------------------------------------------------------------------------
+#
+# Strategy:
+#   - g2_features_fixture extends features_fixture with real move_meta
+#     (_move_table() from engine.moves, already cached) and a simple dex wrapper.
+#   - For move slots: the decision_fixture candidates are all (move, move).
+#     We pick the first candidate and assert on the exact move resolved from the
+#     request.  The fixture's slot0 = Incineroar: moves[0]=fakeout, [2]=protect.
+#     Slot1 = Rillaboom: moves[0]=heatwave.
+#   - For switch/pass slots: we build a minimal CandidateTrace with a hand-crafted
+#     JointAction and call _group2_action directly.
+# ---------------------------------------------------------------------------
+
+class _SimpleDex:
+    """Minimal dex for testing: to_id delegates to engine.moves.to_id."""
+    def to_id(self, species: str) -> str:
+        from showdown_bot.engine.moves import to_id as _to_id
+        return _to_id(species)
+
+
+@pytest.fixture
+def g2_features_fixture(decision_fixture):
+    """Like features_fixture but with real move_meta + dex in ctx."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import DecisionTrace
+    from showdown_bot.engine.moves import _move_table  # type: ignore[attr-defined]
+
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, **kw)
+    state = kw["state"]
+    our_side = kw.get("our_side", "p1")
+    ctx = FeatureContext(
+        run_id="r",
+        game_id="g",
+        decision_id="d",
+        decision_local_index=0,
+        turn_number=getattr(state, "turn", 0),
+        our_side=our_side,
+        format_id="fmt",
+        team_hash="t",
+        config_hash="c",
+        git_sha="s",
+        dirty_flag=False,
+        teacher_config={"teacher_version": "stub-h0", "trainable_label": False},
+        sampling_policy="all",
+        mirror_flag=True,
+        dex=_SimpleDex(),
+        move_meta=_move_table(),
+    )
+    return tr, state, req, ctx
+
+
+def _g2_first(g2_features_fixture):
+    """Return features dict of the first candidate (via extract_features)."""
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    return rows[0].features
+
+
+# --- helpers for hand-built CandidateTrace ---
+
+def _make_candidate(slot0_kind, slot1_kind,
+                    slot0_move_index=None, slot1_move_index=None,
+                    slot0_target=None, slot1_target=None,
+                    slot0_tera=False, slot1_tera=False,
+                    slot0_target_ident=None, slot1_target_ident=None):
+    """Build a minimal CandidateTrace for group-2 unit testing."""
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.battle.decision_trace import CandidateTrace
+    from showdown_bot.battle.evaluate import OutcomeBreakdown
+    from showdown_bot.models.actions import SlotAction
+
+    sa0 = SlotAction(kind=slot0_kind, move_index=slot0_move_index, target=slot0_target,
+                     terastallize=slot0_tera, target_ident=slot0_target_ident)
+    sa1 = SlotAction(kind=slot1_kind, move_index=slot1_move_index, target=slot1_target,
+                     terastallize=slot1_tera, target_ident=slot1_target_ident)
+    ja = JointAction(slot0=sa0, slot1=sa1)
+    bd = OutcomeBreakdown()
+    return CandidateTrace(
+        candidate_id="test",
+        joint_action=ja,
+        rank=0,
+        aggregate_score=0.0,
+        score_vector=[0.0],
+        outcome_breakdowns=[bd],
+        aggregate_breakdown=bd,
+    )
+
+
+def _g2_direct(g2_features_fixture, cand):
+    """Call _group2_action directly on a hand-built candidate."""
+    from showdown_bot.learning.features import _group2_action  # type: ignore[attr-defined]
+    _, state, req, ctx = g2_features_fixture
+    return _group2_action(cand, req, state, ctx)
+
+
+# --- move slot tests ---
+
+def test_g2_move_slot_resolves_id_type_category_priority_damaging(g2_features_fixture):
+    """A move SlotAction resolves to real move id/type/category/priority/is_damaging.
+
+    Schema mapping: slot1_* = JointAction.slot0 = active_index 0 = Incineroar (slot 'a')
+                    slot2_* = JointAction.slot1 = active_index 1 = Rillaboom  (slot 'b')
+
+    We test Rillaboom's Earth Power (slot2_) and Incineroar's Fake Out (slot1_).
+    """
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+
+    # Find a row where Rillaboom (slot2_) used Earth Power
+    earth_row = next(
+        (r for r in rows if r.features.get("slot2_move_id") == "earthpower"), None
+    )
+    assert earth_row is not None, "Expected a candidate with Rillaboom earthpower at slot2"
+    f = earth_row.features
+
+    # slot2_: Earth Power — Ground-type special, priority 0, damaging, not protect
+    assert f["slot2_action_type"] == "move"
+    assert f["slot2_move_id"] == "earthpower"
+    assert f["slot2_move_type"] == "Ground"
+    assert f["slot2_move_category"] == "special"
+    assert f["slot2_priority"] == 0
+    assert f["slot2_is_damaging"] is True
+    assert f["slot2_is_protect"] is False
+
+    # Also check slot1_: Incineroar used Fake Out in this same candidate
+    assert f["slot1_action_type"] == "move"
+    assert f["slot1_move_id"] == "fakeout"
+    assert f["slot1_move_type"] == "Normal"
+    assert f["slot1_move_category"] == "physical"
+    assert f["slot1_priority"] == 3  # Fake Out has priority +3
+    assert f["slot1_is_damaging"] is True
+    assert f["slot1_is_protect"] is False
+
+
+def test_g2_protect_move_detected(g2_features_fixture):
+    """A Protect move -> is_protect is True; a non-protect status move -> False."""
+    # slot0 protect: move_index=3 on Incineroar -> protect
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    protect_row = next(
+        (r for r in rows if r.features.get("slot1_move_id") == "protect"), None
+    )
+    assert protect_row is not None, "Expected a candidate with protect at slot1"
+    assert protect_row.features["slot1_is_protect"] is True
+    assert protect_row.features["slot1_is_damaging"] is False
+
+    # Non-protect status: use hand-built candidate with slot0=heatwave (damaging, not protect)
+    from showdown_bot.engine.moves import get_move_meta
+    heatwave_meta = get_move_meta("heatwave")
+    assert heatwave_meta.is_damaging is True
+
+    # Also test is_protect helper directly
+    from showdown_bot.learning.features import _is_protect_move  # type: ignore[attr-defined]
+    protect_meta = get_move_meta("protect")
+    spore_meta = get_move_meta("spore")
+    assert _is_protect_move("protect", protect_meta) is True
+    assert _is_protect_move("wideguard", get_move_meta("wideguard")) is True
+    assert _is_protect_move("silktrap", get_move_meta("silktrap")) is True
+    assert _is_protect_move("burningbulwark", get_move_meta("burningbulwark")) is True
+    # spore: has 'protect' in flags (blockable), but is NOT a protect move
+    assert _is_protect_move("spore", spore_meta) is False
+    # flareblitz: has 'protect' in flags (blockable), but not a protect move
+    assert _is_protect_move("flareblitz", get_move_meta("flareblitz")) is False
+
+
+def test_g2_target_kind_and_slot_foe(g2_features_fixture):
+    """target=2 (foe slot 2) -> target_kind='foe', target_slot=2."""
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    # Find candidate where slot0 targets foe slot 2
+    row = next(
+        (r for r in rows if r.features.get("slot1_target_slot") == 2), None
+    )
+    assert row is not None, "Expected a candidate where slot1 targets foe slot 2"
+    f = row.features
+    assert f["slot1_target_kind"] == "foe"
+    assert f["slot1_target_slot"] == 2
+
+
+def test_g2_target_none_yields_sentinels(g2_features_fixture):
+    """target=None (spread/self move) -> target_kind=SENTINEL_CAT_NONE, target_slot=SENTINEL_NUM."""
+    from showdown_bot.learning.features import SENTINEL_CAT_NONE, SENTINEL_NUM
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    # Protect has target=None (self-targeting, no explicit slot)
+    row = next(
+        (r for r in rows if r.features.get("slot1_move_id") == "protect"), None
+    )
+    assert row is not None
+    assert row.features["slot1_target_kind"] == SENTINEL_CAT_NONE
+    assert row.features["slot1_target_slot"] == SENTINEL_NUM
+
+
+def test_g2_tera_used(g2_features_fixture):
+    """tera_used reflects terastallize on either slot."""
+    from showdown_bot.learning.features import _group2_action  # type: ignore[attr-defined]
+    _, state, req, ctx = g2_features_fixture
+
+    # No tera: both slots move, no terastallize
+    cand_no_tera = _make_candidate("move", "move",
+                                   slot0_move_index=2, slot1_move_index=2,
+                                   slot0_target=2, slot1_target=2)
+    f_no = _group2_action(cand_no_tera, req, state, ctx)
+    assert f_no["tera_used"] is False
+
+    # Tera on slot0
+    cand_tera0 = _make_candidate("move", "move",
+                                  slot0_move_index=2, slot1_move_index=2,
+                                  slot0_target=2, slot1_target=2, slot0_tera=True)
+    f_t0 = _group2_action(cand_tera0, req, state, ctx)
+    assert f_t0["tera_used"] is True
+
+    # Tera on slot1
+    cand_tera1 = _make_candidate("move", "move",
+                                  slot0_move_index=2, slot1_move_index=2,
+                                  slot0_target=2, slot1_target=2, slot1_tera=True)
+    f_t1 = _group2_action(cand_tera1, req, state, ctx)
+    assert f_t1["tera_used"] is True
+
+
+def test_g2_switch_slot(g2_features_fixture):
+    """switch SlotAction: move fields are __none__, is_switch True, species resolved via dex."""
+    from showdown_bot.learning.features import SENTINEL_CAT_NONE
+    # slot0 switches to "Flutter Mane" (bench mon in fixture)
+    # target_ident = "Flutter Mane" (ident suffix from request: "p1: Flutter Mane" -> "Flutter Mane")
+    cand = _make_candidate("switch", "move",
+                            slot0_target_ident="Flutter Mane",
+                            slot1_move_index=2, slot1_target=2)
+    f = _g2_direct(g2_features_fixture, cand)
+
+    assert f["slot1_action_type"] == "switch"
+    assert f["slot1_move_id"] == SENTINEL_CAT_NONE
+    assert f["slot1_move_type"] == SENTINEL_CAT_NONE
+    assert f["slot1_move_category"] == SENTINEL_CAT_NONE
+    assert f["slot1_priority"] == 0
+    assert f["slot1_is_damaging"] is False
+    assert f["slot1_is_protect"] is False
+    assert f["slot1_is_switch"] is True
+    # Flutter Mane -> dex.to_id -> "fluttermane"
+    assert f["slot1_switch_target_species_id"] == "fluttermane"
+
+
+def test_g2_pass_slot(g2_features_fixture):
+    """pass SlotAction: all move/switch fields are sentinels."""
+    from showdown_bot.learning.features import SENTINEL_CAT_NONE, SENTINEL_NUM
+    cand = _make_candidate("pass", "move",
+                            slot1_move_index=2, slot1_target=2)
+    f = _g2_direct(g2_features_fixture, cand)
+
+    assert f["slot1_action_type"] == "pass"
+    assert f["slot1_move_id"] == SENTINEL_CAT_NONE
+    assert f["slot1_is_switch"] is False
+    assert f["slot1_target_kind"] == SENTINEL_CAT_NONE
+    assert f["slot1_target_slot"] == SENTINEL_NUM
+    assert f["slot1_switch_target_species_id"] == SENTINEL_CAT_NONE
+
+
+def test_g2_actor_species_id(g2_features_fixture):
+    """slot1_actor_species_id is the actor in active slot 'a' (Incineroar);
+    slot2_actor_species_id is the actor in active slot 'b' (Rillaboom)."""
+    f = _g2_first(g2_features_fixture)
+    # slot1_ prefix = JointAction.slot0 = active index 0 = slot letter 'a' = Incineroar
+    assert f["slot1_actor_species_id"] == "incineroar"
+    # slot2_ prefix = JointAction.slot1 = active index 1 = slot letter 'b' = Rillaboom
+    assert f["slot2_actor_species_id"] == "rillaboom"
+
+
+def test_g2_target_species_unknown_for_unrevealed_opp(g2_features_fixture):
+    """Opponent species not revealed -> target_species_id_if_known = __unknown__."""
+    from showdown_bot.learning.features import SENTINEL_CAT_UNKNOWN
+    # The fixture state has Flutter Mane and Tornadus on p2, but we are targeting
+    # them with move candidates.  Any foe target should resolve to the known species or __unknown__.
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    # Candidates target foe slots 1 or 2; state.sides["p2"]["a"] = Flutter Mane (known)
+    # so slot1_target=1 -> "fluttermane"; slot1_target=2 -> "tornadus"
+    # Both are actually known in this fixture.  Test the __unknown__ branch with empty state slot.
+    from showdown_bot.engine.state import BattleState
+    empty_state = BattleState()
+    # No p2 mons in state — target should be __unknown__
+    cand = _make_candidate("move", "move",
+                            slot0_move_index=2, slot1_move_index=2,
+                            slot0_target=1, slot1_target=1)
+    from showdown_bot.learning.features import _group2_action  # type: ignore[attr-defined]
+    f = _group2_action(cand, req, empty_state, ctx)
+    assert f["slot1_target_species_id_if_known"] == SENTINEL_CAT_UNKNOWN
+    assert f["slot2_target_species_id_if_known"] == SENTINEL_CAT_UNKNOWN
