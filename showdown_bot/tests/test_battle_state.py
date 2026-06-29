@@ -81,3 +81,27 @@ def test_merge_request_adds_moves():
     incineroar = state.active("p1", "a")
     # Moves from the private request are merged into our own active mon.
     assert {"fakeout", "flareblitz", "protect", "knockoff"} <= incineroar.moves
+
+
+def test_enditem_marks_item_lost():
+    log = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, L50, M|150/150",
+        "|-enditem|p1a: Incineroar|Sitrus Berry|[eat]",
+    ])
+    st = BattleState.from_log_text(log)
+    mon = st.sides["p1"]["a"]
+    assert mon.item is None
+    assert mon.item_known is True
+    assert mon.item_lost is True
+
+
+def test_item_event_clears_item_lost():
+    log = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, L50, M|150/150",
+        "|-item|p1a: Incineroar|Choice Scarf",
+    ])
+    st = BattleState.from_log_text(log)
+    mon = st.sides["p1"]["a"]
+    assert mon.item == "Choice Scarf"
+    assert mon.item_known is True
+    assert mon.item_lost is False
