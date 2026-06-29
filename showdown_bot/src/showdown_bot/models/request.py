@@ -28,7 +28,7 @@ class PokemonSlot(BaseModel):
     stats: dict[str, int] = Field(default_factory=dict)
     moves: list[str] = []
     base_types: list[str] = Field(default_factory=list, alias="baseTypes")
-    item: str = ""
+    item: str | None = None
 
     model_config = {"populate_by_name": True}
 
