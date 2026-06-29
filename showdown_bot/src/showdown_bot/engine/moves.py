@@ -3,13 +3,16 @@ from __future__ import annotations
 import functools
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+import yaml
 
 from showdown_bot.engine.state import FieldState
 
 _CONFIG = Path(__file__).resolve().parents[3] / "config"
 _MOVEDATA = _CONFIG / "moves" / "movedata.json"
+_EFFECT_CLASSES = _CONFIG / "moves" / "effect_classes.yaml"
 
 # Gen-9 terrain-priority moves (the one field @pkmn/dex does not expose as a
 # simple value). Grassy Glide gains +1 priority in Grassy Terrain.
@@ -105,9 +108,30 @@ def _meta_from_record(rec: dict) -> MoveMeta:
 
 
 @functools.lru_cache(maxsize=1)
+def _effect_overlay() -> dict[str, dict]:
+    """Curated move_id -> {classes, params} overlay. Missing file -> no overlay."""
+    try:
+        return yaml.safe_load(_EFFECT_CLASSES.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+
+
+@functools.lru_cache(maxsize=1)
 def _move_table() -> dict[str, MoveMeta]:
     raw = json.loads(_MOVEDATA.read_text(encoding="utf-8"))
-    return {mid: _meta_from_record(rec) for mid, rec in raw["moves"].items()}
+    overlay = _effect_overlay()
+    table: dict[str, MoveMeta] = {}
+    for mid, rec in raw["moves"].items():
+        meta = _meta_from_record(rec)
+        entry = overlay.get(mid)
+        if entry:
+            meta = replace(
+                meta,
+                effect_classes=tuple(entry.get("classes") or ()),
+                effect_params=dict(entry.get("params") or {}),
+            )
+        table[mid] = meta
+    return table
 
 
 def get_move_meta(name_or_id: str) -> MoveMeta:
