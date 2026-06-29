@@ -82,3 +82,12 @@ def test_rejects_negative_weight():
     with pytest.raises(ValueError, match="non-negative"):
         counterfactual_value(start_state=0, candidate="c", responses=[("r1", 1.3), ("r2", -0.3)],
                              decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
+
+
+def test_rollout_config_rejects_invalid_values():
+    with pytest.raises(ValueError, match="H must be"):
+        RolloutConfig(H=-1)
+    with pytest.raises(ValueError, match="gamma must be"):
+        RolloutConfig(gamma=0)
+    with pytest.raises(ValueError, match="top_k must be"):
+        RolloutConfig(top_k=0)

@@ -19,6 +19,14 @@ class RolloutConfig:
     top_k: int = 6
     use_leaf: bool = True
 
+    def __post_init__(self):
+        if self.H < 0:
+            raise ValueError("H must be >= 0")
+        if not (0.0 < self.gamma <= 1.0):
+            raise ValueError("gamma must be in (0, 1]")
+        if self.top_k <= 0:
+            raise ValueError("top_k must be > 0")
+
 
 def _rollout_one(start_state, candidate, first_opp, *, decide, resolve, leaf, cfg) -> float:
     # transition 0: the fixed candidate + this opponent response (gamma^0 = 1)
