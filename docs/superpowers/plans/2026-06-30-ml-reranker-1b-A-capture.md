@@ -288,6 +288,23 @@ def test_trace_is_populated(decision_fixture):
     top = tr.candidates[0]
     assert len(top.score_vector) == len(top.outcome_breakdowns)        # parallel to R
     assert len(tr.opponent_responses) == len(tr.opponent_response_weights or tr.opponent_responses)
+
+
+def test_aggregate_breakdown_is_weighted_mean(decision_fixture):
+    # The aggregate breakdown must be a WEIGHTED MEAN over responses (not response[0]).
+    # Pin rollout_horizon=0 so per-response base scores == the heuristic score_vector;
+    # then aggregate_breakdown.total_score must equal the weighted mean of score_vector
+    # (it does NOT equal aggregate_score under MUST_REACT's min-blend, by design).
+    req, kw = decision_fixture
+    kw = {k: v for k, v in kw.items() if k != "rollout_horizon"}
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import DecisionTrace
+    tr = DecisionTrace()
+    heuristic_choose_for_request(req, trace=tr, rollout_horizon=0, **kw)
+    top = tr.candidates[0]
+    ws = tr.opponent_response_weights or [1.0] * len(top.score_vector)
+    wmean = sum(s * w for s, w in zip(top.score_vector, ws)) / (sum(ws) or 1.0)
+    assert abs(top.aggregate_breakdown.total_score - wmean) < 1e-9
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -334,7 +351,7 @@ reusing `aggregate_scores`, `_label_ja`, and the prefetched `model`:
             for ja, scores in items
         ]
         scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))   # rank order, stable
-        top_k = scored[: model_top_k()]  # model_top_k() = 6 (matches RolloutConfig.top_k default); inline 6 for v1
+        top_k = scored[:TOP_K_TRACE_CANDIDATES]
         cands = []
         for rank, (ja, scores, agg) in enumerate(top_k):
             bds = _breakdowns_for(plans[ja])
@@ -351,10 +368,10 @@ reusing `aggregate_scores`, `_label_ja`, and the prefetched `model`:
 ```
 
 Import `OutcomeBreakdown` at the top of the trace block (`from
-showdown_bot.battle.evaluate import OutcomeBreakdown`). Use the literal `6` for
-top-K in v1 (a named constant can come with 1b-B). `evaluate_line`, `plans`, `items`,
-`opp_resps`, `resp_weights`, `model`, `mode`, `endgame`, `weights`, `risk_lambda` are
-all already in scope at that point.
+showdown_bot.battle.evaluate import OutcomeBreakdown`). Add a module-level constant
+near the top of `decision.py`: `TOP_K_TRACE_CANDIDATES = 6` (candidates captured per
+decision). `evaluate_line`, `plans`, `items`, `opp_resps`, `resp_weights`, `model`,
+`mode`, `endgame`, `weights`, `risk_lambda` are all already in scope at that point.
 
 - [ ] **Step 4: Run the trace tests + the full suite** (trace-off equivalence is the safety gate)
 

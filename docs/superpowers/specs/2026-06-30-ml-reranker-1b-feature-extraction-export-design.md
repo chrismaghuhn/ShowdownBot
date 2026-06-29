@@ -138,19 +138,28 @@ Every `schema.FEATURE_COLUMNS` entry maps to **exactly one** source; the
 > `OutcomeBreakdown`). If a feature cannot be emitted from the scoring path, it is
 > not computed separately in `learning/`.
 
-**`aggregate_breakdown` reduction (per game-mode — the scalar eval features must
-stay consistent with `aggregate_score`, whose aggregation differs by mode):**
-- **worst-case modes (`MUST_REACT`):** `aggregate_breakdown` = the breakdown of the
-  **selected worst response** (the one that sets the score). A test asserts the
-  chosen response index matches `policy.aggregate_scores`.
-- **mean / weighted-mean modes (`NEUTRAL` / `AHEAD`):** no single response is
-  selected, so `aggregate_breakdown` = the **weighted reduction** of the
-  per-response breakdowns (same weights as the score). A test asserts it equals the
-  weighted reduction, not `response[0]`.
-- **mean-minus-variance:** the scalar score uses `mean − λ·var`;
-  `aggregate_breakdown` stores the **weighted-mean** components, and the variance /
-  risk lives in the separate Group-4 features (`score_var_vs_opp`,
-  `value_range_across_opp_responses`).
+**`aggregate_breakdown` reduction (weighted mean over responses, ALL modes).**
+`aggregate_scores` is mean-based in *every* mode (`MUST_REACT = mean − λ(mean − min)`
+is a blend; `NEUTRAL` subtracts variance) — there is **no single selected response**.
+So `aggregate_breakdown` is the **component-wise weighted mean** of the per-response
+`OutcomeBreakdown`s, not the full policy aggregator. The worst-case / variance shape
+lives in the scalar `score_vector` + the Group-4 risk features (`score_var_vs_opp`,
+`value_range_across_opp_responses`).
+
+> `aggregate_breakdown` is a weighted-mean component breakdown over opponent
+> responses. Its `total_score` equals the weighted mean of the per-response
+> **base-turn** scores — **not necessarily** the final `aggregate_score` (which adds
+> risk/min-blend terms), and not the rollout-adjusted `score_vector` when
+> `rollout_horizon > 0` (breakdowns are the `rollout_horizon=0` base-turn
+> decomposition, matching the existing metrics path). No one may assume
+> `aggregate_breakdown.total_score == aggregate_score`.
+
+**Two Group-3 columns have no current scoring term — v1 sentinels (no new
+gameplay terms).** `fakeout_invalid_penalty = 0.0` (Fake Out invalidity is handled
+by *pruning* in `enumerate_my_actions`, never penalized in scoring) and
+`action_economy_score = 0.0` (no standalone term exists). Introducing real terms
+would change gameplay and is scope-creep; they stay `0.0` in v1 and can be raised
+later behind a `schema_version` bump.
 
 **No nulls — sentinels for optional features.** Some columns are semantically
 optional (e.g. `slot{1,2}_switch_target_species_id`,
