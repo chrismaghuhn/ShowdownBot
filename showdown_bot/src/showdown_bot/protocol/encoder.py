@@ -18,4 +18,6 @@ def format_slot_action(action: SlotAction) -> str:
 
 def encode_choose(pair: SlotPair, rqid: int | None = None) -> str:
     body = f"{format_slot_action(pair.slot0)}, {format_slot_action(pair.slot1)}"
+    if rqid is not None:
+        return f"/choose {body} #{rqid}"
     return f"/choose {body}"
