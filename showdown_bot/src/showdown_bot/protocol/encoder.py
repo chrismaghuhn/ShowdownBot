@@ -21,3 +21,10 @@ def encode_choose(pair: SlotPair, rqid: int | None = None) -> str:
     if rqid is not None:
         return f"/choose {body} #{rqid}"
     return f"/choose {body}"
+
+
+def encode_team_preview(slots: list[int], rqid: int | None = None) -> str:
+    team_spec = "".join(str(s) for s in slots)
+    if rqid is not None:
+        return f"/choose team {team_spec} #{rqid}"
+    return f"/choose team {team_spec}"

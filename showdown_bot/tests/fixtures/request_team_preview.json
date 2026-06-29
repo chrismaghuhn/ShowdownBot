@@ -1,0 +1,17 @@
+{
+  "teamPreview": true,
+  "maxTeamSize": 4,
+  "side": {
+    "name": "Player1",
+    "id": "p1",
+    "pokemon": [
+      {"ident": "p1: Incineroar", "details": "Incineroar", "condition": "", "active": false, "moves": []},
+      {"ident": "p1: Rillaboom", "details": "Rillaboom", "condition": "", "active": false, "moves": []},
+      {"ident": "p1: Flutter Mane", "details": "Flutter Mane", "condition": "", "active": false, "moves": []},
+      {"ident": "p1: Landorus", "details": "Landorus-Therian", "condition": "", "active": false, "moves": []},
+      {"ident": "p1: Tornadus", "details": "Tornadus", "condition": "", "active": false, "moves": []},
+      {"ident": "p1: Urshifu", "details": "Urshifu-Rapid-Strike", "condition": "", "active": false, "moves": []}
+    ]
+  },
+  "rqid": 1
+}
