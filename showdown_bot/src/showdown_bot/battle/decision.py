@@ -113,6 +113,22 @@ def _plan_my_actions(
     return plans
 
 
+def _label_ja(req: BattleRequest, ja: JointAction) -> str:
+    """Readable label for a JointAction (for decision diagnostics)."""
+    labels: list[str] = []
+    for i, sa in enumerate((ja.slot0, ja.slot1)):
+        active = req.active[i] if i < len(req.active) else None
+        if sa.kind == "move" and sa.move_index and active is not None:
+            moves = active.moves
+            name = moves[sa.move_index - 1].move if sa.move_index - 1 < len(moves) else f"move{sa.move_index}"
+            tgt = f"->{sa.target}" if sa.target else ""
+            tera = " tera" if sa.terastallize else ""
+            labels.append(f"{name}{tgt}{tera}")
+        else:
+            labels.append(sa.kind)
+    return "(" + ", ".join(labels) + ")"
+
+
 def heuristic_choose_for_request(
     req: BattleRequest,
     *,
@@ -127,9 +143,15 @@ def heuristic_choose_for_request(
     weights: EvalWeights | None = None,
     risk_lambda: float = 0.5,
     tera_margin: float = 1.0,
+    rollout_horizon: int = 2,
+    report: list[str] | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
-    fallback chain can take over."""
+    fallback chain can take over.
+
+    ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
+    legacy behavior). Pass a ``report`` list to collect a readable decision block.
+    """
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
@@ -194,6 +216,7 @@ def heuristic_choose_for_request(
                 evaluate_line(
                     state, my_plan, r.actions, model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
+                    rollout_horizon=rollout_horizon,
                 )[0]
                 for r in opp_resps
             ]
@@ -201,6 +224,7 @@ def heuristic_choose_for_request(
             evaluate_line(
                 state, my_plan, [], model.damage_fn,
                 our_side=our_side, weights=weights, field=state.field,
+                rollout_horizon=rollout_horizon,
             )[0]
         ]
 
@@ -213,6 +237,16 @@ def heuristic_choose_for_request(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
     )
+
+    if report is not None:
+        from showdown_bot.battle.diagnostics import format_decision
+        from showdown_bot.battle.policy import aggregate_scores
+
+        ranked = [
+            (_label_ja(req, ja), aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+            for ja, scores in items
+        ]
+        report.append(format_decision(_label_ja(req, best_ja), ranked, str(mode)))
 
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 

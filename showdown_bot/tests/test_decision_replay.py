@@ -139,6 +139,18 @@ def test_does_not_spam_protect_when_doomed():
     assert "move 3, move 3" not in out, out
 
 
+def test_decision_report_is_populated():
+    report: list[str] = []
+    heuristic_choose_for_request(
+        _req(), state=_state(), book=_book(), our_side="p1",
+        calc=FakeCalc(), oracle=FakeOracle(), speed_oracle=FakeSpeed(), dex=FakeDex(),
+        report=report,
+    )
+    assert report, "report list should be populated"
+    text = report[0]
+    assert "decision" in text and "chose" in text
+
+
 def test_fallback_to_random_without_state():
     out = choose_with_fallback(_req())  # no state/book -> random legal pair
     assert out.startswith("/choose ")
