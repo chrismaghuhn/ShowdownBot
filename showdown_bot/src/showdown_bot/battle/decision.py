@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
@@ -25,6 +26,15 @@ from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
 logger = logging.getLogger(__name__)
 
 _SLOTS = ["a", "b"]
+
+
+def _default_rollout_horizon() -> int:
+    """Multi-turn rollout horizon, overridable via ``SHOWDOWN_ROLLOUT_HORIZON``
+    (0 disables the rollout). Lets us A/B the rollout from the gauntlet."""
+    try:
+        return int(os.environ.get("SHOWDOWN_ROLLOUT_HORIZON", "2"))
+    except ValueError:
+        return 2
 
 
 def choose_for_request(req: BattleRequest) -> str:
@@ -143,15 +153,18 @@ def heuristic_choose_for_request(
     weights: EvalWeights | None = None,
     risk_lambda: float = 0.5,
     tera_margin: float = 1.0,
-    rollout_horizon: int = 2,
+    rollout_horizon: int | None = None,
     report: list[str] | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
-    legacy behavior). Pass a ``report`` list to collect a readable decision block.
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
+    a ``report`` list to collect a readable decision block.
     """
+    if rollout_horizon is None:
+        rollout_horizon = _default_rollout_horizon()
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
