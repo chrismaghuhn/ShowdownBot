@@ -127,3 +127,41 @@ def step(
         _decrement(mon.volatiles)
 
     return events
+
+
+# --- read-only modifier queries (the ratio building blocks for the rollout) ---
+
+
+def speed_multiplier(cstate: ConditionState, key: SlotId) -> float:
+    """Speed factor from active conditions: Tailwind x2, Paralysis x0.5."""
+    m = 1.0
+    if "tailwind" in cstate.sides.get(key[0], {}):
+        m *= 2.0
+    mon = cstate.mons.get(key)
+    if mon is not None and mon.status == "par":
+        m *= 0.5
+    return m
+
+
+def atk_multiplier(cstate: ConditionState, key: SlotId) -> float:
+    """Physical-attack factor: Burn halves Atk."""
+    mon = cstate.mons.get(key)
+    if mon is not None and mon.status == "brn":
+        return 0.5
+    return 1.0
+
+
+def action_act_probability(cstate: ConditionState, key: SlotId) -> float:
+    """Expected probability the mon gets to act (no sampling): sleep/freeze 0,
+    paralysis 0.75, confusion x2/3. Composed multiplicatively."""
+    mon = cstate.mons.get(key)
+    if mon is None:
+        return 1.0
+    if mon.status in ("slp", "frz"):
+        return 0.0
+    p = 1.0
+    if mon.status == "par":
+        p *= 0.75
+    if "confusion" in mon.volatiles:
+        p *= 2 / 3
+    return p

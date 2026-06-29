@@ -2,6 +2,9 @@ from showdown_bot.engine.conditions import (
     ConditionInstance,
     ConditionState,
     MonConditions,
+    action_act_probability,
+    atk_multiplier,
+    speed_multiplier,
     step,
 )
 
@@ -81,3 +84,53 @@ def test_leech_seed_transfers_to_seeder():
     assert abs(hp[B] - (1.0 - 1 / 8)) < 1e-9
     assert abs(hp[A] - (0.5 + 1 / 8)) < 1e-9
     assert any(e.source == "leechseed" for e in events)
+
+
+def test_speed_multiplier_tailwind_and_paralysis():
+    tw = _cs(sides={"p1": {"tailwind": ConditionInstance("tailwind", 4)}})
+    assert speed_multiplier(tw, A) == 2.0
+    par = _cs(mons={A: MonConditions(status="par")})
+    assert speed_multiplier(par, A) == 0.5
+    assert speed_multiplier(_cs(), A) == 1.0
+
+
+def test_atk_multiplier_burn():
+    burned = _cs(mons={A: MonConditions(status="brn")})
+    assert atk_multiplier(burned, A) == 0.5
+    assert atk_multiplier(_cs(), A) == 1.0
+
+
+def test_action_act_probability():
+    assert action_act_probability(_cs(mons={A: MonConditions(status="par")}), A) == 0.75
+    assert action_act_probability(_cs(mons={A: MonConditions(status="slp")}), A) == 0.0
+    conf = _cs(mons={A: MonConditions(volatiles={"confusion": ConditionInstance("confusion", 2)})})
+    assert abs(action_act_probability(conf, A) - 2 / 3) < 1e-9
+    assert action_act_probability(_cs(), A) == 1.0
+
+
+def _two_burned_sandstorm():
+    return _cs(
+        mons={A: MonConditions(status="brn"), B: MonConditions(status="brn")},
+        field={"sandstorm": ConditionInstance("sandstorm", duration=5)},
+    )
+
+
+def test_step_is_deterministic():
+    """No RNG: identical input -> identical events and hp (rollout requirement)."""
+    cs1, cs2 = _two_burned_sandstorm(), _two_burned_sandstorm()
+    hp1, hp2 = {A: 1.0, B: 1.0}, {A: 1.0, B: 1.0}
+    ev1 = [(e.key, e.source, round(e.delta, 9)) for e in step(cs1, hp1)]
+    ev2 = [(e.key, e.source, round(e.delta, 9)) for e in step(cs2, hp2)]
+    assert ev1 == ev2
+    assert hp1 == hp2
+
+
+def test_step_order_field_before_status():
+    """Spec §7.3: weather (field) residual is applied before status residual."""
+    cs = _cs(
+        mons={A: MonConditions(status="brn")},
+        field={"sandstorm": ConditionInstance("sandstorm", duration=5)},
+    )
+    events = step(cs, {A: 1.0})
+    sources = [e.source for e in events if e.key == A]
+    assert sources.index("sandstorm") < sources.index("brn")
