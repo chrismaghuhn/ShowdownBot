@@ -1,0 +1,33 @@
+{
+  "active": [
+    {
+      "moves": [
+        {"move": "Fake Out", "id": "fakeout", "pp": 16, "maxpp": 16, "target": "adjacentFoe", "disabled": false},
+        {"move": "Flare Blitz", "id": "flareblitz", "pp": 24, "maxpp": 24, "target": "normal", "disabled": false},
+        {"move": "Protect", "id": "protect", "pp": 16, "maxpp": 16, "target": "self", "disabled": false},
+        {"move": "Knock Off", "id": "knockoff", "pp": 32, "maxpp": 32, "target": "normal", "disabled": false}
+      ],
+      "canTerastallize": "Fire"
+    },
+    {
+      "moves": [
+        {"move": "Heat Wave", "id": "heatwave", "pp": 16, "maxpp": 16, "target": "allAdjacentFoes", "disabled": false},
+        {"move": "Earth Power", "id": "earthpower", "pp": 16, "maxpp": 16, "target": "normal", "disabled": false},
+        {"move": "Protect", "id": "protect", "pp": 16, "maxpp": 16, "target": "self", "disabled": false},
+        {"move": "Solar Beam", "id": "solarbeam", "pp": 16, "maxpp": 16, "target": "normal", "disabled": false}
+      ],
+      "canTerastallize": "Grass"
+    }
+  ],
+  "side": {
+    "name": "Player1",
+    "id": "p1",
+    "pokemon": [
+      {"ident": "p1: Incineroar", "details": "Incineroar, L50, F", "condition": "150/150", "active": true, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100}, "moves": ["fakeout", "flareblitz", "protect", "knockoff"], "baseTypes": ["Fire", "Dark"]},
+      {"ident": "p1: Rillaboom", "details": "Rillaboom, L50, M", "condition": "155/155", "active": true, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100}, "moves": ["heatwave", "earthpower", "protect", "solarbeam"], "baseTypes": ["Grass"]},
+      {"ident": "p1: Flutter Mane", "details": "Flutter Mane, L50", "condition": "131/131", "active": false, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100}, "moves": ["moonblast", "shadowball", "dazzlinggleam", "protect"], "baseTypes": ["Ghost", "Fairy"]},
+      {"ident": "p1: Landorus", "details": "Landorus-Therian, L50, M", "condition": "179/179", "active": false, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100}, "moves": ["earthpower", "sludgebomb", "protect", "u-turn"], "baseTypes": ["Ground", "Flying"]}
+    ]
+  },
+  "rqid": 2
+}
