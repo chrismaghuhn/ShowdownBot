@@ -4,6 +4,7 @@ from showdown_bot.engine.conditions import (
     MonConditions,
     action_act_probability,
     atk_multiplier,
+    screen_modifier,
     speed_multiplier,
     step,
 )
@@ -123,6 +124,20 @@ def test_step_is_deterministic():
     ev2 = [(e.key, e.source, round(e.delta, 9)) for e in step(cs2, hp2)]
     assert ev1 == ev2
     assert hp1 == hp2
+
+
+def test_screen_modifier_doubles():
+    refl = _cs(sides={"p2": {"reflect": ConditionInstance("reflect", 5)}})
+    assert abs(screen_modifier(refl, "p2", "physical") - 2 / 3) < 1e-9
+    assert screen_modifier(refl, "p2", "special") == 1.0  # reflect = physical only
+    ls = _cs(sides={"p2": {"lightscreen": ConditionInstance("lightscreen", 5)}})
+    assert abs(screen_modifier(ls, "p2", "special") - 2 / 3) < 1e-9
+    veil = _cs(sides={"p2": {"auroraveil": ConditionInstance("auroraveil", 5)}})
+    assert abs(screen_modifier(veil, "p2", "physical") - 2 / 3) < 1e-9
+    assert abs(screen_modifier(veil, "p2", "special") - 2 / 3) < 1e-9
+    assert screen_modifier(_cs(), "p2", "physical") == 1.0
+    # singles halves instead of two-thirds
+    assert screen_modifier(refl, "p2", "physical", game_type="singles") == 0.5
 
 
 def test_step_order_field_before_status():

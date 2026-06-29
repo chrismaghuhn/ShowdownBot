@@ -151,6 +151,22 @@ def atk_multiplier(cstate: ConditionState, key: SlotId) -> float:
     return 1.0
 
 
+def screen_modifier(
+    cstate: ConditionState, defender_side: str, category: str, *, game_type: str = "doubles"
+) -> float:
+    """Damage factor from the defender's screens. Reflect covers physical, Light
+    Screen special, Aurora Veil both. Doubles reduces to x2/3 (not x1/2)."""
+    screens = cstate.sides.get(defender_side, {})
+    active = "auroraveil" in screens
+    if category == "physical":
+        active = active or "reflect" in screens
+    elif category == "special":
+        active = active or "lightscreen" in screens
+    if not active:
+        return 1.0
+    return 2 / 3 if game_type == "doubles" else 0.5
+
+
 def action_act_probability(cstate: ConditionState, key: SlotId) -> float:
     """Expected probability the mon gets to act (no sampling): sleep/freeze 0,
     paralysis 0.75, confusion x2/3. Composed multiplicatively."""
