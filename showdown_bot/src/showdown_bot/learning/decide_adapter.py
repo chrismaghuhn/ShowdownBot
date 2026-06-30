@@ -266,6 +266,10 @@ def decide(
     """Synthesize a BattleRequest from state + caller-supplied beliefs and run the
     heuristic core, returning the chosen JointAction.
 
+    The heuristic core runs on an internal CLONE of ``state`` so the caller's
+    state is never mutated (apply_own_team_knowledge + dex enrichment happen on
+    the clone, not on ``state``).
+
     Args:
         state:     Current BattleState.
         side:      Which side to decide for ("p1" or "p2").
@@ -273,7 +277,7 @@ def decide(
         movesets:  dict[side -> dict[ident|species -> list[str]]] — move ids.
         stats:     dict[side -> dict[ident|species -> dict[str, int]]] — at minimum {"spe": ...}.
         move_meta: dict[move_id -> MoveMeta] from engine/moves._move_table().
-        deps:      Keyword deps for _choose_best_ja (book, calc, oracle, speed_oracle, dex,
+        deps:      Keyword deps for _choose_best (book, calc, oracle, speed_oracle, dex,
                    priors, weights, risk_lambda, tera_margin, rollout_horizon, our_spreads,
                    opp_sets). Sanitized: stray keys (state, our_side, trace, report) are
                    silently dropped.
@@ -282,10 +286,40 @@ def decide(
         JointAction — the heuristic's chosen joint action for this side.
     """
     from showdown_bot.battle.actions import JointAction  # noqa: F401 (re-export hint)
-    from showdown_bot.battle.decision import _choose_best_ja
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.learning.simulator import clone_state
 
+    c = clone_state(state)
     req = synthesize_request(
-        state, side,
+        c, side,
         roster=roster, movesets=movesets, stats=stats, move_meta=move_meta,
     )
-    return _choose_best_ja(req, state=state, our_side=side, **_core_deps(deps))
+    return _choose_best(req, state=c, our_side=side, **_core_deps(deps))[0]
+
+
+def leaf_value(
+    state: BattleState,
+    side: str,
+    *,
+    roster: dict,
+    movesets: dict,
+    stats: dict,
+    move_meta: dict,
+    deps: dict,
+) -> float:
+    """Return the heuristic leaf value (best_val from pick_best) for the given side.
+
+    Identical to ``decide`` but returns the float aggregate score instead of the
+    JointAction.  Used as the leaf evaluator in the H-loop rollout.
+
+    The heuristic core runs on an internal CLONE of ``state`` (no mutation).
+    """
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.learning.simulator import clone_state
+
+    c = clone_state(state)
+    req = synthesize_request(
+        c, side,
+        roster=roster, movesets=movesets, stats=stats, move_meta=move_meta,
+    )
+    return _choose_best(req, state=c, our_side=side, **_core_deps(deps))[1]
