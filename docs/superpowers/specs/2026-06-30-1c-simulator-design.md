@@ -53,6 +53,22 @@ what `TurnOutcome` explicitly encodes:
 | **Field** | ONLY the exact flag strings `resolve_turn` currently emits (`status:<move_id>:<owner>`) | supported field move_ids (tailwind / trickroom / weather / terrain, resolved via `MoveMeta`) mutate `FieldState`; **unknown flags are ignored** (no invented parsing). |
 | **Switch** | `actions_by_side` (which active slot switches + `target_ident`) + `roster_by_side` (authoritative lookup) | place the roster's target mon into the switching active slot; **deep-copy the mon on switch-in** so later mutations can't corrupt the roster; `moved_since_switch=False`. |
 
+### Pinned precisifications (per review — for the plan)
+1. **`actions_by_side` shape:** `dict[str, JointAction]` — a `JointAction` with
+   `slot0`/`slot1` `SlotAction`s; `slot0` ↔ active slot `"a"`, `slot1` ↔ `"b"`. Only a
+   `SlotAction.kind == "switch"` triggers switch application (move/pass don't).
+2. **Missing roster target = fail-fast:** if a switch action's `target_ident` is not in
+   `roster_by_side[side]`, `apply_outcome_to_state` **raises `ValueError`** (never silently
+   ignores) — a mis-wired rollout roster/belief must surface immediately.
+3. **HP representation stays consistent:** `PokemonState.hp_fraction` is a *derived
+   property* (`hp / max_hp`), so updating `mon.hp` is sufficient when `max_hp` is known. If
+   `max_hp` is `None`, set a synthetic `max_hp = 100` first so the fraction is representable
+   (documented v1 approximation). After apply, `hp` and `hp_fraction` must agree.
+4. **Field parsing stays minimal:** 1c-A supports ONLY the status flags actually emitted by
+   `resolve_turn`/observed in source+tests. **Required: `tailwind`, `trickroom`.**
+   weather/terrain are supported **only if** `resolve_turn` truly emits status flags for
+   those move_ids AND `FieldState` already models them — no generic MoveMeta magic in 1c-A.
+
 ### Hard non-goals for 1c-A (NO end-of-turn simulation)
 `apply_outcome_to_state` applies only what `TurnOutcome` contains — explicitly NOT:
 no residual damage, no weather chip, no status tick, no duration decrement, no forced
