@@ -8,6 +8,7 @@ slot move_ids (the slot*_is_* / move_category feature flags are dead in the
 from __future__ import annotations
 
 import gzip
+import random
 from dataclasses import dataclass
 
 from showdown_bot.engine.moves import get_move_meta, to_id, is_known_move
@@ -131,3 +132,29 @@ def group_decisions(rows: list[dict]) -> list[Decision]:
         grp = sorted(buckets[key], key=lambda r: r["metadata"]["candidate_index"])
         out.append(Decision(game_id=key[0], decision_id=key[1], rows=grp))
     return out
+
+
+@dataclass
+class Split:
+    train: list[Decision]
+    val: list[Decision]
+    test: list[Decision]
+
+
+def split_by_game(decisions: list[Decision], *, seed: int = 42,
+                  ratios: tuple[float, float, float] = (0.8, 0.1, 0.1)) -> Split:
+    """Partition decisions into train/val/test by GAME (never by row/decision).
+    All decisions of a game go to one split. Deterministic for a given seed."""
+    assert abs(sum(ratios) - 1.0) < 1e-9, "ratios must sum to 1"
+    games = sorted({d.game_id for d in decisions})
+    rng = random.Random(seed)
+    rng.shuffle(games)
+    n = len(games)
+    n_tr = int(round(n * ratios[0]))
+    n_va = int(round(n * ratios[1]))
+    tr = set(games[:n_tr]); va = set(games[n_tr:n_tr + n_va]); te = set(games[n_tr + n_va:])
+    bucket = {"tr": [], "va": [], "te": []}
+    for d in decisions:
+        key = "tr" if d.game_id in tr else ("va" if d.game_id in va else "te")
+        bucket[key].append(d)
+    return Split(train=bucket["tr"], val=bucket["va"], test=bucket["te"])

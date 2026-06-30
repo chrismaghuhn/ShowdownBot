@@ -2,6 +2,7 @@
 import pytest
 from showdown_bot.learning.dataset import (
     load_rows, group_decisions, action_class, Decision,
+    split_by_game, Split,
 )
 
 def _row(game, dec, idx, *, move_id="tackle", action_type="move",
@@ -64,3 +65,35 @@ def test_joint_action_class_attack_plus_protect_is_attack():
 def test_action_class_strict_raises_on_unknown_move():
     with pytest.raises(ValueError):
         action_class(_row("g","d",0, move_id="not_a_real_move_xyz"), strict=True)
+
+def _decs(n_games, per_game=3):
+    rows = []
+    for g in range(n_games):
+        for d in range(per_game):
+            rows.append(_row(f"g{g}", f"g{g}-d{d}", 0, chosen=True, teacher_best=True))
+            rows.append(_row(f"g{g}", f"g{g}-d{d}", 1))
+    return group_decisions(rows)
+
+def test_split_by_game_is_disjoint_and_covers_all():
+    decs = _decs(100)
+    sp = split_by_game(decs, seed=42, ratios=(0.8, 0.1, 0.1))
+    gtr = {d.game_id for d in sp.train}
+    gva = {d.game_id for d in sp.val}
+    gte = {d.game_id for d in sp.test}
+    assert gtr.isdisjoint(gva) and gtr.isdisjoint(gte) and gva.isdisjoint(gte)
+    assert gtr | gva | gte == {f"g{i}" for i in range(100)}
+    assert (len(gtr), len(gva), len(gte)) == (80, 10, 10)
+
+def test_no_decision_leaks_across_splits():
+    decs = _decs(50)
+    sp = split_by_game(decs, seed=7, ratios=(0.8, 0.1, 0.1))
+    ids = lambda part: {(d.game_id, d.decision_id) for d in part}
+    assert ids(sp.train).isdisjoint(ids(sp.val))
+    assert ids(sp.train).isdisjoint(ids(sp.test))
+    assert ids(sp.val).isdisjoint(ids(sp.test))
+
+def test_split_is_deterministic_for_seed():
+    decs = _decs(30)
+    a = split_by_game(decs, seed=42, ratios=(0.8, 0.1, 0.1))
+    b = split_by_game(decs, seed=42, ratios=(0.8, 0.1, 0.1))
+    assert [d.decision_id for d in a.train] == [d.decision_id for d in b.train]
