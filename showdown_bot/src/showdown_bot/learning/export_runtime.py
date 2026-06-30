@@ -100,6 +100,7 @@ class DatasetExportRuntime:
         book=None,
         our_spreads=None,
         opp_sets=None,
+        priors=None,
     ):
         """Build a DatasetExportRuntime from environment variables.
 
@@ -142,6 +143,7 @@ class DatasetExportRuntime:
                     book=book,
                     our_spreads=our_spreads,
                     opp_sets=opp_sets,
+                    priors=priors,
                     cfg_dict=cfg_dict,  # mutated in-place with rollout hashes
                 )
             else:
@@ -177,6 +179,7 @@ class DatasetExportRuntime:
         book,
         our_spreads,
         opp_sets,
+        priors,
         cfg_dict: dict,
     ):
         """Build a RolloutLabelProvider and extend cfg_dict with rollout hashes.
@@ -228,10 +231,10 @@ class DatasetExportRuntime:
             "move_meta": move_meta or {},
             "our_spreads": our_spreads,
             "opp_sets": opp_sets if opp_sets is not None else {},
-            # priors/weights: None matches decision.py defaults; priors threading from
-            # the gauntlet is a documented v1 gap — the rollout's inner opponent model
-            # omits Protect priors (decision.py also defaults weights=None).
-            "priors": None,
+            # priors: threaded from the gauntlet so the rollout's inner opponent model
+            # uses the same Protect priors as the live decision (label-decision consistency).
+            # weights=None matches decision.py defaults (decision.py also defaults weights=None).
+            "priors": priors,
             "weights": None,
             # Mirror decision.py:156-157 defaults exactly.
             "risk_lambda": 0.5,

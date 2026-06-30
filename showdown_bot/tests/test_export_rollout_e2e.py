@@ -330,3 +330,65 @@ def test_from_env_rollout_deps_match_decision_defaults(tmp_path, monkeypatch):
     assert deps["tera_margin"] == 1.0, (
         f"tera_margin must be 1.0 (decision.py:157 default), got {deps['tera_margin']!r}"
     )
+
+
+def test_from_env_rollout_deps_threads_priors(tmp_path, monkeypatch):
+    """Guard: priors passed to from_env must appear in rollout deps (label-decision consistency).
+
+    Passing a sentinel priors object into from_env(..., priors=<sentinel>) and then
+    asserting deps["priors"] is <sentinel> ensures the gauntlet's Protect priors reach
+    the rollout's inner opponent model (same priors the live decision used).
+
+    Before the fix: from_env has no priors param -> deps["priors"] is None.
+    After the fix:  deps["priors"] is <sentinel>.
+    """
+    import showdown_bot.engine.calc.client as _calc_mod
+    import showdown_bot.engine.speed as _speed_mod
+    import showdown_bot.battle.oracle as _oracle_mod
+
+    class _StubCalc:
+        backend = None
+
+        def damage_batch(self, requests):
+            from showdown_bot.engine.calc.models import DamageResult
+            return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+    monkeypatch.setattr(_calc_mod, "CalcClient", lambda **kw: _StubCalc())
+
+    class _StubSpeedOracle:
+        def __init__(self, stats_backend=None):
+            self.backend = stats_backend
+
+    monkeypatch.setattr(_speed_mod, "SpeedOracle", _StubSpeedOracle)
+
+    class _StubOracle:
+        def __init__(self, client=None):
+            self.client = client
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(_oracle_mod, "DamageOracle", _StubOracle)
+
+    out_path = tmp_path / "priors_guard_out.jsonl"
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(out_path))
+    monkeypatch.setenv("SHOWDOWN_DATASET_TEACHER", "rollout")
+    monkeypatch.setenv("SHOWDOWN_ROLLOUT_HORIZON", "1")
+
+    # Sentinel priors object — identity check (not equality) is what matters.
+    _SENTINEL_PRIORS = object()
+
+    rt = DatasetExportRuntime.from_env(
+        format_id="gen9vgc2026regi",
+        packed_team="packed",
+        mirror_flag=False,
+        provider=None,  # forces real _build_rollout_provider
+        priors=_SENTINEL_PRIORS,
+    )
+    assert rt is not None
+
+    deps = rt._provider._deps
+    assert deps["priors"] is _SENTINEL_PRIORS, (
+        f"priors must be threaded into rollout deps for label-decision consistency, "
+        f"got {deps['priors']!r}"
+    )

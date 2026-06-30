@@ -132,6 +132,7 @@ class _Client:
             book=self.book,
             our_spreads=self.our_spreads,
             opp_sets=self.opp_sets,
+            priors=self.priors,
         )
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
