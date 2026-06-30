@@ -116,3 +116,28 @@ def test_switch_missing_target_raises():
                      slot1=SlotAction(kind="pass"))
     with pytest.raises(ValueError, match="not in roster"):
         apply_outcome_to_state(s, TurnOutcome(), {"p1": ja}, roster_by_side={"p1": {}})
+
+
+# ---------------------------------------------------------------------------
+# T5: determinism + combined primitive
+# ---------------------------------------------------------------------------
+
+def test_determinism_same_inputs_same_next_state():
+    s = _state()
+    out = TurnOutcome(hp_delta={("p2", "a"): -0.40}, flags={"status:tailwind:p1a"})
+    a = apply_outcome_to_state(s, out, {}, roster_by_side={})
+    b = apply_outcome_to_state(s, out, {}, roster_by_side={})
+    assert a.sides["p2"]["a"].hp == b.sides["p2"]["a"].hp
+    assert a.field.tailwind["p1"] == b.field.tailwind["p1"]
+
+def test_combined_hp_field_switch_one_turn():
+    s = _state()
+    bench = PokemonState(species="Landorus-Therian", hp=180, max_hp=180)
+    roster = {"p2": {"p2: Landorus": bench}}
+    ja_p2 = JointAction(slot0=SlotAction(kind="switch", target_ident="p2: Landorus"),
+                        slot1=SlotAction(kind="pass"))
+    out = TurnOutcome(hp_delta={("p1", "a"): -0.30}, flags={"status:trickroom:p1a"})
+    nxt = apply_outcome_to_state(s, out, {"p2": ja_p2}, roster_by_side=roster)
+    assert abs(nxt.sides["p1"]["a"].hp_fraction - 0.70) < 1e-9   # our mon took damage
+    assert nxt.sides["p2"]["a"].species == "Landorus-Therian"     # opp switched (via roster)
+    assert nxt.field.trick_room is True
