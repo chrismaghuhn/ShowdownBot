@@ -136,3 +136,75 @@ def make_resolve(
         return nxt, reward
 
     return resolve
+
+
+def make_decide(
+    *,
+    root_our_side: str,
+    roster_by_side: dict,
+    movesets_by_side: dict,
+    stats_by_side: dict,
+    move_meta: dict,
+    deps: dict,
+):
+    """Return a ``decide(state, token) -> JointAction`` adapter for the 1a rollout teacher.
+
+    ``token`` must be one of the ``US`` / ``THEM`` constants from ``learning.teacher``.
+    The mapping from token to side is STATIC (built at factory time from ``root_our_side``),
+    never derived from the state at call time.
+
+    Raises:
+        ValueError: if ``token`` is not US or THEM.
+    """
+    from showdown_bot.learning.teacher import US, THEM
+    from showdown_bot.battle.decision import _opp_side
+    from showdown_bot.learning.decide_adapter import decide as _decide
+
+    side_for = {US: root_our_side, THEM: _opp_side(root_our_side)}
+
+    def decide(state, token):
+        if token not in side_for:
+            raise ValueError(
+                f"unknown rollout token {token!r} (expected US={US!r} or THEM={THEM!r})"
+            )
+        side = side_for[token]
+        return _decide(
+            state, side,
+            roster=roster_by_side,
+            movesets=movesets_by_side,
+            stats=stats_by_side,
+            move_meta=move_meta,
+            deps=deps,
+        )
+
+    return decide
+
+
+def make_leaf(
+    *,
+    root_our_side: str,
+    roster_by_side: dict,
+    movesets_by_side: dict,
+    stats_by_side: dict,
+    move_meta: dict,
+    deps: dict,
+):
+    """Return a ``leaf(state) -> float`` adapter for the 1a rollout teacher.
+
+    The leaf is ALWAYS evaluated from ``root_our_side``'s perspective — never
+    from the side-to-move.  This is the root-perspective bootstrap value used
+    at the end of the H-step rollout.
+    """
+    from showdown_bot.learning.decide_adapter import leaf_value as _leaf_value
+
+    def leaf(state):
+        return _leaf_value(
+            state, root_our_side,
+            roster=roster_by_side,
+            movesets=movesets_by_side,
+            stats=stats_by_side,
+            move_meta=move_meta,
+            deps=deps,
+        )
+
+    return leaf
