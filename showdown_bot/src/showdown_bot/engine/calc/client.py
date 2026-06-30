@@ -296,12 +296,29 @@ class PersistentCalcBackend:
         return [item.get("types", []) for item in self._run(payload)]
 
 
+def make_calc_backend() -> SubprocessCalcBackend | PersistentCalcBackend:
+    """Select a calc backend via ``SHOWDOWN_CALC_BACKEND`` env var.
+
+    - unset / ``""`` / ``"oneshot"`` → :class:`SubprocessCalcBackend` (default)
+    - ``"persistent"``               → :class:`PersistentCalcBackend`
+    - anything else                  → :exc:`ValueError`
+    """
+    mode = os.environ.get("SHOWDOWN_CALC_BACKEND", "oneshot")
+    if mode in ("", "oneshot"):
+        return SubprocessCalcBackend()
+    if mode == "persistent":
+        return PersistentCalcBackend()
+    raise ValueError(
+        f"unknown SHOWDOWN_CALC_BACKEND={mode!r} (expected 'oneshot' or 'persistent')"
+    )
+
+
 class CalcClient:
     """Caller-facing API. Does not know whether the backend is a one-shot
     subprocess or a persistent process."""
 
     def __init__(self, backend: CalcBackend | None = None) -> None:
-        self.backend: CalcBackend = backend or SubprocessCalcBackend()
+        self.backend: CalcBackend = backend or make_calc_backend()
 
     def damage(self, request: DamageRequest) -> DamageResult:
         return self.damage_batch([request])[0]

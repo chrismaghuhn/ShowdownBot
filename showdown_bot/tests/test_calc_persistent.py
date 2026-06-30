@@ -433,3 +433,42 @@ def test_concurrency_two_threads_get_correct_results():
         )
     finally:
         b.close()
+
+
+# ---------------------------------------------------------------------------
+# Task 2a-3 tests: make_calc_backend() factory + SHOWDOWN_CALC_BACKEND env
+# ---------------------------------------------------------------------------
+
+
+def test_factory_default_is_oneshot(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_CALC_BACKEND", raising=False)
+    from showdown_bot.engine.calc.client import make_calc_backend, SubprocessCalcBackend
+    assert isinstance(make_calc_backend(), SubprocessCalcBackend)
+
+
+def test_factory_persistent(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_CALC_BACKEND", "persistent")
+    from showdown_bot.engine.calc.client import make_calc_backend, PersistentCalcBackend
+    b = make_calc_backend()
+    try:
+        assert isinstance(b, PersistentCalcBackend)
+    finally:
+        b.close()
+
+
+def test_factory_unknown_raises(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_CALC_BACKEND", "persitent")  # typo
+    from showdown_bot.engine.calc.client import make_calc_backend
+    import pytest
+    with pytest.raises(ValueError):
+        make_calc_backend()
+
+
+def test_calcclient_default_uses_factory(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_CALC_BACKEND", "persistent")
+    from showdown_bot.engine.calc.client import CalcClient, PersistentCalcBackend
+    c = CalcClient()
+    try:
+        assert isinstance(c.backend, PersistentCalcBackend)
+    finally:
+        c.backend.close()
