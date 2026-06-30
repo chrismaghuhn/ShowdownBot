@@ -51,25 +51,27 @@ def test_quality_sorted_deduped_flags():
 
 def test_build_known_side_includes_full_team(known_team_slots):
     """build_known_side must include ALL team mons in movesets/stats/quality,
-    and bench mons (active=False) must appear in roster."""
+    keyed by ident SUFFIX (matching switch target_ident convention), and bench
+    mons (active=False) must appear in roster under their suffix key."""
     bs = build_known_side(known_team_slots)
 
     assert isinstance(bs, BeliefSide)
 
-    # All four slots must have movesets, stats, quality entries
-    assert set(bs.movesets.keys()) == {slot.ident for slot in known_team_slots}
-    assert set(bs.stats.keys()) == {slot.ident for slot in known_team_slots}
-    assert set(bs.quality.keys()) == {slot.ident for slot in known_team_slots}
+    # All four slots must have movesets, stats, quality entries — keyed by SUFFIX
+    expected_suffixes = {slot.ident.split(": ", 1)[-1] for slot in known_team_slots}
+    assert set(bs.movesets.keys()) == expected_suffixes
+    assert set(bs.stats.keys()) == expected_suffixes
+    assert set(bs.quality.keys()) == expected_suffixes
 
-    # Bench mons (active=False) must appear in roster
-    bench_idents = {slot.ident for slot in known_team_slots if not slot.active}
-    assert bench_idents, "fixture must have at least one bench mon"
-    assert set(bs.roster.keys()) == bench_idents
+    # Bench mons (active=False) must appear in roster — keyed by SUFFIX
+    bench_suffixes = {slot.ident.split(": ", 1)[-1] for slot in known_team_slots if not slot.active}
+    assert bench_suffixes, "fixture must have at least one bench mon"
+    assert set(bs.roster.keys()) == bench_suffixes
 
     # Active mons must NOT appear in roster (roster = bench only)
-    active_idents = {slot.ident for slot in known_team_slots if slot.active}
-    for ident in active_idents:
-        assert ident not in bs.roster
+    active_suffixes = {slot.ident.split(": ", 1)[-1] for slot in known_team_slots if slot.active}
+    for suffix in active_suffixes:
+        assert suffix not in bs.roster
 
     # All quality values must be ("ok",) — our team is fully known
     assert all(q == ("ok",) for q in bs.quality.values()), (
@@ -78,20 +80,22 @@ def test_build_known_side_includes_full_team(known_team_slots):
 
 
 def test_build_known_side_movesets_match_slot(known_team_slots):
-    """Each slot's movesets[ident] must equal list(slot.moves)."""
+    """Each slot's movesets[suffix] must equal list(slot.moves) (keyed by ident suffix)."""
     bs = build_known_side(known_team_slots)
     for slot in known_team_slots:
-        assert bs.movesets[slot.ident] == list(slot.moves), (
-            f"moveset mismatch for {slot.ident}"
+        suffix = slot.ident.split(": ", 1)[-1]
+        assert bs.movesets[suffix] == list(slot.moves), (
+            f"moveset mismatch for {suffix} (from ident {slot.ident!r})"
         )
 
 
 def test_build_known_side_spe_stat(known_team_slots):
-    """stats[ident]['spe'] must equal slot.stats['spe'] for every slot."""
+    """stats[suffix]['spe'] must equal slot.stats['spe'] for every slot (keyed by ident suffix)."""
     bs = build_known_side(known_team_slots)
     for slot in known_team_slots:
-        assert bs.stats[slot.ident] == {"spe": slot.stats["spe"]}, (
-            f"spe mismatch for {slot.ident}"
+        suffix = slot.ident.split(": ", 1)[-1]
+        assert bs.stats[suffix] == {"spe": slot.stats["spe"]}, (
+            f"spe mismatch for {suffix} (from ident {slot.ident!r})"
         )
 
 

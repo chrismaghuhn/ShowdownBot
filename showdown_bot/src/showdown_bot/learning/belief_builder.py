@@ -68,9 +68,19 @@ def build_known_side(team_slots) -> BeliefSide:
     -------
     BeliefSide
         roster   = bench slots only (active=False).
-        movesets = all slots, keyed by ident, ordered as slot.moves.
-        stats    = all slots, keyed by ident, {"spe": slot.stats["spe"]}.
+        movesets = all slots, keyed by ident SUFFIX (e.g. "Flutter Mane"),
+                   matching the switch target_ident convention from actions.py:52.
+        stats    = all slots, keyed by ident suffix, {"spe": slot.stats["spe"]}.
         quality  = all slots ("ok",) — our team is fully known.
+
+    Key convention
+    --------------
+    All four maps (roster, movesets, stats, quality) are keyed by the ident
+    suffix — the part after the "p1: " prefix, i.e.
+    ``slot.ident.split(": ", 1)[-1]``.  This matches the ``target_ident``
+    emitted by ``_voluntary_switches`` in ``battle/actions.py`` and the
+    ``synthesize_request`` round-trip, so ``simulator._apply_switches`` can
+    look up ``roster[sa.target_ident]`` without a key mismatch.
     """
     roster: dict[str, PokemonState] = {}
     movesets: dict[str, list[str]] = {}
@@ -78,10 +88,12 @@ def build_known_side(team_slots) -> BeliefSide:
     quality: dict[str, tuple[str, ...]] = {}
 
     for slot in team_slots:
-        ident = slot.ident
-        movesets[ident] = list(slot.moves)
-        stats[ident] = {"spe": int(slot.stats["spe"])}
-        quality[ident] = _quality()  # fully known — no flags
+        # Key by ident suffix (e.g. "Flutter Mane"), NOT the full ident
+        # (e.g. "p1: Flutter Mane"), to match the switch target_ident convention.
+        key = slot.ident.split(": ", 1)[-1]
+        movesets[key] = list(slot.moves)
+        stats[key] = {"spe": int(slot.stats["spe"])}
+        quality[key] = _quality()  # fully known — no flags
 
         if not slot.active:
             # Build a bench PokemonState.  Parse species from details
@@ -100,7 +112,7 @@ def build_known_side(team_slots) -> BeliefSide:
                     hp = int(cur_s)
                 if max_s.isdigit():
                     max_hp = int(max_s)
-            roster[ident] = PokemonState(
+            roster[key] = PokemonState(
                 species=parsed.species,
                 level=parsed.level,
                 gender=parsed.gender,
