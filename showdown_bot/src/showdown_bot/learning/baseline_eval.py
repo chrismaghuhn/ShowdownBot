@@ -81,26 +81,33 @@ def evaluate_baseline(decisions: list[Decision]) -> BaselineMetrics:
             m.forced_decisions += 1
             continue
         m.multi_decisions += 1
-        chosen = d.chosen_row()  # fail-fast: raises on != 1 heuristic choice
-        gap = chosen["label"]["value_gap_to_best"]
-        regrets.append(abs(gap) if gap is not None else 0.0)
-        in_best = chosen["label"]["teacher_best"]
+        chosen_rows = d.chosen_rows()  # usually 1; equivalent forced switch/pass marks several
+        # topset agreement: ANY chosen row is in the teacher-best set.
+        in_best = any(r["label"]["teacher_best"] for r in chosen_rows)
+        chosen_gaps = [abs(r["label"]["value_gap_to_best"]) for r in chosen_rows
+                       if r["label"]["value_gap_to_best"] is not None]
+        regret = min(chosen_gaps) if chosen_gaps else 0.0  # best the heuristic achieved
+        regrets.append(regret)
         m.agree_topset_total += 1
         if in_best:
             m.agree_topset += 1
         else:
             m.override_opportunity += 1
-            if gap is not None and abs(gap) <= NEAR_EQUAL:
+            if regret <= NEAR_EQUAL:
                 m.wrong_but_near_equal += 1
-        # strict + per-action-class on the SAME unique-strict set so by_action
-        # denominators match the 2b-0 QA (attack 643 + protect 108 == 751).
-        if not d.is_tie:
+        # strict + per-action-class on the unique-strict set (exactly one teacher_best
+        # AND exactly one chosen) so by_action denominators match the 2b-0 QA
+        # (attack 643 + protect 108 == 751). The multi-chosen decisions coincide
+        # with the teacher ties, so both conditions exclude exactly those 100.
+        if not d.is_tie and len(chosen_rows) == 1:
+            chosen = chosen_rows[0]
+            in_best_strict = chosen["label"]["teacher_best"]
             m.strict_total += 1
-            if in_best:
+            if in_best_strict:
                 m.agree_strict += 1
             cls = action_class(chosen)
             agree, total = m.by_action.get(cls, (0, 0))
-            m.by_action[cls] = (agree + (1 if in_best else 0), total + 1)
+            m.by_action[cls] = (agree + (1 if in_best_strict else 0), total + 1)
     m.mean_regret = round(sum(regrets) / len(regrets), 4) if regrets else 0.0
     if nonbest_gaps:
         m.nonbest_gap_median = round(statistics.median(nonbest_gaps), 4)

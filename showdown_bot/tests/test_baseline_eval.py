@@ -51,3 +51,20 @@ def test_format_report_runs():
     from showdown_bot.learning.baseline_eval import format_report
     text = format_report(evaluate_baseline(group_decisions(A)))
     assert "Baseline Evaluation Report" in text and "joint-action class" in text
+
+
+def test_multi_chosen_tie_does_not_crash_and_counts_as_topset_agree():
+    # Real-data case: a forced switch/pass decision whose two candidates are
+    # equivalent (the switch target lives in a dead feature column), so the
+    # export marks BOTH as chosen AND both as teacher_best. These multi-chosen
+    # decisions coincide exactly with the teacher ties. The evaluator must not
+    # crash, must count topset agreement (any chosen is best), and must exclude
+    # the decision from the unique-strict set.
+    M = [_r("g", "M", 0, teacher_best=True, chosen_by_current_heuristic=True, value_gap_to_best=0.0),
+         _r("g", "M", 1, teacher_best=True, chosen_by_current_heuristic=True, value_gap_to_best=0.0)]
+    m = evaluate_baseline(group_decisions(M))
+    assert m.multi_decisions == 1
+    assert m.ties == 1
+    assert m.agree_topset == 1          # any chosen row is teacher_best
+    assert m.strict_total == 0          # excluded from strict (tie + multi-chosen)
+    assert m.override_opportunity == 0  # heuristic chose a teacher-best option

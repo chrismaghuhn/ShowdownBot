@@ -90,9 +90,16 @@ class Decision:
     def is_multi_candidate(self) -> bool:
         return len(self.rows) > 1
 
+    def chosen_rows(self) -> list[dict]:
+        """All heuristic-chosen candidates. Usually exactly one, but a forced
+        switch/pass whose candidates are equivalent (the switch target lives in
+        a dead feature column) marks several — these coincide with teacher ties."""
+        return [r for r in self.rows if r["label"]["chosen_by_current_heuristic"]]
+
     def chosen_row(self) -> dict:
-        """The single heuristic-chosen candidate. Fail-fast: != 1 choice is a bug."""
-        cs = [r for r in self.rows if r["label"]["chosen_by_current_heuristic"]]
+        """The single heuristic-chosen candidate. Fail-fast: != 1 choice is a bug.
+        Use chosen_rows() when multiple equivalent choices are possible (ties)."""
+        cs = self.chosen_rows()
         if len(cs) != 1:
             raise ValueError(
                 f"decision {(self.game_id, self.decision_id)} has {len(cs)} heuristic choices")
