@@ -109,3 +109,138 @@ def build_known_side(team_slots) -> BeliefSide:
             )
 
     return BeliefSide(roster, movesets, stats, quality)
+
+
+# ---------------------------------------------------------------------------
+# D2b: build_opponent_belief (active-only, prior-based, limited-view-safe)
+# ---------------------------------------------------------------------------
+
+def _merge_moveset(revealed: list[str], prior: list[str]) -> tuple[list[str], list[str]]:
+    """Merge revealed moves (first) then prior fill; dedupe (first wins); cap 4.
+
+    Parameters
+    ----------
+    revealed : list[str]
+        Sorted move ids already seen in battle (from mon.moves).
+    prior : list[str]
+        Ordered move ids from move_priors for this species.
+
+    Returns
+    -------
+    (merged, flags)
+        merged : list[str] — up to 4 deduplicated move ids.
+        flags  : list[str] — ["no_move_prior"] if merged is empty after combining.
+    """
+    flags: list[str] = []
+    merged: list[str] = []
+    seen: set[str] = set()
+
+    from showdown_bot.engine.state import to_id
+    for m in [*revealed, *prior]:          # revealed FIRST (wins), then prior fill
+        mid = to_id(m)
+        if mid not in seen:
+            seen.add(mid)
+            merged.append(mid)
+        if len(merged) == 4:               # cap 4
+            break
+
+    if not merged:                          # no prior AND no revealed -> weak fallback
+        merged = [FALLBACK_BELIEF_MOVE]
+        flags.append("no_move_prior")
+
+    return merged, flags
+
+
+def _belief_speed(mon, field, side, spreads, speed_oracle) -> tuple[int, str | None]:
+    """Estimate opponent speed via the speed oracle + likely_sets.
+
+    Priority chain:
+    1. oracle + spreads entry  -> likely_speed(preset=spreads.offense)      flag=None
+    2. oracle only (no entry)  -> likely_speed(preset=SpreadPreset("Hardy",{})) flag="weak_speed_fallback"
+    3. no oracle               -> 0                                          flag="weak_speed_fallback"
+
+    Parameters
+    ----------
+    mon       : PokemonState
+    field     : FieldState
+    side      : str   — opponent side id
+    spreads   : SpeciesSpreads | None  — likely_sets.get(to_id(species))
+    speed_oracle : SpeedOracle | None
+    """
+    if speed_oracle is not None and spreads is not None:
+        preset = spreads.offense
+        item = preset.items[0] if preset.items else None
+        return speed_oracle.likely_speed(mon, field, side, preset, item), None
+
+    if speed_oracle is not None:
+        from showdown_bot.engine.belief.hypotheses import SpreadPreset
+        return (
+            speed_oracle.likely_speed(mon, field, side, SpreadPreset("Hardy", {}), None),
+            "weak_speed_fallback",
+        )
+
+    return 0, "weak_speed_fallback"
+
+
+def build_opponent_belief(
+    state,
+    opp_side: str,
+    *,
+    likely_sets: dict,
+    move_priors: dict,
+    dex=None,
+    book=None,
+    speed_oracle=None,
+) -> BeliefSide:
+    """Build a BeliefSide for the opponent: active-only, prior-based, limited-view-safe.
+
+    Reads ONLY ``state.sides[opp_side]["a"|"b"]`` (the two active slots) and public
+    priors.  The ``roster`` is always ``{}`` — the bench is hidden.
+
+    Parameters
+    ----------
+    state      : BattleState
+    opp_side   : str   e.g. "p2"
+    likely_sets: dict  species_id -> SpeciesSpreads (for speed oracle)
+    move_priors: dict  species_id -> list[str]  ordered move priors
+    dex, book  : unused (reserved for future)
+    speed_oracle: SpeedOracle | None
+
+    Structural limited-view guarantee
+    ----------------------------------
+    * No ``known_team`` / ``team`` / ``full_roster`` parameter (API-guard test).
+    * Iterates the literal tuple ``("a", "b")``; any extra keys injected into
+      ``state.sides[opp_side]`` (e.g. "c") are invisible to this function.
+    """
+    from showdown_bot.engine.state import to_id
+
+    roster: dict[str, PokemonState] = {}            # always empty — bench is hidden
+    movesets: dict[str, list[str]] = {}
+    stats: dict[str, dict[str, int]] = {}
+    quality: dict[str, tuple[str, ...]] = {}
+
+    field = state.field
+
+    for slot in ("a", "b"):                          # ONLY the two active slots
+        mon = state.sides.get(opp_side, {}).get(slot)
+        if mon is None:
+            continue
+
+        species = mon.species
+        sid = to_id(species)
+
+        # PokemonState.moves is a set[str] (unordered) -> sort for determinism
+        revealed_sorted = sorted(mon.moves)
+        prior = move_priors.get(sid, [])
+        merged, flags = _merge_moveset(revealed_sorted, prior)
+
+        spe, spe_flag = _belief_speed(mon, field, opp_side, likely_sets.get(sid), speed_oracle)
+        if spe_flag:
+            flags.append(spe_flag)
+
+        # Key all three dicts by species (PokemonState has no ident field)
+        movesets[species] = merged
+        stats[species] = {"spe": spe}
+        quality[species] = _quality(*flags)
+
+    return BeliefSide(roster, movesets, stats, quality)

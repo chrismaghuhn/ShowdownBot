@@ -109,3 +109,102 @@ def test_belief_side_is_frozen(known_team_slots):
     bs = build_known_side(known_team_slots)
     with pytest.raises((AttributeError, TypeError)):
         bs.roster = {}  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Task D2b fixtures
+# ---------------------------------------------------------------------------
+
+from showdown_bot.engine.state import BattleState, PokemonState  # noqa: E402
+
+
+@pytest.fixture
+def opp_state() -> BattleState:
+    """Minimal BattleState with p2 having two active mons (Incineroar + Flutter Mane)."""
+    s = BattleState()
+    s.sides["p1"]["a"] = PokemonState(species="Rillaboom", hp=200, max_hp=200)
+    s.sides["p1"]["b"] = PokemonState(species="Urshifu", hp=180, max_hp=180)
+    s.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150, moves=set())
+    s.sides["p2"]["b"] = PokemonState(species="Flutter Mane", hp=120, max_hp=120, moves=set())
+    return s
+
+
+@pytest.fixture
+def opp_state_with_revealed() -> BattleState:
+    """p2 has Incineroar in slot 'a' with fakeout already revealed."""
+    s = BattleState()
+    s.sides["p1"]["a"] = PokemonState(species="Rillaboom", hp=200, max_hp=200)
+    s.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150, moves={"fakeout"})
+    return s
+
+
+@pytest.fixture
+def opp_state_no_moves() -> BattleState:
+    """p2 has Incineroar with no revealed moves and no priors will be supplied."""
+    s = BattleState()
+    s.sides["p1"]["a"] = PokemonState(species="Rillaboom", hp=200, max_hp=200)
+    s.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150, moves=set())
+    return s
+
+
+# ---------------------------------------------------------------------------
+# Task D2b tests
+# ---------------------------------------------------------------------------
+
+from showdown_bot.learning.belief_builder import (  # noqa: E402
+    FALLBACK_BELIEF_MOVE,
+    build_opponent_belief,
+)
+
+
+def test_opp_roster_is_empty_and_keys_are_active_only(opp_state):
+    """Opponent belief must have empty roster and only active species as keys."""
+    bs = build_opponent_belief(opp_state, "p2", likely_sets={}, move_priors={})
+    assert bs.roster == {}
+    # Only the two active p2 mons should be keyed (by species)
+    assert set(bs.movesets) == {"Incineroar", "Flutter Mane"}
+
+
+def test_revealed_moves_first_then_prior_fill_dedupe_cap4(opp_state_with_revealed):
+    """Revealed moves come first; prior fills; deduplication; cap at 4."""
+    # Incineroar revealed {"fakeout"}; prior has fakeout + 4 more (5 total)
+    mp = {"incineroar": ["fakeout", "knockoff", "flareblitz", "partingshot", "uturn"]}
+    bs = build_opponent_belief(
+        opp_state_with_revealed, "p2", likely_sets={}, move_priors=mp
+    )
+    # revealed "fakeout" first, then knockoff/flareblitz/partingshot from prior (uturn cut by cap)
+    assert bs.movesets["Incineroar"] == ["fakeout", "knockoff", "flareblitz", "partingshot"]
+
+
+def test_no_prior_no_revealed_uses_fallback_and_flags(opp_state_no_moves):
+    """When no moves and no priors, moveset is [FALLBACK_BELIEF_MOVE] + 'no_move_prior' flag."""
+    bs = build_opponent_belief(opp_state_no_moves, "p2", likely_sets={}, move_priors={})
+    assert bs.movesets["Incineroar"] == [FALLBACK_BELIEF_MOVE]
+    assert "no_move_prior" in bs.quality["Incineroar"]
+
+
+def test_hidden_bench_like_entry_is_ignored(opp_state):
+    """Injecting a non-active key into state.sides['p2'] must NOT appear in belief."""
+    # This is the limited-view safety gate
+    opp_state.sides["p2"]["c"] = PokemonState(
+        species="Calyrex-Shadow", hp=180, max_hp=180, moves=set()
+    )
+    bs = build_opponent_belief(opp_state, "p2", likely_sets={}, move_priors={})
+    assert "Calyrex-Shadow" not in bs.movesets
+    assert "Calyrex-Shadow" not in bs.stats
+    assert "Calyrex-Shadow" not in bs.quality
+
+
+def test_build_opponent_belief_has_no_known_team_param():
+    """API guard: signature must not expose known_team, team, or full_roster."""
+    import inspect
+    params = inspect.signature(build_opponent_belief).parameters
+    assert "known_team" not in params
+    assert "team" not in params
+    assert "full_roster" not in params
+
+
+def test_opp_belief_keys_are_consistent(opp_state):
+    """movesets, stats, quality must all share the same key set."""
+    bs = build_opponent_belief(opp_state, "p2", likely_sets={}, move_priors={})
+    assert set(bs.movesets) == set(bs.stats) == set(bs.quality)
