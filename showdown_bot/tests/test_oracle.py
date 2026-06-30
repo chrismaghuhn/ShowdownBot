@@ -103,7 +103,7 @@ def _model_with_real_oracle(st):
     from showdown_bot.engine.belief.hypotheses import load_spread_book
     from showdown_bot.engine.format_config import load_format_config
 
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     oracle = DamageOracle(client=FakeClient())
     model = DamageModel(st, "p1", "p2", book=book, oracle=oracle)

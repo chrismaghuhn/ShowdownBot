@@ -3,7 +3,7 @@
 A real probe of the merged 1d export path: real 2v2 VGC decision → DecisionTrace → `rollout_labels`
 with a **real Node CalcClient** → schema-valid JSONL. Hermetic (no live Showdown server), driven by
 the test-suite's realistic fixture (Incineroar+Rillaboom vs Flutter Mane+Tornadus), format
-`gen9vgc2026regi`. No JSONL data committed — this report is the durable record.
+`gen9vgc2025regi` (formerly mislabeled `gen9vgc2026regi`). No JSONL data committed — this report is the durable record.
 
 ## Commands / Env (actually used)
 ```

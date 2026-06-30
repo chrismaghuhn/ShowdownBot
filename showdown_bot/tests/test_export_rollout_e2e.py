@@ -127,7 +127,7 @@ def test_rollout_mode_emits_trainable_labels(tmp_path, monkeypatch, decision_fix
 
     # Build runtime with rollout provider (bypassing from_env which needs CalcClient)
     rt = DatasetExportRuntime.from_env(
-        format_id="gen9vgc2026regi",
+        format_id="gen9vgc2025regi",
         packed_team="packed",
         mirror_flag=False,
         provider=provider,
@@ -315,7 +315,7 @@ def test_from_env_rollout_deps_match_decision_defaults(tmp_path, monkeypatch):
 
     # Call from_env with provider=None so the real _build_rollout_provider path runs.
     rt = DatasetExportRuntime.from_env(
-        format_id="gen9vgc2026regi",
+        format_id="gen9vgc2025regi",
         packed_team="packed",
         mirror_flag=False,
         provider=None,  # explicit: forces real _build_rollout_provider
@@ -379,7 +379,7 @@ def test_from_env_rollout_deps_threads_priors(tmp_path, monkeypatch):
     _SENTINEL_PRIORS = object()
 
     rt = DatasetExportRuntime.from_env(
-        format_id="gen9vgc2026regi",
+        format_id="gen9vgc2025regi",
         packed_team="packed",
         mirror_flag=False,
         provider=None,  # forces real _build_rollout_provider

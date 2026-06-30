@@ -32,7 +32,7 @@ def test_collect_instances_pairs_moves_and_skips_recoil():
 
 @pytest.mark.integration
 def test_strict_validation_all_match():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     known = load_known_sets(VALIDATE_SETS)
     report = validate_log(
         VALIDATE_LOG.read_text(encoding="utf-8"),
@@ -48,7 +48,7 @@ def test_strict_validation_all_match():
 
 @pytest.mark.integration
 def test_union_validation_runs_without_sets():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     report = validate_log(
         SAMPLE_LOG.read_text(encoding="utf-8"),
         calc=CalcClient(backend=SubprocessCalcBackend()),

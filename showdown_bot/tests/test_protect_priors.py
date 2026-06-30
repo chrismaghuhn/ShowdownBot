@@ -10,7 +10,7 @@ from showdown_bot.engine.state import BattleState, PokemonState
 
 
 def test_load_protect_priors():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     priors = load_protect_priors(cfg.meta_path("protect_priors"))
     assert 0.0 < priors.default < 1.0
     assert "Incineroar" in priors.species

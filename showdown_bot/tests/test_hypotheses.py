@@ -16,7 +16,7 @@ from showdown_bot.engine.state import BattleState, PokemonState
 
 
 def _book():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     return load_spread_book(cfg.meta_path("default_spreads"))
 
 
@@ -45,7 +45,7 @@ def test_offense_and_defense_presets_differ():
 
 
 def test_build_hypotheses_for_opponent_side():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     state = BattleState()
     state.sides["p2"]["a"] = PokemonState(species="Flutter Mane", ability="Protosynthesis")
     hyps = build_hypotheses(state, cfg, "p2")

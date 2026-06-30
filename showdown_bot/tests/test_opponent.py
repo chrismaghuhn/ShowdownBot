@@ -129,7 +129,7 @@ def test_opponent_speed_curated_vs_fallback(monkeypatch):
     from showdown_bot.engine.format_config import load_format_config
 
     oracle = SpeedOracle(stats_backend=_SpeFake())
-    book = load_spread_book(load_format_config("gen9vgc2026regi").meta_path("default_spreads"))
+    book = load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
     p = SpreadPreset(nature="Careful", evs={"hp": 252}, items=["Sitrus Berry"])  # non-scarf, no spe
     opp_sets = {"incineroar": SpeciesSpreads(offense=p, defense=p)}
     field = FieldState()
