@@ -64,3 +64,21 @@ def test_hp_synthetic_maxhp_when_unknown():
     nxt = apply_outcome_to_state(s, out, {}, roster_by_side={})
     assert nxt.sides["p2"]["a"].max_hp == 100
     assert abs(nxt.sides["p2"]["a"].hp_fraction - 0.60) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# T3: field flag application
+# ---------------------------------------------------------------------------
+
+def test_field_tailwind_and_trickroom():
+    s = _state()
+    out = TurnOutcome(flags={"status:tailwind:p1a", "status:trickroom:p2a"})
+    nxt = apply_outcome_to_state(s, out, {}, roster_by_side={})
+    assert nxt.field.tailwind["p1"] is True
+    assert nxt.field.trick_room is True            # toggled on from default False
+
+def test_unknown_flag_is_ignored():
+    s = _state()
+    out = TurnOutcome(flags={"status:bogusmove:p1a", "wasted_move", "protect:p1a"})
+    nxt = apply_outcome_to_state(s, out, {}, roster_by_side={})   # no crash
+    assert nxt.field.tailwind["p1"] is False and nxt.field.trick_room is False

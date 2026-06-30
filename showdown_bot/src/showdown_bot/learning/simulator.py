@@ -34,6 +34,20 @@ def _apply_hp(state: BattleState, outcome: TurnOutcome) -> None:
             mon.fainted = True
 
 
+def _apply_field(state: BattleState, outcome: TurnOutcome) -> None:
+    for flag in outcome.flags:
+        parts = flag.split(":")
+        if parts[0] != "status" or len(parts) != 3:
+            continue
+        move_id, owner = parts[1], parts[2]
+        side = owner[:2]   # "p1a" -> "p1"
+        if move_id == "tailwind":
+            state.field.tailwind[side] = True
+        elif move_id == "trickroom":
+            state.field.trick_room = not state.field.trick_room
+        # any other move_id: ignored (no invented weather/terrain parsing in 1c-A)
+
+
 def apply_outcome_to_state(
     state: BattleState, outcome: TurnOutcome, actions_by_side: dict[str, JointAction],
     *, roster_by_side: dict,
@@ -41,4 +55,5 @@ def apply_outcome_to_state(
     """Return a NEW BattleState; never mutate the input."""
     nxt = clone_state(state)
     _apply_hp(nxt, outcome)
+    _apply_field(nxt, outcome)
     return nxt
