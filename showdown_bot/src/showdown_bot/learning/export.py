@@ -31,3 +31,19 @@ def make_game_id(run_id, game_index) -> str:
 
 def make_decision_id(game_id, decision_local_index, turn_number, our_side) -> str:
     return _sha16(game_id, decision_local_index, turn_number, our_side)
+
+
+@dataclass
+class SamplingPolicy:
+    policy: str = "all"      # "all" | "every_nth"
+    rate: int = 1            # used by every_nth
+    seed: int = 0            # reserved for future seeded sampling; deterministic
+
+    def should_sample(self, decision_index: int) -> bool:
+        if self.policy == "all":
+            return True
+        if self.policy == "every_nth":
+            if self.rate <= 0:                       # fail-fast, never silently normalize
+                raise ValueError("every_nth sampling rate must be > 0")
+            return decision_index % self.rate == 0
+        raise ValueError(f"unknown sampling policy: {self.policy}")

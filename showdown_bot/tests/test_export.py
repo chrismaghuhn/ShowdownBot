@@ -33,3 +33,27 @@ def test_export_module_has_no_nondeterministic_imports():
     assert "import time" not in src
     assert "import random" not in src
     assert "datetime.now" not in src
+
+
+def test_sampling_policy_default_is_all():
+    from showdown_bot.learning.export import SamplingPolicy
+    p = SamplingPolicy()
+    assert p.policy == "all"
+    assert all(p.should_sample(i) for i in range(10))
+
+def test_sampling_policy_every_nth():
+    from showdown_bot.learning.export import SamplingPolicy
+    p = SamplingPolicy(policy="every_nth", rate=3)
+    assert [i for i in range(9) if p.should_sample(i)] == [0, 3, 6]
+
+def test_sampling_policy_rejects_unknown():
+    import pytest
+    from showdown_bot.learning.export import SamplingPolicy
+    with pytest.raises(ValueError, match="unknown sampling"):
+        SamplingPolicy(policy="bogus").should_sample(0)
+
+def test_sampling_policy_rejects_nonpositive_rate():
+    import pytest
+    from showdown_bot.learning.export import SamplingPolicy
+    with pytest.raises(ValueError, match="rate"):
+        SamplingPolicy(policy="every_nth", rate=0).should_sample(0)
