@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 
 from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
+from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.client.connection import (
     ShowdownConnection,
     authenticate_local,
@@ -15,6 +16,7 @@ from showdown_bot.client.connection import (
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
+from showdown_bot.learning.export_runtime import DatasetExportRuntime
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming
 from showdown_bot.team.pack import load_packed_team
@@ -48,6 +50,7 @@ def agent_choose(
     report: list[str] | None = None,
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
+    trace=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -66,7 +69,7 @@ def agent_choose(
             return choose_for_request(req)
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
-        our_spreads=our_spreads, opp_sets=opp_sets,
+        our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
     )
 
 
@@ -115,6 +118,11 @@ class _Client:
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
+        # Dataset export seam — None when SHOWDOWN_DATASET_EXPORT is unset (bit-identical path).
+        self._export = DatasetExportRuntime.from_env(
+            format_id=self.format_id, packed_team=self.packed_team, mirror_flag=False,
+            dex=None, move_meta=None,
+        )
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
@@ -138,20 +146,34 @@ class _Client:
         self.last_request[room] = payload
         state = self._state_for(room, req)
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
+        # Build a DecisionTrace only when export is enabled and the heuristic is active.
+        # With SHOWDOWN_DATASET_EXPORT unset, self._export is None -> trace_obj=None (bit-identical).
+        trace_obj = DecisionTrace() if (self._export is not None and self.agent == "heuristic" and state is not None) else None
         start = time.perf_counter()
         try:
             choose = agent_choose(
                 self.agent, req, state=state, book=self.book,
                 our_side=req.side.id, priors=self.priors, report=report,
-                our_spreads=self.our_spreads, opp_sets=self.opp_sets,
+                our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
             self.crashes += 1
             choose = f"/choose default|{req.rqid}"
+            trace_obj = None  # discard partial trace on crash
         self.latencies.append(time.perf_counter() - start)
         self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
+        # Export observe: only when trace was built (export enabled, heuristic, non-preview).
+        if self._export is not None and trace_obj is not None and not req.team_preview:
+            try:
+                self._export.observe(
+                    trace=trace_obj, state=state, request=req,
+                    turn_number=getattr(state, "turn", 0),
+                    our_side=req.side.id or "p1",
+                )
+            except Exception as exc:  # noqa: BLE001 - export is best-effort; never stall the battle
+                logger.debug("[%s] export observe failed: %s", self.name, exc)
         if report is not None and not req.team_preview:
             try:
                 from showdown_bot.battle.diagnostics import format_turn_trace
@@ -194,6 +216,8 @@ async def _run_client(
                     if parsed.room.startswith("battle-"):
                         if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
                             await client.conn.send(f"|/join {parsed.room}")
+                            if client._export is not None:
+                                client._export.start_game()
                         if parsed.prefix == "error":
                             err_text = parsed.args[0] if parsed.args else ""
                             if _is_real_invalid(err_text):
@@ -209,6 +233,8 @@ async def _run_client(
                         if parsed.prefix in ("win", "tie"):
                             winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
                             client.room_raw.pop(parsed.room, None)
+                            if client._export is not None:
+                                client._export.flush()
                             if on_result is not None:
                                 await on_result(winner)
                 except Exception as exc:  # noqa: BLE001 - keep the loop alive
