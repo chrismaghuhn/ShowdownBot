@@ -39,17 +39,39 @@ Run tests: `cd showdown_bot && python -m pytest -q tests/test_dataset.py tests/t
 
 ---
 
+## IMPORTANT REVIEW FIXES (apply exactly — these gate the pinned numbers)
+
+1. **`action_class` is a JOINT-action classifier over slot1 *and* slot2, not slot1-only.**
+   The committed QA numbers `643 attack / 108 protect` require **double-protect → protect**
+   and **protect+attack → attack** (any damaging slot makes the joint action attack-like).
+   A slot1-only classifier mislabels `protect+attack` joints as `protect` and breaks the
+   `protect == (107, 108)` regression.
+2. **`zero_gap_nonbest_count` means `teacher_best is False` AND `value_gap_to_best == 0.0`.**
+   A second `teacher_best=True` row is a *teacher tie*, not a zero-gap-nonbest row. The Task-1
+   fixture is fixed to include a real zero-gap-nonbest row.
+3. **`load_rows` validates each row through `learning/schema.py` by default** (`validate=True`).
+   NB: the real `validate_row` *raises* `ValueError` (it does not return an error list).
+4. **The committed-dataset regression test must NOT skip when the artifact is missing** — assert it
+   exists. The `.jsonl.gz` is committed and the regression is a hard requirement.
+5. **Decision invariants are fail-fast:** `chosen_row()` raises if a multi-candidate decision has
+   ≠1 heuristic choice; `teacher_best_rows()` raises if empty. Silent skips hide export bugs.
+6. **`action_class(strict=True)` raises on an unknown move id** instead of letting `get_move_meta`'s
+   damaging default silently bucket it as attack (dataset-QA guard).
+
+---
+
 ### Task 1: `dataset.py` — load + Decision grouping + action class
 
 **Files:**
 - Create: `showdown_bot/src/showdown_bot/learning/dataset.py`
+- Modify: `showdown_bot/src/showdown_bot/engine/moves.py` (add public `is_known_move`)
 - Test: `showdown_bot/tests/test_dataset.py`
 
-- [ ] **Step 1: Write failing tests** (grouping, sort, ties, action class)
+- [ ] **Step 1: Write failing tests** (grouping, sort, ties, joint action class)
 
 ```python
 # tests/test_dataset.py
-import gzip, json
+import pytest
 from showdown_bot.learning.dataset import (
     load_rows, group_decisions, action_class, Decision,
 )
@@ -78,21 +100,44 @@ def test_same_decision_id_in_two_games_stays_separate():
     assert len(decs) == 2  # keyed by (game_id, decision_id), no collision
 
 def test_decision_helpers_chosen_and_teacher_best_and_ties():
+    # idx1 is a real teacher TIE (teacher_best, gap 0); idx2 is a real
+    # zero-gap-NONbest (not teacher_best, gap 0). The two must be distinguished.
     rows = [_row("g", "d", 0, teacher_best=True, chosen=True, gap=0.0),
-            _row("g", "d", 1, teacher_best=True, gap=0.0),   # tie at best
-            _row("g", "d", 2, gap=-3.0)]
+            _row("g", "d", 1, teacher_best=True, gap=0.0),    # teacher tie at best
+            _row("g", "d", 2, teacher_best=False, gap=0.0),   # zero-gap but NOT best
+            _row("g", "d", 3, gap=-3.0)]
     d = group_decisions(rows)[0]
     assert d.is_multi_candidate
     assert d.chosen_row()["metadata"]["candidate_index"] == 0
     assert len(d.teacher_best_rows()) == 2          # tie counted, not collapsed
     assert d.is_tie                                  # >1 teacher_best
-    assert d.zero_gap_nonbest_count() == 1           # idx1: gap 0 but not chosen-best
+    assert d.zero_gap_nonbest_count() == 1           # only idx2 (best rows excluded)
 
-def test_action_class_from_move_id():
+def test_action_class_single_slot():
     assert action_class(_row("g","d",0, move_id="protect")) == "protect"
     assert action_class(_row("g","d",0, move_id="tackle")) == "attack"
     assert action_class(_row("g","d",0, action_type="switch", move_id="")) == "switch"
     assert action_class(_row("g","d",0, move_id="tailwind")) == "status"
+
+def _joint(slot1_move, slot2_move):
+    row = _row("g", "d", 0, move_id=slot1_move)
+    row["features"]["slot2_action_type"] = "move"
+    row["features"]["slot2_move_id"] = slot2_move
+    return row
+
+def test_joint_action_class_double_protect_is_protect():
+    assert action_class(_joint("protect", "protect")) == "protect"
+
+def test_joint_action_class_protect_plus_attack_is_attack():
+    assert action_class(_joint("protect", "moonblast")) == "attack"
+
+def test_joint_action_class_attack_plus_protect_is_attack():
+    assert action_class(_joint("flareblitz", "protect")) == "attack"
+
+def test_action_class_strict_raises_on_unknown_move():
+    import pytest
+    with pytest.raises(ValueError):
+        action_class(_row("g","d",0, move_id="not_a_real_move_xyz"), strict=True)
 ```
 
 - [ ] **Step 2: Run, verify it fails** — `pytest tests/test_dataset.py -x` → ImportError / NameError.
@@ -110,11 +155,11 @@ and splits by game with no leakage. No model, no live behavior.
 from __future__ import annotations
 
 import gzip
-import json
 import random
 from dataclasses import dataclass
 
-from showdown_bot.engine.moves import get_move_meta, to_id  # move_id -> MoveMeta (.category/.is_damaging)
+from showdown_bot.engine.moves import get_move_meta, to_id, is_known_move  # move_id -> MoveMeta
+from showdown_bot.learning.schema import from_jsonl_line, validate_row     # frozen row contract
 
 # Protect-family moves (normalized id form). The dead `slot*_is_protect` flag
 # can't be used (constant False in the 2b-0 export — it ran with move_meta=None);
@@ -131,32 +176,67 @@ def _open(path: str):
         else open(path, "rt", encoding="utf-8")
 
 
-def load_rows(path: str) -> list[dict]:
-    """Load a rollout-label JSONL (.jsonl or .jsonl.gz) into raw dict rows."""
+def load_rows(path: str, *, validate: bool = True) -> list[dict]:
+    """Load a rollout-label JSONL (.jsonl or .jsonl.gz) into raw dict rows.
+    With validate=True (default for CLI + the committed dataset) each row is
+    checked against the frozen schema via validate_row, which RAISES ValueError
+    on a malformed row (it does not return an error list). Loader-only unit
+    tests with minimal fixtures pass validate=False."""
     rows = []
     with _open(path) as fh:
-        for line in fh:
+        for line_no, line in enumerate(fh, start=1):
             line = line.strip()
-            if line:
-                rows.append(json.loads(line))
+            if not line:
+                continue
+            row = from_jsonl_line(line)  # -> schema.Row (features/metadata/label)
+            if validate:
+                try:
+                    validate_row(row)
+                except ValueError as e:
+                    raise ValueError(f"{path}:{line_no}: schema validation failed: {e}") from e
+            # downstream works on plain dicts (subscript access everywhere)
+            rows.append({"features": row.features, "metadata": row.metadata, "label": row.label})
     return rows
 
 
-def action_class(row: dict) -> str:
-    """Coarse action class of slot1 derived from move_id + action_type.
-    One of: 'switch' | 'protect' | 'attack' | 'status'. Uses the bot's real
-    move metadata (get_move_meta) for category; protect family special-cased
-    by id. NB: get_move_meta defaults unknown ids to a damaging move, so a
-    real (known) move_id classifies exactly."""
+def action_class(row: dict, *, strict: bool = False) -> str:
+    """JOINT-action class over BOTH active slots (not slot1-only).
+    One of 'attack' | 'protect' | 'switch' | 'status'. Rules (a joint action's
+    strategic class is attack if it deals any damage):
+      - any active slot is a damaging move        -> 'attack' (incl. protect+attack)
+      - else all active move-slots are protect     -> 'protect' (double protect)
+      - else any switch                            -> 'switch'
+      - else                                       -> 'status'
+    This is why the 108 'protect' decisions are the all-active-protect joints.
+    strict=True raises on an unknown move id instead of letting get_move_meta's
+    damaging default silently bucket it as attack."""
     f = row["features"]
-    if f.get("slot1_action_type") == "switch" or f.get("slot1_is_switch") is True:
+    slots: list[tuple[str, str]] = []
+    for s in (1, 2):
+        action_type = f.get(f"slot{s}_action_type")
+        move_id = f.get(f"slot{s}_move_id") or ""
+        # switch first: a switch action legitimately has an empty move_id.
+        if action_type == "switch" or f.get(f"slot{s}_is_switch") is True:
+            slots.append(("switch", move_id))
+            continue
+        if action_type == "pass" or move_id in ("", "__none__"):
+            continue
+        mid = to_id(move_id)
+        if mid in PROTECT_MOVE_IDS:
+            slots.append(("protect", mid))
+            continue
+        if strict and not is_known_move(mid):
+            raise ValueError(f"unknown move id in action_class(strict): {move_id!r}")
+        slots.append(("attack" if get_move_meta(mid).is_damaging else "status", mid))
+    if not slots:
         return "switch"
-    mid = f.get("slot1_move_id") or ""
-    if not mid:
-        return "switch"  # non-move action with no move id (e.g. pass/forced)
-    if to_id(mid) in PROTECT_MOVE_IDS:
+    if any(kind == "attack" for kind, _ in slots):
+        return "attack"
+    if all(kind == "protect" for kind, _ in slots):
         return "protect"
-    return "attack" if get_move_meta(mid).is_damaging else "status"
+    if any(kind == "switch" for kind, _ in slots):
+        return "switch"
+    return "status"
 
 
 @dataclass
@@ -169,12 +249,21 @@ class Decision:
     def is_multi_candidate(self) -> bool:
         return len(self.rows) > 1
 
-    def chosen_row(self) -> dict | None:
+    def chosen_row(self) -> dict:
+        """The single heuristic-chosen candidate. Fail-fast: a decision with
+        ≠1 heuristic choice is an export bug, not something to silently skip."""
         cs = [r for r in self.rows if r["label"]["chosen_by_current_heuristic"]]
-        return cs[0] if cs else None
+        if len(cs) != 1:
+            raise ValueError(
+                f"decision {(self.game_id, self.decision_id)} has {len(cs)} heuristic choices")
+        return cs[0]
 
     def teacher_best_rows(self) -> list[dict]:
-        return [r for r in self.rows if r["label"]["teacher_best"]]
+        bs = [r for r in self.rows if r["label"]["teacher_best"]]
+        if not bs:
+            raise ValueError(
+                f"decision {(self.game_id, self.decision_id)} has no teacher_best row")
+        return bs
 
     @property
     def is_tie(self) -> bool:
@@ -205,7 +294,16 @@ def group_decisions(rows: list[dict]) -> list[Decision]:
     return out
 ```
 
-> **Worker note:** `get_move_meta`/`to_id` are the real loaders in `showdown_bot/src/showdown_bot/engine/moves.py` (movedata at `showdown_bot/config/moves/movedata.json`, present in the repo — no monkeypatch needed; `tackle`→attack, `tailwind`→status, `protect`→protect all resolve against real data). After wiring, confirm `action_class` on the committed dataset yields **643 attack + 108 protect** chosen rows among unique-multi decisions (Task 4 asserts this).
+> **Worker note:** `get_move_meta`/`to_id` are the real loaders in `showdown_bot/src/showdown_bot/engine/moves.py` (movedata at `showdown_bot/config/moves/movedata.json`, present in the repo — no monkeypatch needed; `tackle`→attack, `tailwind`→status, `protect`→protect resolve against real data). Add a small public helper to `engine/moves.py` (next to `get_move_meta`):
+>
+> ```python
+> def is_known_move(name_or_id: str) -> bool:
+>     """Whether a move id/name exists in the generated move table (vs.
+>     get_move_meta's conservative damaging default for unknown ids)."""
+>     return to_id(name_or_id) in _move_table()
+> ```
+>
+> After wiring, confirm `action_class` on the committed dataset yields **643 attack + 108 protect** chosen rows among unique-strict multi decisions (Task 4 asserts this).
 
 - [ ] **Step 4: Run tests, verify pass** — `cd showdown_bot && python -m pytest tests/test_dataset.py -q`. The action-class test needs no monkeypatch: `get_move_meta` reads the repo's real `movedata.json`.
 
@@ -418,9 +516,7 @@ def evaluate_baseline(decisions: list[Decision]) -> BaselineMetrics:
             m.forced_decisions += 1
             continue
         m.multi_decisions += 1
-        chosen = d.chosen_row()
-        if chosen is None:
-            continue
+        chosen = d.chosen_row()  # fail-fast: raises on ≠1 heuristic choice
         gap = chosen["label"]["value_gap_to_best"]
         regrets.append(abs(gap) if gap is not None else 0.0)
         in_best = chosen["label"]["teacher_best"]
@@ -463,7 +559,7 @@ def format_report(m: BaselineMetrics) -> str:
              f"- nonzero near-equal (0 < |gap| ≤ {NEAR_EQUAL}): "
              f"{_pct(m.nonzero_near_equal_decisions, m.decisions)}",
              "",
-             "## By chosen action class (multi)"]
+             "## By chosen joint-action class (unique-strict multi only)"]
     for cls in sorted(m.by_action or {}):
         a, t = m.by_action[cls]
         lines.append(f"- {cls}: {_pct(a, t)}")
@@ -517,8 +613,7 @@ This is the user's hard requirement: *"Eval reproduziert diese Zahlen exakt/nah.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-import gzip, os
-import pytest
+from collections import Counter
 from pathlib import Path
 from showdown_bot.learning.dataset import group_decisions, load_rows, split_by_game
 from showdown_bot.learning.baseline_eval import evaluate_baseline
@@ -526,9 +621,13 @@ from showdown_bot.learning.baseline_eval import evaluate_baseline
 _DS = Path(__file__).resolve().parents[2] / "data" / "datasets" / "phase3-slice2b" \
       / "rollout_labels_100g_gen9vgc2025regi_h1_v1.jsonl.gz"
 
-@pytest.mark.skipif(not _DS.exists(), reason="committed dataset artifact missing")
 def test_baseline_reproduces_2b0_qa_numbers():
-    decs = group_decisions(load_rows(str(_DS)))
+    # HARD REQUIREMENT — never skip: the .gz is a committed artifact, and a
+    # silently-skipped green test would hide metric drift.
+    assert _DS.exists(), f"missing committed dataset artifact: {_DS}"
+    decs = group_decisions(load_rows(str(_DS)))  # validate=True by default
+    # candidate grouping must be exactly right, not coincidentally counted
+    assert Counter(len(d.rows) for d in decs) == {1: 100, 2: 101, 5: 144, 6: 606}
     m = evaluate_baseline(decs)
     assert (m.rows, m.games, m.decisions) == (4658, 100, 951)
     assert (m.multi_decisions, m.forced_decisions, m.ties) == (851, 100, 100)
@@ -537,12 +636,13 @@ def test_baseline_reproduces_2b0_qa_numbers():
     assert m.zero_gap_nonbest_decisions == 348                        # 36.6%
     assert m.contestable_decisions == 529                             # 55.6%
     assert m.nonzero_near_equal_decisions == 279                      # 29.3%
-    atk = m.by_action["attack"]; pro = m.by_action["protect"]
-    assert atk == (317, 643)                                          # ATTACK 49.3%
-    assert pro == (107, 108)                                          # protect 99.1%
+    # joint-action classes must cover the WHOLE unique-strict set (no stray bucket)
+    assert sum(t for _, t in m.by_action.values()) == m.strict_total  # 751
+    assert m.by_action["attack"] == (317, 643)                       # ATTACK 49.3%
+    assert m.by_action["protect"] == (107, 108)                      # protect 99.1%
 
-@pytest.mark.skipif(not _DS.exists(), reason="committed dataset artifact missing")
 def test_seed42_split_shapes_match_report():
+    assert _DS.exists(), f"missing committed dataset artifact: {_DS}"
     decs = group_decisions(load_rows(str(_DS)))
     sp = split_by_game(decs, seed=42, ratios=(0.8, 0.1, 0.1))
     shape = lambda p: (len({d.game_id for d in p}), len(p), sum(len(d.rows) for d in p))
@@ -587,7 +687,8 @@ python -m showdown_bot.learning.baseline_eval \
 - **Scope:** loader + split + baseline-eval only. **No model, no training, no live wiring.** ✔
 - **Hard requirement 1 (reproduce numbers):** Task 4 pins exact counts to the committed dataset. ✔
 - **Hard requirement 2 (near-equal/zero-gap):** `wrong_but_near_equal`, `zero_gap_nonbest_decisions`, `nonzero_near_equal_decisions`, `contestable_decisions` + `Decision.zero_gap_nonbest_count()` expose the tie-like structure 2b-2 training must respect. ✔
-- **Feature gotcha:** action class from `move_id`/`action_type` + move metadata, never the dead `is_damaging`/`is_protect` flags. ✔
+- **Feature gotcha:** **joint** action class over slot1+slot2 from `move_id`/`action_type` + move metadata (double-protect→protect, protect+attack→attack), never the dead `is_damaging`/`is_protect` flags. ✔
+- **Fail-fast:** `chosen_row`/`teacher_best_rows` raise on malformed decisions; `load_rows` validates via the frozen schema; the committed-dataset regression never skips. ✔
 - **Leakage:** split by game; Task 2 tests prove game- and decision-level disjointness + determinism. ✔
 - **No live behavior change:** new modules are offline; nothing imports them from the battle/decision path. ✔
 
