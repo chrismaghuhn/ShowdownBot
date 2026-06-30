@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 _SLOTS = ["a", "b"]
 
+TOP_K_TRACE_CANDIDATES = 6
+
 
 def _default_rollout_horizon() -> int:
     """Multi-turn rollout horizon, overridable via ``SHOWDOWN_ROLLOUT_HORIZON``
@@ -157,6 +159,7 @@ def heuristic_choose_for_request(
     report: list[str] | None = None,
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
+    trace=None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -327,6 +330,114 @@ def heuristic_choose_for_request(
             except Exception:  # noqa: BLE001
                 pass
 
+    if trace is not None:
+        from showdown_bot.battle.decision_trace import (
+            CandidateModelFeatures,
+            CandidateTrace,
+            DecisionTrace as _DT,
+        )
+        from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
+        from showdown_bot.battle.policy import aggregate_scores
+        from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
+
+        rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
+
+        def _breakdowns_for(plan):
+            out = []
+            for ra in rep_resps:
+                _, oc = evaluate_line(
+                    state, plan, ra, model.damage_fn, our_side=our_side,
+                    weights=weights, field=state.field, rollout_horizon=0, endgame=endgame,
+                )
+                out.append(score_outcome_with_breakdown(oc, our_side, weights, endgame=endgame)[1])
+            return out
+
+        def _weighted_mean_breakdown(bds):
+            ws = resp_weights or [1.0] * len(bds)
+            tot = sum(ws) or 1.0
+            agg = OutcomeBreakdown()
+            for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
+                      "my_kos", "my_faints", "protect_stall_penalty",
+                      "endgame_protect_penalty", "partner_abandon_penalty"):
+                setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
+            return agg
+
+        # Decision-level threat counts: computed once, shared across all candidates.
+        dec_threatened, dec_survives = ko_threat_counts(state, our_side, calc=calc, book=book)
+
+        def _ko_secured_for(plan: list[PlannedAction]) -> int:
+            """Distinct opponent active slots guaranteed-OHKO'd by this candidate's
+            selected damaging moves (OFFENSE-vs-DEFENSE, same as game_mode)."""
+            slots: set = set()
+            for a in plan:
+                if (
+                    a.kind == "move"
+                    and a.move is not None
+                    and a.move.is_damaging
+                    and a.is_ours
+                    and a.target is not None
+                ):
+                    atk = state.side(a.side).get(a.slot)
+                    tgt = state.side(a.target[0]).get(a.target[1])
+                    if (
+                        atk is not None
+                        and tgt is not None
+                        and not tgt.fainted
+                        and guaranteed_ohko(state, atk, a.move.name, tgt, calc=calc, book=book)
+                    ):
+                        slots.add(a.target)
+            return len(slots)
+
+        scored = [
+            (ja, scores, aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+            for ja, scores in items
+        ]
+        scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
+        cands = []
+        for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
+            bds = _breakdowns_for(plans[ja])
+            cands.append(CandidateTrace(
+                candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
+                aggregate_score=agg, score_vector=list(scores),
+                outcome_breakdowns=bds, aggregate_breakdown=_weighted_mean_breakdown(bds),
+                model_features=CandidateModelFeatures(
+                    ko_secured_count=_ko_secured_for(plans[ja]),
+                    ko_threatened_count=dec_threatened,
+                    survives_for_sure_count=dec_survives,
+                ),
+            ))
+        trace.game_mode = getattr(mode, "name", str(mode))
+        trace.chosen_candidate_id = _label_ja(req, best_ja)
+        trace.opponent_responses = [r.actions for r in opp_resps]
+        trace.opponent_response_weights = resp_weights or []
+        trace.candidates = cands
+
+        from showdown_bot.battle.opponent import _opponent_speed as _opp_speed
+        from showdown_bot.battle.decision_trace import DecisionTempoFeatures
+
+        _sp_actives = _active_pokemon(req)
+        our_speeds = []
+        for _i, _letter in enumerate(("a", "b")):
+            _m = state.side(our_side).get(_letter)
+            if _m is not None and not _m.fainted and speed_oracle is not None:
+                _base = int(_sp_actives[_i].stats.get("spe", 0)) if _i < len(_sp_actives) else 0
+                our_speeds.append(speed_oracle.our_speed(_base, _m, state.field, our_side))
+        opp_speeds = []
+        if speed_oracle is not None:
+            for _letter in ("a", "b"):
+                _m = state.side(opp_side).get(_letter)
+                if _m is not None and not _m.fainted:
+                    opp_speeds.append(_opp_speed(_m, state.field, opp_side, speed_oracle=speed_oracle, book=book, opp_sets=opp_sets))
+        _our_fast = max(our_speeds, default=0)
+        _opp_fast = max(opp_speeds, default=0)
+        trace.tempo_features = DecisionTempoFeatures(
+            we_outspeed_count=sum(1 for o in opp_speeds if _our_fast > o),
+            they_outspeed_count=sum(1 for u in our_speeds if _opp_fast > u),
+            speed_tie_count=sum(1 for u in our_speeds for o in opp_speeds if u == o),
+            our_fastest_active_speed=_our_fast,
+            opp_fastest_active_speed=_opp_fast,
+        )
+
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
 
@@ -378,6 +489,7 @@ def choose_with_fallback(
     our_side: str | None = None,
     hard_timeout: float = 4.0,
     report: list[str] | None = None,
+    trace=None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
@@ -398,7 +510,7 @@ def choose_with_fallback(
         try:
             fut = ex.submit(
                 heuristic_choose_for_request,
-                req, state=state, book=book, our_side=our_side, report=report, **deps,
+                req, state=state, book=book, our_side=our_side, report=report, trace=trace, **deps,
             )
             return fut.result(timeout=hard_timeout)
         except FutureTimeout:

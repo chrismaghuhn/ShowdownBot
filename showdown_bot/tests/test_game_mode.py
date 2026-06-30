@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from showdown_bot.engine.belief.game_mode import GameMode, compute_game_mode
+from showdown_bot.engine.belief.game_mode import GameMode, compute_game_mode, ko_threat_counts
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.calc.models import DamageResult
@@ -87,3 +87,43 @@ def test_neutral_when_safe_but_no_ko():
         _state(), our_side="p1", calc=CalcClient(backend=backend), book=book
     )
     assert mode is GameMode.NEUTRAL
+
+
+# ---------------------------------------------------------------------------
+# New: ko_threat_counts agrees with compute_game_mode
+# ---------------------------------------------------------------------------
+
+def test_compute_game_mode_agrees_with_ko_threat_counts_threatened():
+    """When opponent guarantees OHKO: compute_game_mode==MUST_REACT and threatened>0."""
+    book = _book()
+    backend = ScriptBackend(
+        {
+            ("Moonblast", "Incineroar"): (260, 202),  # opp OHKOs us
+            ("Flare Blitz", "Flutter Mane"): (300, 131),
+        }
+    )
+    calc = CalcClient(backend=backend)
+    state = _state()
+    mode = compute_game_mode(state, our_side="p1", calc=calc, book=book)
+    threatened, survives = ko_threat_counts(state, "p1", calc=calc, book=book)
+    assert mode is GameMode.MUST_REACT
+    assert threatened > 0
+
+
+def test_compute_game_mode_agrees_with_ko_threat_counts_safe():
+    """When no guaranteed OHKO threat: threatened==0 and mode!=MUST_REACT for that reason."""
+    book = _book()
+    backend = ScriptBackend(
+        {
+            ("Moonblast", "Incineroar"): (60, 202),   # we survive
+            ("Flare Blitz", "Flutter Mane"): (50, 200),  # we can't KO either
+        }
+    )
+    calc = CalcClient(backend=backend)
+    state = _state()
+    mode = compute_game_mode(state, our_side="p1", calc=calc, book=book)
+    threatened, survives = ko_threat_counts(state, "p1", calc=calc, book=book)
+    assert threatened == 0
+    assert mode is not GameMode.MUST_REACT
+    # Our 1 active mon survives (no move can OHKO it)
+    assert survives == 1

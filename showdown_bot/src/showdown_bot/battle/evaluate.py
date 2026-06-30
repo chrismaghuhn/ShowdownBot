@@ -78,10 +78,23 @@ class EvalWeights:
     partner_abandon: float = -2.0  # we Protected while a teammate fainted this turn
 
 
-def score_outcome(
+@dataclass
+class OutcomeBreakdown:
+    total_score: float = 0.0
+    predicted_outgoing_damage: float = 0.0
+    predicted_incoming_damage: float = 0.0
+    my_kos: int = 0
+    my_faints: int = 0
+    protect_stall_penalty: float = 0.0
+    endgame_protect_penalty: float = 0.0
+    partner_abandon_penalty: float = 0.0
+
+
+def score_outcome_with_breakdown(
     outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None, *, endgame: bool = False
-) -> float:
+) -> tuple[float, OutcomeBreakdown]:
     w = weights or EvalWeights()
+    bd = OutcomeBreakdown(my_kos=outcome.my_kos, my_faints=outcome.my_faints)
     s = 0.0
     s += w.ko * outcome.my_kos
     s += w.faint * outcome.my_faints
@@ -92,8 +105,10 @@ def score_outcome(
             continue
         if key[0] == our_side:
             s -= w.dmg_taken * lost
+            bd.predicted_incoming_damage += lost
         else:
             s += w.dmg_dealt * lost
+            bd.predicted_outgoing_damage += lost
 
     for prevented in outcome.prevented_actions:
         if prevented.side == our_side:
@@ -127,12 +142,22 @@ def score_outcome(
         blocked = any(ph.target[0] == our_side for ph in outcome.protected_hits)
         if not blocked:
             s += w.protect_stall
+            bd.protect_stall_penalty = w.protect_stall
         if endgame:
             s += w.endgame_protect
+            bd.endgame_protect_penalty = w.endgame_protect
         if outcome.my_faints > 0:
             s += w.partner_abandon
+            bd.partner_abandon_penalty = w.partner_abandon
 
-    return s
+    bd.total_score = s
+    return s, bd
+
+
+def score_outcome(
+    outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None, *, endgame: bool = False
+) -> float:
+    return score_outcome_with_breakdown(outcome, our_side, weights, endgame=endgame)[0]
 
 
 class DamageModel:
