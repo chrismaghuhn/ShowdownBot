@@ -20,12 +20,24 @@ opp_action) -> (next_state, reward)`, `leaf(state) -> float`. 1c-C provides:
 | `decide(state, "us"/"them")` | maps the token → concrete side → 1c-B `decide(state, side, roster=…, movesets=…, stats=…, move_meta=…, deps=…)`. **Clones the state internally** (see Determinism). |
 | `leaf(state)` | the one-ply aggregate from our perspective: `synthesize_request(state, our_side, …)` → the decision core → `best_val` (the pick_best aggregate score). |
 
+### Perspective + side mapping (pinned)
+- **All rewards and leaf values are from the ORIGINAL labeled decision side's
+  perspective** (`root_our_side`), NOT from the side currently deciding. In follow-up
+  turns `"them"` also decides, but `score_outcome`/`leaf` are always evaluated from
+  `root_our_side` — otherwise the sign flips with the active side.
+- **Static token map** (fixed for the whole rollout, never derived from `state`):
+  `side_for = {"us": root_our_side, "them": opponent_of(root_our_side)}`. `"us"` is
+  always the side of the original decision.
+
 ## Candidate injection (Q3) + follow-ups (Q4) — consume the 1b `DecisionTrace`
 The 1b `DecisionTrace` already captures exactly what the teacher needs: `candidates[].
 joint_action` = the top-K **fixed turn-0 actions**; `opponent_responses` + `weights` = the
 candidate-independent response set `R`. 1c-C consumes a captured `(trace, state)`:
 - candidates = `trace.candidates[].joint_action` (top-K).
-- `R` = `[(r.actions, r.weight) for r in trace.opponent_responses/weights]`.
+- `R` = `[(r.actions, r.weight) for r in trace.opponent_responses/weights]`. **Pinned:**
+  if `trace.opponent_response_weights` is empty, use **uniform** weights; weights are
+  **normalized once** (sum to 1) before `counterfactual_value`; the order of `R` is stable
+  and matches `candidate.score_vector`'s response order from 1b.
 - For each candidate: `cfv = counterfactual_value(state, candidate, R, decide, resolve, leaf,
   cfg)`. Turns 1..H use `decide` for BOTH sides.
 - `label_decision({cand_id: cfv}, heuristic_values, chosen)` → the real label, replacing
@@ -37,6 +49,11 @@ candidate-independent response set `R`. 1c-C consumes a captured `(trace, state)
 yields both). `decide`/the public wrapper take `[0]`; `leaf` takes `[1]`. Behavior-
 preserving (the equivalence test still gates it). NO second evaluation path — the teacher
 bootstraps with the **same** value the bot scores with.
+
+**Pinned:** `best_val` is the **exact scalar `pick_best` used to choose `best_ja`** — not
+recomputed, not from the trace, not rebuilt from `score_vector`. Tests: `_choose_best(req)[0]
+== _choose_best_ja(req)` (or the wrapper still encodes the same choice); `heuristic_choose_for_request`
+output unchanged; `leaf_value(state, side, …) == _choose_best(req)[1]`.
 
 ## Budget (Q2)
 `RolloutConfig(H=4, gamma=0.75, top_k=6, use_leaf=True)` (from 1a). `|R|` comes from the
@@ -66,13 +83,19 @@ hidden opponent bench/set from the state (inherited from 1c-B's no-hidden-read g
   identical labels.
 - **Tests:** (a) same inputs → same `counterfactual_value`/labels (determinism); (b) the
   `start_state` is byte-unchanged after a full rollout (no mutation); (c) two candidates'
-  rollouts don't affect each other; (d) H=0 with `use_leaf=False` reduces to the turn-0
-  reward (sanity vs the 1a pure-teacher test); (e) the `decide`-clone guard: a rollout leaves
-  the input state's items/types unmutated.
+  rollouts don't affect each other; (d) **H=0 end-to-end math:**
+  `counterfactual_value(start, candidate, R, cfg=RolloutConfig(H=0, use_leaf=False))
+  == weighted mean over R of resolve(start, candidate, response).reward` — the primary
+  whole-pipeline sanity test; (e) the `decide`-clone guard (from 1c-C0): a full rollout
+  leaves the input state's items/types unmutated.
 
 ## Decomposition (the plan will cut it)
-- **1c-C0:** extend the core to `_choose_best` returning `(best_ja, best_val)` (behavior-
-  preserving; equivalence gate) + `leaf_value(state, side, …)`.
+- **1c-C0 (two prerequisite patches, both gated):** (a) extend the core to `_choose_best`
+  returning `(best_ja, best_val)` (behavior-preserving; equivalence gate) + `leaf_value(state,
+  side, …)`; (b) **patch `decide_adapter.decide` to `clone_state(state)` before the decision
+  core** (technically a 1c-B fix, but a hard prerequisite — without it the H-loop is not
+  trustworthy). Test: `decide(state, side, …)` leaves `state` byte-identical (items/types
+  unmutated).
 - **1c-C1:** the `resolve` adapter (plan + DamageModel + resolve_turn + apply + score_outcome).
 - **1c-C2:** the `decide` adapter (token→side, **internal clone**) + the `make_*` wiring.
 - **1c-C3:** the driver — consume `(trace, state)` → `counterfactual_value` per candidate →
