@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import atexit
 import json
+import os
+import queue
 import subprocess
+import threading
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -123,6 +127,173 @@ class SubprocessCalcBackend:
         ]
         data = self._run(payload)
         return [item.get("types", []) for item in data]
+
+
+class _TransportError(Exception):
+    """Process/transport-level failure (crash/EOF/timeout/malformed/desync) -> restart+retry."""
+
+
+class PersistentCalcBackend:
+    """Persistent ``node calc.mjs --server`` backend.
+
+    Keeps one Node process alive across calls, serializes requests with a lock,
+    recovers from transport failures (restart + retry-once) using a reader-thread
+    queue for cross-platform timeout. Same surface as ``SubprocessCalcBackend``.
+    """
+
+    def __init__(
+        self,
+        calc_dir: Path | None = None,
+        *,
+        node: str = "node",
+        script: str = "calc.mjs",
+        timeout_ms: int | None = None,
+    ) -> None:
+        self.calc_dir = calc_dir or DEFAULT_CALC_DIR
+        self.node = node
+        self.script = script
+        self.timeout = (
+            timeout_ms
+            if timeout_ms is not None
+            else int(os.environ.get("SHOWDOWN_CALC_TIMEOUT_MS", "10000"))
+        ) / 1000.0
+        self._proc: subprocess.Popen | None = None
+        self._reader: threading.Thread | None = None
+        self._q: queue.Queue = queue.Queue()
+        self._lock = threading.Lock()
+        self.spawn_count = 0  # benchmark: confirms persistence
+        atexit.register(self.close)
+
+    # --- lifecycle ---
+
+    def _ensure(self) -> subprocess.Popen:
+        if self._proc is not None and self._proc.poll() is None:
+            return self._proc
+        self._spawn()
+        return self._proc  # type: ignore[return-value]
+
+    def _spawn(self) -> None:
+        # GENERATION ISOLATION: kill old proc, install a FRESH queue, start a
+        # reader thread bound to the new (proc, q).  The old reader drains into
+        # the now-unreferenced old queue and exits on EOF — so a stale stdout
+        # line from a dead generation can never leak into a retry's response.
+        self._kill()
+        self._q = queue.Queue()  # fresh queue — old one is discarded
+        self._proc = subprocess.Popen(
+            [self.node, self.script, "--server"],
+            cwd=str(self.calc_dir),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            # stderr inherits (NOT piped — avoids undrained buffer deadlock)
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+        )
+        self.spawn_count += 1
+        self._reader = threading.Thread(
+            target=self._read_loop,
+            args=(self._proc, self._q),
+            daemon=True,
+        )
+        self._reader.start()  # reader writes ONLY to this generation's queue
+
+    def _read_loop(self, proc: subprocess.Popen, q: queue.Queue) -> None:
+        try:
+            for line in proc.stdout:  # blocking readline in BG thread → cross-platform timeout
+                q.put(line)
+        except Exception:
+            pass
+        finally:
+            q.put(None)  # sentinel: stream closed (EOF/crash)
+
+    def _kill(self) -> None:
+        if self._proc is not None:
+            try:
+                if self._proc.stdin:
+                    self._proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+            try:
+                self._proc.wait(timeout=2)
+            except Exception:
+                pass
+            self._proc = None
+
+    def close(self) -> None:  # idempotent
+        self._kill()
+
+    # --- transport core ---
+
+    def _run(self, payload: list) -> list:
+        with self._lock:  # serialize: one request fully written+read at a time
+            try:
+                return self._run_once(payload)
+            except _TransportError:
+                self._spawn()  # restart
+                try:
+                    return self._run_once(payload)  # retry ONCE
+                except _TransportError as e:
+                    raise CalcError(
+                        f"persistent calc failed after restart+retry: {e}"
+                    ) from e
+
+    def _run_once(self, payload: list) -> list:
+        proc = self._ensure()
+        line = json.dumps(payload, separators=(",", ":")) + "\n"
+        try:
+            proc.stdin.write(line)
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            raise _TransportError(f"write failed: {e}") from e
+        try:
+            resp = self._q.get(timeout=self.timeout)
+        except queue.Empty:
+            raise _TransportError("response timeout")
+        if resp is None:
+            raise _TransportError("EOF before response")
+        try:
+            data = json.loads(resp)
+        except json.JSONDecodeError as e:
+            raise _TransportError(f"malformed JSON response: {e}") from e
+        if isinstance(data, dict) and data.get("error"):
+            raise _TransportError(f"server rejected request: {data['error']}")
+        if not isinstance(data, list):
+            raise _TransportError("response is not a list")
+        return data
+
+    # --- surface (same payloads as SubprocessCalcBackend) ---
+
+    def calc_batch(self, requests: list[DamageRequest]) -> list[DamageResult]:
+        if not requests:
+            return []
+        data = self._run([r.to_payload() for r in requests])
+        # Per-item {id,error} is SEMANTIC — returned as DamageResult with .error set,
+        # same as SubprocessCalcBackend; CalcClient.damage_batch raises CalcError on .error.
+        return [DamageResult.from_json(item) for item in data]
+
+    def stats_batch(self, specs: list) -> list[dict]:
+        """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
+        if not specs:
+            return []
+        payload = [
+            {"id": f"s{i}", "kind": "stats", "gen": 9, "mon": s.to_payload()}
+            for i, s in enumerate(specs)
+        ]
+        return [item["stats"] for item in self._run(payload)]
+
+    def types_batch(self, species: list[str]) -> list[list[str]]:
+        """Look up the (base) typing for a batch of species."""
+        if not species:
+            return []
+        payload = [
+            {"id": f"t{i}", "kind": "types", "gen": 9, "species": sp}
+            for i, sp in enumerate(species)
+        ]
+        return [item.get("types", []) for item in self._run(payload)]
 
 
 class CalcClient:
