@@ -7,3 +7,4 @@ meta_paths:
   default_spreads: meta/default_spreads.yaml
   protect_priors: meta/protect_priors.yaml
   likely_sets: meta/likely_sets.yaml
+  move_priors: meta/move_priors.yaml
