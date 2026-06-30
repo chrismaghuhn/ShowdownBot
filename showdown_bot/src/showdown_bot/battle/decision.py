@@ -141,7 +141,7 @@ def _label_ja(req: BattleRequest, ja: JointAction) -> str:
     return "(" + ", ".join(labels) + ")"
 
 
-def heuristic_choose_for_request(
+def _choose_best_ja(
     req: BattleRequest,
     *,
     state: BattleState,
@@ -160,18 +160,21 @@ def heuristic_choose_for_request(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
-) -> str:
-    """One-ply heuristic decision. Raises on any inability so the caller's
-    fallback chain can take over.
+) -> JointAction:
+    """One-ply heuristic decision core. Returns the chosen ``JointAction``.
+
+    Raises ``ValueError`` for team-preview requests (use the public wrapper
+    ``heuristic_choose_for_request`` which handles team preview). Raises on any
+    other inability so the caller's fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
     legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
     a ``report`` list to collect a readable decision block.
     """
+    if req.team_preview:
+        raise ValueError("_choose_best_ja does not handle team preview")
     if rollout_horizon is None:
         rollout_horizon = _default_rollout_horizon()
-    if req.team_preview:
-        return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -438,6 +441,57 @@ def heuristic_choose_for_request(
             opp_fastest_active_speed=_opp_fast,
         )
 
+    return best_ja
+
+
+def heuristic_choose_for_request(
+    req: BattleRequest,
+    *,
+    state: BattleState,
+    book: SpreadBook,
+    our_side: str | None = None,
+    calc: CalcClient | None = None,
+    oracle: DamageOracle | None = None,
+    speed_oracle: SpeedOracle | None = None,
+    dex: SpeciesDex | None = None,
+    priors=None,
+    weights: EvalWeights | None = None,
+    risk_lambda: float = 0.5,
+    tera_margin: float = 1.0,
+    rollout_horizon: int | None = None,
+    report: list[str] | None = None,
+    our_spreads: dict | None = None,
+    opp_sets: dict | None = None,
+    trace=None,
+) -> str:
+    """One-ply heuristic decision. Raises on any inability so the caller's
+    fallback chain can take over.
+
+    ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
+    a ``report`` list to collect a readable decision block.
+    """
+    if req.team_preview:
+        return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
+    best_ja = _choose_best_ja(
+        req,
+        state=state,
+        book=book,
+        our_side=our_side,
+        calc=calc,
+        oracle=oracle,
+        speed_oracle=speed_oracle,
+        dex=dex,
+        priors=priors,
+        weights=weights,
+        risk_lambda=risk_lambda,
+        tera_margin=tera_margin,
+        rollout_horizon=rollout_horizon,
+        report=report,
+        our_spreads=our_spreads,
+        opp_sets=opp_sets,
+        trace=trace,
+    )
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
 
