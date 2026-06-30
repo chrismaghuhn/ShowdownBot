@@ -1,0 +1,20 @@
+# Curated per-species move priors for common VGC species. Ordered by priority
+# (most likely move first). Used by the rollout teacher's opponent belief builder
+# to fill unobserved moveslots. Keys are canonical dex species names.
+# SEPARATE from likely_sets.yaml (which carries spreads/EVs/natures).
+species:
+  Incineroar:
+    - Fake Out
+    - Knock Off
+    - Flare Blitz
+    - Parting Shot
+  Flutter Mane:
+    - Moonblast
+    - Shadow Ball
+    - Dazzling Gleam
+    - Protect
+  Rillaboom:
+    - Grassy Glide
+    - Wood Hammer
+    - Fake Out
+    - U-turn
