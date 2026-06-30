@@ -40,6 +40,20 @@ def config_hash(config: dict) -> str:
     return _sha16(json.dumps(config, sort_keys=True, separators=(",", ":"), default=str))
 
 
+def canonical_hash(value: object) -> str:
+    """Stable 16-hex-char hash of any JSON-serializable value.
+
+    Canonical form: sort_keys=True, no whitespace, default=str for non-JSON
+    types (e.g. pathlib.Path).  Equivalent to config_hash but accepts any
+    value (not just dict) so it can be used for lists, ints, etc.
+
+    Used by from_env to hash rollout_config / move_priors / likely_sets
+    into the config_hash so dataset consumers can tell which build produced rows.
+    """
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return _sha16(payload)
+
+
 def build_feature_context(
     *, git_sha: str, dirty_flag: bool, team_hash_: str, config_hash_: str, run_seed,
     game_index: int, decision_local_index: int, turn_number: int, our_side: str,

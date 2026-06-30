@@ -4,6 +4,7 @@ from showdown_bot.battle.decision import heuristic_choose_for_request
 from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.learning.export import DatasetExporter, SamplingPolicy
 from showdown_bot.learning.export_driver import maybe_observe_decision
+from showdown_bot.learning.label_provider import StubLabelProvider
 from showdown_bot.learning.provenance import build_feature_context
 
 
@@ -25,7 +26,9 @@ def test_e2e_choice_identical_and_jsonl_byte_identical(decision_fixture):
         tr = DecisionTrace()
         choice = heuristic_choose_for_request(req, trace=tr, **kw)
         exp = DatasetExporter(SamplingPolicy(policy="all"))
-        maybe_observe_decision(exp, 0, ctx=_ctx(our_side), trace=tr, state=kw["state"], request=req)
+        ctx = _ctx(our_side)
+        labels = StubLabelProvider().labels_for_decision(tr, kw["state"], req, context=ctx)
+        maybe_observe_decision(exp, ctx=ctx, trace=tr, state=kw["state"], request=req, labels=labels)
         buf = io.StringIO(); exp.flush_sorted(buf)
         return choice, buf.getvalue()
 
