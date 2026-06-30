@@ -244,3 +244,54 @@ def build_opponent_belief(
         quality[species] = _quality(*flags)
 
     return BeliefSide(roster, movesets, stats, quality)
+
+
+# ---------------------------------------------------------------------------
+# D3: build_belief_for_side — thin dispatcher
+# ---------------------------------------------------------------------------
+
+def build_belief_for_side(
+    state,
+    side: str,
+    *,
+    our_side: str,
+    known_team,
+    likely_sets: dict,
+    move_priors: dict,
+    dex=None,
+    book=None,
+    speed_oracle=None,
+) -> BeliefSide:
+    """Thin dispatcher: routes to the appropriate builder based on which side is requested.
+
+    * ``side == our_side`` → ``build_known_side(known_team)`` — full known team.
+    * ``side != our_side`` → ``build_opponent_belief(...)`` — active-only, prior-based,
+      limited-view-safe.  ``known_team`` is NOT passed to the opponent builder; the
+      structural guarantee that the bench is hidden lives in the call site.
+
+    Parameters
+    ----------
+    state       : BattleState
+    side        : The side to build a belief for ("p1" or "p2").
+    our_side    : The side we're deciding for (determines which builder to use).
+    known_team  : list[PokemonSlot] — req.side.pokemon (only forwarded to known builder).
+    likely_sets : dict  species_id -> SpeciesSpreads (for speed oracle in opp builder).
+    move_priors : dict  species_id -> list[str]  ordered move priors (opp builder).
+    dex, book   : Passed through to build_opponent_belief (unused today; reserved).
+    speed_oracle: Passed through to build_opponent_belief.
+
+    Returns
+    -------
+    BeliefSide
+    """
+    if side == our_side:
+        return build_known_side(known_team)
+    return build_opponent_belief(
+        state, side,
+        likely_sets=likely_sets,
+        move_priors=move_priors,
+        dex=dex,
+        book=book,
+        speed_oracle=speed_oracle,
+        # known_team is intentionally NOT passed here (structural limited-view)
+    )

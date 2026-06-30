@@ -208,3 +208,145 @@ def test_opp_belief_keys_are_consistent(opp_state):
     """movesets, stats, quality must all share the same key set."""
     bs = build_opponent_belief(opp_state, "p2", likely_sets={}, move_priors={})
     assert set(bs.movesets) == set(bs.stats) == set(bs.quality)
+
+
+# ---------------------------------------------------------------------------
+# Task D3: build_belief_for_side dispatcher + integration
+# ---------------------------------------------------------------------------
+
+from showdown_bot.learning.belief_builder import build_belief_for_side  # noqa: E402
+
+
+@pytest.fixture
+def state_for_belief(known_team_slots) -> "BattleState":
+    """BattleState whose p1 active mons match the known_team_slots fixture.
+
+    request_doubles_moves.json has p1 active: Incineroar + Rillaboom.
+    p2 active: Incineroar (as a placeholder to exercise the opp builder).
+    """
+    s = BattleState()
+    s.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150)
+    s.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=155, max_hp=155)
+    s.sides["p2"]["a"] = PokemonState(
+        species="Flutter Mane", hp=120, max_hp=120, moves=set()
+    )
+    s.sides["p2"]["b"] = PokemonState(
+        species="Tornadus", hp=140, max_hp=140, moves=set()
+    )
+    return s
+
+
+def test_dispatcher_routes_to_known_for_our_side(state_for_belief, known_team_slots):
+    """side == our_side → build_known_side path; produces a non-empty belief."""
+    bs = build_belief_for_side(
+        state_for_belief, "p1",
+        our_side="p1", known_team=known_team_slots,
+        likely_sets={}, move_priors={},
+    )
+    # known builder path: full team's movesets or roster must be non-empty
+    assert bs.roster or bs.movesets, "known builder must produce non-empty belief"
+
+
+def test_dispatcher_routes_to_opponent_for_opp_side(state_for_belief, known_team_slots):
+    """side != our_side → opponent builder path; roster must be empty (hidden bench)."""
+    bs = build_belief_for_side(
+        state_for_belief, "p2",
+        our_side="p1", known_team=known_team_slots,
+        likely_sets={}, move_priors={},
+    )
+    assert bs.roster == {}, "opponent builder path must have empty bench (limited-view)"
+
+
+def test_determinism(state_for_belief, known_team_slots):
+    """Two identical build_belief_for_side calls must produce equal BeliefSide objects."""
+    a = build_belief_for_side(
+        state_for_belief, "p2",
+        our_side="p1", known_team=known_team_slots,
+        likely_sets={}, move_priors={},
+    )
+    b = build_belief_for_side(
+        state_for_belief, "p2",
+        our_side="p1", known_team=known_team_slots,
+        likely_sets={}, move_priors={},
+    )
+    assert a == b, "build_belief_for_side must be deterministic"
+
+
+def test_belief_feeds_rollout_labels(state_for_belief, known_team_slots):
+    """Integration: BeliefSide → per-side dicts → decide() returns a non-None JointAction.
+
+    This is the 'deterministic belief source for rollout_labels' deliverable.
+    No export-swap, no training: just prove the triple is consumable by decide().
+
+    state_for_belief: p1 active = Incineroar + Rillaboom (matching known_team_slots).
+    known_team_slots: req.side.pokemon from request_doubles_moves.json (4 slots, keyed
+                      by ident e.g. 'p1: Incineroar').
+    deps: stripped decision_fixture kw (book/calc/oracle/speed_oracle/dex).
+    """
+    import json
+    from showdown_bot.learning.decide_adapter import decide
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.engine.moves import _move_table
+    from showdown_bot.engine.belief.hypotheses import load_spread_book
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.calc.models import DamageResult
+    from showdown_bot.engine.speed import SpeedRange
+
+    class _FakeCalc:
+        backend = None
+        def damage_batch(self, requests):
+            return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+    class _FakeOracle:
+        def request(self, req):
+            return (req.attacker.species, req.move, req.defender.species)
+        def get(self, key):
+            return DamageResult(min_damage=45, max_damage=70, max_hp=150)
+        def damage(self, req):
+            return DamageResult(min_damage=45, max_damage=70, max_hp=150)
+        def flush(self):
+            pass
+
+    class _FakeSpeed:
+        def our_speed(self, base, mon, field, side):
+            return base or 100
+        def opponent_range(self, mon, field, side, *, book):
+            return SpeedRange(min=80, likely=110, max=150)
+
+    cfg = load_format_config("gen9vgc2026regi")
+    book = load_spread_book(cfg.meta_path("default_spreads"))
+    deps = dict(
+        book=book,
+        calc=_FakeCalc(),
+        oracle=_FakeOracle(),
+        speed_oracle=_FakeSpeed(),
+    )
+
+    meta = _move_table()
+
+    # Build p1 (our side) belief from known team
+    us = build_belief_for_side(
+        state_for_belief, "p1",
+        our_side="p1", known_team=known_team_slots,
+        likely_sets={}, move_priors={},
+    )
+    # Build p2 (opponent) belief — prior-based, limited-view.
+    # No speed_oracle here: _belief_speed falls through to (0, "weak_speed_fallback"),
+    # which is fine — we only need the belief triple to be consumable by decide().
+    opp = build_opponent_belief(
+        state_for_belief, "p2",
+        likely_sets={}, move_priors={},
+        speed_oracle=None,
+    )
+
+    roster = {"p1": us.roster, "p2": opp.roster}
+    movesets = {"p1": us.movesets, "p2": opp.movesets}
+    stats = {"p1": us.stats, "p2": opp.stats}
+
+    ja = decide(
+        state_for_belief, "p1",
+        roster=roster, movesets=movesets, stats=stats,
+        move_meta=meta, deps=deps,
+    )
+    assert ja is not None, "decide() must return a JointAction (synthesized request was enumerable)"
+    assert isinstance(ja, JointAction)
