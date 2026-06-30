@@ -65,14 +65,18 @@ def test_calc_mjs_server_mode_roundtrips_two_lines():
         proc.stdin.write(_types_line("Flutter Mane")); proc.stdin.flush()
         line2 = proc.stdout.readline()
         r1, r2 = json.loads(line1), json.loads(line2)
+        assert isinstance(r1, list) and isinstance(r2, list)     # each line is a JSON array
         assert r1[0]["types"] == ["Fire", "Dark"]
         assert set(r2[0]["types"]) == {"Ghost", "Fairy"}
-        # process stayed up across both requests
-        assert proc.poll() is None
+        assert proc.poll() is None                               # alive after 2 requests
     finally:
         proc.stdin.close()
-        assert proc.wait(timeout=5) == 0       # clean EOF exit, code 0
+        rest = proc.stdout.read()                                # everything after line2
+        assert rest == "", f"unexpected extra stdout (banner/log breaks the protocol): {rest!r}"
+        assert proc.wait(timeout=5) == 0                         # clean EOF exit, code 0
 ```
+(The `rest == ""` + the JSON-array asserts together pin **stdout = protocol only**: no startup
+banner before line1, no extra/log line after line2 — exactly one response line per request.)
 
 - [ ] **Step 2: run → FAIL** (no `--server` mode yet). `cd showdown_bot && python -m pytest tests/test_calc_persistent.py::test_calc_mjs_server_mode_roundtrips_two_lines -q`
 
@@ -181,15 +185,19 @@ class PersistentCalcBackend:
         return self._proc
 
     def _spawn(self):
+        # GENERATION ISOLATION (pin): each process generation owns its OWN queue + reader thread.
+        # On restart we kill the old proc, install a FRESH self._q, and start a reader bound to the
+        # new (proc, q). The old reader drains into the now-unreferenced old queue and exits on EOF —
+        # so no stale stdout line from a dead generation can ever leak into the retry's response.
         self._kill()
-        self._q = queue.Queue()
+        self._q = queue.Queue()                                # fresh queue — old one is discarded
         self._proc = subprocess.Popen(
             [self.node, self.script, "--server"], cwd=str(self.calc_dir),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,    # stderr inherits (NOT piped/undrained)
             text=True, encoding="utf-8", bufsize=1)
         self.spawn_count += 1
         self._reader = threading.Thread(target=self._read_loop, args=(self._proc, self._q), daemon=True)
-        self._reader.start()
+        self._reader.start()                                   # reader writes ONLY to this generation's q
 
     def _read_loop(self, proc, q):
         try:
