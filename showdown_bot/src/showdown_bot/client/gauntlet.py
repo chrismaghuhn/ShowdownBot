@@ -119,9 +119,20 @@ class _Client:
         self.invalid = 0
         self.crashes = 0
         # Dataset export seam — None when SHOWDOWN_DATASET_EXPORT is unset (bit-identical path).
+        # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
+        # the gauntlet's already-built deps (avoids a second CalcClient).
+        # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
+        # in stub mode (default) they are ignored.
         self._export = DatasetExportRuntime.from_env(
-            format_id=self.format_id, packed_team=self.packed_team, mirror_flag=False,
-            dex=None, move_meta=None,
+            format_id=self.format_id,
+            packed_team=self.packed_team,
+            mirror_flag=False,
+            dex=None,
+            move_meta=None,
+            book=self.book,
+            our_spreads=self.our_spreads,
+            opp_sets=self.opp_sets,
+            priors=self.priors,
         )
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:

@@ -1,6 +1,12 @@
+"""Tests for export_driver.maybe_observe_decision (post 1d-3: no internal sampling gate).
+
+The sampling gate moved to DatasetExportRuntime.observe; the driver is now a
+pure extract+add function.  These tests call it with already-computed labels.
+"""
 import pytest
 from showdown_bot.learning.export import DatasetExporter, SamplingPolicy
 from showdown_bot.learning.export_driver import maybe_observe_decision
+from showdown_bot.learning.label_provider import StubLabelProvider
 
 
 def _ctx_and_trace(decision_fixture):
@@ -19,30 +25,37 @@ def _ctx_and_trace(decision_fixture):
     return tr, kw["state"], req, ctx
 
 
-def test_sampled_decision_adds_rows(decision_fixture):
+def test_adds_rows_with_stub_labels(decision_fixture):
+    """Driver with pre-computed stub labels produces one row per candidate."""
     tr, state, req, ctx = _ctx_and_trace(decision_fixture)
     exp = DatasetExporter(SamplingPolicy(policy="all"))
-    n = maybe_observe_decision(exp, 0, ctx=ctx, trace=tr, state=state, request=req)
+    labels = StubLabelProvider().labels_for_decision(tr, state, req, context=ctx)
+    n = maybe_observe_decision(exp, ctx=ctx, trace=tr, state=state, request=req, labels=labels)
     assert n == len(tr.candidates) and len(exp.rows_for_test()) == n
 
 
-def test_unsampled_decision_adds_nothing_and_skips_extract(decision_fixture, monkeypatch):
-    tr, state, req, ctx = _ctx_and_trace(decision_fixture)
-    import showdown_bot.learning.export_driver as drv
-    called = {"n": 0}
-    real = drv.extract_features
-    monkeypatch.setattr(drv, "extract_features", lambda *a, **k: called.__setitem__("n", called["n"] + 1) or real(*a, **k))
-    exp = DatasetExporter(SamplingPolicy(policy="every_nth", rate=2))
-    assert maybe_observe_decision(exp, 1, ctx=ctx, trace=tr, state=state, request=req) == 0  # odd -> not sampled
-    assert exp.rows_for_test() == [] and called["n"] == 0                                     # extract NOT called
-    assert maybe_observe_decision(exp, 0, ctx=ctx, trace=tr, state=state, request=req) > 0     # even -> sampled
-    assert called["n"] == 1
-
-
 def test_added_rows_are_validated(decision_fixture):
+    """Every row added by the driver must pass validate_row (schema contract)."""
     tr, state, req, ctx = _ctx_and_trace(decision_fixture)
     from showdown_bot.learning.schema import validate_row
     exp = DatasetExporter(SamplingPolicy(policy="all"))
-    maybe_observe_decision(exp, 0, ctx=ctx, trace=tr, state=state, request=req)
+    labels = StubLabelProvider().labels_for_decision(tr, state, req, context=ctx)
+    maybe_observe_decision(exp, ctx=ctx, trace=tr, state=state, request=req, labels=labels)
     for row in exp.rows_for_test():
-        validate_row(row)   # B2 add() already validated; re-assert
+        validate_row(row)   # add() already validated; re-assert
+
+
+def test_extract_features_called_with_provided_labels(decision_fixture, monkeypatch):
+    """The driver passes the caller-supplied labels to extract_features (not its own)."""
+    tr, state, req, ctx = _ctx_and_trace(decision_fixture)
+    import showdown_bot.learning.export_driver as drv
+    captured = {}
+    real = drv.extract_features
+    def _spy(*a, **k):
+        captured["labels"] = k.get("labels")
+        return real(*a, **k)
+    monkeypatch.setattr(drv, "extract_features", _spy)
+    exp = DatasetExporter(SamplingPolicy(policy="all"))
+    labels = StubLabelProvider().labels_for_decision(tr, state, req, context=ctx)
+    maybe_observe_decision(exp, ctx=ctx, trace=tr, state=state, request=req, labels=labels)
+    assert captured.get("labels") is labels
