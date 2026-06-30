@@ -57,3 +57,48 @@ def test_sampling_policy_rejects_nonpositive_rate():
     from showdown_bot.learning.export import SamplingPolicy
     with pytest.raises(ValueError, match="rate"):
         SamplingPolicy(policy="every_nth", rate=0).should_sample(0)
+
+
+import io, pytest
+from showdown_bot.learning.schema import Row, FEATURE_COLUMNS, METADATA_KEYS, LABEL_KEYS
+from showdown_bot.learning.export import DatasetExporter
+
+
+def _row(game_id, decision_id, cand_idx):
+    features = {c: 0 for c in FEATURE_COLUMNS}
+    metadata = {k: "x" for k in METADATA_KEYS}
+    metadata.update(game_id=game_id, decision_id=decision_id, candidate_index=cand_idx)
+    label = {k: 0 for k in LABEL_KEYS}
+    return Row(features=features, metadata=metadata, label=label)
+
+
+def test_add_validates_each_row():
+    exp = DatasetExporter()
+    bad = _row("g", "d", 0)
+    bad.features["not_a_real_feature"] = 1   # breaks schema
+    with pytest.raises(ValueError):
+        exp.add(bad)
+    assert exp.rows_for_test() == []         # invalid rows are never buffered
+
+def test_flush_is_stable_sorted_and_byte_identical():
+    rows = [_row("g1", "d2", 1), _row("g1", "d1", 0), _row("g1", "d1", 1), _row("g2", "d1", 0)]
+    a, b = DatasetExporter(), DatasetExporter()
+    for r in rows:                 # add in one order
+        a.add(r)
+    for r in reversed(rows):       # add in the REVERSE order
+        b.add(r)
+    out_a, out_b = io.StringIO(), io.StringIO()
+    a.flush_sorted(out_a); b.flush_sorted(out_b)
+    assert out_a.getvalue() == out_b.getvalue()        # byte-identical regardless of add order
+    # ordered by (game_id, decision_id, candidate_index)
+    order = [(r.metadata["game_id"], r.metadata["decision_id"], r.metadata["candidate_index"])
+             for r in a.rows_for_test()]
+    assert order == sorted(order, key=lambda t: (t[0], t[1], int(t[2])))
+
+def test_flush_writes_one_jsonl_line_per_row():
+    exp = DatasetExporter()
+    for i in range(3):
+        exp.add(_row("g", "d", i))
+    buf = io.StringIO(); exp.flush_sorted(buf)
+    lines = buf.getvalue().splitlines()
+    assert len(lines) == 3

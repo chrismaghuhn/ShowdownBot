@@ -47,3 +47,42 @@ class SamplingPolicy:
                 raise ValueError("every_nth sampling rate must be > 0")
             return decision_index % self.rate == 0
         raise ValueError(f"unknown sampling policy: {self.policy}")
+
+
+class DatasetExporter:
+    """Buffers finished, validated Rows; writes stably-sorted byte-identical JSONL.
+    Takes Row objects only — never Trace/State. Sampling is applied upstream (1b-B3);
+    this holds a SamplingPolicy for that caller to consult."""
+
+    def __init__(self, sampling_policy: SamplingPolicy | None = None) -> None:
+        self.sampling_policy = sampling_policy or SamplingPolicy()
+        self._rows: list[Row] = []
+
+    def add(self, row: Row) -> None:
+        validate_row(row)        # gate 2: never buffer an invalid row
+        self._rows.append(row)
+
+    def _sorted(self) -> list[Row]:
+        return sorted(
+            self._rows,
+            key=lambda r: (
+                str(r.metadata.get("game_id", "")),
+                str(r.metadata.get("decision_id", "")),
+                int(r.metadata.get("candidate_index", 0)),
+            ),
+        )
+
+    def rows_for_test(self) -> list[Row]:
+        return self._sorted()
+
+    def to_jsonl(self) -> str:
+        return "".join(to_jsonl_line(r) + "\n" for r in self._sorted())
+
+    def flush_sorted(self, file_or_path) -> None:
+        text = self.to_jsonl()
+        if hasattr(file_or_path, "write"):
+            file_or_path.write(text)
+        else:
+            # newline="\n" => byte-identical across OSes (no CRLF translation)
+            with open(file_or_path, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write(text)
