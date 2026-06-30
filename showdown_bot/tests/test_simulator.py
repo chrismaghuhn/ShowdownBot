@@ -4,6 +4,8 @@ import pytest
 
 from showdown_bot.engine.state import BattleState, PokemonState, FieldState
 from showdown_bot.battle.resolve import TurnOutcome
+from showdown_bot.battle.actions import JointAction
+from showdown_bot.models.actions import SlotAction
 from showdown_bot.learning.simulator import clone_state, apply_outcome_to_state
 
 
@@ -82,3 +84,35 @@ def test_unknown_flag_is_ignored():
     out = TurnOutcome(flags={"status:bogusmove:p1a", "wasted_move", "protect:p1a"})
     nxt = apply_outcome_to_state(s, out, {}, roster_by_side={})   # no crash
     assert nxt.field.tailwind["p1"] is False and nxt.field.trick_room is False
+
+
+# ---------------------------------------------------------------------------
+# T4: switch application
+# ---------------------------------------------------------------------------
+
+def test_switch_replaces_active_slot_from_roster():
+    s = _state()
+    bench = PokemonState(species="Rillaboom", hp=180, max_hp=180, moved_since_switch=True)
+    roster = {"p1": {"p1: Rillaboom": bench}}
+    ja = JointAction(slot0=SlotAction(kind="switch", target_ident="p1: Rillaboom"),
+                     slot1=SlotAction(kind="pass"))
+    nxt = apply_outcome_to_state(s, TurnOutcome(), {"p1": ja}, roster_by_side=roster)
+    assert nxt.sides["p1"]["a"].species == "Rillaboom"
+    assert nxt.sides["p1"]["a"].moved_since_switch is False   # reset on switch-in
+
+def test_switch_does_not_alias_roster():
+    s = _state()
+    bench = PokemonState(species="Rillaboom", hp=180, max_hp=180)
+    roster = {"p1": {"p1: Rillaboom": bench}}
+    ja = JointAction(slot0=SlotAction(kind="switch", target_ident="p1: Rillaboom"),
+                     slot1=SlotAction(kind="pass"))
+    nxt = apply_outcome_to_state(s, TurnOutcome(), {"p1": ja}, roster_by_side=roster)
+    nxt.sides["p1"]["a"].hp = 1
+    assert bench.hp == 180                                    # roster entry untouched
+
+def test_switch_missing_target_raises():
+    s = _state()
+    ja = JointAction(slot0=SlotAction(kind="switch", target_ident="p1: Nope"),
+                     slot1=SlotAction(kind="pass"))
+    with pytest.raises(ValueError, match="not in roster"):
+        apply_outcome_to_state(s, TurnOutcome(), {"p1": ja}, roster_by_side={"p1": {}})

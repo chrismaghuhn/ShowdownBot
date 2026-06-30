@@ -34,6 +34,21 @@ def _apply_hp(state: BattleState, outcome: TurnOutcome) -> None:
             mon.fainted = True
 
 
+def _apply_switches(state: BattleState, outcome: TurnOutcome, actions_by_side: dict, roster_by_side: dict) -> None:
+    for side, ja in actions_by_side.items():
+        for i, sa in enumerate((ja.slot0, ja.slot1)):
+            if sa.kind != "switch":
+                continue
+            slot = _SLOTS[i]
+            target = sa.target_ident
+            roster = roster_by_side.get(side, {})
+            if target not in roster:
+                raise ValueError(f"switch target {target!r} not in roster for side {side!r}")
+            new_mon = copy.deepcopy(roster[target])   # no shared ref with the roster
+            new_mon.moved_since_switch = False
+            state.sides.setdefault(side, {})[slot] = new_mon
+
+
 def _apply_field(state: BattleState, outcome: TurnOutcome) -> None:
     for flag in outcome.flags:
         parts = flag.split(":")
@@ -55,5 +70,6 @@ def apply_outcome_to_state(
     """Return a NEW BattleState; never mutate the input."""
     nxt = clone_state(state)
     _apply_hp(nxt, outcome)
+    _apply_switches(nxt, outcome, actions_by_side, roster_by_side)
     _apply_field(nxt, outcome)
     return nxt
