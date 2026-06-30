@@ -251,3 +251,41 @@ def synthesize_request(
         force_switch=force_switch if any_force else None,
         team_preview=False,
     )
+
+
+def decide(
+    state: BattleState,
+    side: str,
+    *,
+    roster: dict,
+    movesets: dict,
+    stats: dict,
+    move_meta: dict,
+    deps: dict,
+) -> "JointAction":
+    """Synthesize a BattleRequest from state + caller-supplied beliefs and run the
+    heuristic core, returning the chosen JointAction.
+
+    Args:
+        state:     Current BattleState.
+        side:      Which side to decide for ("p1" or "p2").
+        roster:    dict[side -> dict[ident -> PokemonState]] — bench mons.
+        movesets:  dict[side -> dict[ident|species -> list[str]]] — move ids.
+        stats:     dict[side -> dict[ident|species -> dict[str, int]]] — at minimum {"spe": ...}.
+        move_meta: dict[move_id -> MoveMeta] from engine/moves._move_table().
+        deps:      Keyword deps for _choose_best_ja (book, calc, oracle, speed_oracle, dex,
+                   priors, weights, risk_lambda, tera_margin, rollout_horizon, our_spreads,
+                   opp_sets). Sanitized: stray keys (state, our_side, trace, report) are
+                   silently dropped.
+
+    Returns:
+        JointAction — the heuristic's chosen joint action for this side.
+    """
+    from showdown_bot.battle.actions import JointAction  # noqa: F401 (re-export hint)
+    from showdown_bot.battle.decision import _choose_best_ja
+
+    req = synthesize_request(
+        state, side,
+        roster=roster, movesets=movesets, stats=stats, move_meta=move_meta,
+    )
+    return _choose_best_ja(req, state=state, our_side=side, **_core_deps(deps))
