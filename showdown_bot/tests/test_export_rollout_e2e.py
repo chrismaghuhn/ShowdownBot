@@ -257,3 +257,76 @@ def test_exporter_none_bit_identical(monkeypatch):
     monkeypatch.delenv("SHOWDOWN_DATASET_EXPORT", raising=False)
     rt = DatasetExportRuntime.from_env(format_id="fmt", packed_team="t", mirror_flag=False)
     assert rt is None, "Expected None when SHOWDOWN_DATASET_EXPORT is not set"
+
+
+# ---------------------------------------------------------------------------
+# Guard test: from_env rollout deps must mirror decision.py:156-157 defaults
+# ---------------------------------------------------------------------------
+
+def test_from_env_rollout_deps_match_decision_defaults(tmp_path, monkeypatch):
+    """Guard: _build_rollout_provider must produce deps matching decision.py defaults.
+
+    Exercises the REAL _build_rollout_provider path (provider=None, mode=rollout)
+    so the masking that injected a pre-baked provider=... can't recur.
+
+    Monkeypatches CalcClient (no Node) and SpeedOracle (no subprocess) so this
+    test is hermetic on any machine.
+
+    Expected invariants (decision.py:156-157):
+      deps["risk_lambda"] == 0.5
+      deps["tera_margin"] == 1.0
+    """
+    import showdown_bot.engine.calc.client as _calc_mod
+    import showdown_bot.engine.speed as _speed_mod
+    import showdown_bot.battle.oracle as _oracle_mod
+
+    # Patch CalcClient so no Node subprocess is spawned.
+    class _StubCalc:
+        backend = None
+
+        def damage_batch(self, requests):
+            from showdown_bot.engine.calc.models import DamageResult
+            return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+    monkeypatch.setattr(_calc_mod, "CalcClient", lambda **kw: _StubCalc())
+
+    # Patch SpeedOracle so stats_backend=None doesn't fall back to SubprocessCalcBackend.
+    class _StubSpeedOracle:
+        def __init__(self, stats_backend=None):
+            self.backend = stats_backend
+
+    monkeypatch.setattr(_speed_mod, "SpeedOracle", _StubSpeedOracle)
+
+    # Patch DamageOracle so it accepts our _StubCalc without hitting Node.
+    class _StubOracle:
+        def __init__(self, client=None):
+            self.client = client
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(_oracle_mod, "DamageOracle", _StubOracle)
+
+    # Set env for rollout mode.
+    out_path = tmp_path / "guard_out.jsonl"
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(out_path))
+    monkeypatch.setenv("SHOWDOWN_DATASET_TEACHER", "rollout")
+    monkeypatch.setenv("SHOWDOWN_ROLLOUT_HORIZON", "1")
+
+    # Call from_env with provider=None so the real _build_rollout_provider path runs.
+    rt = DatasetExportRuntime.from_env(
+        format_id="gen9vgc2026regi",
+        packed_team="packed",
+        mirror_flag=False,
+        provider=None,  # explicit: forces real _build_rollout_provider
+    )
+    assert rt is not None, "from_env must return a runtime when SHOWDOWN_DATASET_EXPORT is set"
+
+    # Assert the deps match decision.py:156-157 defaults exactly.
+    deps = rt._provider._deps
+    assert deps["risk_lambda"] == 0.5, (
+        f"risk_lambda must be 0.5 (decision.py:156 default), got {deps['risk_lambda']!r}"
+    )
+    assert deps["tera_margin"] == 1.0, (
+        f"tera_margin must be 1.0 (decision.py:157 default), got {deps['tera_margin']!r}"
+    )

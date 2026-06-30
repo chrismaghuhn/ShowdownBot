@@ -190,6 +190,9 @@ class DatasetExportRuntime:
           book, calc, oracle, speed_oracle, dex, priors, weights,
           risk_lambda, tera_margin, rollout_horizon, our_spreads, opp_sets
         Plus move_meta (needed by rollout_labels).
+
+        risk_lambda=0.5 and tera_margin=1.0 mirror decision.py:156-157 defaults exactly.
+        rollout_horizon=0 suppresses the inner condition-rollout (see deps comment below).
         """
         from showdown_bot.battle.oracle import DamageOracle
         from showdown_bot.engine.calc.client import CalcClient
@@ -225,11 +228,18 @@ class DatasetExportRuntime:
             "move_meta": move_meta or {},
             "our_spreads": our_spreads,
             "opp_sets": opp_sets if opp_sets is not None else {},
-            # Remaining _CORE_DEP_KEYS with same defaults as decision.py uses:
+            # priors/weights: None matches decision.py defaults; priors threading from
+            # the gauntlet is a documented v1 gap — the rollout's inner opponent model
+            # omits Protect priors (decision.py also defaults weights=None).
             "priors": None,
             "weights": None,
-            "risk_lambda": None,
-            "tera_margin": None,
+            # Mirror decision.py:156-157 defaults exactly.
+            "risk_lambda": 0.5,
+            "tera_margin": 1.0,
+            # rollout_horizon=0 (not decision.py's None→~2): the H-loop is the outer
+            # rollout; the inner decide runs one-ply to avoid (a) nesting a condition-
+            # rollout inside every H-loop turn and (b) the SHOWDOWN_ROLLOUT_HORIZON env
+            # collision (that var sets the OUTER H, line ~211).  Documented v1 choice.
             "rollout_horizon": 0,
         }
 
