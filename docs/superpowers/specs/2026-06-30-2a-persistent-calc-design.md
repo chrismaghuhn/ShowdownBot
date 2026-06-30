@@ -35,6 +35,10 @@ The rollout benefits automatically: it builds `calc = CalcClient()` and derives
 `SpeedOracle(stats_backend=calc.backend)`, so one persistent backend serves damage + stats; types
 lookups elsewhere are cached and rare.
 
+**`make_calc_backend()` hard-fails an unknown env value** (so a typo'd `SHOWDOWN_CALC_BACKEND=
+persitent` can't silently run one-shot and produce misleading benchmark numbers): unset / `"oneshot"`
+→ `SubprocessCalcBackend`; `"persistent"` → `PersistentCalcBackend`; anything else → `ValueError`.
+
 ## Line protocol (newline-framed, compact JSON)
 - One request = one line = `json.dumps(batch, separators=(",",":"))` (compact → no embedded
   newlines) + `\n`. One response = one line = the JSON result array + `\n`.
@@ -42,6 +46,9 @@ lookups elsewhere are cached and rare.
   pipelining (callers are synchronous).
 - **stdout is PROTOCOL ONLY** (pin 1): in server mode `calc.mjs` writes ONLY JSON result lines to
   stdout. All logs / debug / errors go to **stderr**. (A stray stdout log would desync the protocol.)
+- **Clean EOF:** in server mode, EOF on stdin (Python `close()` closes the child's stdin) exits the
+  node process **cleanly with code 0** — no error spam. An invalid request line reports a protocol
+  error per the transport contract (to stderr), but stdout stays protocol-only.
 
 ## Backend surface (identical to SubprocessCalcBackend)
 `calc_batch(requests: list[DamageRequest]) -> list[DamageResult]`,
@@ -57,9 +64,21 @@ Distinguish **semantic** from **transport** failures (pin 2):
   **kill the process → restart → retry the SAME request exactly once.** If the retry also fails →
   `CalcError` (the export run hard-fails). **Never silently fabricate a result.**
 - **Per-request timeout** (pin 3): `SHOWDOWN_CALC_TIMEOUT_MS` (default 10000ms). A request that
-  doesn't return a line in time is a transport failure → kill + restart + retry once.
+  doesn't return a line in time is a transport failure → kill + restart + retry once. **The
+  timeout MUST be cross-platform** — do NOT rely on `select()` on Windows pipes. Use a reader
+  thread + queue (a background thread does the blocking `stdout.readline()`, the caller waits on
+  the queue with a timeout), or another tested mechanism. On timeout: kill the process,
+  drain/close the pipes, restart, retry once. (This is the single most important 2a-2 impl pin.)
+- **Transport failures (→ restart + retry-once), classified:** `BrokenPipeError` on write · EOF
+  before a response line · process `returncode` set before/while reading · timeout · malformed
+  JSON response · response is not a list · response ids/order/count do not match the request
+  contract. **Semantic `{id, error}`** is NOT in this list → `CalcError`, no restart, no retry.
 
-## Lifecycle + Windows Popen (pinned)
+## Concurrency, lifecycle + Windows Popen (pinned)
+- **Serialize every `_run` with a `threading.Lock`** — one process sharing stdin/stdout must never
+  be written/read by two threads at once (request A write, B write, then A/B responses → the Python
+  side reads the wrong line). No pipelining in v1: one request is fully written AND its response
+  fully read before the next begins.
 - Lazy spawn on first request; **`close()` is idempotent** (pin 4) — safe to call multiple times,
   never crashes; registered via `atexit` so no orphan node process survives the run. Optional
   context-manager sugar.
@@ -94,9 +113,15 @@ payload shape.** (A faster backend that subtly reorders or drops would otherwise
 - `close()` is idempotent (call twice + atexit, no crash).
 - `SHOWDOWN_CALC_BACKEND=persistent` → `CalcClient()` uses `PersistentCalcBackend`.
 - default env → one-shot, current behavior preserved (existing calc tests stay green).
+- **concurrent `_run` calls are serialized** by the lock — two threads fire small
+  `stats_batch`/`types_batch` requests at the same backend process and BOTH get correct,
+  non-swapped results.
+- **unknown `SHOWDOWN_CALC_BACKEND`** value raises `ValueError`.
+- **server mode exits cleanly** on stdin EOF / `close()` (returncode 0, no error spam).
 
 ## Benchmark gate (goal, not a hard number)
 Re-run the rollout-export probe (H=1, top_k=6). **Expected: materially faster than 145.9s/decision**
 (target ~order-of-magnitude from amortizing the gen load, but not pinned as an exact multiple).
-Record: sampled decisions, calc requests, total seconds, seconds/decision. If it is not clearly
-faster, 2a is not met.
+Record: **number of backend process spawns** (confirms the process actually STAYS persistent — a
+healthy run is ~1 spawn, not one-per-batch), number of calc batches, total seconds, seconds per
+sampled decision. If it is not clearly faster, 2a is not met.
