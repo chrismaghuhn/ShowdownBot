@@ -53,3 +53,13 @@ deps / no real switch through the apply path). **Fix:** `build_known_side` keys 
 - **Cost prerequisite:** land a **persistent CalcClient backend (Slice 2a)** before generating a
   training-sized dataset; then Slice 2b (model + training). Small smoke datasets (heavy sampling,
   H=1) are usable now.
+
+## 2a follow-up — persistent backend benchmark (resolves the cost finding)
+After Slice 2a (persistent `node calc.mjs --server` backend), the same probe with
+`SHOWDOWN_CALC_BACKEND=persistent`:
+- **`observe_s` = ~2.9s/decision** vs the 145.9s one-shot baseline — **~50× faster**.
+- **`calc_spawn_count` = 1** — one node process serves the whole rollout (truly persistent).
+- Output **byte-identical across two runs** (determinism holds); labels identical to one-shot
+  (`counterfactual_value_raw=7.062525`), same `config_hash` (the backend is transport, not
+  dataset-semantic). ⇒ a training-sized dataset (~1000 decisions) drops from ~40h to ~48min.
+  **Training-sized dataset generation is now practical.**

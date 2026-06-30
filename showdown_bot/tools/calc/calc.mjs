@@ -15,6 +15,7 @@
 //     maxHP, koChanceText, desc }
 
 import { calculate, Generations, Pokemon, Move, Field } from '@smogon/calc';
+import { createInterface } from 'node:readline';
 
 function readStdin() {
   return new Promise((resolve, reject) => {
@@ -120,6 +121,19 @@ function runOne(gen, req) {
   };
 }
 
+// Shared per-request dispatch used by both one-shot and server modes.
+function dispatch(gens, req) {
+  try {
+    const genNum = req.gen || 9;
+    if (!gens.has(genNum)) gens.set(genNum, Generations.get(genNum));
+    if (req.kind === "stats") return runStats(gens.get(genNum), req);
+    if (req.kind === "types") return runTypes(gens.get(genNum), req);
+    return runOne(gens.get(genNum), req);
+  } catch (e) {
+    return { id: req.id, error: e.message };
+  }
+}
+
 async function main() {
   const raw = await readStdin();
   let parsed;
@@ -133,22 +147,32 @@ async function main() {
 
   const requests = Array.isArray(parsed) ? parsed : [parsed];
   const gens = new Map();
-  const results = requests.map((req) => {
-    try {
-      const genNum = req.gen || 9;
-      if (!gens.has(genNum)) gens.set(genNum, Generations.get(genNum));
-      if (req.kind === "stats") return runStats(gens.get(genNum), req);
-      if (req.kind === "types") return runTypes(gens.get(genNum), req);
-      return runOne(gens.get(genNum), req);
-    } catch (e) {
-      return { id: req.id, error: e.message };
-    }
-  });
+  const results = requests.map((req) => dispatch(gens, req));
 
   process.stdout.write(JSON.stringify(results));
 }
 
-main().catch((e) => {
+// Server mode: persistent line-loop; gens Map is shared across all lines.
+function processBatch(gens, raw) {
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch (e) { return JSON.stringify({ error: `invalid JSON: ${e.message}` }); }
+  const requests = Array.isArray(parsed) ? parsed : [parsed];
+  return JSON.stringify(requests.map((req) => dispatch(gens, req)));
+}
+
+function serve() {
+  const gens = new Map();                              // SHARED across all lines (the win)
+  const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  rl.on('line', (raw) => {
+    if (raw.trim() === '') return;
+    process.stdout.write(processBatch(gens, raw) + '\n');  // stdout = protocol ONLY
+  });
+  rl.on('close', () => process.exit(0));               // stdin EOF -> clean exit 0
+}
+
+if (process.argv.includes('--server')) serve();
+else main().catch((e) => {
   process.stdout.write(JSON.stringify({ error: e.message }));
   process.exitCode = 1;
 });
