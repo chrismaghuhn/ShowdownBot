@@ -61,6 +61,20 @@ def test_game_and_decision_ids_chain():
     assert g0 != g1
     assert make_decision_id(g0, 0, 1, "p1") != make_decision_id(g0, 1, 1, "p1")
     assert make_decision_id(g0, 0, 1, "p1") == make_decision_id(g0, 0, 1, "p1")
+
+def test_ids_avoid_delimiter_collision():
+    # canonical JSON, not ":".join -> these must NOT collide
+    assert make_run_id("a:b", False, "c", "cfg", 0) != make_run_id("a", False, "b:c", "cfg", 0)
+
+def test_export_module_has_no_nondeterministic_imports():
+    # gate 7: no wall-clock / uuid / unseeded randomness in the module
+    import inspect
+    import showdown_bot.learning.export as export
+    src = inspect.getsource(export)
+    assert "import uuid" not in src
+    assert "import time" not in src
+    assert "import random" not in src
+    assert "datetime.now" not in src
 ```
 
 - [ ] **Step 2: run → FAIL** (`ImportError`). `cd showdown_bot && python -m pytest tests/test_export.py -q`
@@ -78,13 +92,17 @@ randomness — IDs are content/seed-derived sha1.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 
 from showdown_bot.learning.schema import Row, validate_row, to_jsonl_line
 
 
 def _sha16(*parts) -> str:
-    return hashlib.sha1(":".join(str(p) for p in parts).encode("utf-8")).hexdigest()[:16]
+    # canonical JSON (not ":".join) so delimiters cannot collide:
+    # ("a:b", "c") and ("a", "b:c") must hash differently.
+    payload = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
 
 def make_run_id(git_sha, dirty_flag, team_hash, config_hash, run_seed) -> str:
@@ -128,6 +146,12 @@ def test_sampling_policy_rejects_unknown():
     from showdown_bot.learning.export import SamplingPolicy
     with pytest.raises(ValueError, match="unknown sampling"):
         SamplingPolicy(policy="bogus").should_sample(0)
+
+def test_sampling_policy_rejects_nonpositive_rate():
+    import pytest
+    from showdown_bot.learning.export import SamplingPolicy
+    with pytest.raises(ValueError, match="rate"):
+        SamplingPolicy(policy="every_nth", rate=0).should_sample(0)
 ```
 
 - [ ] **Step 2: run → FAIL.**
@@ -145,7 +169,9 @@ class SamplingPolicy:
         if self.policy == "all":
             return True
         if self.policy == "every_nth":
-            return decision_index % max(1, self.rate) == 0
+            if self.rate <= 0:                       # fail-fast, never silently normalize
+                raise ValueError("every_nth sampling rate must be > 0")
+            return decision_index % self.rate == 0
         raise ValueError(f"unknown sampling policy: {self.policy}")
 ```
 
@@ -180,6 +206,7 @@ def test_add_validates_each_row():
     bad.features["not_a_real_feature"] = 1   # breaks schema
     with pytest.raises(ValueError):
         exp.add(bad)
+    assert exp.rows_for_test() == []         # invalid rows are never buffered
 
 def test_flush_is_stable_sorted_and_byte_identical():
     rows = [_row("g1", "d2", 1), _row("g1", "d1", 0), _row("g1", "d1", 1), _row("g2", "d1", 0)]
