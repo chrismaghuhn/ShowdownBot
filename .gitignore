@@ -9,3 +9,6 @@ dist/
 build/
 .worktrees/
 showdown_bot/logs/
+
+# Datasets: raw JSONL is large + deterministically regenerable; keep the .gz + manifest.
+data/datasets/**/*.jsonl

@@ -1,0 +1,65 @@
+{
+  "name": "phase3-slice2b-100game-rollout-labels",
+  "created_at": "2026-06-30",
+  "format": "gen9vgc2025regi",
+  "teacher_version": "rollout-h1-v1",
+  "games_requested": 100,
+  "games_completed": 100,
+  "export_type": "rollout_labels_jsonl",
+  "persistent_calc": true,
+  "sample_mode": "all",
+  "schema_valid": true,
+  "sha256": "62f156b1ed7ab406a5838761a0985909737a738f2cd621d383e3ec9dbc73e849",
+  "path_local": "~/.cache/showdownbot/datasets/slice2b0_100g.jsonl",
+  "repo_artifact": "data/datasets/phase3-slice2b/rollout_labels_100g_gen9vgc2025regi_h1_v1.jsonl.gz",
+  "config_hash": "cc5d6b24fed11677",
+  "git_sha": "27848461d4b03a8c22f981a164a66a8272c260a9",
+  "generation": {
+    "command": "cli gauntlet --games 100 --villain max_damage --format gen9vgc2025regi",
+    "env": {
+      "SHOWDOWN_DATASET_TEACHER": "rollout",
+      "SHOWDOWN_CALC_BACKEND": "persistent",
+      "SHOWDOWN_ROLLOUT_HORIZON": "1",
+      "SHOWDOWN_DATASET_SAMPLE_POLICY": "all",
+      "SHOWDOWN_TEAM_PATH": "teams/fixed_team.txt"
+    },
+    "server": "node pokemon-showdown start --no-security 8000 (clone @ f8ac140, outside repo)",
+    "gauntlet_result": "46/100 wins, 0 invalid_choices, 0 crashes, latency_p95=347ms"
+  },
+  "qa": {
+    "rows": 4658,
+    "games": 100,
+    "decisions": 951,
+    "multi_candidate_decisions": 851,
+    "forced_single_decisions": 100,
+    "candidate_count_distribution": {"1": 100, "2": 101, "5": 144, "6": 606},
+    "unique_teacher_best_decisions": 851,
+    "explicit_teacher_best_ties": 100,
+    "nan_count": 0,
+    "none_count": 0,
+    "json_errors": 0,
+    "distinct_config_hash": 1,
+    "distinct_teacher_version": 1,
+    "baseline": {
+      "heuristic_eq_teacher_best_multi_topset": "524/851 = 61.6%",
+      "heuristic_eq_teacher_best_unique_multi_strict": "424/751 = 56.5%",
+      "learnable_disagreement_strict": "327/751 = 43.5%",
+      "attack_agreement": "317/643 = 49.3%",
+      "protect_agreement": "107/108 = 99.1%",
+      "contestable_abs_gap_le_0p5": "529/951 = 55.6%",
+      "exact_zero_gap_nonbest_alt": "348/951 = 36.6%",
+      "nonzero_near_equal": "279/951 = 29.3%"
+    },
+    "split_seed42_80_10_10_by_game": {
+      "train": {"games": 80, "decisions": 762, "rows": 3729},
+      "val": {"games": 10, "decisions": 95, "rows": 467},
+      "test": {"games": 10, "decisions": 94, "rows": 462},
+      "leakage": "disjoint game sets, cover all 100 games"
+    },
+    "known_gaps": {
+      "outcome_metadata_pending": "winner/game_outcome/final_turn = __pending__/-1 for all rows (not back-filled; not blocking candidate-rerank since teacher value is the rollout label, not the final game outcome)",
+      "dead_feature_columns": "slot*_is_damaging, slot*_is_protect, slot*_move_category, slot*_move_type, slot*_actor_species_id, slot*_priority, slot*_switch_target_species_id, slot*_target_species_id_if_known, tera_used, trick_room_active, field_weather, screens_*, mirror_flag, format_id, action_economy_score, fakeout_invalid_penalty, ko_secured_count, protect_prior_target* are constant/unpopulated; derive action class from slot*_move_id until the feature-extractor fix (priority 3)"
+    }
+  },
+  "notes": "Raw 14MB JSONL is gitignored; the 660KB .gz is the committed artifact. sha256 is of the uncompressed JSONL. Dataset is deterministically regenerable (stable config_hash)."
+}

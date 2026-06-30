@@ -145,6 +145,12 @@ def get_move_meta(name_or_id: str) -> MoveMeta:
     return MoveMeta(id=mid, name=name_or_id, base_power=80, flags=frozenset({"protect"}))
 
 
+def is_known_move(name_or_id: str) -> bool:
+    """Whether a move id/name exists in the generated move table (vs.
+    get_move_meta's conservative damaging default for unknown ids)."""
+    return to_id(name_or_id) in _move_table()
+
+
 def move_priority(meta: MoveMeta, field: FieldState | None = None) -> int:
     pr = meta.priority
     if meta.terrain_priority and field is not None and field.terrain:
