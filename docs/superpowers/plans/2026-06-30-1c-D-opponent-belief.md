@@ -68,6 +68,15 @@ def test_duplicate_moves_deduped_in_order(tmp_path):
     p = tmp_path / "mp.yaml"
     p.write_text("species:\n  Incineroar:\n    - Fake Out\n    - Fake Out\n    - Knock Off\n", encoding="utf-8")
     assert load_move_priors(p) == {"incineroar": ["fakeout", "knockoff"]}
+
+
+def test_load_for_format_delegates_and_missing_is_empty(tmp_path, monkeypatch):
+    # the REAL runtime path: format_config.meta_path("move_priors") -> load_move_priors.
+    # Mirror how test_*opp_sets* (likely_sets) tests exercise load_opp_sets_for_format;
+    # monkeypatch load_format_config so a missing resolved file returns {}.
+    import showdown_bot.engine.belief.move_priors as mod
+    # (ground the exact monkeypatch target from load_opp_sets_for_format's import site)
+    ...  # assert load_move_priors_for_format(<fmt>) == {} when meta_path points at a missing file
 ```
 
 - [ ] **Step 3: run → FAIL.** `cd showdown_bot && python -m pytest tests/test_move_priors.py -q`
@@ -245,6 +254,13 @@ def test_build_opponent_belief_has_no_known_team_param():
     import inspect
     params = inspect.signature(build_opponent_belief).parameters
     assert "known_team" not in params and "team" not in params and "full_roster" not in params
+
+
+def test_opp_belief_keys_are_consistent(opp_state):
+    # PINNED: movesets, stats, quality all keyed by the SAME stable key (species, since
+    # PokemonState has no ident). Same key set across all three dicts.
+    bs = build_opponent_belief(opp_state, "p2", likely_sets={}, move_priors={})
+    assert set(bs.movesets) == set(bs.stats) == set(bs.quality)
 ```
 
 - [ ] **Step 3: run → FAIL. Step 4: implement** (append):
@@ -293,7 +309,9 @@ def build_opponent_belief(state, opp_side, *, likely_sets, move_priors,
             continue
         species = mon.species
         sid = to_id(species)
-        merged, flags = _merge_moveset(list(mon.moves), move_priors.get(sid, []))
+        # PokemonState.moves is a set[str] (unordered) -> sort for DETERMINISM. PokemonState
+        # has NO ident field, so the stable key for all three dicts is `species` (pinned).
+        merged, flags = _merge_moveset(sorted(mon.moves), move_priors.get(sid, []))
         spe, spe_flag = _belief_speed(mon, field, opp_side, likely_sets.get(sid), speed_oracle)
         if spe_flag:
             flags.append(spe_flag)
@@ -375,6 +393,10 @@ site has no `known_team` argument (structural limited-view). **Step 4:** PASS + 
   input = `req.side.pokemon` (list[PokemonSlot]); opp builder iterates literal `("a","b")` (because
   `state.side` is unfiltered); `_quality` deterministic (`sorted(set(...))`, `("ok",)` only when
   empty); speed chain likely_sets→neutral-base→0 with the flag note.
+- **Grounded determinism/key fixes:** `PokemonState.moves` is a `set[str]` → opp builder uses
+  `sorted(mon.moves)` (a raw `list()` would be non-deterministic). `PokemonState` has **no
+  `ident`** → opp belief keys all three dicts (movesets/stats/quality) by **`species`**; the
+  consistency is a test. `load_move_priors_for_format` has its own delegation/missing-file test.
 - **Immutability:** `frozen=True` + builders return fresh containers; documented as convention.
 - **Limited-view structural:** `build_opponent_belief` has no `known_team`/`team`/`full_roster`
   param (API-guard test) and reads only `state.sides[opp]["a"|"b"]`.
