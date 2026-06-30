@@ -578,7 +578,7 @@ def _metadata(ctx: FeatureContext, candidate_index: int) -> dict:
         "teacher_trace": "",
         "schema_version": "1",
         "feature_extractor_version": "1b-B1",
-        "teacher_version": "stub-h0",
+        "teacher_version": ctx.teacher_config["teacher_version"],
         "git_sha": ctx.git_sha,
         "team_hash": ctx.team_hash,
         "config_hash": ctx.config_hash,
@@ -595,15 +595,33 @@ def _stub_label() -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
-def extract_features(trace, state, request, context: FeatureContext) -> list[Row]:
-    """Return one schema-valid Row per candidate in trace.candidates.
+def extract_features(trace, state, request, context: FeatureContext, *, labels=None) -> list[Row]:
+    """Return one schema-valid Row per labeled candidate in trace.candidates.
+
+    ``labels`` must be a dict mapping candidate_id -> label dict (one per LABEL_KEYS).
+    If omitted (None), falls back to stub zero-labels for all candidates (backward-compat).
+
+    When provided, ``labels`` must be a prefix of trace.candidates in trace order
+    (validated by _validate_label_prefix).  Rows are emitted only for candidates
+    whose candidate_id appears in ``labels``, preserving trace order.
 
     This scaffold sets every feature to its typed sentinel; later tasks replace
     stubs with real values group by group, without breaking these gates.
     """
+    from showdown_bot.learning.label_provider import _validate_label_prefix
+
+    if labels is None:
+        # Backward-compat: stub zero-labels for all candidates (stub-h0 path)
+        labels = {c.candidate_id: _stub_label() for c in trace.candidates}
+    else:
+        _validate_label_prefix(trace, labels)
+
     g1 = _group1_context(state, request, trace, context)
     rows = []
-    for i, cand in enumerate(trace.candidates):
+    candidate_index = 0
+    for cand in trace.candidates:
+        if cand.candidate_id not in labels:
+            continue
         features = _stub_features()
         features.update(g1)
         features.update(_group2_action(cand, request, state, context))
@@ -612,8 +630,9 @@ def extract_features(trace, state, request, context: FeatureContext) -> list[Row
         rows.append(
             Row(
                 features=features,
-                metadata=_metadata(context, i),
-                label=_stub_label(),
+                metadata=_metadata(context, candidate_index),
+                label=labels[cand.candidate_id],
             )
         )
+        candidate_index += 1
     return rows
