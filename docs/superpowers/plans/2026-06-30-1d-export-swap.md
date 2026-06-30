@@ -77,7 +77,27 @@ def test_validate_label_prefix_rejects_holey_set(trace_fixture):
     import pytest
     with pytest.raises(ValueError):
         _validate_label_prefix(trace_fixture, holey)
+
+
+def test_validate_label_prefix_rejects_empty_for_nonempty_trace(trace_fixture):
+    import pytest
+    with pytest.raises(ValueError):
+        _validate_label_prefix(trace_fixture, {})   # empty labels for a non-empty trace -> reject
+
+
+def test_stub_row_metadata_teacher_version(trace_fixture, stub_ctx):
+    # PIN: row metadata teacher_version comes from ctx.teacher_config (NOT hardcoded), and
+    # ctx.teacher_config is the provider's. Stub -> "stub-h0" / trainable_label False.
+    from showdown_bot.learning.features import extract_features
+    from showdown_bot.learning.label_provider import StubLabelProvider
+    p = StubLabelProvider()
+    labels = p.labels_for_decision(trace_fixture, None, None, context=stub_ctx)
+    rows = extract_features(trace_fixture, <state>, <request>, stub_ctx, labels=labels)
+    assert all(r.metadata["teacher_version"] == "stub-h0" for r in rows)
+    assert all(r.metadata["teacher_config"]["trainable_label"] is False for r in rows)
 ```
+(`stub_ctx` is a FeatureContext whose `teacher_config == StubLabelProvider().teacher_config()`,
+mirroring how the runtime sets `ctx.teacher_config = provider.teacher_config()`.)
 Plus a gate in the export tests: the existing byte-identical-JSONL / stub-export test must stay
 green when `extract_features` is called through the new `labels=` path with a `StubLabelProvider`.
 
@@ -97,7 +117,11 @@ class LabelProvider(Protocol):
 
 
 def _validate_label_prefix(trace, labels: dict) -> None:
-    """The labeled set must be exactly the first len(labels) candidates, in trace order."""
+    """The labeled set must be exactly the first len(labels) candidates, in trace order.
+    An EMPTY label dict for a non-empty trace is invalid — a 'no labels possible' situation
+    must surface as RolloutLabelError on the rollout path, never as a silent 0-row export."""
+    if trace.candidates and not labels:
+        raise ValueError("labels must not be empty for a non-empty trace")
     expected = [c.candidate_id for c in trace.candidates[: len(labels)]]
     if list(labels.keys()) != expected:
         raise ValueError("labels must be a candidate prefix in trace order")
@@ -263,7 +287,12 @@ def test_exporter_none_bit_identical(...):
       `likely_sets`/`move_priors` for the format; `provider=RolloutLabelProvider(deps=deps,
       likely_sets=..., move_priors=..., cfg=cfg, speed_oracle=deps["speed_oracle"])`. Else
       `provider=StubLabelProvider()`. **Extend the `cfg` dict** that feeds `config_hash` with
-      `rollout_config`, a `move_priors` content hash, and a `likely_sets` content hash.
+      `rollout_config` (H/γ/top_k/use_leaf) + a `move_priors` hash + a `likely_sets` hash. PIN the
+      hash method = **canonical loaded dict** (semantic, normalized belief-config), matching the
+      existing `config_hash(dict)` principle — NOT file path / YAML whitespace / key order:
+      `_sha16(json.dumps(loaded_dict, sort_keys=True, separators=(",",":"), default=str))` (reuse
+      provenance's `_sha16`); so `cfg["move_priors_hash"]`, `cfg["likely_sets_hash"]`,
+      `cfg["rollout_config"]`.
     - `observe`: build ctx with `teacher_config=self.teacher_config`; if sampled
       (`should_sample`), `self.sampled_count += 1`, then
       `try: labels = self.provider.labels_for_decision(trace, state, request, context=ctx)`
@@ -296,5 +325,5 @@ def test_exporter_none_bit_identical(...):
 - **Non-goals:** no model/training/reranker/push; no `battle/→learning/` import; exporter dumb;
   stub mode valid; teacher only in runtime/provider layer.
 - **Ground in execution:** exact `_core_deps` key set for the rollout `deps`; the `move_priors`/
-  `likely_sets` content-hash method (hash the loaded dict canonically or the source bytes);
+  `likely_sets` hash = canonical loaded dict (`_sha16(json.dumps(...,sort_keys=True,default=str))`);
   `CalcClient` cost under SamplingPolicy (one-build-reuse; measure, not correctness).
