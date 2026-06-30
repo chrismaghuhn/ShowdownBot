@@ -288,11 +288,17 @@ def test_exporter_none_bit_identical(...):
       likely_sets=..., move_priors=..., cfg=cfg, speed_oracle=deps["speed_oracle"])`. Else
       `provider=StubLabelProvider()`. **Extend the `cfg` dict** that feeds `config_hash` with
       `rollout_config` (H/γ/top_k/use_leaf) + a `move_priors` hash + a `likely_sets` hash. PIN the
-      hash method = **canonical loaded dict** (semantic, normalized belief-config), matching the
-      existing `config_hash(dict)` principle — NOT file path / YAML whitespace / key order:
-      `_sha16(json.dumps(loaded_dict, sort_keys=True, separators=(",",":"), default=str))` (reuse
-      provenance's `_sha16`); so `cfg["move_priors_hash"]`, `cfg["likely_sets_hash"]`,
-      `cfg["rollout_config"]`.
+      hash method = **canonical loaded dict** (semantic, normalized belief-config) — NOT file path
+      / YAML whitespace / key order. Add a named helper to `provenance.py`:
+```python
+def canonical_hash(value: object) -> str:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+```
+      Then `cfg["rollout_config"] = canonical_hash({"H":H,"gamma":γ,"top_k":k,"use_leaf":b})`,
+      `cfg["move_priors_hash"] = canonical_hash(loaded_move_priors)`,
+      `cfg["likely_sets_hash"] = canonical_hash(loaded_likely_sets)`. (`canonical_hash` is the
+      generalized form of the existing `config_hash(dict)` — same canonical-JSON + sha16.)
     - `observe`: build ctx with `teacher_config=self.teacher_config`; if sampled
       (`should_sample`), `self.sampled_count += 1`, then
       `try: labels = self.provider.labels_for_decision(trace, state, request, context=ctx)`
