@@ -208,3 +208,134 @@ def make_leaf(
         )
 
     return leaf
+
+
+# ---------------------------------------------------------------------------
+# C3: driver — (trace, state) → counterfactual_value → label_decision
+# ---------------------------------------------------------------------------
+
+def _drop_switch_responses(responses, weights):
+    """Filter out opponent responses that contain a bare switch PlannedAction.
+
+    v1 (B-fallback): predict_responses' pivot/switch emits a bare
+    PlannedAction(kind="switch") with NO switch-in target, so the next active
+    mon cannot be reconstructed.  Rather than apply an inconsistent state
+    (which poisons labels), we DROP switch responses from R and renormalize
+    the remaining (move) responses.
+
+    Documented v1 limitation: the opponent pivot line is not rolled out.
+
+    Raises ValueError if all responses are switches (nothing left to roll out).
+    """
+    weights = weights or [1.0] * len(responses)
+    kept = [
+        (r, w)
+        for r, w in zip(responses, weights)
+        if not any(getattr(a, "kind", None) == "switch" for a in r)
+    ]
+    if not kept:
+        raise ValueError(
+            "all opponent responses are switches; cannot build a v1 rollout R"
+        )
+    return [r for r, _ in kept], [w for _, w in kept]
+
+
+def _normalize_responses(responses, weights):
+    """Normalize (response, weight) pairs so weights sum to 1.
+
+    Raises ValueError on: empty responses, length mismatch, sum <= 0.
+    Missing/empty weights -> uniform (1.0 each).
+    """
+    if not responses:
+        raise ValueError("rollout_labels requires at least one opponent response")
+    if not weights:
+        weights = [1.0] * len(responses)
+    if len(weights) != len(responses):
+        raise ValueError(
+            f"response weights length mismatch: {len(weights)} weights for "
+            f"{len(responses)} responses"
+        )
+    total = sum(weights)
+    if total <= 0:
+        raise ValueError("response weights must sum > 0")
+    return [(resp, w / total) for resp, w in zip(responses, weights)]
+
+
+def rollout_labels(
+    trace,
+    state,
+    *,
+    root_our_side: str,
+    roster_by_side: dict,
+    movesets_by_side: dict,
+    stats_by_side: dict,
+    move_meta: dict,
+    deps: dict,
+    cfg,
+) -> dict:
+    """Consume a captured DecisionTrace + raw BattleState, run counterfactual_value
+    per top-K candidate using the three adapters, and return real ``label_decision``
+    labels — replacing the ``stub-h0`` placeholder.
+
+    Args:
+        trace:          A populated ``DecisionTrace`` from the 1b capture pipeline.
+        state:          The ``BattleState`` at the time of the decision (NOT mutated).
+        root_our_side:  EXPLICIT — which side is "us".  Never derived from the trace.
+        roster_by_side: dict[side -> dict[ident -> PokemonState]] for both sides.
+        movesets_by_side: dict[side -> dict[ident|species -> list[str]]].
+        stats_by_side:  dict[side -> dict[ident|species -> dict[str, int]]].
+        move_meta:      dict[move_id -> MoveMeta].
+        deps:           Decision deps dict (book, oracle, etc.).
+        cfg:            ``RolloutConfig`` (H, gamma, top_k, use_leaf).
+
+    Returns:
+        dict[candidate_id -> per-candidate label dict] as returned by
+        ``label_decision`` from ``learning.teacher``.
+
+    Raises:
+        ValueError: if all opponent responses are switches, if chosen_candidate_id
+                    is not among the rollout candidates, or on malformed weights.
+    """
+    from showdown_bot.learning.teacher import counterfactual_value, label_decision
+
+    common = dict(
+        root_our_side=root_our_side,
+        roster_by_side=roster_by_side,
+        movesets_by_side=movesets_by_side,
+        stats_by_side=stats_by_side,
+        move_meta=move_meta,
+        deps=deps,
+    )
+    resolve = make_resolve(weights=deps.get("weights"), **common)
+    decide = make_decide(**common)
+    leaf = make_leaf(**common)
+
+    # Filter switch responses (v1 B-fallback) and normalize to sum-1 weights.
+    resps, weights = _drop_switch_responses(
+        trace.opponent_responses,
+        list(trace.opponent_response_weights) if trace.opponent_response_weights else [],
+    )
+    R = _normalize_responses(resps, weights)
+
+    teacher_values: dict = {}
+    heuristic_values: dict = {}
+    for c in trace.candidates[: cfg.top_k]:
+        cid = c.candidate_id
+        teacher_values[cid] = counterfactual_value(
+            state,
+            c.joint_action,
+            R,
+            decide=decide,
+            resolve=resolve,
+            leaf=leaf,
+            cfg=cfg,
+        )
+        heuristic_values[cid] = c.aggregate_score
+
+    if trace.chosen_candidate_id not in teacher_values:
+        raise ValueError(
+            f"chosen_candidate_id {trace.chosen_candidate_id!r} is not among the "
+            f"rollout candidates ({list(teacher_values)!r})"
+        )
+
+    return label_decision(teacher_values, heuristic_values, trace.chosen_candidate_id)
