@@ -20,6 +20,18 @@ Signature ground truth (all verified against source):
 from __future__ import annotations
 
 
+class RolloutLabelError(Exception):
+    """Raised when rollout_labels cannot produce labels for a decision due to a
+    recoverable data issue (e.g. no opponent responses, all-switch responses,
+    chosen candidate not among the rolled-out candidates).
+
+    The runtime catches this and skips the decision (incrementing a skip counter)
+    rather than hard-failing the export pipeline.  Integrity bugs in weights
+    (length mismatch, sum <= 0) raise plain ValueError instead — those are
+    programming errors that must hard-fail.
+    """
+
+
 def make_resolve(
     *,
     root_our_side: str,
@@ -234,7 +246,7 @@ def _drop_switch_responses(responses, weights):
         if not any(getattr(a, "kind", None) == "switch" for a in r)
     ]
     if not kept:
-        raise ValueError(
+        raise RolloutLabelError(
             "all opponent responses are switches; cannot build a v1 rollout R"
         )
     return [r for r, _ in kept], [w for _, w in kept]
@@ -247,7 +259,7 @@ def _normalize_responses(responses, weights):
     Missing/empty weights -> uniform (1.0 each).
     """
     if not responses:
-        raise ValueError("rollout_labels requires at least one opponent response")
+        raise RolloutLabelError("rollout_labels requires at least one opponent response")
     if not weights:
         weights = [1.0] * len(responses)
     if len(weights) != len(responses):
@@ -333,7 +345,7 @@ def rollout_labels(
         heuristic_values[cid] = c.aggregate_score
 
     if trace.chosen_candidate_id not in teacher_values:
-        raise ValueError(
+        raise RolloutLabelError(
             f"chosen_candidate_id {trace.chosen_candidate_id!r} is not among the "
             f"rollout candidates ({list(teacher_values)!r})"
         )
