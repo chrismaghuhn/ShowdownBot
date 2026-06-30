@@ -60,6 +60,29 @@ Run tests: `cd showdown_bot && python -m pytest -q tests/test_dataset.py tests/t
 
 ---
 
+## EXECUTION AMENDMENT (found during controller verification, commit `a78a348`)
+
+The plan assumed **exactly one** `chosen_by_current_heuristic` row per decision. On the real
+dataset that is false for **100 decisions** (the `Decision.chosen_row()` fail-fast caught it):
+these are forced switch/pass joints whose two candidates are equivalent (the switch target lives
+in a dead feature column), so the export marks **both** candidates as chosen AND both as
+`teacher_best`. These 100 multi-chosen decisions coincide **exactly** with the 100 teacher ties.
+
+**Resolution (implemented + tested):**
+- Added `Decision.chosen_rows()` (plural). `chosen_row()` (singular, fail-fast) stays for the
+  unique-choice case.
+- `evaluate_baseline` topset agreement = **any** chosen row is `teacher_best`; regret = the best
+  (min) `|gap|` the heuristic achieved; strict + `by_action` restrict to `not is_tie AND
+  len(chosen_rows) == 1`. This reproduces the 2b-0 QA exactly (topset 524/851, strict 424/751,
+  attack 317/643, protect 107/108) — verified on the committed dataset and pinned by
+  `test_baseline_reproduces_2b0_qa_numbers`. The Task-3 code blocks below show the pre-amendment
+  single-chosen form; the committed code uses the `chosen_rows()` form.
+
+**Status: all 5 tasks complete, 440 tests green.** Commits: `aac00b2` (Task 1), `0dd10bf` (Task 2),
+`6eb9920` (Task 3), `a78a348` (multi-chosen fix), regression + report follow.
+
+---
+
 ### Task 1: `dataset.py` — load + Decision grouping + action class
 
 **Files:**
