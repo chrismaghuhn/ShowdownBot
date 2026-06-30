@@ -21,11 +21,24 @@ def clone_state(state: BattleState) -> BattleState:
     return copy.deepcopy(state)
 
 
+def _apply_hp(state: BattleState, outcome: TurnOutcome) -> None:
+    for (side, slot), delta in outcome.hp_delta.items():
+        mon = state.sides.get(side, {}).get(slot)
+        if mon is None:
+            continue
+        if mon.max_hp is None:
+            mon.max_hp = 100  # synthetic denominator so the fraction is representable (v1)
+        new_frac = max(0.0, min(1.0, mon.hp_fraction + delta))
+        mon.hp = round(new_frac * mon.max_hp)
+        if new_frac <= 0.0:
+            mon.fainted = True
+
+
 def apply_outcome_to_state(
     state: BattleState, outcome: TurnOutcome, actions_by_side: dict[str, JointAction],
     *, roster_by_side: dict,
 ) -> BattleState:
-    """Return a NEW BattleState; never mutate the input. (HP/field/switch filled in
-    Tasks 2-4.)"""
+    """Return a NEW BattleState; never mutate the input."""
     nxt = clone_state(state)
+    _apply_hp(nxt, outcome)
     return nxt
