@@ -122,7 +122,7 @@ def _model_state():
 
 def test_damage_model_damage_fn_uses_min_for_us_max_vs_us():
     st = _model_state()
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     fake = FakeOracle(
         {
@@ -139,7 +139,7 @@ def test_damage_model_damage_fn_uses_min_for_us_max_vs_us():
 
 def test_damage_model_helpers():
     st = _model_state()
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     fake = FakeOracle({"Moonblast": DamageResult(min_damage=120, max_damage=140, max_hp=100)})
     model = DamageModel(st, "p1", "p2", book=book, oracle=fake)
@@ -266,7 +266,7 @@ def _likely_incin():
 
 def test_opp_sets_overrides_opponent_hypothesis():
     st = _opp_state()
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
     d = real.hyps[("p2", "a")].as_defender()
@@ -276,7 +276,7 @@ def test_opp_sets_overrides_opponent_hypothesis():
 
 def test_opp_sets_none_is_unchanged():
     st = _opp_state()
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     a = DamageModel(st, "p1", "p2", book=book)
     b = DamageModel(st, "p1", "p2", book=book, opp_sets=None)
@@ -287,7 +287,7 @@ def test_revealed_item_beats_likely_item():
     st = _opp_state()
     st.sides["p2"]["a"].item = "Assault Vest"
     st.sides["p2"]["a"].item_known = True
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     model = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
     assert model.hyps[("p2", "a")].as_defender().item == "Assault Vest"
@@ -296,7 +296,7 @@ def test_revealed_item_beats_likely_item():
 def test_uncurated_opponent_stays_worstcase():
     st = _opp_state()
     st.sides["p2"]["a"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     base = DamageModel(st, "p1", "p2", book=book)
     real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())

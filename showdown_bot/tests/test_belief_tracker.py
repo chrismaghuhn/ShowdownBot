@@ -17,7 +17,7 @@ LOG = """\
 
 
 def _book():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     return load_spread_book(cfg.meta_path("default_spreads"))
 
 

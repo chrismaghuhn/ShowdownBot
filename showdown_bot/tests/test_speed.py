@@ -55,7 +55,7 @@ class FakeStatsBackend:
 
 
 def test_speed_oracle_opponent_range_ordering():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     oracle = SpeedOracle(stats_backend=FakeStatsBackend([80, 110, 150]))
     mon = PokemonState(species="Flutter Mane")
@@ -69,7 +69,7 @@ def test_speed_oracle_opponent_range_ordering():
 
 @pytest.mark.integration
 def test_speed_oracle_real_stats_query():
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     oracle = SpeedOracle(stats_backend=SubprocessCalcBackend())
     mon = PokemonState(species="Flutter Mane")

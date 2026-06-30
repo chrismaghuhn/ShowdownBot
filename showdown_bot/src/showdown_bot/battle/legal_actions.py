@@ -134,5 +134,9 @@ def enumerate_slot_pairs(req: BattleRequest) -> list[SlotPair]:
         if a0.kind == "switch" and a1.kind == "switch":
             if a0.target_ident == a1.target_ident:
                 continue
+        # Showdown only allows ONE Terastallization per side per battle;
+        # drop illegal double-tera pairs before they can be sampled.
+        if a0.terastallize and a1.terastallize:
+            continue
         pairs.append(SlotPair(slot0=a0, slot1=a1))
     return pairs

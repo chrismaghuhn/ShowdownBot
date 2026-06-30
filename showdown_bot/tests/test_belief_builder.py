@@ -317,7 +317,7 @@ def test_belief_feeds_rollout_labels(state_for_belief, known_team_slots):
         def opponent_range(self, mon, field, side, *, book):
             return SpeedRange(min=80, likely=110, max=150)
 
-    cfg = load_format_config("gen9vgc2026regi")
+    cfg = load_format_config("gen9vgc2025regi")
     book = load_spread_book(cfg.meta_path("default_spreads"))
     deps = dict(
         book=book,

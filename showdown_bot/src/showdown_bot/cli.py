@@ -131,7 +131,7 @@ def main() -> None:
     parser.add_argument(
         "--format",
         dest="format_id",
-        default="gen9vgc2026regi",
+        default="gen9vgc2025regi",
         help="Format id for config/spread selection (validate-log/gauntlet)",
     )
     parser.add_argument(

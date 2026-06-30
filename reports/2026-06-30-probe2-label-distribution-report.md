@@ -43,9 +43,9 @@ result: 5/15 wins, 0 crashes, 0 invalid_choices, no stall
   15-game probe ran without the per-batch Node startup tax.
 
 ## Bugs the live probe surfaced (separate from hero/export — flagged for follow-up)
-1. **Format misnomer:** the bot's `gen9vgc2026regi` config = what Showdown calls `gen9vgc2025regi`
-   (VGC 2025 Reg I). The CLI default (`gen9vgc2026regi`) does NOT exist on a real server → 0 battles
-   / stall. Fix: rename the config dir to `gen9vgc2025regi` (or default to `gen9vgc2024regg`).
+1. **Format misnomer (FIXED):** the bot's internal name `gen9vgc2026regi` = what Showdown calls
+   `gen9vgc2025regi` (VGC 2025 Reg I). The config has been renamed to `gen9vgc2025regi` and all
+   references updated; CLI default is now `gen9vgc2025regi` (the real server id).
 2. **`random` baseline tera bug:** `pick_random_pair` emits invalid **double-Terastallize** choices
    (`/choose move terastallize, move terastallize`) → server rejects → intermittent game stalls.
    `max_damage` (never-tera) is clean. Fix: cap tera to ≤1 slot + respect `canTerastallize`.
