@@ -75,6 +75,14 @@ def agent_choose(
     )
 
 
+def _latency_p95(latencies) -> float:
+    if not latencies:
+        return 0.0
+    ordered = sorted(latencies)
+    idx = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
+    return ordered[idx]
+
+
 @dataclass
 class GauntletStats:
     games: int = 0
@@ -90,11 +98,7 @@ class GauntletStats:
         return self.hero_wins / self.games if self.games else 0.0
 
     def latency_p95(self) -> float:
-        if not self.latencies:
-            return 0.0
-        ordered = sorted(self.latencies)
-        idx = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
-        return ordered[idx]
+        return _latency_p95(self.latencies)
 
 
 class _Client:
@@ -284,22 +288,23 @@ async def _run_client(
                             await client.handle_request(parsed.room, parsed.payload)
                         if parsed.prefix in ("win", "tie"):
                             winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
-                            # T1a seed-proof: env-gated raw dump BEFORE pop. Unset -> no-op
-                            # (bit-identical path). Best-effort; never stalls the battle.
+                            # Snapshot frames BEFORE pop (T2 result parse + T1a dump both need them).
+                            room_frames = list(client.room_raw.get(parsed.room, []))
+                            room_raw_path = None
+                            # T1a seed-proof: env-gated raw dump. Unset -> no-op (bit-identical path).
                             _dump_dir = os.environ.get("SHOWDOWN_ROOM_RAW_DUMP")
                             if _dump_dir:
                                 try:
                                     from showdown_bot.eval.room_dump import dump_room_raw
 
-                                    dump_room_raw(_dump_dir, client.name, parsed.room,
-                                                  client.room_raw.get(parsed.room, []))
+                                    room_raw_path = dump_room_raw(_dump_dir, client.name, parsed.room, room_frames)
                                 except Exception as exc:  # noqa: BLE001 - diagnostic dump is best-effort
                                     logger.debug("[%s] room_raw dump failed: %s", client.name, exc)
                             client.room_raw.pop(parsed.room, None)
                             if client._export is not None:
                                 client._export.flush()
                             if on_result is not None:
-                                await on_result(winner)
+                                await on_result(winner, room_frames, room_raw_path)
                 except Exception as exc:  # noqa: BLE001 - keep the loop alive
                     logger.warning("[%s] frame error (%s): %s", client.name, parsed.prefix, exc)
     except Exception as exc:  # noqa: BLE001
@@ -324,6 +329,51 @@ def _resolve_side_teams(team_path, opp_team_path=None):
     return hero_packed, villain_packed
 
 
+def _end_hp_diff(parsed, hero_name, villain_name):
+    """Hero-side HP sum − villain-side HP sum, via the |player| slot map. None if unreliable."""
+    hp = parsed.get("hp_by_slot")
+    players = parsed.get("players") or {}
+    if not hp:
+        return None
+    slot_of = {name: slot for slot, name in players.items()}
+    hs, vs = slot_of.get(hero_name), slot_of.get(villain_name)
+    if hs not in ("p1", "p2") or vs not in ("p1", "p2") or hs == vs:
+        return None  # side mapping unreliable -> null, never a blind p1-p2 (T2 Fix 2)
+    return round(hp[hs] - hp[vs], 6)
+
+
+def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, crashes,
+                          decision_latency_p95_ms, room_raw_path):
+    """Assemble the battle-derived T2 fields with EXPLICIT hero/villain/tie mapping (Fix 2).
+
+    Unknown winner -> ResultRowError (never guessed). ``end_hp_diff`` is hero-side minus
+    villain-side, or None if the |player| slot mapping is unreliable.
+    """
+    from showdown_bot.eval.battle_parse import parse_battle_result
+    from showdown_bot.eval.result_jsonl import ResultRowError
+
+    p = parse_battle_result(frames)
+    if p["is_tie"]:
+        winner = "tie"
+    elif p["winner_name"] == hero_name:
+        winner = "hero"
+    elif p["winner_name"] == villain_name:
+        winner = "villain"
+    else:
+        raise ResultRowError(
+            f"winner {p['winner_name']!r} matches neither hero {hero_name!r} nor villain {villain_name!r}"
+        )
+    return {
+        "winner": winner,
+        "turns": p["turns"],
+        "end_hp_diff": _end_hp_diff(p, hero_name, villain_name),
+        "invalid_choices": invalid_choices,
+        "crashes": crashes,
+        "decision_latency_p95_ms": decision_latency_p95_ms,
+        "room_raw_path": room_raw_path,
+    }
+
+
 async def run_local_gauntlet(
     *,
     games: int,
@@ -335,11 +385,14 @@ async def run_local_gauntlet(
     server_url: str = LOCAL_SERVER,
     hero_name: str = "HeuristicBot",
     villain_name: str = "BaselineBot",
+    on_battle_result=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
     ``opp_team_path`` (T1c): when given, the villain fields a **different** packed team
-    (non-mirror); default ``None`` keeps the mirror behavior. Requires a local
+    (non-mirror); default ``None`` keeps the mirror behavior. ``on_battle_result`` (T2):
+    when given, a callback is fired once per battle with the assembled battle record
+    (default ``None`` -> no behavior change). Requires a local
     ``node pokemon-showdown start --no-security`` server.
     """
     book = None
@@ -380,7 +433,7 @@ async def run_local_gauntlet(
     next_game = asyncio.Event()
     next_game.set()  # allow first challenge
 
-    async def on_hero_result(winner):
+    async def on_hero_result(winner, room_frames=None, room_raw_path=None):
         stats.games += 1
         if winner is None:
             stats.ties += 1
@@ -389,6 +442,21 @@ async def run_local_gauntlet(
         else:
             stats.villain_wins += 1
         logger.info("game %d/%d done (winner=%s)", stats.games, games, winner)
+        # T2 per-battle result: build + emit the record (games=1/row -> run stats == battle stats).
+        # Best-effort: a bad record is logged, never stalls progression; a missing row then trips
+        # the runner's row-count == len(rows) check (fail-fast at the end).
+        if on_battle_result is not None and room_frames is not None:
+            try:
+                record = _battle_result_record(
+                    hero.name, villain.name, room_frames,
+                    invalid_choices=hero.invalid + villain.invalid,
+                    crashes=hero.crashes + villain.crashes,
+                    decision_latency_p95_ms=round(_latency_p95(hero.latencies) * 1000),
+                    room_raw_path=room_raw_path,
+                )
+                on_battle_result(record)
+            except Exception as exc:  # noqa: BLE001 - never stall the run; runner row-count catches it
+                logger.warning("[battle-result] record/emit failed: %s", exc)
         if stats.games >= games:
             stop.set()
         else:
