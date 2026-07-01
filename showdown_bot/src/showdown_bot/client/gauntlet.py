@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
+from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming
 from showdown_bot.team.pack import load_packed_team
@@ -134,6 +136,17 @@ class _Client:
             opp_sets=self.opp_sets,
             priors=self.priors,
         )
+        # Reranker Shadow Mode seam (slice 2b-3a) — None when SHOWDOWN_RERANKER_SHADOW is unset
+        # (bit-identical path). Pass the export's provenance so shadow IDs join the export dataset.
+        # RerankerShadowRuntime does NOT import lightgbm at module scope; only from_env does, when
+        # enabled — so the module-top import above keeps the disabled path lightgbm-free.
+        _prov = None
+        if self._export is not None:
+            _prov = {"git_sha": self._export.git_sha, "dirty_flag": self._export.dirty_flag,
+                     "team_hash": self._export.team_hash_, "config_hash": self._export.config_hash_,
+                     "run_seed": self._export.run_seed}
+        self._shadow = RerankerShadowRuntime.from_env(
+            format_id=format_id, packed_team=packed_team, provenance=_prov)
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
@@ -157,9 +170,12 @@ class _Client:
         self.last_request[room] = payload
         state = self._state_for(room, req)
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
-        # Build a DecisionTrace only when export is enabled and the heuristic is active.
-        # With SHOWDOWN_DATASET_EXPORT unset, self._export is None -> trace_obj=None (bit-identical).
-        trace_obj = DecisionTrace() if (self._export is not None and self.agent == "heuristic" and state is not None) else None
+        # Build a DecisionTrace only when export OR shadow is enabled and the heuristic is active.
+        # With both seams off (self._export is None and self._shadow is None) -> trace_obj=None
+        # (bit-identical path — no trace is constructed, choose is unaffected).
+        trace_obj = DecisionTrace() if (
+            (self._export is not None or self._shadow is not None)
+            and self.agent == "heuristic" and state is not None) else None
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -185,6 +201,29 @@ class _Client:
                 )
             except Exception as exc:  # noqa: BLE001 - export is best-effort; never stall the battle
                 logger.debug("[%s] export observe failed: %s", self.name, exc)
+        # Reranker Shadow observe: post-send, bounded, off the event loop (single-worker executor),
+        # LOG-ONLY. SAME condition as export so shadow decision indices stay in lockstep with the
+        # export dataset. choose is already computed + sent above; this never mutates it.
+        if self._shadow is not None and trace_obj is not None and not req.team_preview:   # SAME cond as export
+            sh = self._shadow
+            decision_index = sh._decision_local_index
+            sh.bump_decision_index()                          # advance synchronously, lockstep with export
+            if sh.inflight is not None and not sh.inflight.done():
+                logger.debug("[%s] shadow busy -> skip (index kept in lockstep)", self.name)
+            else:
+                fut = asyncio.get_running_loop().run_in_executor(
+                    sh.executor, functools.partial(
+                        sh.observe_shadow, trace=trace_obj, state=state, request=req, choose=choose,
+                        turn_number=getattr(state, "turn", 0), our_side=req.side.id or "p1",
+                        decision_index=decision_index))
+                sh.inflight = fut
+                try:
+                    await asyncio.wait_for(asyncio.shield(fut), timeout=sh.timeout_ms / 1000)
+                except asyncio.TimeoutError:
+                    logger.debug("[%s] shadow scoring exceeded %dms; 1-worker executor caps orphans at 1",
+                                 self.name, sh.timeout_ms)
+                except Exception as exc:  # noqa: BLE001 - best-effort; never stall the battle
+                    logger.debug("[%s] shadow observe failed: %s", self.name, exc)
         if report is not None and not req.team_preview:
             try:
                 from showdown_bot.battle.diagnostics import format_turn_trace
@@ -229,6 +268,8 @@ async def _run_client(
                             await client.conn.send(f"|/join {parsed.room}")
                             if client._export is not None:
                                 client._export.start_game()
+                            if client._shadow is not None:
+                                client._shadow.start_game()
                         if parsed.prefix == "error":
                             err_text = parsed.args[0] if parsed.args else ""
                             if _is_real_invalid(err_text):
