@@ -106,9 +106,12 @@ def load_panel(path: str, *, teams_root: str = ".") -> Panel:
     held = _load_team_list(data["heldout_teams"], teams_root, "heldout_teams")
     if not dev or not held:
         raise PanelError("dev_teams and heldout_teams must both be non-empty")
-    overlap = {t.team_id for t in dev} & {t.team_id for t in held}
-    if overlap:
-        raise PanelError(f"teams in both dev and held-out: {sorted(overlap)}")
+    # Held-out integrity (T3b hardening): dev/held-out must be disjoint by team_id AND
+    # team_path AND team_hash — so the same team can't sneak in under two IDs.
+    for attr in ("team_id", "team_path", "team_hash"):
+        overlap = {getattr(t, attr) for t in dev} & {getattr(t, attr) for t in held}
+        if overlap:
+            raise PanelError(f"same {attr} in both dev and held-out: {sorted(overlap)}")
 
     panel_hash = _sha16(_canonical({
         "version": version,

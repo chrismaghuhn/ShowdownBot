@@ -1,11 +1,14 @@
-# Panel v001 — T3a STUB (schema only).
-# Uses existing teams as a 1-dev / 1-held-out stub so the panel schema + panel_hash +
-# split are exercised. The real species/archetype-diverse team pool is T3b (this file's
-# team list is expanded there); the full opponent-policy list is expanded in T3c/T3d.
-# team_path is resolved relative to the gauntlet working dir (showdown_bot/).
+# Panel v001 — archetype-diverse team pool (T3b).
+# 3 dev + 2 held-out, distinct archetypes (not spread variants of fixed_team). Every team
+# validates clean with `node pokemon-showdown validate-team gen9vgc2025regi` and is packed
+# via `pack-team`. team_path is resolved relative to the gauntlet working dir (showdown_bot/).
+# The full opponent-policy list is expanded in T3c/T3d.
 version: v001
 policies: [heuristic, max_damage]
 dev_teams:
-  - {team_id: fixed_balance, team_path: teams/fixed_team.txt, archetype: balance}
+  - {team_id: trickroom, team_path: teams/panel_v001/trickroom_dev.txt, archetype: trick_room}
+  - {team_id: sun, team_path: teams/panel_v001/sun_dev.txt, archetype: sun}
+  - {team_id: rain, team_path: teams/panel_v001/rain_dev.txt, archetype: rain}
 heldout_teams:
-  - {team_id: variant_a, team_path: teams/opp_variant_a.txt, archetype: balance_variant}
+  - {team_id: balance, team_path: teams/panel_v001/balance_held.txt, archetype: balance}
+  - {team_id: tailwind, team_path: teams/panel_v001/tailwind_held.txt, archetype: tailwind_offense}

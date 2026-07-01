@@ -83,6 +83,21 @@ def test_team_in_both_dev_and_heldout_fails_fast(tmp_path):
         load_panel(_panel_yaml(tmp_path, body), teams_root=str(tmp_path))
 
 
+def test_same_team_under_two_ids_fails_fast(tmp_path):
+    # Different team_id, but SAME team_path (=> same team_hash) across dev/held-out.
+    _team(tmp_path, "alpha", "Incineroar @ Sitrus Berry\n", "Incineroar||x")
+    body = """
+        version: v001
+        policies: [heuristic, max_damage]
+        dev_teams:
+          - {team_id: alpha, team_path: alpha.txt, archetype: x}
+        heldout_teams:
+          - {team_id: alpha_copy, team_path: alpha.txt, archetype: x}
+    """
+    with pytest.raises(PanelError):
+        load_panel(_panel_yaml(tmp_path, body), teams_root=str(tmp_path))
+
+
 def test_missing_team_file_fails_fast(tmp_path):
     # alpha exists, beta does not
     _team(tmp_path, "alpha", "x\n", "y")
@@ -100,12 +115,15 @@ def test_empty_pool_fails_fast(tmp_path):
         load_panel(_panel_yaml(tmp_path, body), teams_root=str(tmp_path))
 
 
-def test_stub_panel_v001_loads():
-    # The committed stub loads against the real teams/ (schema-only; real pool is T3b).
+def test_panel_v001_real_pool_loads():
+    # The committed archetype-diverse pool (T3b): 3 dev + 2 held-out, all content-hashed + distinct.
     showdown_bot = Path(__file__).resolve().parents[1]
     panel_path = showdown_bot.parent / "config" / "eval" / "panels" / "panel_v001.yaml"
     panel = load_panel(str(panel_path), teams_root=str(showdown_bot))
     assert panel.version == "v001"
-    assert [t.team_id for t in panel.dev_teams] == ["fixed_balance"]
-    assert [t.team_id for t in panel.heldout_teams] == ["variant_a"]
-    assert panel.panel_hash and all(t.team_hash for t in panel.dev_teams + panel.heldout_teams)
+    assert [t.team_id for t in panel.dev_teams] == ["trickroom", "sun", "rain"]
+    assert [t.team_id for t in panel.heldout_teams] == ["balance", "tailwind"]
+    assert len(panel.dev_teams) >= 3 and len(panel.heldout_teams) >= 2
+    hashes = [t.team_hash for t in panel.dev_teams + panel.heldout_teams]
+    assert all(hashes) and len(set(hashes)) == len(hashes)  # every team distinct by content
+    assert panel.panel_hash
