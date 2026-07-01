@@ -9,6 +9,7 @@ timestamps, timer/inactivity, chat/join/leave, UI html) — never sim-outcome li
 from __future__ import annotations
 
 from showdown_bot.eval.room_dump import (
+    GAUNTLET_NAME_SUBS,
     compare_battle_logs,
     dump_room_raw,
     normalize_battle_log,
@@ -62,3 +63,19 @@ def test_compare_detects_a_real_battle_divergence():
     identical, diff = compare_battle_logs(run_a, run_b)
     assert identical is False
     assert "82/100" in diff and "75/100" in diff
+
+
+def test_name_subs_canonicalize_per_run_suffix():
+    # Cross-run compare (T1b): the random bot-name suffix (HeuristicBot5519 vs
+    # HeuristicBot1044) is a per-run session label, not a sim output. name_subs
+    # canonicalizes it; the win line otherwise leaks it.
+    a = ["|win|HeuristicBot5519", "|move|p1a: X|Tackle|p2a: Y"]
+    b = ["|win|HeuristicBot1044", "|move|p1a: X|Tackle|p2a: Y"]
+    assert compare_battle_logs(a, b)[0] is False                       # without: differ
+    assert compare_battle_logs(a, b, name_subs=GAUNTLET_NAME_SUBS)[0] is True  # with: identical
+
+def test_name_subs_do_not_hide_real_divergence():
+    # A real difference must survive name canonicalization.
+    a = ["|win|HeuristicBot5519", "|-damage|p2a: Y|82/100"]
+    b = ["|win|HeuristicBot1044", "|-damage|p2a: Y|70/100"]
+    assert compare_battle_logs(a, b, name_subs=GAUNTLET_NAME_SUBS)[0] is False

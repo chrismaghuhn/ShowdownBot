@@ -1,18 +1,46 @@
 diff --git a/server/ladders.ts b/server/ladders.ts
-index 5d64866..5c42ee4 100644
+index 5d64866..8e2732c 100644
 --- a/server/ladders.ts
 +++ b/server/ladders.ts
-@@ -470,12 +470,20 @@ class Ladder extends LadderStore {
+@@ -15,6 +15,12 @@ const LadderStore: typeof import('./ladders-remote').LadderStore = (
+ const SECONDS = 1000;
+ const PERIODIC_MATCH_INTERVAL = 60 * SECONDS;
+
++// [ShowdownBot eval-harness patch — 2b-3.5 T1b] Process-local per-battle seed counter.
++// Resets to 0 at server start; incremented once per battle created via Ladder.match when
++// SHOWDOWN_BATTLE_SEED_BASE is set. Channel A: seed_i = derive(base, i) aligns across two
++// fresh server sessions purely by battle-creation order (no per-battle protocol channel).
++let evalBattleCounter = 0;
++
+ import type { ChallengeType } from './room-battle';
+ import { BattleReady, BattleChallenge, GameChallenge, BattleInvite, challenges } from './ladders-challenges';
+
+@@ -470,12 +476,35 @@ class Ladder extends LadderStore {
  		}
  		const format = Dex.formats.get(formatid);
  		const delayedStart = format.playerCount > players.length ? 'multi' : false;
-+		// [ShowdownBot eval-harness patch — 2b-3.5 T1a] Deterministic per-battle seed.
-+		// When SHOWDOWN_BATTLE_SEED is set (e.g. "sodium,<hex>"), inject it as the sim
-+		// PRNG seed so the battle is bit-reproducible (Showdown's seed + inputLog replay
-+		// guarantee). Unset -> the seed field is omitted -> the sim generates a fresh
-+		// random seed (stock behavior, zero change). Versioned copy of this patch lives
-+		// in the ShowdownBot repo at tools/eval/patches/pokemon-showdown-seeded-battle.patch.
-+		const evalSeed = process.env.SHOWDOWN_BATTLE_SEED;
++		// [ShowdownBot eval-harness patch — 2b-3.5 T1a/T1b] Deterministic per-battle seed.
++		// Two modes (unset -> seed omitted -> stock fresh-seed behavior, zero change):
++		//  - SHOWDOWN_BATTLE_SEED (T1a, fixed): inject this exact seed for every battle.
++		//  - SHOWDOWN_BATTLE_SEED_BASE (T1b, per-battle): seed_i = "sodium," +
++		//    sha256(`${base}:${i}`).hex[:32], i = process-local evalBattleCounter. MUST match
++		//    Python showdown_bot.eval.seeding.derive_battle_seed CHARACTER-FOR-CHARACTER.
++		// When SHOWDOWN_EVAL_SEED_LOG is set, the actual seed used is appended (one JSONL line
++		// per battle) so the T1b gate can prove server seed == derive(base, i). Versioned copy
++		// of this patch: ShowdownBot tools/eval/patches/pokemon-showdown-seeded-battle.patch.
++		let evalSeed = process.env.SHOWDOWN_BATTLE_SEED;
++		const evalSeedBase = process.env.SHOWDOWN_BATTLE_SEED_BASE;
++		if (!evalSeed && evalSeedBase) {
++			const crypto = require('crypto');
++			const battleIndex = evalBattleCounter++;
++			const digest = crypto.createHash('sha256').update(`${evalSeedBase}:${battleIndex}`).digest('hex');
++			evalSeed = `sodium,${digest.slice(0, 32)}`;
++			const seedLog = process.env.SHOWDOWN_EVAL_SEED_LOG;
++			if (seedLog) {
++				require('fs').appendFileSync(seedLog,
++					JSON.stringify({ battle_index: battleIndex, seed: evalSeed, seed_base: evalSeedBase }) + "\n");
++			}
++		}
  		return Rooms.createBattle({
  			format: formatid,
  			players,
