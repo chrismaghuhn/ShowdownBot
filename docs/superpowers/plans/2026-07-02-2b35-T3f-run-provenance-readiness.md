@@ -61,15 +61,31 @@ denylist** — not an incomplete allowlist-with-examples. Two explicit, document
     - **`SHOWDOWN_CALC_BACKEND` caveat (documented in code):** oneshot/persistent both call the same
       `@smogon/calc` Node script → numerically identical, so non-behavioral **for current code**. **If a
       future Python/approximate backend changes scoring, this MUST move to `BEHAVIOR_AFFECTING`.**
+  - **`EXCLUDED_BY_REASON`** (a distinct third category — captured elsewhere in the manifest, so excluding
+    from `env` avoids a double-count; **NOT** labelled "purely non-behavioral"): `SHOWDOWN_FORMAT`
+    (**behavior-relevant**, already captured via the manifest's `format_id`), `SHOWDOWN_TEAM_PATH`
+    (**behavior-relevant**, already captured via `hero_team_hash`/team content hashes). Each entry carries a
+    one-line `reason=` string in the code so a reader sees *why* it is out of `env` (captured by an explicit
+    manifest field, not silently dropped).
   - **`behavior_env() -> dict`** = `{k: v for k, v in os.environ.items() if k.startswith("SHOWDOWN_") and
-    not _denied(k)}` — **fail-closed**: any set `SHOWDOWN_*` not on the denylist is INCLUDED (unknown/new →
-    included → non-pairable, safe). `_denied(k)` matches exact denylist names + the prefix families.
-- [ ] **Step 2 — drift test (`tests/test_config_env.py`):** statically scan `battle/` + `engine/`
-  source for `SHOWDOWN_*` reads (`os.environ[...]` / `os.environ.get(...)` / `os.getenv(...)`); **assert
-  every read name is classified** — i.e. present in `BEHAVIOR_AFFECTING` **or** matched by `NON_BEHAVIORAL`
-  (exact or prefix). A **new unclassified `SHOWDOWN_*` read → the drift test FAILS**, forcing an explicit
-  classification decision (never a silent omission). Plus: each `BEHAVIOR_AFFECTING` var, when set, appears
-  in `behavior_env()`; each `NON_BEHAVIORAL` var, when set, does NOT.
+    not _excluded(k)}` where `_excluded(k)` is true iff `k` is in `NON_BEHAVIORAL` (exact name or prefix
+    family) **or** in `EXCLUDED_BY_REASON` — **fail-closed**: any set `SHOWDOWN_*` **not explicitly
+    excluded** is INCLUDED (unknown/new → included → non-pairable, safe).
+- [ ] **Step 2 — drift test (`tests/test_config_env.py`):** statically scan the **real decision/config
+  surface**, not just `battle/`+`engine/` (behavior flags are read outside them: `SHOWDOWN_REAL_SPREADS`
+  in `client/gauntlet.py` + `learning/export_runtime.py`; `SHOWDOWN_RERANKER_SHADOW` in
+  `client/gauntlet.py` + `learning/reranker_shadow.py`; `SHOWDOWN_RERANKER_MODEL_PATH` in
+  `learning/reranker_shadow.py`). **Preferred scope:** the whole `src/showdown_bot/` tree.
+  **Acceptable minimum:** `battle/`, `engine/`, `client/gauntlet.py`, `learning/`. Scan for `SHOWDOWN_*`
+  reads (`os.environ[...]` / `os.environ.get(...)` / `os.getenv(...)`); **assert every read name is
+  classified** — i.e. in `BEHAVIOR_AFFECTING` **or** `EXCLUDED_BY_REASON` **or** matched by
+  `NON_BEHAVIORAL` (exact or prefix). A **new unclassified `SHOWDOWN_*` read → the drift test FAILS**,
+  forcing an explicit classification decision (never a silent omission). Plus: each `BEHAVIOR_AFFECTING`
+  var, when set, appears in `behavior_env()`; each `NON_BEHAVIORAL`/`EXCLUDED_BY_REASON` var, when set,
+  does NOT.
+- [ ] **Step 2b — (optional, non-blocking) dead-classification guard:** assert every hardcoded
+  `BEHAVIOR_AFFECTING` flag is actually read somewhere in the scanned tree, so a renamed/removed flag
+  cannot linger as a dead classification.
 - [ ] **Step 3 — failing test (`make_config_hash`):** `make_config_hash(manifest: dict)` order-independent
   + stable; two manifests differing only in a behavior-affecting env var (e.g. `SHOWDOWN_MUST_REACT_LAMBDA`,
   `SHOWDOWN_REAL_SPREADS`) → **different** hashes; identical manifests → identical hash; a denylisted var
@@ -174,10 +190,12 @@ ledger/baseline manifest, no override. `battle/` decision logic untouched.
   `end_reason` (T5), effective `config_hash` (T1); `battle_id` docs already in T3e P4; latency budget
   pinned (T6). ✓
 - Additive + truthful: `schedule_hash`/`battle_id` unchanged; legacy → null/default; `config_hash` is
-  behavior-covering via a **fail-closed** env classification (include every `SHOWDOWN_*` except a documented
-  non-behavioral denylist) + a **drift test** that fails on any unclassified `SHOWDOWN_*` read in
-  `battle/`/`engine/` — a forgotten behavior flag can't silently produce same-hash/different-behavior; an
-  over-included flag only makes runs non-pairable (safe). ✓
+  behavior-covering via a **fail-closed** env classification (include every `SHOWDOWN_*` except an
+  explicitly-excluded var — `NON_BEHAVIORAL` or `EXCLUDED_BY_REASON`/captured-via-manifest) + a **drift
+  test** that fails on any unclassified `SHOWDOWN_*` read across the decision/config surface
+  (`src/showdown_bot/`, or at minimum `battle/`+`engine/`+`client/gauntlet.py`+`learning/`) — a forgotten
+  behavior flag can't silently produce same-hash/different-behavior; an over-included flag only makes runs
+  non-pairable (safe). ✓
 - Scope discipline: statistics/gates/ledger/baseline all explicitly deferred to T4/T5/T6; the review is a
   non-binding artifact and only its §1 schema-readiness findings are promoted here. ✓
 - No placeholders (the one config constant, `showdown_commit`, is pinned in config with a loader test).
