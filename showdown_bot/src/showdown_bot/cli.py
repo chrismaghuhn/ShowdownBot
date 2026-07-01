@@ -83,7 +83,7 @@ def run_schedule(args) -> None:
         if writer is not None:
             def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
                 seed = derive_battle_seed(base, _row.seed_index)
-                config_id, format_id = "heuristic", _row.config_id  # bot version vs format (Fix 1)
+                config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
                 writer.write({
                     "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
                     "config_id": config_id, "format_id": format_id,
@@ -100,7 +100,7 @@ def run_schedule(args) -> None:
                 games=1,
                 hero_agent="heuristic",
                 villain_agent=row.opp_policy,
-                format_id=row.config_id,
+                format_id=row.format_id,
                 team_path=row.hero_team_path,
                 opp_team_path=row.opp_team_path,
                 on_battle_result=on_br,
@@ -236,11 +236,13 @@ def main() -> None:
         default=10,
         help="Number of games to play (gauntlet)",
     )
+    from showdown_bot.eval.policies import POLICIES as _POLICIES
+
     parser.add_argument(
         "--villain",
         default="max_damage",
-        choices=["max_damage", "random", "heuristic"],
-        help="Baseline opponent agent (gauntlet)",
+        choices=sorted(n for n, p in _POLICIES.items() if p.implemented),
+        help="Opponent agent (gauntlet); sourced from the eval policy registry",
     )
     parser.add_argument(
         "--strict",

@@ -6,3 +6,8 @@ models/reranker/** -text
 # Server patches are consumed by `git apply` against an LF-normalized clone.
 # CRLF rewriting on checkout would make the patch fail to apply.
 *.patch -text
+
+# Team files feed pack-team/validate-team and the panel_hash (a CONTENT hash of the
+# .txt + .packed). CRLF rewriting on checkout would drift team_hash/panel_hash across
+# platforms — keep them LF-stable.
+showdown_bot/teams/** -text

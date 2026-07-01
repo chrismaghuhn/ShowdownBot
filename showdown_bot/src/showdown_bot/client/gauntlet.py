@@ -60,15 +60,32 @@ def agent_choose(
     via the fallback chain; ``random`` uses the legacy random agent. ``report``
     (heuristic only) collects a readable decision block for the turn trace.
     """
+    # Eval-only opponent policies (T3c): request-only + deterministic, no state/book needed.
+    # Local imports keep eval/opponents off the default/import path (live-path guard).
+    if agent == "greedy_protect":
+        from showdown_bot.eval.opponents.policies import greedy_protect_choice
+        return greedy_protect_choice(req)
+    if agent == "simple_heuristic":
+        from showdown_bot.eval.opponents.policies import simple_heuristic_choice
+        return simple_heuristic_choice(req)
+    if agent == "scripted_vgc":
+        from showdown_bot.eval.opponents.scripted_vgc import scripted_vgc_choice
+        return scripted_vgc_choice(req)
     if agent == "random" or state is None or book is None:
         return choose_for_request(req)
     if agent == "max_damage":
         from showdown_bot.battle.baselines import max_damage_choice
 
+        # Eval-deterministic (T3c): paired seed comparison needs a deterministic opponent,
+        # so max_damage's rare fallbacks use `/choose default` (not pick_random_pair). The
+        # live path (decision.py) calls max_damage_choice with the default fallback -> unchanged.
         try:
-            return max_damage_choice(req, state=state, book=book, our_side=our_side)
+            return max_damage_choice(
+                req, state=state, book=book, our_side=our_side,
+                fallback=lambda r: f"/choose default|{r.rqid}",
+            )
         except Exception:  # noqa: BLE001
-            return choose_for_request(req)
+            return f"/choose default|{req.rqid}"
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
