@@ -20,8 +20,11 @@ import yaml
 _CORE_REQUIRED = frozenset({"hero_team_path", "opp_policy", "opp_team_path", "seed_index"})
 _FORMAT_FIELDS = frozenset({"format_id", "config_id"})
 _ALLOWED_FIELDS = _CORE_REQUIRED | _FORMAT_FIELDS
-# Reuse the existing gauntlet agents only (T1c adds no new opponent policies).
-KNOWN_POLICIES = frozenset({"heuristic", "max_damage", "random"})
+# Single source of truth for known policies is the T3a registry (eval/policies.py).
+# (Implemented-vs-declared is a runner-level concern — the loader only checks "known".)
+from showdown_bot.eval.policies import POLICIES as _POLICIES  # noqa: E402
+
+KNOWN_POLICIES = frozenset(_POLICIES)
 
 
 class ScheduleError(ValueError):
