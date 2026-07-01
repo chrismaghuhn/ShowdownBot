@@ -208,6 +208,10 @@ Overrides Gate. Deine Reihenfolge (Shadow now → Harness → Override) ist dami
   nicht-Mirror**-Gegner-Set. Ohne diesen Harness fällt 2b-4 auf den **irreführenden Mirror** zurück.
   Shadow (2b-3) erzeugt die Divergenz-/Counterfactual-Daten → der Harness macht daraus den
   Override-Prior → 2b-4 misst die Realität dagegen.
+- **2b-4-Unblock-Bedingung (gespiegelt aus dem Implementation-Plan):** ein 2b-4 Gated Override darf
+  **erst** geplant/versucht werden, wenn **`T0-Verdict ∈ {PASS_STRONG, PASS_WEAK}` ∧ `T4 grün` ∧
+  `T6 grün`**. Bis dahin bleibt 2b-4 blockiert (sonst Rückfall auf den irreführenden Mirror). Dieselbe
+  Triple steht im Plan (§2b-4 Unblock) und in Doc 10 (`10-execution-slices.md`, Slice 2b-3.5).
 - **Retro-Fill:** liefert nebenbei die fehlende **erste faire Baseline** für Heuristik-only (die
   „trägt das Fundament?"-Frage aus dem Review — billig beantwortet, **bevor** ML echten Einfluss bekommt).
 - **Ablationsleiter (`10 §5`):** dieser Harness ist das **Messinstrument** für jede Sprosse
@@ -249,6 +253,13 @@ T0-Verdict**. T0 ist der einzige echte Blocker; T1+ sind kleine, isolierte gaunt
 ---
 
 ## 11. Konkrete Bauliste (Reihenfolge bindend — T1+ starten ERST nach T0-Verdict)
+
+> **Nummerierung — Spec vs Plan (Alignment):** Diese Spec-Bauliste ist **feingranular (Items 0–8)**;
+> der **Implementation-Plan** bündelt sie in **PR-Slices `T0–T6`**. Mapping: **T0** = Item 0 (Probe) ·
+> **T1** Non-Mirror-Scheduling = Items 1 (Sim-Seed) + 2 (Non-Mirror) (+ 7 `--brain` teils) · **T2**
+> Per-Battle-JSONL = Item 5 · **T3** Panel v001 = Items 3 (Policies) + 4 (Team-Pool) · **T4** Smoke = Item 8
+> · **T5** Report-Generator = Item 6 · **T6** Held-out-Gate + Heuristik-Baseline = §8/§9. Der Plan (`T0–T6`)
+> ist die verbindliche Ausführungs-Sicht; diese Item-Liste ist die Design-Detaillierung darunter.
 
 0. **T0 (siehe `§T0`) — der einzige echte BLOCKER.** Determinism-/Seed-Feasibility-Probe (T0a/T0b/T0c)
    VOR allem. Bei `FAIL` sind T1+ blockiert.
