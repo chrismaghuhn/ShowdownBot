@@ -100,6 +100,39 @@ def _latency_p95(latencies) -> float:
     return ordered[idx]
 
 
+class _PerBattleCounters:
+    """Turn lifetime-cumulative client counters into per-battle deltas (T3e-P0).
+
+    ``_Client.invalid``/``.crashes`` accumulate over the client's whole life and
+    ``.latencies`` is append-only, so a T2 result row built from the raw totals makes
+    row N carry battles 0..N (a run-lifetime total), not battle N. This keeps a watermark
+    (snapshot) of the cumulative values consumed so far; ``emit`` returns the delta for
+    the single battle that just finished and computes latency p95 over ONLY the latencies
+    appended since the previous emit, then advances the watermark. Battles are sequential,
+    so "delta since last emit" is exactly this battle's count.
+
+    First battle: watermark starts at zero, so the delta equals the raw values — the
+    existing single-battle-per-row behavior is preserved bit-for-bit.
+    """
+
+    def __init__(self) -> None:
+        self._invalid = 0
+        self._crashes = 0
+        self._lat_len = 0
+
+    def emit(self, *, invalid: int, crashes: int, latencies: list[float]) -> dict:
+        new_lat = latencies[self._lat_len:]
+        record = {
+            "invalid_choices": invalid - self._invalid,
+            "crashes": crashes - self._crashes,
+            "decision_latency_p95_ms": round(_latency_p95(new_lat) * 1000),
+        }
+        self._invalid = invalid
+        self._crashes = crashes
+        self._lat_len = len(latencies)
+        return record
+
+
 @dataclass
 class GauntletStats:
     games: int = 0
@@ -446,6 +479,9 @@ async def run_local_gauntlet(
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=villain_packed, opp_sets=opp_sets)
 
     stats = GauntletStats()
+    # Per-battle counter deltas (T3e-P0): the row for battle N must carry battle N's
+    # invalid/crashes/latency-p95, not the run-lifetime cumulative totals on the clients.
+    per_battle = _PerBattleCounters()
     stop = asyncio.Event()
     next_game = asyncio.Event()
     next_game.set()  # allow first challenge
@@ -459,16 +495,25 @@ async def run_local_gauntlet(
         else:
             stats.villain_wins += 1
         logger.info("game %d/%d done (winner=%s)", stats.games, games, winner)
-        # T2 per-battle result: build + emit the record (games=1/row -> run stats == battle stats).
-        # Best-effort: a bad record is logged, never stalls progression; a missing row then trips
-        # the runner's row-count == len(rows) check (fail-fast at the end).
+        # T2 per-battle result: build + emit the record. Counters are per-battle deltas
+        # (T3e-P0) so a multi-battle run reports each row's own invalid/crashes/latency, not
+        # the run-lifetime cumulative totals. Best-effort: a bad record is logged, never stalls
+        # progression; a missing row then trips the runner's row-count == len(rows) check.
         if on_battle_result is not None and room_frames is not None:
             try:
+                # Advance the per-battle watermark first (T3e-P0): even if record assembly
+                # raises for this battle, its counts are "spent" and must not leak into the
+                # next row. Deltas are the finishing battle's counts, not the run totals.
+                deltas = per_battle.emit(
+                    invalid=hero.invalid + villain.invalid,
+                    crashes=hero.crashes + villain.crashes,
+                    latencies=hero.latencies,
+                )
                 record = _battle_result_record(
                     hero.name, villain.name, room_frames,
-                    invalid_choices=hero.invalid + villain.invalid,
-                    crashes=hero.crashes + villain.crashes,
-                    decision_latency_p95_ms=round(_latency_p95(hero.latencies) * 1000),
+                    invalid_choices=deltas["invalid_choices"],
+                    crashes=deltas["crashes"],
+                    decision_latency_p95_ms=deltas["decision_latency_p95_ms"],
                     room_raw_path=room_raw_path,
                 )
                 on_battle_result(record)
