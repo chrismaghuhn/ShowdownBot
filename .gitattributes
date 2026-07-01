@@ -1,0 +1,4 @@
+# Reranker model artifacts are consumed raw by LightGBM / JSON parsers.
+# They must never have their line endings rewritten on checkout (core.autocrlf),
+# or LightGBM's Booster(model_file=...) aborts with "expect a tree here".
+models/reranker/** -text
