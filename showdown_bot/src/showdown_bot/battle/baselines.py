@@ -27,13 +27,24 @@ def max_damage_choice(
     calc: CalcClient | None = None,
     oracle: DamageOracle | None = None,
     speed_oracle: SpeedOracle | None = None,
+    fallback=None,
     **_ignored,
 ) -> str:
     """max_damage baseline: pick the legal joint action with the most immediate
     damage, preferring guaranteed KOs, IGNORING incoming damage, NEVER Tera.
 
     Defender uses the standard (defense) preset -- a fair, fixed bulk assumption.
+
+    ``fallback`` (T3c): a callable ``req -> choice_str`` used only on the no-legal-action
+    paths. Default ``None`` preserves the current ``pick_random_pair`` behavior
+    BYTE-FOR-BYTE (live path unchanged); the eval dispatch passes a deterministic one.
+    (The main equal-damage tie-break is already deterministic — enumeration order.)
     """
+    def _default_fallback(r):
+        return encode_choose(pick_random_pair(r), rqid=r.rqid)
+
+    _fb = fallback if fallback is not None else _default_fallback
+
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
@@ -49,7 +60,7 @@ def max_damage_choice(
 
     my_actions = enumerate_my_actions(req)
     if not my_actions:
-        return encode_choose(pick_random_pair(req), rqid=req.rqid)
+        return _fb(req)
 
     plans = {
         ja: _plan_my_actions(
@@ -80,5 +91,5 @@ def max_damage_choice(
             best_ja = ja
 
     if best_ja is None:
-        return encode_choose(pick_random_pair(req), rqid=req.rqid)
+        return _fb(req)
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)

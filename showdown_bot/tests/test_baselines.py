@@ -82,3 +82,40 @@ def test_max_damage_prefers_attacks_over_passive():
     left, right = body.split(", ")
     assert left.startswith("move")
     assert right.startswith("move")
+
+
+# --- T3c: eval-deterministic fallback (live default unchanged) ---
+
+def test_equal_damage_tie_is_deterministic():
+    # FakeOracle(const) makes EVERY move deal equal damage -> a genuine tie across
+    # many joint actions. The pick must be deterministic (enumeration-order tie-break).
+    kw = dict(state=_state(), book=_book(), our_side="p1", oracle=FakeOracle(0.3), speed_oracle=None)
+    a = max_damage_choice(_req(), **kw)
+    b = max_damage_choice(_req(), **kw)
+    assert a == b
+
+
+def test_default_fallback_routes_through_pick_random_pair(monkeypatch):
+    # fallback=None (live default) must still route the no-actions path through
+    # pick_random_pair -> live behavior byte-for-byte preserved.
+    from showdown_bot.battle.legal_actions import enumerate_slot_pairs
+    monkeypatch.setattr("showdown_bot.battle.baselines.enumerate_my_actions", lambda req: [])
+    seen = {}
+
+    def fake_prp(req):
+        seen["called"] = True
+        return enumerate_slot_pairs(req)[0]
+
+    monkeypatch.setattr("showdown_bot.battle.baselines.pick_random_pair", fake_prp)
+    out = max_damage_choice(_req(), state=_state(), book=_book(), our_side="p1",
+                            oracle=FakeOracle(0.3), speed_oracle=None)  # fallback default (None)
+    assert seen.get("called") and out.startswith("/choose")
+
+
+def test_injected_fallback_is_used_on_empty_actions(monkeypatch):
+    monkeypatch.setattr("showdown_bot.battle.baselines.enumerate_my_actions", lambda req: [])
+    req = _req()
+    out = max_damage_choice(req, state=_state(), book=_book(), our_side="p1",
+                            oracle=FakeOracle(0.3), speed_oracle=None,
+                            fallback=lambda r: f"/choose default|{r.rqid}")
+    assert out == f"/choose default|{req.rqid}"

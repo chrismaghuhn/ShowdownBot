@@ -65,10 +65,16 @@ def agent_choose(
     if agent == "max_damage":
         from showdown_bot.battle.baselines import max_damage_choice
 
+        # Eval-deterministic (T3c): paired seed comparison needs a deterministic opponent,
+        # so max_damage's rare fallbacks use `/choose default` (not pick_random_pair). The
+        # live path (decision.py) calls max_damage_choice with the default fallback -> unchanged.
         try:
-            return max_damage_choice(req, state=state, book=book, our_side=our_side)
+            return max_damage_choice(
+                req, state=state, book=book, our_side=our_side,
+                fallback=lambda r: f"/choose default|{r.rqid}",
+            )
         except Exception:  # noqa: BLE001
-            return choose_for_request(req)
+            return f"/choose default|{req.rqid}"
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
