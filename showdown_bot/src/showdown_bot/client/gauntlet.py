@@ -306,6 +306,24 @@ async def _run_client(
         logger.warning("[%s] client loop error: %s", client.name, exc)
 
 
+def _resolve_side_teams(team_path, opp_team_path=None):
+    """Return ``(hero_packed, villain_packed)`` for the gauntlet.
+
+    ``opp_team_path=None`` -> **mirror** (villain gets the hero's packed team; the
+    original single-team behavior). A distinct ``opp_team_path`` -> non-mirror (T1c).
+    Load failures degrade to ``""`` (same tolerance as the original single-team path).
+    """
+    def _load(path):
+        try:
+            return load_packed_team(path)
+        except Exception:  # noqa: BLE001
+            return ""
+
+    hero_packed = _load(team_path)
+    villain_packed = _load(opp_team_path) if opp_team_path else hero_packed
+    return hero_packed, villain_packed
+
+
 async def run_local_gauntlet(
     *,
     games: int,
@@ -313,13 +331,16 @@ async def run_local_gauntlet(
     villain_agent: str = "max_damage",
     format_id: str,
     team_path: str,
+    opp_team_path: str | None = None,
     server_url: str = LOCAL_SERVER,
     hero_name: str = "HeuristicBot",
     villain_name: str = "BaselineBot",
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
-    Requires a local ``node pokemon-showdown start --no-security`` server.
+    ``opp_team_path`` (T1c): when given, the villain fields a **different** packed team
+    (non-mirror); default ``None`` keeps the mirror behavior. Requires a local
+    ``node pokemon-showdown start --no-security`` server.
     """
     book = None
     priors = None
@@ -333,11 +354,7 @@ async def run_local_gauntlet(
     except Exception:  # noqa: BLE001
         pass
     opp_sets = load_opp_sets_for_format(format_id)
-    packed = ""
-    try:
-        packed = load_packed_team(team_path)
-    except Exception:  # noqa: BLE001
-        packed = ""
+    hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
 
     # Unique names per run so a killed run's lingering battles aren't rejoined
     # (with --no-security, /trn re-attaches to the same user and its open games).
@@ -355,8 +372,8 @@ async def run_local_gauntlet(
     await authenticate_local(villain_conn, villain_name)
 
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, trace=trace, opp_sets=opp_sets)
-    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=packed, opp_sets=opp_sets)
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=hero_packed, trace=trace, opp_sets=opp_sets)
+    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=villain_packed, opp_sets=opp_sets)
 
     stats = GauntletStats()
     stop = asyncio.Event()

@@ -79,6 +79,15 @@ def test_verify_seed_log_rejects_noncontiguous_index(tmp_path):
         verify_seed_log(str(p), base, 2)
 
 
+def test_verify_seed_log_missing_file_raises_clear_error(tmp_path):
+    # N1: a missing seed log (server not run with SHOWDOWN_EVAL_SEED_LOG, or wrong path)
+    # must be a clear SeedLogError, not a bare FileNotFoundError.
+    missing = tmp_path / "does_not_exist.jsonl"
+    with pytest.raises(SeedLogError) as exc:
+        verify_seed_log(str(missing), "run2026", 4)
+    assert "not found" in str(exc.value).lower()
+
+
 def test_verify_seed_log_rejects_wrong_seed(tmp_path):
     # Server used a seed that doesn't match the Python derivation (T1-CC-A break).
     base = "run2026"

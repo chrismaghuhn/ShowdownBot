@@ -41,8 +41,64 @@ def run_validate_log(args) -> None:
         )
 
 
+def run_schedule(args) -> None:
+    """Non-mirror schedule mode (T1c): run each row as one battle in seed_index order.
+
+    Channel A: when SHOWDOWN_BATTLE_SEED_BASE is set the server derives seed_i by battle
+    creation order, so this MUST run against a **fresh** server (counter from 0). Rows are
+    executed sorted by seed_index (the loader guarantees contiguous-from-0). No battle-level
+    retry: a retry/extra battle desyncs the counter and the final seed-log alignment fails.
+    """
+    import os
+
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+    from showdown_bot.eval.schedule import load_schedule, verify_schedule_alignment
+
+    sched = load_schedule(args.schedule)
+    print(f"schedule {args.schedule}: {len(sched.rows)} rows, schedule_hash={sched.schedule_hash}")
+    if os.environ.get("SHOWDOWN_BATTLE_SEED_BASE"):
+        print("  seed mode: per-battle (SHOWDOWN_BATTLE_SEED_BASE) — REQUIRES a fresh server (Channel A)")
+
+    totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
+    for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
+        stats = asyncio.run(
+            run_local_gauntlet(
+                games=1,
+                hero_agent="heuristic",
+                villain_agent=row.opp_policy,
+                format_id=row.config_id,
+                team_path=row.hero_team_path,
+                opp_team_path=row.opp_team_path,
+            )
+        )
+        totals["games"] += stats.games
+        totals["hero_wins"] += stats.hero_wins
+        totals["villain_wins"] += stats.villain_wins
+        totals["ties"] += stats.ties
+        totals["invalid"] += stats.invalid_choices
+        totals["crashes"] += stats.crashes
+        print(
+            f"  seed_index={row.seed_index}: {row.hero_team_path} vs {row.opp_team_path} "
+            f"[{row.opp_policy}] -> games={stats.games} hero_wins={stats.hero_wins} "
+            f"invalid={stats.invalid_choices} crashes={stats.crashes}"
+        )
+    print(f"schedule totals: {totals}")
+
+    seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG")
+    base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE")
+    if seed_log and base:
+        verify_schedule_alignment(sched, seed_log, base)  # raises on retry/extra/misalign
+        print(f"seed-log alignment OK: {len(sched.rows)} battles, seed_i == derive_battle_seed(base, seed_index)")
+    else:
+        print("seed-log alignment SKIPPED (SHOWDOWN_BATTLE_SEED_BASE / SHOWDOWN_EVAL_SEED_LOG not both set)")
+
+
 def run_gauntlet(args) -> None:
     import os
+
+    if getattr(args, "schedule", ""):
+        run_schedule(args)
+        return
 
     from showdown_bot.client.gauntlet import run_local_gauntlet
 
@@ -150,6 +206,13 @@ def main() -> None:
         "--strict",
         action="store_true",
         help="Enforce Phase 2 exit thresholds and exit non-zero on failure (gauntlet)",
+    )
+    parser.add_argument(
+        "--schedule",
+        default="",
+        help="Path to a non-mirror eval schedule YAML (gauntlet). Runs each row as one "
+        "battle in seed_index order; requires a fresh server when using "
+        "SHOWDOWN_BATTLE_SEED_BASE (Channel A).",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
