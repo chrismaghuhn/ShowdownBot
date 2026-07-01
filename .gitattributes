@@ -2,3 +2,7 @@
 # They must never have their line endings rewritten on checkout (core.autocrlf),
 # or LightGBM's Booster(model_file=...) aborts with "expect a tree here".
 models/reranker/** -text
+
+# Server patches are consumed by `git apply` against an LF-normalized clone.
+# CRLF rewriting on checkout would make the patch fail to apply.
+*.patch -text

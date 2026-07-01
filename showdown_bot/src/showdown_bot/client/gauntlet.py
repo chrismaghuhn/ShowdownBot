@@ -284,6 +284,17 @@ async def _run_client(
                             await client.handle_request(parsed.room, parsed.payload)
                         if parsed.prefix in ("win", "tie"):
                             winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
+                            # T1a seed-proof: env-gated raw dump BEFORE pop. Unset -> no-op
+                            # (bit-identical path). Best-effort; never stalls the battle.
+                            _dump_dir = os.environ.get("SHOWDOWN_ROOM_RAW_DUMP")
+                            if _dump_dir:
+                                try:
+                                    from showdown_bot.eval.room_dump import dump_room_raw
+
+                                    dump_room_raw(_dump_dir, client.name, parsed.room,
+                                                  client.room_raw.get(parsed.room, []))
+                                except Exception as exc:  # noqa: BLE001 - diagnostic dump is best-effort
+                                    logger.debug("[%s] room_raw dump failed: %s", client.name, exc)
                             client.room_raw.pop(parsed.room, None)
                             if client._export is not None:
                                 client._export.flush()
