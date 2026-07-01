@@ -112,3 +112,73 @@ def attack_strict_decisions(decisions) -> list:
     """strict_decisions whose chosen heuristic joint-action class == 'attack'. We
     filter DECISIONS by the chosen class; we NEVER drop candidates inside a decision."""
     return [d for d in strict_decisions(decisions) if action_class(d.chosen_rows()[0]) == "attack"]
+
+
+def _scores_per_decision(booster, decisions, *, feature_names, encodings):
+    """Score every candidate of every decision. Returns [(Decision, [scores...]), ...]."""
+    out = []
+    for d in decisions:
+        m = build_feature_matrix([d], feature_names=feature_names, encodings=encodings)
+        preds = booster.predict(np.array(m.X, dtype=float))
+        out.append((d, list(preds)))
+    return out
+
+
+def main(argv=None):
+    from showdown_bot.learning.reranker_eval import regret_metrics, format_report, gates_pass
+    from showdown_bot.learning.schema import FEATURE_COLUMNS
+    ap = argparse.ArgumentParser()
+    ap.add_argument("dataset")  # path to .jsonl(.gz)
+    ap.add_argument("--out-model", default="models/reranker/2026-07-01-2b2a-attack-lgbm.txt")
+    ap.add_argument("--out-manifest", default="models/reranker/2026-07-01-2b2a-attack-manifest.json")
+    ap.add_argument("--out-report", default="reports/2026-07-01-2b2a-reranker-offline-eval.md")
+    args = ap.parse_args(argv)
+
+    ds_sha = sha256_of_file(args.dataset)
+    if ds_sha != EXPECTED_2B0_SHA256:
+        print(f"WARNING: dataset sha256 {ds_sha} != expected 2b-0 {EXPECTED_2B0_SHA256}")
+    decisions = group_decisions(load_rows(args.dataset))
+    sp = split_by_game(decisions, seed=42, ratios=(0.8, 0.1, 0.1))
+    tr = attack_strict_decisions(sp.train)               # TRAIN on attack-strict only
+    va = attack_strict_decisions(sp.val)
+    te_attack = attack_strict_decisions(sp.test)         # A) primary gate set
+    te_all = strict_decisions(sp.test)                   # B/C) diagnostic set
+
+    feat = active_feature_names(tr)                       # active features from TRAIN only
+    train_m = build_feature_matrix(tr, feature_names=feat)            # builds the encodings
+    enc = train_m.categorical_encodings
+    val_m = build_feature_matrix(va, feature_names=feat, encodings=enc)
+    booster = train_lambdarank(train_m, config=DEFAULT_CONFIG, val_matrix=val_m)
+
+    m_attack = regret_metrics(_scores_per_decision(booster, te_attack, feature_names=feat, encodings=enc))
+    m_all = regret_metrics(_scores_per_decision(booster, te_all, feature_names=feat, encodings=enc))
+    report = format_report(m_attack, all_strict_m=m_all)
+
+    _counts = lambda part: {"games": len({d.game_id for d in part}), "decisions": len(part),
+                            "rows": sum(len(d.rows) for d in part)}
+    Path(args.out_model).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.out_report).parent.mkdir(parents=True, exist_ok=True)
+    booster.save_model(args.out_model)
+    dropped = [c for c in FEATURE_COLUMNS
+               if c not in feat and c not in (LABEL_DENYLIST | METADATA_DENYLIST)]
+    manifest = build_manifest(matrix=train_m, config=DEFAULT_CONFIG, dataset_sha256=ds_sha,
+                              dropped_constant_columns=dropped,
+                              training_decision_filter="multi & unique-teacher-best & unique-chosen & chosen action_class==attack",
+                              metrics_summary={"attack_heuristic_regret": m_attack.heuristic_regret,
+                                               "attack_model_regret": m_attack.model_regret,
+                                               "all_strict_heuristic_regret": m_all.heuristic_regret,
+                                               "all_strict_model_regret": m_all.model_regret,
+                                               "contestable_heuristic_regret": m_all.contestable_heuristic_regret,
+                                               "contestable_model_regret": m_all.contestable_model_regret,
+                                               "gate_passes": gates_pass(m_attack)},
+                              eval_report_path=args.out_report, model_type="lightgbm-lambdarank",
+                              split_seed=42,
+                              split_counts={"train": _counts(sp.train), "val": _counts(sp.val),
+                                            "test": _counts(sp.test)})
+    Path(args.out_manifest).write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    Path(args.out_report).write_text(report, encoding="utf-8")
+    print(report)
+
+
+if __name__ == "__main__":
+    main()
