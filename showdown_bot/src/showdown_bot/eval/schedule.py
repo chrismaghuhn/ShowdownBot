@@ -15,9 +15,11 @@ from dataclasses import dataclass
 
 import yaml
 
-_REQUIRED_FIELDS = frozenset(
-    {"config_id", "hero_team_path", "opp_policy", "opp_team_path", "seed_index"}
-)
+# The format field is either `format_id` (preferred) or `config_id` (deprecated alias,
+# T3a). Exactly one is required. The rest are core required fields.
+_CORE_REQUIRED = frozenset({"hero_team_path", "opp_policy", "opp_team_path", "seed_index"})
+_FORMAT_FIELDS = frozenset({"format_id", "config_id"})
+_ALLOWED_FIELDS = _CORE_REQUIRED | _FORMAT_FIELDS
 # Reuse the existing gauntlet agents only (T1c adds no new opponent policies).
 KNOWN_POLICIES = frozenset({"heuristic", "max_damage", "random"})
 
@@ -28,7 +30,7 @@ class ScheduleError(ValueError):
 
 @dataclass(frozen=True)
 class ScheduleRow:
-    config_id: str
+    format_id: str  # was `config_id` (T3a rename); loader still accepts the config_id alias
     hero_team_path: str
     opp_policy: str
     opp_team_path: str
@@ -64,12 +66,19 @@ def load_schedule(path: str) -> Schedule:
         if not isinstance(r, dict):
             raise ScheduleError(f"row {i} is not a mapping")
         keys = set(r.keys())
-        missing = _REQUIRED_FIELDS - keys
-        unknown = keys - _REQUIRED_FIELDS
+        fmt_keys = keys & _FORMAT_FIELDS
+        if len(fmt_keys) != 1:
+            raise ScheduleError(
+                f"row {i} must have exactly one of format_id/config_id "
+                f"(config_id is a deprecated alias), got {sorted(fmt_keys)}"
+            )
+        missing = _CORE_REQUIRED - keys
+        unknown = keys - _ALLOWED_FIELDS
         if missing:
             raise ScheduleError(f"row {i} missing fields: {sorted(missing)}")
         if unknown:
             raise ScheduleError(f"row {i} unknown fields: {sorted(unknown)}")
+        format_id = str(r["format_id"] if "format_id" in r else r["config_id"])
         policy = str(r["opp_policy"])
         if policy not in KNOWN_POLICIES:
             raise ScheduleError(
@@ -81,7 +90,7 @@ def load_schedule(path: str) -> Schedule:
             raise ScheduleError(f"row {i} seed_index not an int: {r['seed_index']!r}") from None
         rows.append(
             ScheduleRow(
-                config_id=str(r["config_id"]),
+                format_id=format_id,
                 hero_team_path=str(r["hero_team_path"]),
                 opp_policy=policy,
                 opp_team_path=str(r["opp_team_path"]),
@@ -100,7 +109,8 @@ def load_schedule(path: str) -> Schedule:
         {
             "version": version,
             "rows": [
-                [r.config_id, r.hero_team_path, r.opp_policy, r.opp_team_path, r.seed_index]
+                # values only (not key names), so the rename keeps schedule_hash stable
+                [r.format_id, r.hero_team_path, r.opp_policy, r.opp_team_path, r.seed_index]
                 for r in rows
             ],
         }

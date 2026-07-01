@@ -52,6 +52,44 @@ def test_schedule_hash_stable_and_content_sensitive(tmp_path):
     assert load_schedule(_write(tmp_path, changed)).schedule_hash != h1
 
 
+_VALID_FORMAT = """
+    version: v001
+    rows:
+      - {format_id: gen9vgc2025regi, hero_team_path: teams/a.txt, opp_policy: heuristic, opp_team_path: teams/c.txt, seed_index: 0}
+"""
+
+
+def test_format_id_preferred(tmp_path):
+    sched = load_schedule(_write(tmp_path, _VALID_FORMAT))
+    assert sched.rows[0].format_id == "gen9vgc2025regi"
+
+
+def test_config_id_is_a_backward_compatible_alias(tmp_path):
+    # _VALID uses the legacy `config_id` field -> maps onto ScheduleRow.format_id.
+    sched = load_schedule(_write(tmp_path, _VALID))
+    assert sched.rows[0].format_id == "gen9vgc2025regi"
+
+
+def test_both_format_id_and_config_id_fail_fast(tmp_path):
+    body = """
+        version: v001
+        rows:
+          - {format_id: g, config_id: g, hero_team_path: a, opp_policy: heuristic, opp_team_path: b, seed_index: 0}
+    """
+    with pytest.raises(ScheduleError):
+        load_schedule(_write(tmp_path, body))
+
+
+def test_neither_format_id_nor_config_id_fails_fast(tmp_path):
+    body = """
+        version: v001
+        rows:
+          - {hero_team_path: a, opp_policy: heuristic, opp_team_path: b, seed_index: 0}
+    """
+    with pytest.raises(ScheduleError):
+        load_schedule(_write(tmp_path, body))
+
+
 def test_missing_field_fails_fast(tmp_path):
     body = """
         version: v001

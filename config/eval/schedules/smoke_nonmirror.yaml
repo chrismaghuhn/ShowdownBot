@@ -7,12 +7,12 @@
 # aligns with the server counter by execution order).
 version: v001
 rows:
-  - config_id: gen9vgc2025regi
+  - format_id: gen9vgc2025regi
     hero_team_path: teams/fixed_team.txt
     opp_policy: heuristic
     opp_team_path: teams/opp_variant_a.txt
     seed_index: 0
-  - config_id: gen9vgc2025regi
+  - format_id: gen9vgc2025regi
     hero_team_path: teams/fixed_team.txt
     opp_policy: heuristic
     opp_team_path: teams/opp_variant_b.txt
