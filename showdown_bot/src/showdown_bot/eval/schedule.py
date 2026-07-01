@@ -47,6 +47,12 @@ class Schedule:
     schedule_hash: str
     panel_hash: str | None = None  # set by the T3d panel generator; legacy schedules -> None
 
+    @property
+    def reproducible(self) -> bool:
+        """False iff any row uses a non-reproducible policy (e.g. random) — T3-CC-3."""
+        from showdown_bot.eval.policies import is_reproducible
+        return all(is_reproducible(r.opp_policy) for r in self.rows)
+
 
 def _canonical_hash(payload) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
