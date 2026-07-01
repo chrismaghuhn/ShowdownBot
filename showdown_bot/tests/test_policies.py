@@ -24,9 +24,9 @@ def test_implemented_flags():
     assert POLICIES["heuristic"].implemented is True
     assert POLICIES["max_damage"].implemented is True
     assert POLICIES["random"].implemented is True
-    # the 3 new policies are declared but not yet implemented (wired in T3c)
+    # the 3 new policies are wired in T3c
     for name in ("greedy_protect", "simple_heuristic", "scripted_vgc"):
-        assert POLICIES[name].implemented is False
+        assert POLICIES[name].implemented is True
 
 
 def test_random_is_non_reproducible():

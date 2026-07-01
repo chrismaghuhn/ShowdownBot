@@ -236,11 +236,13 @@ def main() -> None:
         default=10,
         help="Number of games to play (gauntlet)",
     )
+    from showdown_bot.eval.policies import POLICIES as _POLICIES
+
     parser.add_argument(
         "--villain",
         default="max_damage",
-        choices=["max_damage", "random", "heuristic"],
-        help="Baseline opponent agent (gauntlet)",
+        choices=sorted(n for n, p in _POLICIES.items() if p.implemented),
+        help="Opponent agent (gauntlet); sourced from the eval policy registry",
     )
     parser.add_argument(
         "--strict",

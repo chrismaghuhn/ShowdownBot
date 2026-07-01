@@ -60,6 +60,17 @@ def agent_choose(
     via the fallback chain; ``random`` uses the legacy random agent. ``report``
     (heuristic only) collects a readable decision block for the turn trace.
     """
+    # Eval-only opponent policies (T3c): request-only + deterministic, no state/book needed.
+    # Local imports keep eval/opponents off the default/import path (live-path guard).
+    if agent == "greedy_protect":
+        from showdown_bot.eval.opponents.policies import greedy_protect_choice
+        return greedy_protect_choice(req)
+    if agent == "simple_heuristic":
+        from showdown_bot.eval.opponents.policies import simple_heuristic_choice
+        return simple_heuristic_choice(req)
+    if agent == "scripted_vgc":
+        from showdown_bot.eval.opponents.scripted_vgc import scripted_vgc_choice
+        return scripted_vgc_choice(req)
     if agent == "random" or state is None or book is None:
         return choose_for_request(req)
     if agent == "max_damage":

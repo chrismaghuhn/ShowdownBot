@@ -22,9 +22,9 @@ POLICIES: dict[str, PolicyInfo] = {
         PolicyInfo("heuristic", implemented=True, reproducible=True),
         PolicyInfo("max_damage", implemented=True, reproducible=True),  # eval-deterministic in T3c
         PolicyInfo("random", implemented=True, reproducible=False),     # intentionally non-reproducible
-        PolicyInfo("greedy_protect", implemented=False, reproducible=True),
-        PolicyInfo("simple_heuristic", implemented=False, reproducible=True),
-        PolicyInfo("scripted_vgc", implemented=False, reproducible=True),
+        PolicyInfo("greedy_protect", implemented=True, reproducible=True),   # wired in T3c
+        PolicyInfo("simple_heuristic", implemented=True, reproducible=True),
+        PolicyInfo("scripted_vgc", implemented=True, reproducible=True),
     ]
 }
 
