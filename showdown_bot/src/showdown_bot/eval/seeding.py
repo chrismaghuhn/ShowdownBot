@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 
 class SeedLogError(RuntimeError):
@@ -36,6 +37,11 @@ def verify_seed_log(path: str, base: str, expected_count: int) -> list[dict]:
     ``battle_index`` is contiguous 0..N-1, whose ``seed_base`` == ``base``, and whose
     ``seed`` == ``derive_battle_seed(base, battle_index)``. Returns the parsed records.
     """
+    if not os.path.exists(path):
+        raise SeedLogError(
+            f"seed log not found: {path} "
+            f"(server not started with SHOWDOWN_EVAL_SEED_LOG, or wrong path)"
+        )
     records: list[dict] = []
     with open(path, encoding="utf-8") as fh:
         for lineno, line in enumerate(fh):
