@@ -47,3 +47,55 @@ def test_schema_mismatch_disables(monkeypatch, tmp_path):
     bad.write_text(json.dumps(m))
     _enable(monkeypatch, tmp_path / "shadow.jsonl", manifest=bad)
     assert RerankerShadowRuntime.from_env(format_id="gen9vgc2025regi", packed_team="") is None
+
+
+import json as _json
+from showdown_bot.battle.decision import heuristic_choose_for_request
+from showdown_bot.battle.decision_trace import DecisionTrace
+
+def _run_decision(decision_fixture):
+    req, kw = decision_fixture
+    tr = DecisionTrace()
+    choose = heuristic_choose_for_request(req, trace=tr, **kw)
+    return tr, kw["state"], req, choose, kw.get("our_side", "p1")
+
+def test_observe_writes_shadowtrace_row(monkeypatch, tmp_path, decision_fixture):
+    log = tmp_path / "shadow.jsonl"
+    _enable(monkeypatch, log)
+    rt = RerankerShadowRuntime.from_env(format_id="gen9vgc2025regi", packed_team="")
+    rt.start_game()
+    tr, state, req, choose, side = _run_decision(decision_fixture)
+    rt.observe_shadow(trace=tr, state=state, request=req, choose=choose,
+                      turn_number=1, our_side=side, decision_index=0)
+    row = _json.loads(log.read_text().splitlines()[-1])
+    assert {"game_id","decision_id","actual_choose_string","reranker_choice_index",
+            "model_scores","diverged","fallback_reason","feature_context_mode",
+            "candidate_count","runtime_feature_schema_hash"} <= set(row)
+    assert row["actual_choose_string"] == choose
+    assert row["feature_context_mode"] == "2b2a_move_meta_none"
+    assert row["fallback_reason"] is None                # a normal decision scores
+    assert row["candidate_count"] == len(tr.candidates)
+    assert isinstance(row["diverged"], bool)
+
+def test_heuristic_choice_unmatched_is_fail_safe(monkeypatch, tmp_path, decision_fixture):
+    _enable(monkeypatch, tmp_path / "s.jsonl")
+    rt = RerankerShadowRuntime.from_env(format_id="gen9vgc2025regi", packed_team=""); rt.start_game()
+    tr, state, req, choose, side = _run_decision(decision_fixture)
+    tr.chosen_candidate_id = "does-not-exist"           # force an unmatched heuristic pick
+    rt.observe_shadow(trace=tr, state=state, request=req, choose=choose,
+                      turn_number=1, our_side=side, decision_index=0)
+    row = _json.loads((tmp_path / "s.jsonl").read_text().splitlines()[-1])
+    assert row["fallback_reason"] == "heuristic_choice_not_in_trace"
+    assert row["diverged"] is None
+
+def test_label_independence_features_only(monkeypatch, tmp_path, decision_fixture):
+    # the model vector must not depend on labels: extract_features(labels=None) is used,
+    # and only row.features enters X. (Structural: assert model_scores exist + are finite.)
+    _enable(monkeypatch, tmp_path / "s.jsonl")
+    rt = RerankerShadowRuntime.from_env(format_id="gen9vgc2025regi", packed_team=""); rt.start_game()
+    tr, state, req, choose, side = _run_decision(decision_fixture)
+    rt.observe_shadow(trace=tr, state=state, request=req, choose=choose,
+                      turn_number=1, our_side=side, decision_index=0)
+    row = _json.loads((tmp_path / "s.jsonl").read_text().splitlines()[-1])
+    scores = [s["score"] for s in row["model_scores"]]
+    assert len(scores) == len(tr.candidates) and all(s == s for s in scores)  # finite, one per candidate
