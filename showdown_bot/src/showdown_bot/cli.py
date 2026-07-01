@@ -55,12 +55,46 @@ def run_schedule(args) -> None:
     from showdown_bot.eval.schedule import load_schedule, verify_schedule_alignment
 
     sched = load_schedule(args.schedule)
+    base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE")
     print(f"schedule {args.schedule}: {len(sched.rows)} rows, schedule_hash={sched.schedule_hash}")
-    if os.environ.get("SHOWDOWN_BATTLE_SEED_BASE"):
+    if base:
         print("  seed mode: per-battle (SHOWDOWN_BATTLE_SEED_BASE) — REQUIRES a fresh server (Channel A)")
+
+    # T2 per-battle result JSONL (Fix 3: --result-out must be missing or empty at start).
+    result_out = getattr(args, "result_out", "")
+    writer = None
+    written = []
+    if result_out:
+        from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
+        from showdown_bot.eval.seeding import derive_battle_seed
+        from showdown_bot.learning.provenance import git_sha_and_dirty
+
+        if not base:
+            raise SystemExit("--result-out requires SHOWDOWN_BATTLE_SEED_BASE (the 'seed' field must be meaningful)")
+        if os.path.exists(result_out) and os.path.getsize(result_out) > 0:
+            raise SystemExit(f"--result-out {result_out} already has rows; must be non-existing or empty (T2-CC-2)")
+        writer = BattleResultWriter(result_out)
+        git_sha = git_sha_and_dirty()[0]
+        print(f"  result JSONL -> {result_out}")
 
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
+        on_br = None
+        if writer is not None:
+            def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
+                seed = derive_battle_seed(base, _row.seed_index)
+                config_id, format_id = "heuristic", _row.config_id  # bot version vs format (Fix 1)
+                writer.write({
+                    "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                    "config_id": config_id, "format_id": format_id,
+                    "config_hash": make_config_hash(config_id, format_id),
+                    "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
+                    "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
+                    "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,
+                    "timeouts": None, "panel_hash": None, **record,
+                })
+                written.append(_row.seed_index)
+
         stats = asyncio.run(
             run_local_gauntlet(
                 games=1,
@@ -69,6 +103,7 @@ def run_schedule(args) -> None:
                 format_id=row.config_id,
                 team_path=row.hero_team_path,
                 opp_team_path=row.opp_team_path,
+                on_battle_result=on_br,
             )
         )
         totals["games"] += stats.games
@@ -84,8 +119,13 @@ def run_schedule(args) -> None:
         )
     print(f"schedule totals: {totals}")
 
+    if writer is not None:
+        if len(written) != len(sched.rows):  # T2-CC-4: one row per schedule row, fail fast
+            raise SystemExit(f"T2: wrote {len(written)} rows but schedule has {len(sched.rows)} "
+                             f"(retry/extra or missing battle)")
+        print(f"result JSONL: {len(written)} rows written (one per schedule row)")
+
     seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG")
-    base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE")
     if seed_log and base:
         verify_schedule_alignment(sched, seed_log, base)  # raises on retry/extra/misalign
         print(f"seed-log alignment OK: {len(sched.rows)} battles, seed_i == derive_battle_seed(base, seed_index)")
@@ -213,6 +253,13 @@ def main() -> None:
         help="Path to a non-mirror eval schedule YAML (gauntlet). Runs each row as one "
         "battle in seed_index order; requires a fresh server when using "
         "SHOWDOWN_BATTLE_SEED_BASE (Channel A).",
+    )
+    parser.add_argument(
+        "--result-out",
+        dest="result_out",
+        default="",
+        help="Path for the T2 per-battle result JSONL (gauntlet --schedule). Must be "
+        "non-existing or empty; requires SHOWDOWN_BATTLE_SEED_BASE.",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
