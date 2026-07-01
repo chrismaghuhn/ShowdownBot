@@ -12,7 +12,14 @@ import textwrap
 
 import pytest
 
-from showdown_bot.eval.schedule import ScheduleError, load_schedule
+import json
+
+from showdown_bot.eval.schedule import (
+    ScheduleError,
+    load_schedule,
+    verify_schedule_alignment,
+)
+from showdown_bot.eval.seeding import SeedLogError, derive_battle_seed
 
 
 def _write(tmp_path, body):
@@ -104,3 +111,27 @@ def test_missing_version_fails_fast(tmp_path):
     """
     with pytest.raises(ScheduleError):
         load_schedule(_write(tmp_path, body))
+
+
+def _write_seed_log(path, base, n):
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+        for i in range(n):
+            fh.write(json.dumps(
+                {"battle_index": i, "seed": derive_battle_seed(base, i), "seed_base": base}) + "\n")
+
+
+def test_verify_schedule_alignment_ok(tmp_path):
+    sched = load_schedule(_write(tmp_path, _VALID))          # 2 rows, seed_index 0,1
+    log = tmp_path / "seeds.jsonl"
+    _write_seed_log(str(log), "run2026", 2)
+    records = verify_schedule_alignment(sched, str(log), "run2026")
+    assert [r["battle_index"] for r in records] == [0, 1]
+
+
+def test_verify_schedule_alignment_rejects_extra_battle(tmp_path):
+    # A retry/extra battle -> 3 log lines for a 2-row schedule -> fail fast.
+    sched = load_schedule(_write(tmp_path, _VALID))
+    log = tmp_path / "seeds.jsonl"
+    _write_seed_log(str(log), "run2026", 3)
+    with pytest.raises(SeedLogError):
+        verify_schedule_alignment(sched, str(log), "run2026")

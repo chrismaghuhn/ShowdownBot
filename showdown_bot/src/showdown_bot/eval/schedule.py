@@ -106,3 +106,24 @@ def load_schedule(path: str) -> Schedule:
         }
     )
     return Schedule(version=version, rows=tuple(rows), schedule_hash=schedule_hash)
+
+
+def verify_schedule_alignment(schedule: Schedule, seed_log_path: str, base: str):
+    """Assert the server seed log lines up with the schedule (Channel-A guard).
+
+    Runs ``verify_seed_log`` for exactly ``len(schedule.rows)`` battles (fails fast on a
+    retry/extra battle or a Python↔server derivation mismatch), then cross-checks that
+    each row's ``seed_index`` equals the corresponding logged ``battle_index``. Returns
+    the parsed seed-log records.
+    """
+    # Imported here to keep the module import graph flat (seeding has no schedule dep).
+    from showdown_bot.eval.seeding import verify_seed_log
+
+    records = verify_seed_log(seed_log_path, base, len(schedule.rows))
+    for row, rec in zip(schedule.rows, records):
+        if row.seed_index != rec["battle_index"]:
+            raise ScheduleError(
+                f"schedule/seed-log misalignment: row seed_index {row.seed_index} "
+                f"!= logged battle_index {rec['battle_index']}"
+            )
+    return records
