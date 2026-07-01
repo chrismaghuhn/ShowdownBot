@@ -11,6 +11,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+# Offline/learning-only deps (reranker training + eval). NOT required for a live
+# bot run — a normal run must never import lightgbm. Install: pip install -e ".[learning]".
+learning = ["lightgbm>=4.0", "numpy>=1.24"]
 
 [project.scripts]
 showdown-bot = "showdown_bot.cli:main"

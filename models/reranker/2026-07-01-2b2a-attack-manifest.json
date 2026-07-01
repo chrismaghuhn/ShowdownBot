@@ -1,0 +1,211 @@
+{
+  "dataset_sha256": "62f156b1ed7ab406a5838761a0985909737a738f2cd621d383e3ec9dbc73e849",
+  "feature_schema_hash": "efce5d60adb4e9a4",
+  "training_config_hash": "e53a1c9a0451da6f",
+  "model_type": "lightgbm-lambdarank",
+  "split_seed": 42,
+  "split_counts": {
+    "train": {
+      "games": 80,
+      "decisions": 762,
+      "rows": 3729
+    },
+    "val": {
+      "games": 10,
+      "decisions": 95,
+      "rows": 467
+    },
+    "test": {
+      "games": 10,
+      "decisions": 94,
+      "rows": 462
+    }
+  },
+  "metrics_summary": {
+    "attack_heuristic_regret": 1.3067,
+    "attack_model_regret": 0.053,
+    "all_strict_heuristic_regret": 1.1125,
+    "all_strict_model_regret": 0.5398,
+    "contestable_heuristic_regret": 1.3855,
+    "contestable_model_regret": 0.1193,
+    "gate_passes": true
+  },
+  "git_sha": "834e45d935f23a4d4bf1bca149b4d56572655bd0",
+  "eval_report_path": "reports/2026-07-01-2b2a-reranker-offline-eval.md",
+  "feature_names": [
+    "game_mode",
+    "turn_number",
+    "endgame_flag",
+    "our_alive_count",
+    "opp_alive_count",
+    "our_total_hp_frac",
+    "opp_total_hp_frac",
+    "field_terrain",
+    "tailwind_ours",
+    "speed_control_state",
+    "slot1_action_type",
+    "slot2_action_type",
+    "slot1_move_id",
+    "slot2_move_id",
+    "slot1_target_kind",
+    "slot2_target_kind",
+    "slot1_target_slot",
+    "slot2_target_slot",
+    "slot1_is_switch",
+    "slot2_is_switch",
+    "heuristic_aggregate_score",
+    "score_gap_to_top",
+    "score_gap_to_second",
+    "score_min_vs_opp",
+    "score_mean_vs_opp",
+    "score_var_vs_opp",
+    "score_worst_response",
+    "predicted_outgoing_damage",
+    "predicted_incoming_damage",
+    "out_in_ratio",
+    "predicted_kos_for",
+    "predicted_kos_against",
+    "ko_threatened_count",
+    "survives_for_sure_count",
+    "protect_stall_penalty",
+    "partner_abandon_penalty",
+    "we_outspeed_count",
+    "they_outspeed_count",
+    "speed_tie_count",
+    "our_fastest_active_speed",
+    "opp_fastest_active_speed",
+    "must_react_reason_flags",
+    "response_count",
+    "opponent_response_entropy",
+    "value_range_across_opp_responses"
+  ],
+  "categorical_feature_names": [
+    "game_mode",
+    "field_terrain",
+    "speed_control_state",
+    "slot1_action_type",
+    "slot2_action_type",
+    "slot1_move_id",
+    "slot2_move_id",
+    "slot1_target_kind",
+    "slot2_target_kind"
+  ],
+  "categorical_encodings": {
+    "game_mode": {
+      "__unk__": 0,
+      "AHEAD": 1,
+      "NEUTRAL": 2,
+      "MUST_REACT": 3
+    },
+    "field_terrain": {
+      "__unk__": 0,
+      "Grassy Terrain": 1,
+      "__none__": 2
+    },
+    "speed_control_state": {
+      "__unk__": 0,
+      "tailwind_ours": 1,
+      "none": 2
+    },
+    "slot1_action_type": {
+      "__unk__": 0,
+      "move": 1,
+      "switch": 2,
+      "pass": 3
+    },
+    "slot2_action_type": {
+      "__unk__": 0,
+      "move": 1,
+      "pass": 2,
+      "switch": 3
+    },
+    "slot1_move_id": {
+      "__unk__": 0,
+      "flareblitz": 1,
+      "knockoff": 2,
+      "protect": 3,
+      "__none__": 4,
+      "fakeout": 5
+    },
+    "slot2_move_id": {
+      "__unk__": 0,
+      "moonblast": 1,
+      "dazzlinggleam": 2,
+      "tailwind": 3,
+      "bleakwindstorm": 4,
+      "__none__": 5,
+      "woodhammer": 6,
+      "grassyglide": 7,
+      "fakeout": 8,
+      "shadowball": 9,
+      "taunt": 10,
+      "protect": 11
+    },
+    "slot1_target_kind": {
+      "__unk__": 0,
+      "foe": 1,
+      "__none__": 2
+    },
+    "slot2_target_kind": {
+      "__unk__": 0,
+      "foe": 1,
+      "__none__": 2
+    }
+  },
+  "dropped_constant_columns": [
+    "field_weather",
+    "tailwind_opp",
+    "trick_room_active",
+    "screens_ours",
+    "screens_opp",
+    "mirror_flag",
+    "slot1_move_type",
+    "slot2_move_type",
+    "slot1_move_category",
+    "slot2_move_category",
+    "slot1_priority",
+    "slot2_priority",
+    "slot1_is_damaging",
+    "slot2_is_damaging",
+    "slot1_is_protect",
+    "slot2_is_protect",
+    "tera_used",
+    "slot1_actor_species_id",
+    "slot2_actor_species_id",
+    "slot1_switch_target_species_id",
+    "slot2_switch_target_species_id",
+    "slot1_target_species_id_if_known",
+    "slot2_target_species_id_if_known",
+    "ko_secured_count",
+    "fakeout_invalid_penalty",
+    "action_economy_score",
+    "protect_prior_target1",
+    "protect_prior_target2"
+  ],
+  "denied_columns_checked": [
+    "candidate_index",
+    "chosen_by_current_heuristic",
+    "config_hash",
+    "counterfactual_rank",
+    "counterfactual_value_normalized_within_decision",
+    "counterfactual_value_raw",
+    "decision_id",
+    "feature_extractor_version",
+    "final_turn",
+    "format_id",
+    "game_id",
+    "game_outcome",
+    "git_sha",
+    "heuristic_rank",
+    "schema_version",
+    "teacher_best",
+    "teacher_config",
+    "teacher_rank",
+    "teacher_trace",
+    "teacher_version",
+    "team_hash",
+    "value_gap_to_best",
+    "winner"
+  ],
+  "training_decision_filter": "multi & unique-teacher-best & unique-chosen & chosen action_class==attack"
+}
