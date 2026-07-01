@@ -138,3 +138,23 @@ def build_feature_matrix(decisions, *, feature_names=None, encodings=None) -> Fe
             X.append(row)
             relevance.append(relevance_from_gap(r["label"]["value_gap_to_best"]))
     return FeatureMatrix(X, group_sizes, relevance, list(feature_names), cat_names, enc, keys)
+
+
+def vectorize(feature_dicts, *, feature_names, encodings):
+    """Build X (list[list[float]]) for scoring, from live feature dicts, using ONLY
+    feature_names in order and the persisted categorical encodings (unseen -> UNK).
+    No labels, no relevance. Returns (X, missing_feature_names).  Categorical columns
+    are those present in `encodings`."""
+    missing = sorted({c for c in feature_names for d in feature_dicts if c not in d})
+    X = []
+    for d in feature_dicts:
+        row = []
+        for c in feature_names:
+            v = d.get(c)
+            if c in encodings:
+                m = encodings[c]
+                row.append(float(m.get(str(v), m.get(UNK, 0))))
+            else:
+                row.append(float(v) if v is not None else 0.0)
+        X.append(row)
+    return X, missing
