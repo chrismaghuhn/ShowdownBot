@@ -20,14 +20,26 @@ schedule runner assembles a row per schedule row and appends it. `battle/` untou
 
 ## Row schema (frozen contract — the whole point of T2)
 One row per battle. **Required** (validate-on-write fails fast if missing/None): `battle_id`,
-`config_id`, `schedule_hash`, `seed_index`, `opp_policy`, `hero_team_path`, `opp_team_path`, `seed`,
-`winner`, `turns`, `invalid_choices`, `crashes`, `decision_latency_p95_ms`, `git_sha`.
+**`config_id`**, **`format_id`**, **`config_hash`**, `schedule_hash`, `seed_index`, `opp_policy`,
+`hero_team_path`, `opp_team_path`, `seed`, `winner`, `turns`, `invalid_choices`, `crashes`,
+`decision_latency_p95_ms`, `git_sha`.
 **Nullable** (present, may be `null`): `end_hp_diff` (best-effort from `room_raw`), `timeouts`
 (not tracked yet), `room_raw_path` (null when dumping is off), `panel_hash` (null until T3).
 
+**Config provenance (Fix 1 — so T5/reports never have to break the row schema again):**
+- `config_id` = the **evaluated bot config/version** that played hero, e.g. `heuristic`, `shadow`,
+  `override`, `prev_version`. In T2 it is the `hero_agent` (currently always `"heuristic"`); it
+  becomes meaningful once shadow/override/prev_version are compared. **Not the format.**
+- `format_id` = the Showdown format, e.g. `gen9vgc2025regi`. **NOTE:** the T1c schedule row's field is
+  historically named `config_id` but *is the format* — so the T2 row maps `format_id = schedule_row.config_id`.
+  (Renaming the schedule field is out of T2 scope; documented here so the mapping is explicit.)
+- `config_hash` = a **stable hash of the effective eval config**. In T2 it may be simple — 
+  `sha1(canonical({"config_id": config_id, "format_id": format_id}))[:16]` — but the field MUST exist
+  now (later slices fold in fusion weights / thresholds / prev_version pin without a schema break).
+
 - `battle_id` = `sha1(canonical([schedule_hash, seed_index, seed]))[:16]` — deterministic, joins a
   battle to its schedule row + seed.
-- `winner` ∈ `{"hero","villain","tie"}` (role, **not** the suffixed bot name — canonical like the room_dump).
+- `winner` ∈ `{"hero","villain","tie"}` (role, **not** the suffixed bot name — see Fix 2 mapping).
 - `seed` = `derive_battle_seed(base, seed_index)` (matches the server seed log; the T1b/T1c gate already
   proves equality). `seed_index` doubles as the "schedule_index" the spec lists (they are identical in T1c).
 
@@ -36,8 +48,12 @@ One row per battle. **Required** (validate-on-write fails fast if missing/None):
 ## Cross-cutting rules
 - **T2-CC-1 — validate on WRITE, fail fast.** `BattleResultWriter.write(row)` calls `validate_battle_row`
   before appending; a missing/None required field raises `ResultRowError` (never a half-written row).
-- **T2-CC-2 — append-only, byte-stable.** Rows are appended (`newline="\n"`, canonical JSON, sorted
-  keys) so a run can be resumed and the file diffed. No in-place rewrite.
+- **T2-CC-2 — empty-file-at-start, append-within-run (Fix 3).** `--result-out` MUST point to a
+  **non-existing or empty** file at run start; if it already contains rows, **fail fast**
+  (`ResultRowError`). Within a run, rows are appended (`newline="\n"`, canonical JSON, sorted keys) so
+  the file is byte-stable + diffable. This resolves the append-vs-`row-count` tension (T2-CC-4):
+  because the file starts empty, final `row-count == len(schedule.rows)` is unambiguous.
+  **Resume / de-duplication is out of scope for T2.**
 - **T2-CC-3 — off by default = bit-identical.** No `--result-out` / `on_battle_result=None` → the
   gauntlet path is unchanged (same discipline as export/shadow/room-dump seams).
 - **T2-CC-4 — one row per schedule row.** The schedule runs `games=1` per row, so exactly one battle =
@@ -61,7 +77,8 @@ from showdown_bot.eval.result_jsonl import (
 
 def _row(**over):
     row = {
-        "battle_id": "abc", "config_id": "gen9vgc2025regi", "schedule_hash": "h",
+        "battle_id": "abc", "config_id": "heuristic", "format_id": "gen9vgc2025regi",
+        "config_hash": "cfg123", "schedule_hash": "h",
         "seed_index": 0, "opp_policy": "heuristic", "hero_team_path": "teams/fixed_team.txt",
         "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "winner": "hero",
         "turns": 13, "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 200,
@@ -115,8 +132,8 @@ import hashlib
 import json
 
 REQUIRED_FIELDS = frozenset({
-    "battle_id", "config_id", "schedule_hash", "seed_index", "opp_policy",
-    "hero_team_path", "opp_team_path", "seed", "winner", "turns",
+    "battle_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
+    "opp_policy", "hero_team_path", "opp_team_path", "seed", "winner", "turns",
     "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha",
 })
 NULLABLE_FIELDS = frozenset({"end_hp_diff", "timeouts", "room_raw_path", "panel_hash"})
@@ -163,60 +180,82 @@ class BattleResultWriter:
 - [ ] **Step 4 — run, expect pass.**
 - [ ] **Step 5 — commit** `feat(2b-3.5 T2): battle-result JSONL schema + append-only writer`.
 
-## Task 2 — `eval/battle_parse.py` (winner/turns/end_hp from room_raw, best-effort)
+## Task 2 — `eval/battle_parse.py` (raw parse from room_raw — **side-agnostic**, best-effort)
+
+The parser knows **nothing** about hero/villain (Fix 2); it returns raw slot data and the
+`|player|p1|NAME|` / `|player|p2|NAME|` name map, so Task 3 can do an **explicit** side mapping.
 
 **Files:** Create `showdown_bot/src/showdown_bot/eval/battle_parse.py`; Test
 `showdown_bot/tests/test_battle_parse.py`.
 
 - [ ] **Step 1 — failing test:** feed a small synthetic `room_raw` frame list; assert
-  `parse_battle_result` returns `winner_name` (raw from `|win|`), `turns` (count of `|turn|`), and
-  `end_hp_diff` (hero HP-fraction sum − villain HP-fraction sum, from `|switch|`/`|-damage|`/`faint`;
-  `None` if unparseable). Include a case with a `|win|` and 3 `|turn|` lines, and a malformed case → `None`s tolerated.
+  `parse_battle_result(frames)` returns a dict with:
+  - `winner_name` (raw arg of `|win|`, or `None`), `is_tie` (True iff a `|tie` line), `turns`
+    (count of `|turn|` lines),
+  - `players` = `{"p1": name, "p2": name}` from the `|player|` lines (or `{}` if absent),
+  - `hp_by_slot` = `{"p1": <fraction sum>, "p2": <fraction sum>}` or `None` if not confidently parseable.
+  Include: a `|win|` + 3 `|turn|` + both `|player|` lines case; a `|tie` case; and a malformed case →
+  `winner_name=None`, `hp_by_slot=None`, no crash.
 - [ ] **Step 2 — run, expect fail.**
 - [ ] **Step 3 — implement** `parse_battle_result(frames) -> dict`:
-  - `turns` = number of `|turn|` lines.
-  - `winner_name` = arg of the `|win|` line (raw; the runner maps it to hero/villain/tie via the
-    known names, like `on_hero_result`).
-  - `end_hp_diff` (best-effort): track each position's latest HP fraction (`|switch|`/`|drag|` set from
-    the `hp/maxhp` field; `|-damage|`/`|-heal|` update; `faint`/`0 fnt` → 0.0); at end sum p1 − p2.
-    Wrap the whole HP walk in try/except → `None` on any surprise (nullable field, never crashes).
-  - Reuse `room_dump._iter_lines` for line splitting (single source).
+  - `turns` = number of `|turn|` lines; `winner_name` = `|win|` arg; `is_tie` = any `|tie` line.
+  - `players` from `|player|p1|NAME|...` / `|player|p2|NAME|...`.
+  - `hp_by_slot` (best-effort): track each **position**'s latest HP fraction (`|switch|`/`|drag|` set
+    from the `hp/maxhp` field; `|-damage|`/`|-heal|` update; `faint` / `0 fnt` → 0.0), aggregate to a
+    per-**player** (`p1`/`p2`) sum. Wrap the whole HP walk in try/except → `hp_by_slot=None` on any
+    surprise (never crashes; downstream sets `end_hp_diff=null`).
+  - Reuse `room_dump._iter_lines` for line splitting (single source). Operates on **raw** frames
+    (so `|player|` lines are present — they are stripped only by `normalize_battle_log`).
 - [ ] **Step 4 — run, expect pass.**
-- [ ] **Step 5 — commit** `feat(2b-3.5 T2): best-effort battle-result parser (turns/winner/end_hp)`.
+- [ ] **Step 5 — commit** `feat(2b-3.5 T2): side-agnostic battle-result parser (winner/turns/hp-by-slot)`.
 
 ## Task 3 — gauntlet per-battle callback seam
 
 **Files:** Modify `showdown_bot/src/showdown_bot/client/gauntlet.py`; Test
 `showdown_bot/tests/test_gauntlet_battle_result.py`.
 
-- [ ] **Step 1 — failing test:** a unit test that drives `on_hero_result`-style logic through a tiny
-  fake (or asserts the callback contract): `run_local_gauntlet(on_battle_result=cb)` fires `cb` once
-  per battle with a `dict` containing `winner` (role), `turns`, `room_raw_path` (or None), plus the
-  run's `invalid_choices`/`crashes`/`decision_latency_p95_ms`. Since a full live battle needs a server,
-  test the **pure assembler** helper `_battle_result_record(winner_name, hero_name, frames, stats, room_raw_path)`
-  extracted for this purpose (maps `winner_name`→role via `hero_name`; pulls turns/end_hp from
-  `parse_battle_result`).
+- [ ] **Step 1 — failing test** for the **pure assembler** (Fix 2 — explicit hero/villain mapping;
+  no live server needed): `_battle_result_record(winner_name, is_tie, hero_name, villain_name, frames,
+  stats, room_raw_path)`:
+  - `winner_name == hero_name` → `winner="hero"`; `== villain_name` → `"villain"`; `is_tie` (or a
+    `|tie` in frames) → `"tie"`; **any other `winner_name` → `ResultRowError`** (never silently guess).
+  - `end_hp_diff` = **hero-side HP sum − villain-side HP sum**, resolving hero/villain → `p1`/`p2` via
+    `parse_battle_result(frames)["players"]` matched to `hero_name`/`villain_name`. If the `players`
+    map is incomplete, a name doesn't match a slot, or `hp_by_slot is None` → **`end_hp_diff = None`**
+    (Fix 2: never fall back to a blind `p1 − p2`).
+  - Tests: hero-wins→"hero"; villain-wins→"villain"; tie→"tie"; unknown name→`ResultRowError`;
+    end_hp_diff correct when `players`+`hp_by_slot` resolve; `None` when the side mapping is unreliable.
 - [ ] **Step 2 — run, expect fail.**
 - [ ] **Step 3 — implement:**
   - Add `on_battle_result=None` param to `run_local_gauntlet` (default None → **no behavior change**, T2-CC-3).
-  - Extract `_battle_result_record(...)` (pure) and call it in the `win`/`tie` handler (where the T1a
-    dump already runs and `room_raw` is still present), then `if on_battle_result: on_battle_result(record)`.
-  - `room_raw_path` = the path the T1a dump wrote (return it from the dump call), else `None`.
+  - `_battle_result_record(...)` (pure) as above (uses `parse_battle_result` for turns/players/hp_by_slot).
+  - Call it in the `win`/`tie` handler (where the T1a dump already runs and `room_raw` is still
+    present), passing **both** `hero.name` and `villain.name`; then `if on_battle_result:
+    on_battle_result(record)`. `record` also carries `turns`, `invalid_choices`, `crashes`,
+    `decision_latency_p95_ms` (from `stats`/latencies) and `room_raw_path` (returned by the T1a dump,
+    else `None`).
 - [ ] **Step 4 — run, expect pass** (existing gauntlet tests still green: `on_battle_result=None`).
-- [ ] **Step 5 — commit** `feat(2b-3.5 T2): optional per-battle on_battle_result callback in gauntlet`.
+- [ ] **Step 5 — commit** `feat(2b-3.5 T2): optional per-battle on_battle_result callback + explicit side mapping`.
 
 ## Task 4 — schedule runner emits rows + smoke
 
 **Files:** Modify `showdown_bot/src/showdown_bot/cli.py` (`run_schedule`); Report
 `reports/2026-07-01-2b35-T2-result-jsonl-smoke.md`.
 
-- [ ] **Step 1** — CLI `gauntlet --schedule ... --result-out <path>`: for each row, pass an
-  `on_battle_result` that assembles the full row (schedule row fields + `make_battle_id` +
-  `seed=derive_battle_seed(base, seed_index)` + `git_sha_and_dirty()[0]` + the callback's
-  winner/turns/end_hp/latency/invalid/crashes + `room_raw_path` + `timeouts=None` + `panel_hash=None`)
-  and `BattleResultWriter.write(row)`. `--result-out` unset → no rows (T2-CC-3).
-- [ ] **Step 2** — after all rows: assert row-count == `len(schedule.rows)` (T2-CC-4); keep the existing
-  T1c seed-log alignment gate.
+- [ ] **Step 1** — CLI `gauntlet --schedule ... --result-out <path>`. At start (Fix 3, T2-CC-2):
+  if `--result-out` exists and is **non-empty**, **fail fast** (`ResultRowError`). For each row, pass an
+  `on_battle_result` that assembles the full row and `BattleResultWriter.write(row)`:
+  - `format_id` = `schedule_row.config_id` (the schedule field is the format — Fix 1 mapping note);
+  - `config_id` = the evaluated bot config = `hero_agent` (T2: `"heuristic"`);
+  - `config_hash` = `sha1(canonical({"config_id": config_id, "format_id": format_id}))[:16]`;
+  - `battle_id` = `make_battle_id(schedule_hash, seed_index, seed)`;
+    `seed` = `derive_battle_seed(base, seed_index)`; `git_sha` = `git_sha_and_dirty()[0]`;
+  - `opp_policy`/`hero_team_path`/`opp_team_path`/`seed_index`/`schedule_hash` from the row/schedule;
+  - `winner`/`turns`/`end_hp_diff`/`invalid_choices`/`crashes`/`decision_latency_p95_ms`/`room_raw_path`
+    from the callback record; `timeouts=None`; `panel_hash=None`.
+  `--result-out` unset → no rows written (T2-CC-3, bit-identical).
+- [ ] **Step 2** — after all rows: assert row-count == `len(schedule.rows)` (T2-CC-4, unambiguous
+  because the file started empty); keep the existing T1c seed-log alignment gate.
 - [ ] **Step 3 — smoke** (manual, in the report): run `smoke_nonmirror.yaml` with `--result-out`; assert
   2 valid rows, each joins to its schedule row by `seed_index`, `seed` == server seed log, winner ∈ roles,
   `turns>0`, 0 invalid/crash. (No JSONL committed — data artifact.)
@@ -233,9 +272,16 @@ No T3 panel / `panel_hash` population, no report generator, no Wilson CI, no McN
 T5 will need), no held-out gate, no 2b-4 override. `battle/` untouched.
 
 ## Self-review (writing-plans)
-- Spec coverage: every field the T2 prompt lists maps to a schema field (Row schema section) — incl.
-  `end_hp_diff` (nullable/best-effort), `timeouts` (nullable), `trace_path`→`room_raw_path`,
-  `panel_hash` (nullable until T3). ✓
-- Placeholders: none — all code shown; the only deferred value is `panel_hash=None` (intended, T3).
+- Spec coverage: every field the T2 prompt lists maps to a schema field — incl. `end_hp_diff`
+  (nullable/best-effort), `timeouts` (nullable), `trace_path`→`room_raw_path`, `panel_hash` (nullable
+  until T3). ✓
+- Review fixes applied: **(1)** `config_id` (bot version) split from `format_id` + required `config_hash`;
+  **(2)** `_battle_result_record(winner_name, is_tie, hero_name, villain_name, …)` with exact hero/villain
+  mapping (unknown → `ResultRowError`) and hero-side-minus-villain-side `end_hp_diff` via explicit
+  `|player|`-slot resolution (null if unreliable, never `p1−p2`); **(3)** `--result-out` empty-file-required,
+  fail fast if non-empty. ✓
+- Placeholders: none — all code shown; deferred values are `panel_hash=None` (T3) and `config_id`
+  always `"heuristic"` until shadow/override/prev_version comparisons (intended).
 - Type consistency: `make_battle_id(schedule_hash, seed_index, seed)` used identically in Task 1 test +
-  Task 4; `parse_battle_result` returns the same keys consumed by `_battle_result_record`. ✓
+  Task 4; `parse_battle_result` returns `{winner_name, is_tie, turns, players, hp_by_slot}` — the exact
+  keys `_battle_result_record` consumes (Task 3) and the runner assembles (Task 4). ✓
