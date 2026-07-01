@@ -1,0 +1,11 @@
+# Panel v001 — T3a STUB (schema only).
+# Uses existing teams as a 1-dev / 1-held-out stub so the panel schema + panel_hash +
+# split are exercised. The real species/archetype-diverse team pool is T3b (this file's
+# team list is expanded there); the full opponent-policy list is expanded in T3c/T3d.
+# team_path is resolved relative to the gauntlet working dir (showdown_bot/).
+version: v001
+policies: [heuristic, max_damage]
+dev_teams:
+  - {team_id: fixed_balance, team_path: teams/fixed_team.txt, archetype: balance}
+heldout_teams:
+  - {team_id: variant_a, team_path: teams/opp_variant_a.txt, archetype: balance_variant}
