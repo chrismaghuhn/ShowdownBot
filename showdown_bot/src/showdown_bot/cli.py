@@ -91,7 +91,7 @@ def run_schedule(args) -> None:
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                     "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
                     "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,
-                    "timeouts": None, "panel_hash": None, **record,
+                    "timeouts": None, "panel_hash": sched.panel_hash, **record,
                 })
                 written.append(_row.seed_index)
 
