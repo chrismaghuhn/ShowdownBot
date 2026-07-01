@@ -17,11 +17,24 @@ seed-fixed paired comparison. Showdown already supports this end-to-end — `Roo
 → the sim's `>start {seed}` → `new PRNG(seed)` — the challenge caller just never set it. This
 patch closes that one gap.
 
-**How it behaves:**
-- `SHOWDOWN_BATTLE_SEED` **set** (e.g. `sodium,00000000000000000000000000000000`) → every battle
-  created via challenge/search uses that seed → bit-reproducible battle (given deterministic bots).
-- `SHOWDOWN_BATTLE_SEED` **unset** → the `seed` field is omitted → the sim generates a fresh random
-  seed. **Stock behavior, zero change.** The patch is inert unless the env var is present.
+**How it behaves (two modes; both inert unless their env var is set):**
+- **T1a — fixed seed.** `SHOWDOWN_BATTLE_SEED` set (e.g. `sodium,00000000000000000000000000000000`)
+  → every battle uses that exact seed → bit-reproducible battle (given deterministic bots).
+- **T1b — per-battle seed.** `SHOWDOWN_BATTLE_SEED_BASE` set (and `SHOWDOWN_BATTLE_SEED` unset) → battle
+  *i* uses `seed_i = "sodium," + sha256(f"{base}:{i}").hexdigest()[:32]`, where `i` is a **process-local
+  counter that resets at server start** and increments once per created battle. Mirrors
+  `showdown_bot.eval.seeding.derive_battle_seed` character-for-character.
+- **unset** → the `seed` field is omitted → the sim generates a fresh random seed. **Stock behavior,
+  zero change.**
+
+**`SHOWDOWN_EVAL_SEED_LOG`** (per-battle mode only): if set, the server appends one JSONL line per
+created battle — `{"battle_index":0,"seed":"sodium,…","seed_base":"run2026"}` — recording the seed
+**actually used**. The T1b gate reads this to prove `server seed_i == derive_battle_seed(base, i)`.
+
+**Channel-A reproducibility contract (T1b):** the `base+counter` alignment holds ONLY when the paired
+runs (a) each start from a **fresh server process** (counter from 0) and (b) create battles in the
+**same order**. A retry/extra battle shifts the counter → the seed log's `battle_index` becomes
+non-contiguous → the gate fails fast. **No battle-level retry.**
 
 **Seed format:** a `PRNGSeed` string. Default/representative form is `sodium,<hex>` (the hex is
 zero-padded to 64 chars). `gen5,<hex>` and the legacy numeric `a,b,c,d` gen-5 form also work.
