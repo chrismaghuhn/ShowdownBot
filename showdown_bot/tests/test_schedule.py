@@ -151,6 +151,17 @@ def test_missing_version_fails_fast(tmp_path):
         load_schedule(_write(tmp_path, body))
 
 
+def test_panel_hash_read_from_yaml(tmp_path):
+    body = _VALID_FORMAT.replace("version: v001", "version: v001\n    panel_hash: pan123")
+    sched = load_schedule(_write(tmp_path, body))
+    assert sched.panel_hash == "pan123"
+
+
+def test_panel_hash_absent_is_none(tmp_path):
+    sched = load_schedule(_write(tmp_path, _VALID_FORMAT))
+    assert sched.panel_hash is None
+
+
 def _write_seed_log(path, base, n):
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         for i in range(n):

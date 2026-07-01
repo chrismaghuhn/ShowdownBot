@@ -45,11 +45,29 @@ class Schedule:
     version: str
     rows: tuple[ScheduleRow, ...]
     schedule_hash: str
+    panel_hash: str | None = None  # set by the T3d panel generator; legacy schedules -> None
+
+    @property
+    def reproducible(self) -> bool:
+        """False iff any row uses a non-reproducible policy (e.g. random) — T3-CC-3."""
+        from showdown_bot.eval.policies import is_reproducible
+        return all(is_reproducible(r.opp_policy) for r in self.rows)
 
 
 def _canonical_hash(payload) -> str:
     blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def compute_schedule_hash(version: str, rows) -> str:
+    """schedule_hash over VALUES only (key names excluded) — shared by loader + generator."""
+    return _canonical_hash({
+        "version": version,
+        "rows": [
+            [r.format_id, r.hero_team_path, r.opp_policy, r.opp_team_path, r.seed_index]
+            for r in rows
+        ],
+    })
 
 
 def load_schedule(path: str) -> Schedule:
@@ -108,17 +126,12 @@ def load_schedule(path: str) -> Schedule:
     if indices != list(range(len(indices))):
         raise ScheduleError(f"seed_index must be contiguous from 0: got {indices}")
 
-    schedule_hash = _canonical_hash(
-        {
-            "version": version,
-            "rows": [
-                # values only (not key names), so the rename keeps schedule_hash stable
-                [r.format_id, r.hero_team_path, r.opp_policy, r.opp_team_path, r.seed_index]
-                for r in rows
-            ],
-        }
+    panel_hash = data.get("panel_hash")
+    panel_hash = str(panel_hash) if panel_hash is not None else None
+    return Schedule(
+        version=version, rows=tuple(rows),
+        schedule_hash=compute_schedule_hash(version, rows), panel_hash=panel_hash,
     )
-    return Schedule(version=version, rows=tuple(rows), schedule_hash=schedule_hash)
 
 
 def verify_schedule_alignment(schedule: Schedule, seed_log_path: str, base: str):
