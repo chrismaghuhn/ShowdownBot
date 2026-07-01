@@ -33,28 +33,55 @@ stamps `panel_split`; `cli.run_schedule` populates the new row fields, computes 
 
 ---
 
-## Task 1 — Effective `config_hash` (behavior-covering)
+## Task 1 — Effective `config_hash` (behavior-covering, **fail-closed** env classification)
 
 **Problem (review §1/§10):** `make_config_hash(config_id, format_id)` — two behaviorally different bots
 share it → a config can be paired against itself (`n_discordant≈0` reads as "perfectly safe").
 
-**Files:** Modify `eval/result_jsonl.py` (`make_config_hash`); Modify `cli.run_schedule`; Test
+**Design principle (Plan-Claude required):** **fail-closed.** A *forgotten* behavior-affecting env var is
+dangerous (same `config_hash`, different behavior). An *over-included* env var is safe (only makes runs
+non-pairable). So config_hash **includes every set `SHOWDOWN_*` env var EXCEPT a documented non-behavioral
+denylist** — not an incomplete allowlist-with-examples. Two explicit, documented sets classify every
+`SHOWDOWN_*` read; a drift test forbids unclassified reads.
+
+**Files:** Create `eval/config_env.py` (the two classification sets + `behavior_env()`); Modify
+`eval/result_jsonl.py` (`make_config_hash`); Modify `cli.run_schedule`; Tests `tests/test_config_env.py`,
 `tests/test_result_jsonl.py`.
 
-- [ ] **Step 1 — failing test:** `make_config_hash(manifest: dict)` is order-independent + stable; two
-  manifests differing only in a **behavior-affecting env flag** (e.g. `SHOWDOWN_REAL_SPREADS`,
-  `SHOWDOWN_RERANKER_SHADOW`, reranker model/manifest paths) produce **different** hashes; identical
-  manifests → identical hash.
-- [ ] **Step 2 — run, expect fail.**
-- [ ] **Step 3 — implement:** `make_config_hash(manifest)` = `sha1(canonical(manifest))[:16]` where the
-  runner builds the manifest = `{"agent": hero_agent, "format_id", "priors_hash":
-  <content-hash of the protect_priors file>, "spreads_hash": <content-hash of the default_spreads file>,
-  "env": {behavior-affecting flags only}, "model_hash"/"model_manifest_hash": present only when the
-  reranker is enabled}`. Keep the old 2-arg form deprecated/removed; update T2's row assembly to pass the
-  manifest. (Non-behavioral env like `SHOWDOWN_CALC_BACKEND`/`SHOWDOWN_EVAL_SEED_LOG` are excluded — a
-  documented allowlist.)
-- [ ] **Step 4 — run, expect pass.**
-- [ ] **Step 5 — commit** `feat(2b-3.5 T3f): effective config_hash over behavior manifest`.
+- [ ] **Step 1 — classification (`eval/config_env.py`):**
+  - **`BEHAVIOR_AFFECTING`** (documented, must include at minimum): `SHOWDOWN_ROLLOUT_HORIZON`,
+    `SHOWDOWN_PROTECT_PENALTY`, `SHOWDOWN_MUST_REACT_LAMBDA`, `SHOWDOWN_OPP_SETS`, `SHOWDOWN_OUR_ROLL`,
+    `SHOWDOWN_OUR_DEF_PRESET`, `SHOWDOWN_OPP_SPEED`, `SHOWDOWN_REAL_SPREADS`, `SHOWDOWN_RERANKER_SHADOW`,
+    `SHOWDOWN_RERANKER_MODEL_PATH`, `SHOWDOWN_RERANKER_MANIFEST_PATH`, `SHOWDOWN_RERANKER_SHADOW_TIMEOUT_MS`,
+    **`SHOWDOWN_CALC_TIMEOUT_MS`** (a calc timeout can trigger fallback behavior under load → behavior-affecting).
+  - **`NON_BEHAVIORAL`** (documented denylist; exact names + prefix families `SHOWDOWN_AUTH_*`,
+    `SHOWDOWN_DATASET_*`): `SHOWDOWN_TURN_TRACE`, `SHOWDOWN_DECISION_DIFF`, `SHOWDOWN_ROOM_RAW_DUMP`,
+    `SHOWDOWN_EVAL_SEED_LOG`, `SHOWDOWN_USERNAME`, `SHOWDOWN_PASSWORD`, `SHOWDOWN_SERVER`,
+    `SHOWDOWN_RERANKER_SHADOW_LOG`, `SHOWDOWN_BATTLE_SEED_BASE`, `SHOWDOWN_CALC_BACKEND` **(with caveat)**.
+    - **`SHOWDOWN_CALC_BACKEND` caveat (documented in code):** oneshot/persistent both call the same
+      `@smogon/calc` Node script → numerically identical, so non-behavioral **for current code**. **If a
+      future Python/approximate backend changes scoring, this MUST move to `BEHAVIOR_AFFECTING`.**
+  - **`behavior_env() -> dict`** = `{k: v for k, v in os.environ.items() if k.startswith("SHOWDOWN_") and
+    not _denied(k)}` — **fail-closed**: any set `SHOWDOWN_*` not on the denylist is INCLUDED (unknown/new →
+    included → non-pairable, safe). `_denied(k)` matches exact denylist names + the prefix families.
+- [ ] **Step 2 — drift test (`tests/test_config_env.py`):** statically scan `battle/` + `engine/`
+  source for `SHOWDOWN_*` reads (`os.environ[...]` / `os.environ.get(...)` / `os.getenv(...)`); **assert
+  every read name is classified** — i.e. present in `BEHAVIOR_AFFECTING` **or** matched by `NON_BEHAVIORAL`
+  (exact or prefix). A **new unclassified `SHOWDOWN_*` read → the drift test FAILS**, forcing an explicit
+  classification decision (never a silent omission). Plus: each `BEHAVIOR_AFFECTING` var, when set, appears
+  in `behavior_env()`; each `NON_BEHAVIORAL` var, when set, does NOT.
+- [ ] **Step 3 — failing test (`make_config_hash`):** `make_config_hash(manifest: dict)` order-independent
+  + stable; two manifests differing only in a behavior-affecting env var (e.g. `SHOWDOWN_MUST_REACT_LAMBDA`,
+  `SHOWDOWN_REAL_SPREADS`) → **different** hashes; identical manifests → identical hash; a denylisted var
+  changing (e.g. `SHOWDOWN_CALC_BACKEND`) does **not** change the hash.
+- [ ] **Step 4 — run, expect fail.**
+- [ ] **Step 5 — implement:** `make_config_hash(manifest)` = `sha1(canonical(manifest))[:16]`; the runner
+  builds `manifest = {"agent": hero_agent, "format_id", "priors_hash": <content-hash of protect_priors
+  file>, "spreads_hash": <content-hash of default_spreads file>, "env": behavior_env(),
+  "model_hash"/"model_manifest_hash": present only when the reranker is enabled}`. Remove the old 2-arg
+  form; update T2's row assembly to pass the manifest.
+- [ ] **Step 6 — run, expect pass.**
+- [ ] **Step 7 — commit** `feat(2b-3.5 T3f): fail-closed config_hash env classification + drift test`.
 
 ## Task 2 — `seed_base` per row
 
@@ -146,8 +173,11 @@ ledger/baseline manifest, no override. `battle/` decision logic untouched.
 - Coverage of review §1 "missing": `seed_base` (T2), `run_id`+manifest (T3), `panel_split` (T4),
   `end_reason` (T5), effective `config_hash` (T1); `battle_id` docs already in T3e P4; latency budget
   pinned (T6). ✓
-- Additive + truthful: `schedule_hash`/`battle_id` unchanged; legacy → null/default; behavior-covering
-  `config_hash` proven by an env-flag test. ✓
+- Additive + truthful: `schedule_hash`/`battle_id` unchanged; legacy → null/default; `config_hash` is
+  behavior-covering via a **fail-closed** env classification (include every `SHOWDOWN_*` except a documented
+  non-behavioral denylist) + a **drift test** that fails on any unclassified `SHOWDOWN_*` read in
+  `battle/`/`engine/` — a forgotten behavior flag can't silently produce same-hash/different-behavior; an
+  over-included flag only makes runs non-pairable (safe). ✓
 - Scope discipline: statistics/gates/ledger/baseline all explicitly deferred to T4/T5/T6; the review is a
   non-binding artifact and only its §1 schema-readiness findings are promoted here. ✓
 - No placeholders (the one config constant, `showdown_commit`, is pinned in config with a loader test).
