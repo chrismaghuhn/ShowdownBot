@@ -1,0 +1,19 @@
+# 2b-3.5 T1c non-mirror smoke schedule (v001).
+# Two rows, each a NON-MIRROR pairing: our fixed_team vs a *different* opponent team
+# (distinct packed team -> distinct in-battle stats). opp_policy=heuristic so both bots
+# are deterministic and the battles reproduce to the T1b level under a fixed seed base.
+# Team paths are relative to the gauntlet's working dir (showdown_bot/).
+# NOTE: run against a FRESH server with SHOWDOWN_BATTLE_SEED_BASE (Channel A: seed_index
+# aligns with the server counter by execution order).
+version: v001
+rows:
+  - config_id: gen9vgc2025regi
+    hero_team_path: teams/fixed_team.txt
+    opp_policy: heuristic
+    opp_team_path: teams/opp_variant_a.txt
+    seed_index: 0
+  - config_id: gen9vgc2025regi
+    hero_team_path: teams/fixed_team.txt
+    opp_policy: heuristic
+    opp_team_path: teams/opp_variant_b.txt
+    seed_index: 1
