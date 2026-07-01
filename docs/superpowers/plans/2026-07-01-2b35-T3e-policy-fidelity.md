@@ -110,8 +110,8 @@ smoke used `scripted_vgc`, which is not in `panel_v001.policies=[heuristic,max_d
 must truthfully cover the policies the schedule uses.
 
 **Files:** Modify `eval/panel_schedule.py` (`_resolve_policies`); Modify `config/eval/panels/panel_v001.yaml`
-(intentional hash change); Update `tests/test_panel.py`, `tests/test_panel_schedule.py`, and the T3d/T3e
-reports' `panel_hash` references.
+(intentional hash change); Update **current** `panel_hash` references in `tests/test_panel.py`,
+`tests/test_panel_schedule.py`; add a **supersession note** (not a rewrite) to the T3d report.
 
 - [ ] **Step 1 — failing tests:** `_resolve_policies` raises if any chosen policy ∉ `panel.policies`
   (both default and explicit-list paths); a panel listing all reproducible policies generates cleanly.
@@ -119,9 +119,17 @@ reports' `panel_hash` references.
 - [ ] **Step 3 — implement:** enforce **`chosen ⊆ panel.policies`** (fail fast). Update
   `panel_v001.yaml` `policies:` to the full reproducible panel set
   `[heuristic, max_damage, greedy_protect, simple_heuristic, scripted_vgc]` — this **intentionally
-  changes `panel_hash`** (panel_hash covers the policy list). Recompute + update every pinned
-  `9aa3af95e461881f` reference (tests + a one-line note in the T3d report that the panel policy list was
-  corrected in T3e, changing the hash). (Keep `panel_v001`; no `panel_v002` unless the reviewer prefers.)
+  changes `panel_hash`** (panel_hash covers the policy list). (Keep `panel_v001`; no `panel_v002` unless
+  the reviewer prefers.)
+  - **Provenance discipline (do NOT retcon history):**
+    - The **T3d report keeps its OLD observed `panel_hash=9aa3af95e461881f`** as a historical fact of
+      that smoke run — do not rewrite it to the new hash.
+    - Add a one-line **supersession note** to the T3d report: *"T3e corrected `panel_v001.policies`,
+      changing `panel_hash` from `9aa3af95e461881f` (OLD) to `<NEW>`. The T3d smoke remains a historical
+      load-smoke; the T3e smoke supersedes it for pre-T4 readiness."*
+    - The **T3e report uses the NEW `panel_hash`** (its rows carry it).
+    - **Tests / current references** that assert *the current* `panel_v001` hash update to `<NEW>`;
+      historical-report text is left as-is.
 - [ ] **Step 4 — run, expect pass.**
 - [ ] **Step 5 — commit** `fix(2b-3.5 T3e P1): enforce policy ⊆ panel + panel_v001 policy list (hash change)`.
 
@@ -186,9 +194,10 @@ is the first hardening stage. Revisit only if T4/T5 shows greedy_protect still d
 ## Self-review (writing-plans)
 - Coverage: policy fidelity (Tasks 1–2) + P0 per-battle counters + P1 panel policy provenance + P2
   activation evidence + P4 row provenance + live-path guard (Task 3) + both-policy smoke (Task 4). ✓
-- Truthfulness: P1 changes `panel_hash` intentionally (documented, all references updated); P4 adds
-  `dirty`/team hashes without touching `schedule_hash` (hashes not in the identity payload); `battle_id`
-  re-documented as pairing key. ✓
+- Truthfulness: P1 changes `panel_hash` intentionally — **current** references (tests) update to the new
+  hash, but the **T3d report's historical `9aa3af95e461881f` is preserved** with a supersession note (no
+  retcon of what actually ran); T3e report uses the new hash. P4 adds `dirty`/team hashes without touching
+  `schedule_hash` (hashes not in the identity payload); `battle_id` re-documented as pairing key. ✓
 - Determinism + legality + eval-only preserved; `state`/type/metadata absent → current behavior, legal
   `/choose`; telemetry env-gated (no-op when unset). ✓
 - No placeholders; stateful consecutive-Protect explicitly deferred as recorded debt.
