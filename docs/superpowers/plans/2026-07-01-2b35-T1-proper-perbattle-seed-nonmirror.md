@@ -23,27 +23,44 @@ local patched `node pokemon-showdown` (@ f8ac140 + `tools/eval/patches/`). No ne
 ## Cross-cutting rules (inherit parent plan CC-1…CC-5; plus)
 - **T1-CC-A — one derivation, two call sites.** `derive_battle_seed(base, index)` is defined once in
   Python and mirrored **character-for-character** in the server patch. A test pins known vectors on the
-  Python side; the server proof (re-run compare) pins that the server matches. If they ever diverge,
+  Python side; **T1-CC-D's seed log** pins that the server actually used them. If they ever diverge,
   reproduction breaks silently — so the formula is dead simple and both copies carry the same comment.
-- **T1-CC-B — reproduction requires a fresh server per version run.** The per-battle counter resets at
-  process start. Two runs to be paired (version A vs B) MUST each start a fresh server (counter from 0)
-  and create battles in the **same schedule order**, or the seed sequences won't align. Stated in every
-  runner + report.
+- **T1-CC-B — strict counter-order guard (Option A depends on creation order).** The per-battle counter
+  resets at process start, so the `seed_index → seed` alignment holds ONLY under a strict runner. Any
+  paired/seeded run MUST:
+  - start from a **fresh server process** (counter from 0);
+  - execute schedule rows **sorted by `seed_index`**, which must be **contiguous from 0**;
+  - treat a **retry/special battle that creates an extra battle as invalidating the run** (it shifts the
+    counter);
+  - **fail fast if the seed-log `battle_index` ≠ the schedule row's `seed_index`** (T1-CC-D).
+  Stated in every runner + report. Otherwise a retry/extra battle causes a silent seed shift.
 - **T1-CC-C — the seed sequence is content-independent.** `seed_i = derive(base, i)` depends only on
   `(base, battle index)`, never on the teams/policies. That is what makes A-vs-B a fair paired
   comparison (same luck, different policy). Never fold policy/team into the seed.
+- **T1-CC-D — the server logs the actual seed it used.** In base+counter mode the patch appends one line
+  per created battle to `SHOWDOWN_EVAL_SEED_LOG` (e.g. `logs/eval/seeds.jsonl`):
+  `{"battle_index":0,"seed":"sodium,...","seed_base":"run2026"}`. This is the **direct** proof the
+  server took the expected seed — `room_raw` reproduction alone does not carry the seed value. The T1b
+  gate asserts `server_logged_seed_i == derive_battle_seed(base, i)` for every i.
+- **T1-CC-E — `PYTHONHASHSEED=0` must be set BEFORE the Python process launches.** Setting it inside an
+  already-running interpreter is a no-op (hash randomization is fixed at startup). Either
+  `PYTHONHASHSEED=0 python -m showdown_bot …` in the shell, or the runner spawns the gauntlet subprocess
+  with `env={"PYTHONHASHSEED": "0", …}`.
 
 ---
 
-## Design decision (resolve at review): per-battle seed channel
+## Design decision — per-battle seed channel — **APPROVED (Plan-Claude, 2026-07-01): channel A**
 Chosen = **(A) server-side base + process-local counter**, because it needs no per-battle Python→server
-protocol and gives an aligned seed sequence across fresh sessions. Rejected alternatives, for the record:
+protocol and gives an aligned seed sequence across fresh sessions. Approved with the strict-guard +
+seed-log requirements (T1-CC-B/D/E). Rejected alternatives, for the record:
 - **(B) thread the seed through `/challenge`** — most robust (seed tied to the schedule row, not to
   creation order), but needs a challenge-protocol/custom-rule parse extension. Hold as the fallback if
   counter/order coupling ever bites (e.g. retried challenges desyncing the counter).
 - **(C) restart the server per battle** — trivially correct but far too slow for a schedule.
-Self-check baked in: T1b's gate re-runs and compares `room_raw` per battle, so any counter/order
-desync surfaces as a mismatch rather than a silent wrong number.
+Self-check baked in (two independent signals): (1) **direct** — the server logs the actual seed per
+battle (T1-CC-D) and the gate asserts it equals `derive_battle_seed(base, i)`; (2) **corroborating** —
+T1b re-runs and compares `room_raw` per battle. Any counter/order desync fails the seed-log assertion
+(T1-CC-B) rather than surfacing as a silent wrong number.
 
 ---
 
@@ -107,36 +124,49 @@ let evalSeed = process.env.SHOWDOWN_BATTLE_SEED;                 // fixed-seed m
 const seedBase = process.env.SHOWDOWN_BATTLE_SEED_BASE;          // per-battle mode (T1b)
 if (!evalSeed && seedBase) {
     const crypto = require('crypto');
-    const digest = crypto.createHash('sha256').update(`${seedBase}:${evalBattleCounter}`).digest('hex');
+    const battleIndex = evalBattleCounter++;                     // process-local, resets per server start
+    const digest = crypto.createHash('sha256').update(`${seedBase}:${battleIndex}`).digest('hex');
     evalSeed = `sodium,${digest.slice(0, 32)}` as any;
-    evalBattleCounter++;
+    const seedLog = process.env.SHOWDOWN_EVAL_SEED_LOG;
+    if (seedLog) {   // T1-CC-D: record the ACTUAL seed used, per battle, for the T1b gate
+        require('fs').appendFileSync(seedLog,
+            JSON.stringify({battle_index: battleIndex, seed: evalSeed, seed_base: seedBase}) + "\n");
+    }
 }
 ```
-  (Same formula as Python — verify equality against `test_known_vector` in Task 3's proof, T1-CC-A.)
+  (Same formula as Python — the T1b gate asserts the logged seed equals `derive_battle_seed`, T1-CC-A/D.)
 - [ ] **Step 2** — `node build` in the clone; expect exit 0.
 - [ ] **Step 3** — re-export the artifact: `git -C ~/.cache/.../pokemon-showdown diff server/ladders.ts`
   → overwrite `tools/eval/patches/pokemon-showdown-seeded-battle.patch`; update README (document
-  `SHOWDOWN_BATTLE_SEED_BASE` + fresh-session requirement T1-CC-B).
+  `SHOWDOWN_BATTLE_SEED_BASE`, `SHOWDOWN_EVAL_SEED_LOG`, the fresh-session requirement T1-CC-B, and the
+  seed-log JSONL shape T1-CC-D).
 - [ ] **Step 4 — commit** `feat(2b-3.5 T1b): server per-battle seed (base+counter) + artifact`.
 
-### Task 3: N-battle reproduction proof + PYTHONHASHSEED
-- [ ] **Step 1** — pin bot cross-process determinism: set `PYTHONHASHSEED=0` for gauntlet runs used in
-  paired eval (document in the report + any runner). Rationale: if any heuristic tie-break iterates a
-  set, cross-process ordering must be fixed too (T1a only proved within-process).
-- [ ] **Step 2 — proof run** (manual, scripted in the report): start a fresh server with
-  `SHOWDOWN_BATTLE_SEED_BASE=run2026`; run `--games 4 --villain heuristic` twice (fresh server each
-  time, `PYTHONHASHSEED=0`, `SHOWDOWN_ROOM_RAW_DUMP` set). Using `eval/room_dump.compare_battle_logs`,
-  assert: (a) run1 battle_i ≡ run2 battle_i for every i (per-battle reproduction), and (b) battle_i ≢
-  battle_j for i≠j (distinct seeds → generally distinct battles). Also assert the server's first seed ==
-  `derive_battle_seed("run2026", 0)` (T1-CC-A) by reading it back from the battle (or by the room_raw
-  match to a Python-seeded control).
-- [ ] **Step 3 — report** `reports/2026-07-01-2b35-T1b-perbattle-seed.md`: the per-battle identity table
-  + the distinctness check + the PYTHONHASHSEED note + T1-CC-A/B confirmation. Verdict:
-  per-battle-reproducible or a precise failure reason.
+### Task 3: seed-log gate + N-battle reproduction proof + PYTHONHASHSEED
+- [ ] **Step 1 — pin bot cross-process determinism (T1-CC-E).** `PYTHONHASHSEED=0` must be set **before
+  the Python gauntlet process launches** — either `PYTHONHASHSEED=0 python -m showdown_bot …` in the
+  shell, or the runner spawns the gauntlet subprocess with `env={"PYTHONHASHSEED": "0", …}`. Setting it
+  inside an already-running interpreter is a no-op. (T1a only proved within-process; paired eval is
+  cross-process.)
+- [ ] **Step 2 — proof run** (scripted in the report). Start a **fresh** server (T1-CC-B) with
+  `SHOWDOWN_BATTLE_SEED_BASE=run2026` and `SHOWDOWN_EVAL_SEED_LOG=<path>/seeds.jsonl`; run `--games 4
+  --villain heuristic` twice (fresh server each time, `PYTHONHASHSEED=0`, `SHOWDOWN_ROOM_RAW_DUMP` set).
+  - **PRIMARY gate (T1-CC-D, direct):** for every logged line, assert `seed == derive_battle_seed(
+    "run2026", battle_index)`, and assert `battle_index` is **contiguous from 0** and matches the
+    intended schedule order — **fail fast** on any gap/reorder (a retry/extra battle → counter shift).
+  - **CORROBORATING (T1-CC-B):** via `eval/room_dump.compare_battle_logs`, assert (a) run1 battle_i ≡
+    run2 battle_i for every i (reproduction), and (b) battle_i ≢ battle_j for i≠j (distinct seeds →
+    generally distinct battles).
+- [ ] **Step 3 — report** `reports/2026-07-01-2b35-T1b-perbattle-seed.md`: the **seed-log vs
+  `derive_battle_seed` table** (primary), the per-battle room_raw identity + distinctness table
+  (corroborating), the PYTHONHASHSEED-before-launch note, and the strict counter-order guard (T1-CC-B)
+  confirmation. Verdict: per-battle-reproducible or a precise failure reason.
 - [ ] **Step 4 — commit** `docs(2b-3.5 T1b): per-battle seed reproduction report`.
 
-**Phase T1b gate:** 4-battle schedule reproduces across two fresh-server runs; seeds distinct per index;
-Python↔server derivation confirmed equal; suite green; safety floor holds. **STOP for review before T1c.**
+**Phase T1b gate:** **server-logged seed_i == `derive_battle_seed(base, i)` for every i** (primary);
+4-battle schedule reproduces across two fresh-server runs; seeds distinct per index; seed-log
+`battle_index` contiguous-from-0 (no counter shift); suite green; safety floor holds. **STOP for review
+before T1c.**
 
 ---
 
@@ -172,10 +202,15 @@ Python↔server derivation confirmed equal; suite green; safety floor holds. **S
 - [ ] **Step 5 — commit** `feat(2b-3.5 T1c): per-side teams in run_local_gauntlet`.
 
 ### Task 6: schedule-driven run + non-mirror smoke
-- [ ] **Step 1** — CLI `--schedule <path>` for `gauntlet`: iterate rows, run each battle with the row's
-  `hero_team_path`/`opp_team_path`/`opp_policy`, `SHOWDOWN_BATTLE_SEED_BASE` set so battle *i* uses
-  `derive_battle_seed(base, row.seed_index)` (fresh server, T1-CC-B). (No per-battle JSONL yet — that is
-  T2; a plain aggregate/console result is fine here.)
+- [ ] **Step 1** — CLI `--schedule <path>` for `gauntlet`: execute rows **sorted by `seed_index`**
+  (contiguous from 0) against a **fresh** server with `SHOWDOWN_BATTLE_SEED_BASE` + `SHOWDOWN_EVAL_SEED_LOG`
+  set; each row runs with its `hero_team_path`/`opp_team_path`/`opp_policy`.
+  **Important (Option A semantics):** `seed_index` is **not transmitted to the server** through
+  `/challenge` — it aligns with the server's process-local counter **only because** the runner executes
+  rows in `seed_index` order from a fresh server (T1-CC-B). The runner MUST assert the seed-log
+  `battle_index` == the row's `seed_index` after each battle and **fail fast** on mismatch (retry/extra
+  battle → silent seed shift otherwise). (No per-battle JSONL yet — that is T2; a plain aggregate/console
+  result is fine here.)
 - [ ] **Step 2 — smoke:** `config/eval/schedules/smoke_nonmirror.yaml` (2 rows, hero team vs a *different*
   opp team). Run it twice; assert (via `room_dump`) each non-mirror battle reproduces (T1a-level) and the
   two teams really differ in-battle.
