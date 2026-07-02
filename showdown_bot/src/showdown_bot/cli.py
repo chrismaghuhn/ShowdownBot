@@ -130,7 +130,10 @@ def run_schedule(args) -> None:
                     "config_hash": _config_hash_for(config_id, format_id),
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                     "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
-                    "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,
+                    "opp_team_path": _row.opp_team_path, "seed": seed,
+                    # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
+                    # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
+                    "seed_base": base, "git_sha": git_sha,
                     "dirty": dirty,  # T3e P4 provenance
                     # Team-hash provenance from the schedule row (legacy schedules -> null).
                     "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
