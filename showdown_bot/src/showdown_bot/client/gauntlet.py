@@ -53,6 +53,7 @@ def agent_choose(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
+    species_resolver=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -64,10 +65,16 @@ def agent_choose(
     # Local imports keep eval/opponents off the default/import path (live-path guard).
     if agent == "greedy_protect":
         from showdown_bot.eval.opponents.policies import greedy_protect_choice
-        return greedy_protect_choice(req)
+        # T3e Task 2: thread state/our_side so Protect is HP-gated when HP is known;
+        # both default to None (attack, full-HP behavior) when state build failed.
+        return greedy_protect_choice(req, state=state, our_side=our_side)
     if agent == "simple_heuristic":
         from showdown_bot.eval.opponents.policies import simple_heuristic_choice
-        return simple_heuristic_choice(req)
+        # T3e Task 1: thread state/our_side so scoring is type-aware when typing is known.
+        # T3e P2a: species_resolver derives opponent typing from species when the live state
+        # carries only the species (types empty) — eval-only, never mutates state.
+        return simple_heuristic_choice(
+            req, state=state, our_side=our_side, resolver=species_resolver)
     if agent == "scripted_vgc":
         from showdown_bot.eval.opponents.scripted_vgc import scripted_vgc_choice
         return scripted_vgc_choice(req)
@@ -98,6 +105,39 @@ def _latency_p95(latencies) -> float:
     ordered = sorted(latencies)
     idx = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
     return ordered[idx]
+
+
+class _PerBattleCounters:
+    """Turn lifetime-cumulative client counters into per-battle deltas (T3e-P0).
+
+    ``_Client.invalid``/``.crashes`` accumulate over the client's whole life and
+    ``.latencies`` is append-only, so a T2 result row built from the raw totals makes
+    row N carry battles 0..N (a run-lifetime total), not battle N. This keeps a watermark
+    (snapshot) of the cumulative values consumed so far; ``emit`` returns the delta for
+    the single battle that just finished and computes latency p95 over ONLY the latencies
+    appended since the previous emit, then advances the watermark. Battles are sequential,
+    so "delta since last emit" is exactly this battle's count.
+
+    First battle: watermark starts at zero, so the delta equals the raw values — the
+    existing single-battle-per-row behavior is preserved bit-for-bit.
+    """
+
+    def __init__(self) -> None:
+        self._invalid = 0
+        self._crashes = 0
+        self._lat_len = 0
+
+    def emit(self, *, invalid: int, crashes: int, latencies: list[float]) -> dict:
+        new_lat = latencies[self._lat_len:]
+        record = {
+            "invalid_choices": invalid - self._invalid,
+            "crashes": crashes - self._crashes,
+            "decision_latency_p95_ms": round(_latency_p95(new_lat) * 1000),
+        }
+        self._invalid = invalid
+        self._crashes = crashes
+        self._lat_len = len(latencies)
+        return record
 
 
 @dataclass
@@ -135,6 +175,10 @@ class _Client:
         self.our_spreads = our_spreads_from_packed(packed_team) if (packed_team and _real) else None
         self.opp_sets = opp_sets
         self.trace = trace
+        # Eval-only species->types resolver for simple_heuristic (T3e P2a): built lazily +
+        # cached so the type-aware path can activate when the live state has only species.
+        self._eval_species_dex = None
+        self._eval_species_dex_tried = False
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
         self.last_request: dict[str, str] = {}
@@ -168,6 +212,24 @@ class _Client:
                      "run_seed": self._export.run_seed}
         self._shadow = RerankerShadowRuntime.from_env(
             format_id=format_id, packed_team=packed_team, provenance=_prov)
+
+    def _species_type_resolver(self):
+        """Eval-only species->types resolver for simple_heuristic (T3e P2a). Built lazily and
+        cached; ``None`` for other agents or when the calc backend can't be built (graceful —
+        the policy then stays in base-power mode). Reads types only; never mutates state."""
+        if self.agent != "simple_heuristic":
+            return None
+        if not self._eval_species_dex_tried:
+            self._eval_species_dex_tried = True
+            try:
+                from showdown_bot.battle.opponent import SpeciesDex
+                from showdown_bot.engine.calc.client import make_calc_backend
+
+                self._eval_species_dex = SpeciesDex(make_calc_backend())
+            except Exception as exc:  # noqa: BLE001 - stay base-power if backend unavailable
+                logger.debug("[%s] eval species resolver unavailable: %s", self.name, exc)
+                self._eval_species_dex = None
+        return self._eval_species_dex
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
@@ -203,6 +265,7 @@ class _Client:
                 self.agent, req, state=state, book=self.book,
                 our_side=req.side.id, priors=self.priors, report=report,
                 our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
+                species_resolver=self._species_type_resolver(),
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -446,6 +509,9 @@ async def run_local_gauntlet(
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=villain_packed, opp_sets=opp_sets)
 
     stats = GauntletStats()
+    # Per-battle counter deltas (T3e-P0): the row for battle N must carry battle N's
+    # invalid/crashes/latency-p95, not the run-lifetime cumulative totals on the clients.
+    per_battle = _PerBattleCounters()
     stop = asyncio.Event()
     next_game = asyncio.Event()
     next_game.set()  # allow first challenge
@@ -459,16 +525,25 @@ async def run_local_gauntlet(
         else:
             stats.villain_wins += 1
         logger.info("game %d/%d done (winner=%s)", stats.games, games, winner)
-        # T2 per-battle result: build + emit the record (games=1/row -> run stats == battle stats).
-        # Best-effort: a bad record is logged, never stalls progression; a missing row then trips
-        # the runner's row-count == len(rows) check (fail-fast at the end).
+        # T2 per-battle result: build + emit the record. Counters are per-battle deltas
+        # (T3e-P0) so a multi-battle run reports each row's own invalid/crashes/latency, not
+        # the run-lifetime cumulative totals. Best-effort: a bad record is logged, never stalls
+        # progression; a missing row then trips the runner's row-count == len(rows) check.
         if on_battle_result is not None and room_frames is not None:
             try:
+                # Advance the per-battle watermark first (T3e-P0): even if record assembly
+                # raises for this battle, its counts are "spent" and must not leak into the
+                # next row. Deltas are the finishing battle's counts, not the run totals.
+                deltas = per_battle.emit(
+                    invalid=hero.invalid + villain.invalid,
+                    crashes=hero.crashes + villain.crashes,
+                    latencies=hero.latencies,
+                )
                 record = _battle_result_record(
                     hero.name, villain.name, room_frames,
-                    invalid_choices=hero.invalid + villain.invalid,
-                    crashes=hero.crashes + villain.crashes,
-                    decision_latency_p95_ms=round(_latency_p95(hero.latencies) * 1000),
+                    invalid_choices=deltas["invalid_choices"],
+                    crashes=deltas["crashes"],
+                    decision_latency_p95_ms=deltas["decision_latency_p95_ms"],
                     room_raw_path=room_raw_path,
                 )
                 on_battle_result(record)

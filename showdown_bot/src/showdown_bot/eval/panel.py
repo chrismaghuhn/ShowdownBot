@@ -59,6 +59,16 @@ def _team_content_hash(teams_root: str, team_path: str) -> str:
     }))
 
 
+def team_content_hash(teams_root: str, team_path: str) -> str:
+    """Public content hash of a team's ``.txt`` + ``.packed`` (same digest as panel team_hash).
+
+    Used by the schedule generator (T3e P4) to stamp ``hero_team_hash`` so a result row's
+    hero provenance matches how panel opponent teams are hashed. Raises ``PanelError`` if
+    either file is missing.
+    """
+    return _team_content_hash(teams_root, team_path)
+
+
 def _load_team_list(raw, teams_root: str, side: str) -> list[PanelTeam]:
     if not isinstance(raw, list):
         raise PanelError(f"{side} must be a list")

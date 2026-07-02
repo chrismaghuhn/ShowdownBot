@@ -19,7 +19,10 @@ import yaml
 # T3a). Exactly one is required. The rest are core required fields.
 _CORE_REQUIRED = frozenset({"hero_team_path", "opp_policy", "opp_team_path", "seed_index"})
 _FORMAT_FIELDS = frozenset({"format_id", "config_id"})
-_ALLOWED_FIELDS = _CORE_REQUIRED | _FORMAT_FIELDS
+# Optional per-row team-content provenance (T3e P4): NOT part of schedule identity
+# (excluded from schedule_hash); legacy rows omit them -> None.
+_OPTIONAL_FIELDS = frozenset({"hero_team_hash", "opp_team_hash"})
+_ALLOWED_FIELDS = _CORE_REQUIRED | _FORMAT_FIELDS | _OPTIONAL_FIELDS
 # Single source of truth for known policies is the T3a registry (eval/policies.py).
 # (Implemented-vs-declared is a runner-level concern — the loader only checks "known".)
 from showdown_bot.eval.policies import POLICIES as _POLICIES  # noqa: E402
@@ -38,6 +41,8 @@ class ScheduleRow:
     opp_policy: str
     opp_team_path: str
     seed_index: int
+    hero_team_hash: str | None = None  # T3e P4 provenance; not in schedule_hash
+    opp_team_hash: str | None = None   # T3e P4 provenance; not in schedule_hash
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,8 @@ def load_schedule(path: str) -> Schedule:
             seed_index = int(r["seed_index"])
         except (TypeError, ValueError):
             raise ScheduleError(f"row {i} seed_index not an int: {r['seed_index']!r}") from None
+        hero_team_hash = r.get("hero_team_hash")  # T3e P4 provenance; absent -> None (legacy)
+        opp_team_hash = r.get("opp_team_hash")
         rows.append(
             ScheduleRow(
                 format_id=format_id,
@@ -116,6 +123,8 @@ def load_schedule(path: str) -> Schedule:
                 opp_policy=policy,
                 opp_team_path=str(r["opp_team_path"]),
                 seed_index=seed_index,
+                hero_team_hash=str(hero_team_hash) if hero_team_hash is not None else None,
+                opp_team_hash=str(opp_team_hash) if opp_team_hash is not None else None,
             )
         )
 

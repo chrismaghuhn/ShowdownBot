@@ -1,5 +1,11 @@
 # 2b-3.5 T3d — Panel-Load Smoke (2026-07-01)
 
+> **Supersession note (T3e, 2026-07-02):** T3e P1 corrected `panel_v001.policies` to the full
+> reproducible policy set, changing `panel_hash` from `9aa3af95e461881f` to `760c1e5935fe0474`.
+> The observed values below are the **historical** T3d facts (old `panel_hash 9aa3af95e461881f`)
+> and are left unchanged. This T3d run remains a historical **load-smoke**; the later **T3e smoke**
+> supersedes it for pre-T4 readiness and will use the new `panel_hash`.
+
 The last T3 piece: turn `panel_v001` into T1c schedules (dev/held-out gated) and prove a tiny
 generated dev schedule **loads + runs** end-to-end. This is a *load + runs* smoke — the full
 ~50-game smoke is **T4**. Branch: `feat/slice-2b35-t3d-panel-schedules-smoke`.

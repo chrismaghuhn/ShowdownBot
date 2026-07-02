@@ -2,9 +2,13 @@
 # 3 dev + 2 held-out, distinct archetypes (not spread variants of fixed_team). Every team
 # validates clean with `node pokemon-showdown validate-team gen9vgc2025regi` and is packed
 # via `pack-team`. team_path is resolved relative to the gauntlet working dir (showdown_bot/).
-# The full opponent-policy list is expanded in T3c/T3d.
+# The full reproducible opponent-policy set (T3e P1): schedules may only use policies listed
+# here, so panel_hash truthfully covers whatever a schedule runs. (`random` is intentionally
+# omitted — it is non-reproducible and must never enter a paired schedule.) Expanding this list
+# intentionally changed panel_hash from 9aa3af95e461881f (heuristic+max_damage only) to the
+# current value; see reports/2026-07-01-2b35-T3-panel-load-smoke.md supersession note.
 version: v001
-policies: [heuristic, max_damage]
+policies: [heuristic, max_damage, greedy_protect, simple_heuristic, scripted_vgc]
 dev_teams:
   - {team_id: trickroom, team_path: teams/panel_v001/trickroom_dev.txt, archetype: trick_room}
   - {team_id: sun, team_path: teams/panel_v001/sun_dev.txt, archetype: sun}
