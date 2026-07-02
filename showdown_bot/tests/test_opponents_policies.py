@@ -224,3 +224,69 @@ def test_greedy_two_calls_equal_with_state():
     st = _our_state(a_hp=0.3, b_hp=1.0)
     assert greedy_protect_choice(req, state=st, our_side="p1") == \
         greedy_protect_choice(req, state=st, our_side="p1")
+
+
+# --- T3e P2: activation telemetry (env-gated, eval-only, no /choose effect) ------------
+
+def _events(path):
+    p = Path(path)
+    if not p.exists():
+        return []
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def test_policy_telemetry_noop_when_unset(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", raising=False)
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    state = _foe_state(a_types=["Fire", "Flying"], b_types=["Fire", "Flying"])
+    # No path -> must not raise and must not change the /choose output.
+    assert simple_heuristic_choice(req, state=state, our_side="p1").startswith("/choose ")
+    greedy = _two_slot_req(_atk_protect(), _atk_protect())
+    assert greedy_protect_choice(greedy, state=_our_state(a_hp=0.3, b_hp=1.0),
+                                 our_side="p1").startswith("/choose ")
+
+
+def test_simple_heuristic_telemetry_fires_on_type_effectiveness(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    state = _foe_state(a_types=["Fire", "Flying"], b_types=["Fire", "Flying"])
+    simple_heuristic_choice(req, state=state, our_side="p1")
+    assert any(e["policy"] == "simple_heuristic" and e["event"] == "type_effectiveness_fired"
+               for e in _events(telem))
+
+
+def test_simple_heuristic_telemetry_silent_without_type_info(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    simple_heuristic_choice(req, state=None, our_side="p1")   # neutral everywhere -> no fire
+    assert _events(telem) == []
+
+
+def test_greedy_telemetry_fires_on_hp_gated_protect(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    greedy_protect_choice(req, state=_our_state(a_hp=0.3, b_hp=1.0), our_side="p1")
+    assert any(e["policy"] == "greedy_protect" and e["event"] == "hp_gated_protect_fired"
+               for e in _events(telem))
+
+
+def test_greedy_telemetry_silent_when_all_healthy(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    greedy_protect_choice(req, state=_our_state(a_hp=1.0, b_hp=1.0), our_side="p1")
+    assert _events(telem) == []
+
+
+def test_telemetry_is_deterministic(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    state = _foe_state(a_types=["Fire", "Flying"], b_types=["Fire", "Flying"])
+    simple_heuristic_choice(req, state=state, our_side="p1")
+    simple_heuristic_choice(req, state=state, our_side="p1")
+    ev = _events(telem)
+    assert len(ev) == 2 and ev[0] == ev[1]   # append-only, identical inputs -> identical events

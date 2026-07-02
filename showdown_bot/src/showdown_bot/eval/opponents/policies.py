@@ -4,14 +4,35 @@ Deterministic, request-only (no calc/rollout). Both take ``(req, **_ignored)`` s
 dispatch can call them with the same kwargs as the other agents. ``simple_heuristic`` also
 accepts ``state``/``our_side`` (T3e Task 1) to score damage type-aware when the opposing
 active typing is known; without them it degrades to the original base-power behavior.
+
+This module is eval-only (imported lazily by the gauntlet dispatch), so the ``os``/``json``
+imports below never touch the live decision path.
 """
 from __future__ import annotations
+
+import json
+import os
 
 from showdown_bot.battle.legal_actions import enumerate_slot_pairs
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.typechart import effectiveness
 from showdown_bot.eval.opponents._common import PROTECT_IDS, move_meta_for, pick_best_pair
 from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
+
+
+def _emit_policy_telemetry(event: dict) -> None:
+    """Append one policy-activation event as JSONL when ``SHOWDOWN_EVAL_POLICY_TELEMETRY``
+    is set (T3e P2, eval-only). Unset -> no-op (no behavior change, no file). Best-effort:
+    never raises into the decision path, and never affects the returned ``/choose``.
+    """
+    path = os.environ.get("SHOWDOWN_EVAL_POLICY_TELEMETRY")
+    if not path:
+        return
+    try:
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n")
+    except OSError:
+        pass  # telemetry is diagnostic only — a bad path must not break the eval run
 
 # Situational-Protect thresholds (T3e Task 2). Protect is only worth it defensively when a
 # slot is genuinely in danger; a healthy slot Protecting just wastes a turn.
@@ -68,6 +89,10 @@ def greedy_protect_choice(req, *, state=None, our_side=None, **_ignored) -> str:
         if score > best_score:  # strict > -> first pair wins ties (deterministic)
             best_score = score
             best = pair
+    # Activation telemetry (T3e P2): did the HP-gate actually produce a low-HP Protect?
+    if (hp0 < _LOW_HP and _is_protect(move_meta_for(req, 0, best.slot0))) or \
+       (hp1 < _LOW_HP and _is_protect(move_meta_for(req, 1, best.slot1))):
+        _emit_policy_telemetry({"policy": "greedy_protect", "event": "hp_gated_protect_fired"})
     return encode_choose(best, rqid=req.rqid)
 
 
@@ -101,18 +126,25 @@ def target_types_for_action(meta, action, state, our_side) -> list[tuple[str, ..
     return out
 
 
-def _simple_heuristic_slot(meta, action, *, state, our_side) -> float:
+def _score_and_effect(meta, action, state, our_side) -> tuple[float, bool]:
+    """Return ``(score, used_type_effectiveness)``. ``used_type_effectiveness`` is True iff
+    the type-aware branch fired with a **non-neutral** multiplier (known target types AND
+    ``effectiveness != 1.0``) — the P2 activation signal."""
     if meta is None:
-        return -1.0
+        return -1.0, False
     if not meta.is_damaging:
-        return 0.0
+        return 0.0, False
     base_power = float(meta.base_power)
     # move_type may be None for an unknown move -> keep base-power behavior (neutral).
     types_list = target_types_for_action(meta, action, state, our_side)
     if not types_list or meta.move_type is None:
-        return base_power
+        return base_power, False
     eff = max(effectiveness(meta.move_type, list(t)) for t in types_list)
-    return base_power * eff
+    return base_power * eff, (eff != 1.0)
+
+
+def _simple_heuristic_slot(meta, action, *, state, our_side) -> float:
+    return _score_and_effect(meta, action, state, our_side)[0]
 
 
 def simple_heuristic_choice(req, *, state=None, our_side=None, **_ignored) -> str:
@@ -123,7 +155,16 @@ def simple_heuristic_choice(req, *, state=None, our_side=None, **_ignored) -> st
     foes); otherwise it degrades to the original base-power ranking. Deterministic
     tie-break stays ``pick_best_pair``'s first-pair-wins order.
     """
-    def slot_score(meta, action) -> float:
-        return _simple_heuristic_slot(meta, action, state=state, our_side=our_side)
+    fired = False
 
-    return pick_best_pair(req, slot_score)
+    def slot_score(meta, action) -> float:
+        nonlocal fired
+        score, used_effect = _score_and_effect(meta, action, state, our_side)
+        if used_effect:
+            fired = True  # activation (T3e P2): a scored move used known types + eff != 1.0
+        return score
+
+    out = pick_best_pair(req, slot_score)
+    if fired:
+        _emit_policy_telemetry({"policy": "simple_heuristic", "event": "type_effectiveness_fired"})
+    return out
