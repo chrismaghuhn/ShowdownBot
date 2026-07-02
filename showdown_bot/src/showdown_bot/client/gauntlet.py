@@ -64,7 +64,9 @@ def agent_choose(
     # Local imports keep eval/opponents off the default/import path (live-path guard).
     if agent == "greedy_protect":
         from showdown_bot.eval.opponents.policies import greedy_protect_choice
-        return greedy_protect_choice(req)
+        # T3e Task 2: thread state/our_side so Protect is HP-gated when HP is known;
+        # both default to None (attack, full-HP behavior) when state build failed.
+        return greedy_protect_choice(req, state=state, our_side=our_side)
     if agent == "simple_heuristic":
         from showdown_bot.eval.opponents.policies import simple_heuristic_choice
         # T3e Task 1: thread state/our_side so scoring is type-aware when typing is known;

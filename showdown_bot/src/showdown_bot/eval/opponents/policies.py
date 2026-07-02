@@ -7,21 +7,68 @@ active typing is known; without them it degrades to the original base-power beha
 """
 from __future__ import annotations
 
-from showdown_bot.eval.opponents._common import PROTECT_IDS, pick_best_pair
+from showdown_bot.battle.legal_actions import enumerate_slot_pairs
+from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.typechart import effectiveness
+from showdown_bot.eval.opponents._common import PROTECT_IDS, move_meta_for, pick_best_pair
+from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
+
+# Situational-Protect thresholds (T3e Task 2). Protect is only worth it defensively when a
+# slot is genuinely in danger; a healthy slot Protecting just wastes a turn.
+_LOW_HP = 0.4
+_PROTECT_LOW_SCORE = 1000.0          # low-HP slot: Protect dominates any attack
+_PROTECT_HEALTHY_SCORE = -50.0       # healthy slot: Protect discouraged (below any attack/status)
+_DOUBLE_PROTECT_PENALTY = -1_000_000.0  # joint constraint: never Protect on BOTH slots
 
 
-def _greedy_protect_slot(meta, action) -> float:
+def _is_protect(meta) -> bool:
+    return meta is not None and meta.id in PROTECT_IDS
+
+
+def _slot_hp_fraction(state, our_side, slot: str) -> float:
+    """HP fraction of our active mon in ``slot`` ("a"/"b"); full when unknown/no state."""
+    if state is None or not our_side:
+        return 1.0
+    mon = state.active(our_side, slot)
+    return mon.hp_fraction if mon is not None else 1.0
+
+
+def _greedy_slot_score(meta, hp_fraction: float) -> float:
     if meta is None:
         return -1.0  # discourage switch/pass
     if meta.id in PROTECT_IDS:
-        return 1000.0  # Protect when available...
-    return float(meta.base_power) if meta.is_damaging else 0.0  # ...else the max-damage move
+        return _PROTECT_LOW_SCORE if hp_fraction < _LOW_HP else _PROTECT_HEALTHY_SCORE
+    return float(meta.base_power) if meta.is_damaging else 0.0  # damage by power; other status = 0
 
 
-def greedy_protect_choice(req, **_ignored) -> str:
-    """Protect on each slot when a Protect-move is available, else the highest-power attack."""
-    return pick_best_pair(req, _greedy_protect_slot)
+def greedy_protect_choice(req, *, state=None, our_side=None, **_ignored) -> str:
+    """Situational Protect: a slot Protects only when it is low on HP, and never both slots
+    at once (a joint no-double-protect penalty); otherwise it takes the highest-power attack.
+
+    HP is read from ``state`` (slot0 -> our "a", slot1 -> our "b"); without ``state``/``our_side``
+    every slot is treated as full, so the policy attacks. A custom pair loop (not independent
+    slot scoring) is used because no-double-protect couples the two slots. Deterministic:
+    first max-scoring pair in enumeration order wins.
+    """
+    if req.team_preview:
+        return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
+    pairs = enumerate_slot_pairs(req)
+    if not pairs:
+        return f"/choose default|{req.rqid}"
+    hp0 = _slot_hp_fraction(state, our_side, "a")
+    hp1 = _slot_hp_fraction(state, our_side, "b")
+    best = pairs[0]
+    best_score = float("-inf")
+    for pair in pairs:
+        meta0 = move_meta_for(req, 0, pair.slot0)
+        meta1 = move_meta_for(req, 1, pair.slot1)
+        score = _greedy_slot_score(meta0, hp0) + _greedy_slot_score(meta1, hp1)
+        if _is_protect(meta0) and _is_protect(meta1):
+            score += _DOUBLE_PROTECT_PENALTY
+        if score > best_score:  # strict > -> first pair wins ties (deterministic)
+            best_score = score
+            best = pair
+    return encode_choose(best, rqid=req.rqid)
 
 
 def target_types_for_action(meta, action, state, our_side) -> list[tuple[str, ...]]:

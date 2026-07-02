@@ -26,8 +26,10 @@ def _slot0(out: str) -> str:
     return out[len("/choose "):].split("|")[0].split(", ")[0]
 
 
-def test_greedy_protect_picks_protect_when_available():
-    assert _slot0(greedy_protect_choice(_req())).startswith("move 3")  # Protect is move 3
+def test_greedy_protect_healthy_attacks_not_protect():
+    # T3e Task 2: with no state, HP is treated full -> attack the highest-power move
+    # (Flare Blitz, move 2), NOT the degenerate always-Protect (move 3).
+    assert _slot0(greedy_protect_choice(_req())).startswith("move 2")
 
 
 def test_greedy_protect_deterministic():
@@ -144,3 +146,81 @@ def test_type_aware_deterministic():
     a = simple_heuristic_choice(req, state=state, our_side="p1")
     b = simple_heuristic_choice(req, state=state, our_side="p1")
     assert a == b
+
+
+# --- T3e Task 2: situational greedy_protect (HP-gated + no-double-protect) -------------
+
+def _protect_move():
+    return _move("Protect", "protect", target="self")
+
+
+def _atk_protect():
+    """One damaging move (idx1 Flare Blitz) + Protect (idx2)."""
+    return [_move("Flare Blitz", "flareblitz"), _protect_move()]
+
+
+def _two_slot_req(moves0, moves1, *, side_id="p1", rqid=7):
+    return BattleRequest.model_validate({
+        "active": [{"moves": moves0}, {"moves": moves1}],
+        "side": {"id": side_id, "name": "P", "pokemon": []},
+        "rqid": rqid,
+    })
+
+
+def _our_state(*, a_hp=1.0, b_hp=1.0, our_side="p1"):
+    st = BattleState()
+    st.sides[our_side]["a"] = PokemonState(species="A", max_hp=100, hp=round(a_hp * 100))
+    st.sides[our_side]["b"] = PokemonState(species="B", max_hp=100, hp=round(b_hp * 100))
+    return st
+
+
+def _both(out):
+    body = out[len("/choose "):].split("|")[0]
+    s0, s1 = body.split(", ")
+    return s0, s1
+
+
+def _is_protect_cmd(slot_cmd: str) -> bool:
+    return slot_cmd.startswith("move 2")   # Protect is move index 2 in _atk_protect
+
+
+def test_greedy_both_healthy_both_attack():
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    s0, s1 = _both(greedy_protect_choice(req, state=_our_state(a_hp=1.0, b_hp=1.0), our_side="p1"))
+    assert s0.startswith("move 1") and s1.startswith("move 1")   # both attack, neither Protects
+
+
+def test_greedy_low_hp_protects_healthy_partner_attacks():
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    s0, s1 = _both(greedy_protect_choice(req, state=_our_state(a_hp=0.3, b_hp=1.0), our_side="p1"))
+    assert _is_protect_cmd(s0)          # low-HP slot0 Protects
+    assert s1.startswith("move 1")      # healthy slot1 attacks
+
+
+def test_greedy_both_low_at_most_one_protect_deterministic():
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    st = _our_state(a_hp=0.3, b_hp=0.3)
+    out = greedy_protect_choice(req, state=st, our_side="p1")
+    s0, s1 = _both(out)
+    assert sum(_is_protect_cmd(s) for s in (s0, s1)) == 1        # no-double-protect: exactly one
+    assert out == greedy_protect_choice(req, state=st, our_side="p1")   # deterministic
+
+
+def test_greedy_state_none_attacks_and_legal():
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    out = greedy_protect_choice(req, state=None, our_side="p1")
+    s0, s1 = _both(out)
+    assert s0.startswith("move 1") and s1.startswith("move 1")   # full HP -> attack
+    assert out.startswith("/choose ") and out.endswith("|7")
+
+
+def test_greedy_legal_fallback_when_no_pairs():
+    req = BattleRequest.model_validate({"active": [], "side": {"id": "p1", "pokemon": []}, "rqid": 5})
+    assert greedy_protect_choice(req) == "/choose default|5"
+
+
+def test_greedy_two_calls_equal_with_state():
+    req = _two_slot_req(_atk_protect(), _atk_protect())
+    st = _our_state(a_hp=0.3, b_hp=1.0)
+    assert greedy_protect_choice(req, state=st, our_side="p1") == \
+        greedy_protect_choice(req, state=st, our_side="p1")
