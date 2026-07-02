@@ -78,3 +78,34 @@ def test_write_yaml_round_trips(tmp_path):
     assert reloaded.schedule_hash == sched.schedule_hash  # stable
     assert reloaded.panel_hash == sched.panel_hash        # preserved
     assert [r.format_id for r in reloaded.rows] == [r.format_id for r in sched.rows]
+
+
+# --- T3e P1: chosen policies must be a subset of panel.policies (truthful panel_hash) ---
+
+def test_explicit_policy_not_in_panel_raises():
+    # greedy_protect is known + reproducible but NOT in this panel.policies -> a schedule
+    # using it would not be covered by panel_hash -> fail fast.
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(_panel(), policies=["greedy_protect"])
+
+
+def test_explicit_valid_subset_generates():
+    sched = generate_dev_schedule(_panel(), policies=["heuristic"])
+    assert {r.opp_policy for r in sched.rows} == {"heuristic"}
+
+
+def test_default_selection_is_subset_of_panel_policies():
+    sched = generate_dev_schedule(_panel())
+    assert {r.opp_policy for r in sched.rows} <= set(_panel().policies)
+
+
+def test_dev_generation_enforces_panel_subset():
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(_panel(), policies=["simple_heuristic"])  # not in panel.policies
+
+
+def test_heldout_generation_enforces_panel_subset():
+    with pytest.raises(PanelScheduleError):
+        generate_heldout_schedule(
+            _panel(), confirm_heldout=True, policies=["simple_heuristic"]  # not in panel.policies
+        )

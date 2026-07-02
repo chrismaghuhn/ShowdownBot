@@ -22,6 +22,10 @@ class PanelScheduleError(ValueError):
 
 
 def _resolve_policies(panel, policies, allow_nonreproducible: bool) -> list[str]:
+    # Chosen policies MUST be a subset of panel.policies so panel_hash actually covers the
+    # schedule (T3e P1). The default (policies=None) draws from panel.policies and is a subset
+    # by construction; an explicit list is checked member-by-member.
+    panel_policies = set(panel.policies)
     if policies is None:
         chosen = list(panel.policies)
         if not allow_nonreproducible:
@@ -29,15 +33,20 @@ def _resolve_policies(panel, policies, allow_nonreproducible: bool) -> list[str]
         if not chosen:
             raise PanelScheduleError("no reproducible policies in the panel (or all filtered out)")
         return chosen
+    if not policies:
+        raise PanelScheduleError("empty policy list")
     for p in policies:
         if not is_known(p):
             raise PanelScheduleError(f"unknown policy {p!r}")
+        if p not in panel_policies:
+            raise PanelScheduleError(
+                f"policy {p!r} not in panel.policies {sorted(panel_policies)} — it would not be "
+                f"covered by panel_hash (untruthful provenance)"
+            )
         if not is_reproducible(p) and not allow_nonreproducible:
             raise PanelScheduleError(
                 f"non-reproducible policy {p!r} requires allow_nonreproducible=True"
             )
-    if not policies:
-        raise PanelScheduleError("empty policy list")
     return list(policies)
 
 

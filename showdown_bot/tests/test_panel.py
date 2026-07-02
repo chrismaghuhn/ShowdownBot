@@ -127,3 +127,24 @@ def test_panel_v001_real_pool_loads():
     hashes = [t.team_hash for t in panel.dev_teams + panel.heldout_teams]
     assert all(hashes) and len(set(hashes)) == len(hashes)  # every team distinct by content
     assert panel.panel_hash
+
+
+def test_panel_v001_covers_full_reproducible_policy_set_and_new_hash():
+    # T3e P1: panel_v001.policies now lists the full reproducible policy set, so panel_hash
+    # provenance is truthful for schedules using any of them. This value is intentionally NEW
+    # (was 9aa3af95e461881f before the policy-list correction — see the T3d supersession note).
+    showdown_bot = Path(__file__).resolve().parents[1]
+    panel_path = showdown_bot.parent / "config" / "eval" / "panels" / "panel_v001.yaml"
+    panel = load_panel(str(panel_path), teams_root=str(showdown_bot))
+    assert panel.policies == (
+        "heuristic", "max_damage", "greedy_protect", "simple_heuristic", "scripted_vgc",
+    )
+    assert panel.panel_hash == "760c1e5935fe0474"
+
+
+def test_panel_hash_changes_with_policy_list(tmp_path):
+    _make_stub(tmp_path)
+    h1 = load_panel(_panel_yaml(tmp_path, _BODY), teams_root=str(tmp_path)).panel_hash
+    body2 = _BODY.replace("[heuristic, max_damage]", "[heuristic, max_damage, greedy_protect]")
+    h2 = load_panel(_panel_yaml(tmp_path, body2), teams_root=str(tmp_path)).panel_hash
+    assert h1 != h2  # policy list participates in panel_hash
