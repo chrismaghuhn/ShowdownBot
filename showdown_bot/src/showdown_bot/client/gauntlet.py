@@ -67,7 +67,9 @@ def agent_choose(
         return greedy_protect_choice(req)
     if agent == "simple_heuristic":
         from showdown_bot.eval.opponents.policies import simple_heuristic_choice
-        return simple_heuristic_choice(req)
+        # T3e Task 1: thread state/our_side so scoring is type-aware when typing is known;
+        # both default to None (base-power behavior) when state build failed.
+        return simple_heuristic_choice(req, state=state, our_side=our_side)
     if agent == "scripted_vgc":
         from showdown_bot.eval.opponents.scripted_vgc import scripted_vgc_choice
         return scripted_vgc_choice(req)
