@@ -53,6 +53,7 @@ def agent_choose(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
+    species_resolver=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -69,9 +70,11 @@ def agent_choose(
         return greedy_protect_choice(req, state=state, our_side=our_side)
     if agent == "simple_heuristic":
         from showdown_bot.eval.opponents.policies import simple_heuristic_choice
-        # T3e Task 1: thread state/our_side so scoring is type-aware when typing is known;
-        # both default to None (base-power behavior) when state build failed.
-        return simple_heuristic_choice(req, state=state, our_side=our_side)
+        # T3e Task 1: thread state/our_side so scoring is type-aware when typing is known.
+        # T3e P2a: species_resolver derives opponent typing from species when the live state
+        # carries only the species (types empty) — eval-only, never mutates state.
+        return simple_heuristic_choice(
+            req, state=state, our_side=our_side, resolver=species_resolver)
     if agent == "scripted_vgc":
         from showdown_bot.eval.opponents.scripted_vgc import scripted_vgc_choice
         return scripted_vgc_choice(req)
@@ -172,6 +175,10 @@ class _Client:
         self.our_spreads = our_spreads_from_packed(packed_team) if (packed_team and _real) else None
         self.opp_sets = opp_sets
         self.trace = trace
+        # Eval-only species->types resolver for simple_heuristic (T3e P2a): built lazily +
+        # cached so the type-aware path can activate when the live state has only species.
+        self._eval_species_dex = None
+        self._eval_species_dex_tried = False
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
         self.last_request: dict[str, str] = {}
@@ -205,6 +212,24 @@ class _Client:
                      "run_seed": self._export.run_seed}
         self._shadow = RerankerShadowRuntime.from_env(
             format_id=format_id, packed_team=packed_team, provenance=_prov)
+
+    def _species_type_resolver(self):
+        """Eval-only species->types resolver for simple_heuristic (T3e P2a). Built lazily and
+        cached; ``None`` for other agents or when the calc backend can't be built (graceful —
+        the policy then stays in base-power mode). Reads types only; never mutates state."""
+        if self.agent != "simple_heuristic":
+            return None
+        if not self._eval_species_dex_tried:
+            self._eval_species_dex_tried = True
+            try:
+                from showdown_bot.battle.opponent import SpeciesDex
+                from showdown_bot.engine.calc.client import make_calc_backend
+
+                self._eval_species_dex = SpeciesDex(make_calc_backend())
+            except Exception as exc:  # noqa: BLE001 - stay base-power if backend unavailable
+                logger.debug("[%s] eval species resolver unavailable: %s", self.name, exc)
+                self._eval_species_dex = None
+        return self._eval_species_dex
 
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
@@ -240,6 +265,7 @@ class _Client:
                 self.agent, req, state=state, book=self.book,
                 our_side=req.side.id, priors=self.priors, report=report,
                 our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
+                species_resolver=self._species_type_resolver(),
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)

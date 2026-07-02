@@ -1,8 +1,13 @@
-# 2b-3.5 T3e P2 — Policy-Fidelity Activation Smoke (run 2026-07-02)
+# 2b-3.5 T3e P2 / P2a — Policy-Fidelity Activation Smoke (runs 2026-07-02)
 
 Final T3e piece: prove the improved eval policies (type-aware `simple_heuristic`, HP-gated
 `greedy_protect`) **actually activate** in live eval execution — `0 invalid / 0 crash` alone
 is not enough. Branch: `feat/slice-2b35-t3e-policy-fidelity`.
+
+> **Reading order:** the **P2** sections below record the *initial* smoke, which found
+> `simple_heuristic` structurally dormant live (0 activations). **P2a** (bottom) is the fix +
+> re-run that makes it activate live (34 activations). The P2 discovery is kept visible on
+> purpose — it is why P2a exists.
 
 ## What P2 added
 - **Env-gated activation telemetry** (`eval/opponents/policies.py`): when
@@ -71,20 +76,43 @@ improved logic fires when types ARE known (unit test
 opponent `a = Fire/Flying` → `simple_heuristic` picks **Rock Tomb (move 2)** over the higher-BP
 resisted Flare Blitz and emits `{"event":"type_effectiveness_fired","policy":"simple_heuristic"}`.
 
-## VERDICT: **activation smoke PASS (with one honest carry-forward)**
-Telemetry seam is env-gated, deterministic, `/choose`-neutral, and eval-only. The 6-battle live
-smoke is clean (0 invalid / 0 crash), fully provenanced (new `panel_hash`, `dirty`, hero/opp team
-hashes), seed-aligned, and per-battle-counted. `greedy_protect`'s HP-gate is proven to fire live;
-`simple_heuristic`'s type-aware path is proven by fixture and shown to be **dormant live** because
-the eval `BattleState` does not carry opponent typing.
+## P2 VERDICT (initial): telemetry works; simple_heuristic dormant live
+Telemetry seam is env-gated, deterministic, `/choose`-neutral, and eval-only. The initial 6-battle
+smoke was clean (0 invalid / 0 crash), fully provenanced, seed-aligned. `greedy_protect`'s HP-gate
+fired live; **`simple_heuristic`'s type-aware path was dormant live (0 activations)** because the
+eval `BattleState` carries opponent *species* but empty opponent *types*. Plan-Claude ruled this a
+**T3e blocker** (fixture-only evidence not acceptable for a structurally-dormant path) → **P2a**.
 
-## Carry-forward (NOT a P2 blocker; out of P2 scope)
-To make `simple_heuristic` type-aware **live**, the eval villain state would need opponent active
-types (e.g. derived from species via the dex). That changes the policy's live `/choose` output and
-is therefore a **behavior change requiring its own slice/review** — explicitly out of scope for P2
-("no new policy tuning beyond activation telemetry"). Flagged for a pre-T4 decision: a "type-aware
-competence baseline" that runs as plain base-power live is weaker than intended for the diverse-
-opponent eval.
+---
 
-**STOP** — T3e P2 done (telemetry + activation smoke). Awaiting review; not merged. No
-T3f/T4/T5/T6/override.
+## T3e P2a — resolution: eval-only species→types resolver (live activation)
+**Fix (review Option B):** an **eval-only** species→types resolver lets `simple_heuristic` recover
+opponent typing from the known species when the live state has empty `types`.
+- `eval/opponents/policies.py`: `target_types_for_action(..., resolver=None)` + `_resolved_types`
+  — when a target mon has empty `types` but a known `species`, resolve via `resolver.types(species)`.
+  **Read-only: the shared `BattleState` is never mutated.** Any failure (no resolver / no species /
+  backend down / unknown species) → `[]` → neutral (1.0) → original base-power behavior. Deterministic.
+- `client/gauntlet.py`: `_Client._species_type_resolver()` lazily builds `SpeciesDex(make_calc_backend())`
+  **only for the `simple_heuristic` agent**, cached; threaded through `agent_choose(..., species_resolver=)`
+  into `simple_heuristic_choice(resolver=)`. `battle/` and the live decision path are untouched; the
+  live-path guard (`eval/opponents` never imported by `battle/`/runner) stays green.
+
+### P2a re-run — exact same 6-battle smoke (fresh seeded server, same env/schedule)
+| Gate | Result |
+|---|---|
+| Result rows | **6**, all re-validate |
+| Safety | **0 invalid · 0 crashes** |
+| `panel_hash` | all **`760c1e5935fe0474`** ✅ |
+| `dirty` / `hero_team_hash` / `opp_team_hash` | all present ✅ |
+| Seed-log alignment | **OK** (`t3e2026`, `schedule_hash=db4d0a7a31070a62`) |
+| `greedy_protect` `hp_gated_protect_fired` (live) | **25** ✅ |
+| `simple_heuristic` `type_effectiveness_fired` (live) | **34** ✅ (was **0** in P2) |
+| Behavioral effect | winrate shifted hero 4→2 / villain 2→4 — the now-type-aware opponent is genuinely stronger |
+
+## VERDICT: **T3e P2a PASS — simple_heuristic type-awareness activates live**
+Both improved policies are now proven to fire in live eval: `greedy_protect` HP-gate 25×,
+`simple_heuristic` type-effectiveness **34×** (no longer fixture-only). The resolver is eval-only,
+non-mutating, graceful, deterministic, and leaves the live decision path unchanged.
+
+**STOP** — T3e P2/P2a done (telemetry + eval-only resolver + activation smoke). Awaiting review;
+not merged. No T3f/T4/T5/T6/override.

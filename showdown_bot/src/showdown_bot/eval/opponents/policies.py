@@ -96,14 +96,34 @@ def greedy_protect_choice(req, *, state=None, our_side=None, **_ignored) -> str:
     return encode_choose(best, rqid=req.rqid)
 
 
-def target_types_for_action(meta, action, state, our_side) -> list[tuple[str, ...]]:
+def _resolved_types(mon, resolver) -> list[str]:
+    """Types of ``mon``: its known ``types`` if present, else an eval-only species->types
+    lookup via ``resolver`` (T3e P2a). Read-only — never mutates the shared ``BattleState``.
+    Any failure (no resolver, no species, backend down, unknown species) -> ``[]`` so the
+    caller degrades to neutral/base-power. Mirrors ``battle.opponent._types_of`` but keeps
+    the derivation eval-only (the live state is left untouched)."""
+    if mon is None:
+        return []
+    if getattr(mon, "types", None):
+        return list(mon.types)
+    species = getattr(mon, "species", None)
+    if resolver is not None and species:
+        try:
+            return list(resolver.types(species))
+        except Exception:  # noqa: BLE001 - resolver is best-effort; fall back to neutral
+            return []
+    return []
+
+
+def target_types_for_action(meta, action, state, our_side, resolver=None) -> list[tuple[str, ...]]:
     """Defender type-tuples for the opposing active mon(s) a move would hit.
 
     ``meta`` is needed to tell a spread move (hits BOTH foes) from a single-target one
     (hits the slot named by ``action.target``: 1 -> opp "a", 2 -> opp "b", matching
-    ``decision._map_target``). Only foes with KNOWN, non-empty types are returned, so any
-    unknown situation — no ``state``, no ``our_side``, non-move action, unknown/no foe
-    target, or empty typing — yields ``[]`` and the caller falls back to neutral (1.0).
+    ``decision._map_target``). Types come from the mon's known typing, or — when only the
+    species is known (the live eval-state case, T3e P2a) — from the eval-only ``resolver``.
+    Any unknown situation (no ``state``/``our_side``, non-move action, no foe target, no
+    types resolvable) yields ``[]`` so the caller falls back to neutral (1.0).
     """
     if state is None or not our_side or meta is None:
         return []
@@ -120,48 +140,50 @@ def target_types_for_action(meta, action, state, our_side) -> list[tuple[str, ..
         slots = []  # None / self / ally / unknown -> no explicit foe target
     out: list[tuple[str, ...]] = []
     for slot in slots:
-        mon = state.active(opp_side, slot)
-        if mon is not None and mon.types:
-            out.append(tuple(mon.types))
+        types = _resolved_types(state.active(opp_side, slot), resolver)
+        if types:
+            out.append(tuple(types))
     return out
 
 
-def _score_and_effect(meta, action, state, our_side) -> tuple[float, bool]:
+def _score_and_effect(meta, action, state, our_side, resolver) -> tuple[float, bool]:
     """Return ``(score, used_type_effectiveness)``. ``used_type_effectiveness`` is True iff
-    the type-aware branch fired with a **non-neutral** multiplier (known target types AND
-    ``effectiveness != 1.0``) — the P2 activation signal."""
+    the type-aware branch fired with a **non-neutral** multiplier (target types known — via
+    the state or the eval-only ``resolver`` — AND ``effectiveness != 1.0``): the activation
+    signal."""
     if meta is None:
         return -1.0, False
     if not meta.is_damaging:
         return 0.0, False
     base_power = float(meta.base_power)
     # move_type may be None for an unknown move -> keep base-power behavior (neutral).
-    types_list = target_types_for_action(meta, action, state, our_side)
+    types_list = target_types_for_action(meta, action, state, our_side, resolver)
     if not types_list or meta.move_type is None:
         return base_power, False
     eff = max(effectiveness(meta.move_type, list(t)) for t in types_list)
     return base_power * eff, (eff != 1.0)
 
 
-def _simple_heuristic_slot(meta, action, *, state, our_side) -> float:
-    return _score_and_effect(meta, action, state, our_side)[0]
+def _simple_heuristic_slot(meta, action, *, state, our_side, resolver=None) -> float:
+    return _score_and_effect(meta, action, state, our_side, resolver)[0]
 
 
-def simple_heuristic_choice(req, *, state=None, our_side=None, **_ignored) -> str:
+def simple_heuristic_choice(req, *, state=None, our_side=None, resolver=None, **_ignored) -> str:
     """Highest-scoring damaging move per slot — power-greedy, no calc/search.
 
-    When ``state``/``our_side`` reveal the opposing active typing, damage is scored as
-    ``base_power * effectiveness(move_type, target_types)`` (spread = max over affected
-    foes); otherwise it degrades to the original base-power ranking. Deterministic
+    Damage is scored as ``base_power * effectiveness(move_type, target_types)`` (spread =
+    max over affected foes) when the opposing typing is resolvable — from ``state`` typing,
+    or via the eval-only ``resolver`` (species->types) when the live state carries only the
+    species (T3e P2a). Otherwise it degrades to the original base-power ranking. Deterministic
     tie-break stays ``pick_best_pair``'s first-pair-wins order.
     """
     fired = False
 
     def slot_score(meta, action) -> float:
         nonlocal fired
-        score, used_effect = _score_and_effect(meta, action, state, our_side)
+        score, used_effect = _score_and_effect(meta, action, state, our_side, resolver)
         if used_effect:
-            fired = True  # activation (T3e P2): a scored move used known types + eff != 1.0
+            fired = True  # activation: a scored move used resolvable types + eff != 1.0
         return score
 
     out = pick_best_pair(req, slot_score)

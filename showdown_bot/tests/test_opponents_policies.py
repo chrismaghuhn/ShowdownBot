@@ -290,3 +290,71 @@ def test_telemetry_is_deterministic(tmp_path, monkeypatch):
     simple_heuristic_choice(req, state=state, our_side="p1")
     ev = _events(telem)
     assert len(ev) == 2 and ev[0] == ev[1]   # append-only, identical inputs -> identical events
+
+
+# --- T3e P2a: eval-only species->types resolver activates type-awareness live -----------
+
+class _FakeDex:
+    """Eval-only species->types resolver stand-in (like battle.opponent.SpeciesDex)."""
+
+    def __init__(self, mapping):
+        self.mapping = mapping
+
+    def types(self, species):
+        return self.mapping[species]   # KeyError for unknown -> resolver "fails" gracefully
+
+
+def _species_state(species, *, opp_side="p2"):
+    """Opponent actives with a KNOWN species but EMPTY types — the live-state situation."""
+    st = BattleState()
+    st.sides[opp_side]["a"] = PokemonState(species=species, types=[])
+    st.sides[opp_side]["b"] = PokemonState(species=species, types=[])
+    return st
+
+
+def test_resolver_activates_type_awareness_from_species(tmp_path, monkeypatch):
+    telem = tmp_path / "telem.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_POLICY_TELEMETRY", str(telem))
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    st = _species_state("Charizard")   # types empty, species known
+    resolver = _FakeDex({"Charizard": ["Fire", "Flying"]})
+    out = simple_heuristic_choice(req, state=st, our_side="p1", resolver=resolver)
+    assert _slot0(out).startswith("move 2")               # Rock Tomb: type-effective via resolver
+    assert st.sides["p2"]["a"].types == []                # shared state NOT mutated
+    assert any(e["event"] == "type_effectiveness_fired" for e in _events(telem))  # live-equiv fire
+
+
+def test_resolver_missing_or_failing_falls_back_to_base_power():
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    st = _species_state("MysteryMon")
+
+    class _BadDex:
+        def types(self, species):
+            raise RuntimeError("calc backend unavailable")
+
+    for resolver in (None, _BadDex(), _FakeDex({})):   # unset / raising / unknown species
+        out = simple_heuristic_choice(req, state=st, our_side="p1", resolver=resolver)
+        assert _slot0(out).startswith("move 1")        # base-power (Flare Blitz 120), no crash
+        assert out.startswith("/choose ") and out.endswith("|7")
+
+
+def test_resolver_choice_is_deterministic():
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    st = _species_state("Charizard")
+    resolver = _FakeDex({"Charizard": ["Fire", "Flying"]})
+    a = simple_heuristic_choice(req, state=st, our_side="p1", resolver=resolver)
+    b = simple_heuristic_choice(req, state=st, our_side="p1", resolver=resolver)
+    assert a == b
+
+
+def test_resolver_not_used_when_types_already_known():
+    # If the state already carries types, the resolver must not be consulted (and thus can't fail).
+    req = _single_slot_req([_move("Flare Blitz", "flareblitz"), _move("Rock Tomb", "rocktomb")])
+    state = _foe_state(a_types=["Fire", "Flying"], b_types=["Fire", "Flying"])
+
+    class _ExplodingDex:
+        def types(self, species):
+            raise AssertionError("resolver must not be called when types are known")
+
+    assert _slot0(simple_heuristic_choice(
+        req, state=state, our_side="p1", resolver=_ExplodingDex())).startswith("move 2")
