@@ -61,3 +61,20 @@ def test_end_hp_diff_null_when_side_mapping_unreliable():
                               decision_latency_p95_ms=0, room_raw_path=None)
     assert r["winner"] == "hero"
     assert r["end_hp_diff"] is None
+
+
+def test_record_carries_end_reason_normal():
+    # T3f Task 5: an ordinary |win| battle -> end_reason "normal".
+    r = _battle_result_record("HeroBot", "VillBot", _frames(), invalid_choices=0, crashes=0,
+                              decision_latency_p95_ms=100, room_raw_path=None)
+    assert r["end_reason"] == "normal"
+
+
+def test_record_carries_end_reason_forfeit():
+    frames = ["\n".join([
+        "|player|p1|HeroBot|1|", "|player|p2|VillBot|1|", "|turn|1",
+        "|-message|VillBot forfeited.", "|win|HeroBot",
+    ])]
+    r = _battle_result_record("HeroBot", "VillBot", frames, invalid_choices=0, crashes=0,
+                              decision_latency_p95_ms=0, room_raw_path=None)
+    assert r["winner"] == "hero" and r["end_reason"] == "forfeit"

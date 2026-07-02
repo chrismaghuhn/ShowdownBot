@@ -16,7 +16,7 @@ import json
 REQUIRED_FIELDS = frozenset({
     "battle_id", "run_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
     "opp_policy", "hero_team_path", "opp_team_path", "seed", "seed_base", "winner", "turns",
-    "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha", "dirty",
+    "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha", "dirty", "end_reason",
 })
 # hero_team_hash/opp_team_hash are team-content provenance (T3e P4): present for
 # panel-generated schedules, null for legacy schedules that carry no team hashes.
@@ -25,6 +25,9 @@ NULLABLE_FIELDS = frozenset({
     "panel_split",  # T3f Task 4: "dev"/"heldout" from the schedule row; null for legacy schedules
 })
 _WINNERS = frozenset({"hero", "villain", "tie"})
+# T3f Task 5: how the battle ended. "normal" = ordinary |win|/|tie|; the others are
+# detected from room_raw markers (see eval.battle_parse._detect_end_reason).
+_END_REASONS = frozenset({"normal", "timeout", "forfeit", "crash"})
 
 
 class ResultRowError(ValueError):
@@ -65,6 +68,10 @@ def validate_battle_row(row: dict) -> None:
             raise ResultRowError(f"required field is None: {f}")
     if row["winner"] not in _WINNERS:
         raise ResultRowError(f"winner must be one of {sorted(_WINNERS)}, got {row['winner']!r}")
+    if row["end_reason"] not in _END_REASONS:
+        raise ResultRowError(
+            f"end_reason must be one of {sorted(_END_REASONS)}, got {row['end_reason']!r}"
+        )
     unknown = set(row) - REQUIRED_FIELDS - NULLABLE_FIELDS
     if unknown:
         raise ResultRowError(f"unknown fields: {sorted(unknown)}")

@@ -60,3 +60,51 @@ def test_hp_by_slot_sums_multiple_mons_per_side():
     r = parse_battle_result(frames)
     assert abs(r["hp_by_slot"]["p1"] - 1.0) < 1e-9   # 0.5 + 0.5
     assert abs(r["hp_by_slot"]["p2"] - 1.0) < 1e-9   # 1.0
+
+
+# --- T3f Task 5: end_reason detection from room_raw ------------------------------------
+
+def test_end_reason_normal_win():
+    assert parse_battle_result([("\n".join(_FULL))])["end_reason"] == "normal"
+
+
+def test_end_reason_normal_tie():
+    frames = ["|player|p1|A|1|", "|player|p2|B|1|", "|turn|1", "|tie"]
+    assert parse_battle_result(frames)["end_reason"] == "normal"
+
+
+def test_end_reason_timeout_inactivity():
+    frames = [
+        "|player|p1|HeroBot|1|", "|player|p2|VillainBot|1|", "|turn|1",
+        "|inactive|VillainBot has 30 seconds left.",
+        "|-message|VillainBot lost due to inactivity.",
+        "|win|HeroBot",
+    ]
+    assert parse_battle_result(frames)["end_reason"] == "timeout"
+
+
+def test_end_reason_forfeit():
+    frames = [
+        "|player|p1|HeroBot|1|", "|player|p2|VillainBot|1|", "|turn|1",
+        "|-message|VillainBot forfeited.",
+        "|win|HeroBot",
+    ]
+    assert parse_battle_result(frames)["end_reason"] == "forfeit"
+
+
+def test_end_reason_crash():
+    frames = [
+        "|player|p1|HeroBot|1|", "|player|p2|VillainBot|1|", "|turn|1",
+        "|error|The battle crashed",
+        "|win|HeroBot",
+    ]
+    assert parse_battle_result(frames)["end_reason"] == "crash"
+
+
+def test_end_reason_crash_takes_priority_over_timeout():
+    frames = [
+        "|-message|VillainBot lost due to inactivity.",
+        "|error|The battle crashed",
+        "|win|HeroBot",
+    ]
+    assert parse_battle_result(frames)["end_reason"] == "crash"

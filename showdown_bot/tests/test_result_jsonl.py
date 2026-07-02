@@ -26,7 +26,7 @@ def _row(**over):
         "format_id": "gen9vgc2025regi", "config_hash": "cfg123", "schedule_hash": "h",
         "seed_index": 0, "opp_policy": "heuristic", "hero_team_path": "teams/fixed_team.txt",
         "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "seed_base": "run2026",
-        "winner": "hero",
+        "winner": "hero", "end_reason": "normal",
         "turns": 13, "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 200,
         "git_sha": "deadbeef", "dirty": False, "end_hp_diff": None, "timeouts": None,
         "room_raw_path": None, "panel_hash": None,
@@ -116,6 +116,25 @@ def test_panel_split_is_nullable():
     validate_battle_row(_row(panel_split=None))       # legacy -> null ok
     validate_battle_row(_row(panel_split="dev"))      # present ok
     validate_battle_row(_row(panel_split="heldout"))
+
+
+def test_end_reason_is_required():
+    # T3f Task 5: end_reason distinguishes normal vs timeout/forfeit/crash.
+    assert "end_reason" in REQUIRED_FIELDS
+    validate_battle_row(_row())          # "normal" -> ok
+    row = _row()
+    del row["end_reason"]
+    with pytest.raises(ResultRowError):  # missing -> fail fast
+        validate_battle_row(row)
+
+
+def test_end_reason_accepts_all_and_rejects_invalid():
+    for r in ("normal", "timeout", "forfeit", "crash"):
+        validate_battle_row(_row(end_reason=r))
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(end_reason="exploded"))   # not an allowed value
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(end_reason=None))         # None fails the required check
 
 
 def test_make_battle_id_deterministic():

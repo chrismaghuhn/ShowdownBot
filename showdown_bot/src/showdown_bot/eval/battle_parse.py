@@ -39,6 +39,35 @@ def _mon_key(ident: str):
     return (pos[:2], name)
 
 
+def _detect_end_reason(frames) -> str:
+    """Best-effort battle end_reason from room_raw markers (T3f Task 5).
+
+    Ordinary completed battles (a plain ``|win|`` / ``|tie``) are ``"normal"``. Showdown
+    emits distinctive text just before the terminal ``|win|`` for the non-normal endings:
+      - ``"crash"``   — a sim crash notice ("The battle crashed").
+      - ``"timeout"`` — an inactivity loss ("<name> lost due to inactivity.").
+      - ``"forfeit"`` — a forfeit ("<name> forfeited.").
+    Matching is case-insensitive substring; priority crash > timeout > forfeit > normal so a
+    root-cause crash isn't masked by the win/timeout frames it also produces. Never raises.
+    """
+    crash = timeout = forfeit = False
+    for line in _iter_lines(frames):
+        low = line.lower()
+        if "crashed" in low:
+            crash = True
+        elif "inactivity" in low:   # "<name> lost due to inactivity."
+            timeout = True
+        elif "forfeited" in low:    # "<name> forfeited."
+            forfeit = True
+    if crash:
+        return "crash"
+    if timeout:
+        return "timeout"
+    if forfeit:
+        return "forfeit"
+    return "normal"
+
+
 def parse_battle_result(frames) -> dict:
     turns = 0
     winner_name = None
@@ -90,4 +119,5 @@ def parse_battle_result(frames) -> dict:
         "turns": turns,
         "players": players,
         "hp_by_slot": hp_by_slot,
+        "end_reason": _detect_end_reason(frames),
     }
