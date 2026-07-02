@@ -110,6 +110,14 @@ def test_team_hashes_are_nullable():
     validate_battle_row(_row(hero_team_hash="hh16", opp_team_hash="oh16"))   # present ok
 
 
+def test_panel_split_is_nullable():
+    # T3f Task 4: panel_split is "dev"/"heldout" from the schedule row, null for legacy schedules.
+    assert "panel_split" in NULLABLE_FIELDS
+    validate_battle_row(_row(panel_split=None))       # legacy -> null ok
+    validate_battle_row(_row(panel_split="dev"))      # present ok
+    validate_battle_row(_row(panel_split="heldout"))
+
+
 def test_make_battle_id_deterministic():
     assert make_battle_id("h", 0, "sodium,00") == make_battle_id("h", 0, "sodium,00")
     assert make_battle_id("h", 0, "sodium,00") != make_battle_id("h", 1, "sodium,00")

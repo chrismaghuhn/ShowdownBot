@@ -22,6 +22,7 @@ REQUIRED_FIELDS = frozenset({
 # panel-generated schedules, null for legacy schedules that carry no team hashes.
 NULLABLE_FIELDS = frozenset({
     "end_hp_diff", "timeouts", "room_raw_path", "panel_hash", "hero_team_hash", "opp_team_hash",
+    "panel_split",  # T3f Task 4: "dev"/"heldout" from the schedule row; null for legacy schedules
 })
 _WINNERS = frozenset({"hero", "villain", "tie"})
 

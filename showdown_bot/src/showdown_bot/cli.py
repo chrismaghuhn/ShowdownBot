@@ -155,8 +155,9 @@ def run_schedule(args) -> None:
                     # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
                     "seed_base": base, "git_sha": git_sha,
                     "dirty": dirty,  # T3e P4 provenance
-                    # Team-hash provenance from the schedule row (legacy schedules -> null).
+                    # Provenance from the schedule row (legacy schedules -> null).
                     "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
+                    "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
                     "timeouts": None, "panel_hash": sched.panel_hash, **record,
                 })
                 written.append(_row.seed_index)
