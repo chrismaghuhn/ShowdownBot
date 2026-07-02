@@ -109,3 +109,36 @@ def test_heldout_generation_enforces_panel_subset():
         generate_heldout_schedule(
             _panel(), confirm_heldout=True, policies=["simple_heuristic"]  # not in panel.policies
         )
+
+
+# --- T3e P4: generated rows carry team-hash provenance -------------------------------
+
+def _hero_team(tmp_path):
+    (tmp_path / "hero.txt").write_text("Incineroar @ Sitrus Berry\n", encoding="utf-8")
+    (tmp_path / "hero.packed").write_text("Incineroar||sitrusberry|...", encoding="utf-8")
+
+
+def test_generated_rows_carry_team_hashes(tmp_path):
+    _hero_team(tmp_path)
+    sched = generate_dev_schedule(
+        _panel(), hero_team_path="hero.txt", teams_root=str(tmp_path), policies=["heuristic"],
+    )
+    # opp_team_hash comes straight from each PanelTeam.team_hash (h1/h2 in _panel()).
+    assert {r.opp_team_hash for r in sched.rows} == {"h1", "h2"}
+    # hero_team_hash is computed from the hero team file content — one hero team -> one hash.
+    assert all(r.hero_team_hash for r in sched.rows)
+    assert len({r.hero_team_hash for r in sched.rows}) == 1
+
+
+def test_write_yaml_roundtrips_team_hashes(tmp_path):
+    _hero_team(tmp_path)
+    sched = generate_dev_schedule(
+        _panel(), hero_team_path="hero.txt", teams_root=str(tmp_path), policies=["heuristic"],
+    )
+    out = tmp_path / "dev.yaml"
+    write_schedule_yaml(sched, str(out))
+    reloaded = load_schedule(str(out))
+    assert reloaded.schedule_hash == sched.schedule_hash  # unchanged by provenance hashes
+    assert [r.opp_team_hash for r in reloaded.rows] == [r.opp_team_hash for r in sched.rows]
+    assert [r.hero_team_hash for r in reloaded.rows] == [r.hero_team_hash for r in sched.rows]
+    assert all(r.hero_team_hash for r in reloaded.rows)

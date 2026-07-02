@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import yaml
 
+from showdown_bot.eval.panel import PanelError, team_content_hash
 from showdown_bot.eval.policies import is_known, is_reproducible
 from showdown_bot.eval.schedule import Schedule, ScheduleRow, compute_schedule_hash
 
@@ -19,6 +20,15 @@ _DEFAULT_FORMAT = "gen9vgc2025regi"
 
 class PanelScheduleError(ValueError):
     """Invalid generation request (unknown/non-reproducible policy, missing confirm, …)."""
+
+
+def _hero_team_hash(teams_root: str, hero_team_path: str) -> str | None:
+    """Content hash of the hero team (T3e P4 provenance). Best-effort: if the team files
+    are missing, return None (the row's hero_team_hash is nullable)."""
+    try:
+        return team_content_hash(teams_root, hero_team_path)
+    except PanelError:
+        return None
 
 
 def _resolve_policies(panel, policies, allow_nonreproducible: bool) -> list[str]:
@@ -50,7 +60,8 @@ def _resolve_policies(panel, policies, allow_nonreproducible: bool) -> list[str]
     return list(policies)
 
 
-def _build(panel, teams, hero_team_path, format_id, policies, seeds_per_cell) -> Schedule:
+def _build(panel, teams, hero_team_path, hero_team_hash, format_id, policies,
+           seeds_per_cell) -> Schedule:
     if seeds_per_cell < 1:
         raise PanelScheduleError("seeds_per_cell must be >= 1")
     rows: list[ScheduleRow] = []
@@ -61,6 +72,8 @@ def _build(panel, teams, hero_team_path, format_id, policies, seeds_per_cell) ->
                 rows.append(ScheduleRow(
                     format_id=format_id, hero_team_path=hero_team_path,
                     opp_policy=policy, opp_team_path=team.team_path, seed_index=idx,
+                    hero_team_hash=hero_team_hash,   # T3e P4 provenance
+                    opp_team_hash=team.team_hash,    # straight from the PanelTeam content hash
                 ))
                 idx += 1
     return Schedule(
@@ -70,20 +83,25 @@ def _build(panel, teams, hero_team_path, format_id, policies, seeds_per_cell) ->
 
 
 def generate_dev_schedule(panel, *, hero_team_path=_DEFAULT_HERO, format_id=_DEFAULT_FORMAT,
-                          policies=None, seeds_per_cell=1, allow_nonreproducible=False) -> Schedule:
+                          policies=None, seeds_per_cell=1, allow_nonreproducible=False,
+                          teams_root=".") -> Schedule:
     chosen = _resolve_policies(panel, policies, allow_nonreproducible)
-    return _build(panel, panel.dev_teams, hero_team_path, format_id, chosen, seeds_per_cell)
+    hero_hash = _hero_team_hash(teams_root, hero_team_path)
+    return _build(panel, panel.dev_teams, hero_team_path, hero_hash, format_id, chosen,
+                  seeds_per_cell)
 
 
 def generate_heldout_schedule(panel, *, confirm_heldout=False, hero_team_path=_DEFAULT_HERO,
                               format_id=_DEFAULT_FORMAT, policies=None, seeds_per_cell=1,
-                              allow_nonreproducible=False) -> Schedule:
+                              allow_nonreproducible=False, teams_root=".") -> Schedule:
     if not confirm_heldout:
         raise PanelScheduleError(
             "held-out schedule generation requires confirm_heldout=True (T3-CC-1)"
         )
     chosen = _resolve_policies(panel, policies, allow_nonreproducible)
-    return _build(panel, panel.heldout_teams, hero_team_path, format_id, chosen, seeds_per_cell)
+    hero_hash = _hero_team_hash(teams_root, hero_team_path)
+    return _build(panel, panel.heldout_teams, hero_team_path, hero_hash, format_id, chosen,
+                  seeds_per_cell)
 
 
 def write_schedule_yaml(schedule: Schedule, path: str) -> None:
@@ -91,13 +109,19 @@ def write_schedule_yaml(schedule: Schedule, path: str) -> None:
     data: dict = {"version": schedule.version}
     if schedule.panel_hash is not None:
         data["panel_hash"] = schedule.panel_hash
-    data["rows"] = [
-        {
+    rows_out: list[dict] = []
+    for r in schedule.rows:
+        row: dict = {
             "format_id": r.format_id, "hero_team_path": r.hero_team_path,
             "opp_policy": r.opp_policy, "opp_team_path": r.opp_team_path,
             "seed_index": r.seed_index,
         }
-        for r in schedule.rows
-    ]
+        # Emit team-hash provenance only when present (legacy rows omit it) — T3e P4.
+        if r.hero_team_hash is not None:
+            row["hero_team_hash"] = r.hero_team_hash
+        if r.opp_team_hash is not None:
+            row["opp_team_hash"] = r.opp_team_hash
+        rows_out.append(row)
+    data["rows"] = rows_out
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         yaml.safe_dump(data, fh, sort_keys=False)

@@ -74,7 +74,7 @@ def run_schedule(args) -> None:
         if os.path.exists(result_out) and os.path.getsize(result_out) > 0:
             raise SystemExit(f"--result-out {result_out} already has rows; must be non-existing or empty (T2-CC-2)")
         writer = BattleResultWriter(result_out)
-        git_sha = git_sha_and_dirty()[0]
+        git_sha, dirty = git_sha_and_dirty()  # T3e P4: row provenance includes the dirty flag
         print(f"  result JSONL -> {result_out}")
 
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
@@ -91,6 +91,9 @@ def run_schedule(args) -> None:
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                     "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
                     "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,
+                    "dirty": dirty,  # T3e P4 provenance
+                    # Team-hash provenance from the schedule row (legacy schedules -> null).
+                    "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
                     "timeouts": None, "panel_hash": sched.panel_hash, **record,
                 })
                 written.append(_row.seed_index)

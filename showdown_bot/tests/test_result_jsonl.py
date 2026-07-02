@@ -11,6 +11,7 @@ import json
 import pytest
 
 from showdown_bot.eval.result_jsonl import (
+    NULLABLE_FIELDS,
     REQUIRED_FIELDS,
     BattleResultWriter,
     ResultRowError,
@@ -26,7 +27,7 @@ def _row(**over):
         "seed_index": 0, "opp_policy": "heuristic", "hero_team_path": "teams/fixed_team.txt",
         "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "winner": "hero",
         "turns": 13, "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 200,
-        "git_sha": "deadbeef", "end_hp_diff": None, "timeouts": None,
+        "git_sha": "deadbeef", "dirty": False, "end_hp_diff": None, "timeouts": None,
         "room_raw_path": None, "panel_hash": None,
     }
     row.update(over)
@@ -63,6 +64,22 @@ def test_unknown_field_fails_fast():
 def test_config_id_and_format_id_are_both_required():
     assert "config_id" in REQUIRED_FIELDS and "format_id" in REQUIRED_FIELDS
     assert "config_hash" in REQUIRED_FIELDS
+
+
+def test_dirty_is_required():
+    # T3e P4: provenance. `dirty` (git working-tree dirty flag) must be present.
+    assert "dirty" in REQUIRED_FIELDS
+    row = _row()
+    del row["dirty"]
+    with pytest.raises(ResultRowError):
+        validate_battle_row(row)
+
+
+def test_team_hashes_are_nullable():
+    # T3e P4: hero_team_hash / opp_team_hash are provenance, nullable (legacy schedules omit them).
+    assert "hero_team_hash" in NULLABLE_FIELDS and "opp_team_hash" in NULLABLE_FIELDS
+    validate_battle_row(_row(hero_team_hash=None, opp_team_hash=None))       # None ok
+    validate_battle_row(_row(hero_team_hash="hh16", opp_team_hash="oh16"))   # present ok
 
 
 def test_make_battle_id_deterministic():

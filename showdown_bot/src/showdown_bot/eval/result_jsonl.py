@@ -16,9 +16,13 @@ import json
 REQUIRED_FIELDS = frozenset({
     "battle_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
     "opp_policy", "hero_team_path", "opp_team_path", "seed", "winner", "turns",
-    "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha",
+    "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha", "dirty",
 })
-NULLABLE_FIELDS = frozenset({"end_hp_diff", "timeouts", "room_raw_path", "panel_hash"})
+# hero_team_hash/opp_team_hash are team-content provenance (T3e P4): present for
+# panel-generated schedules, null for legacy schedules that carry no team hashes.
+NULLABLE_FIELDS = frozenset({
+    "end_hp_diff", "timeouts", "room_raw_path", "panel_hash", "hero_team_hash", "opp_team_hash",
+})
 _WINNERS = frozenset({"hero", "villain", "tie"})
 
 
@@ -31,6 +35,13 @@ def _canonical(payload) -> str:
 
 
 def make_battle_id(schedule_hash: str, seed_index: int, seed: str) -> str:
+    """Deterministic **pairing key** for a battle: sha1(schedule_hash, seed_index, seed)[:16].
+
+    battle_id identifies the *battle slot* (same schedule + seed_index + seed), so it MAY
+    repeat across paired config runs — that is exactly how two runs are paired for later
+    analysis. It is NOT a globally-unique row id: row identity for paired analysis is the
+    battle_id together with the config being evaluated (e.g. config_hash), not battle_id alone.
+    """
     return hashlib.sha1(_canonical([schedule_hash, seed_index, seed]).encode("utf-8")).hexdigest()[:16]
 
 
