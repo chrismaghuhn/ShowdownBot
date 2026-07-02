@@ -75,8 +75,12 @@ def run_schedule(args) -> None:
     writer = None
     written = []
     if result_out:
+        import sys
+        from datetime import datetime, timezone
+
         from showdown_bot.eval.config_env import behavior_env, build_config_manifest
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
+        from showdown_bot.eval.run_manifest import build_run_manifest, make_run_id, write_run_manifest
         from showdown_bot.eval.seeding import derive_battle_seed
         from showdown_bot.learning.provenance import git_sha_and_dirty
 
@@ -117,6 +121,21 @@ def run_schedule(args) -> None:
                 _cfg_hash_cache[key] = make_config_hash(manifest)
             return _cfg_hash_cache[key]
 
+        # T3f Task 3: one run_id for the whole run + a self-describing manifest sidecar.
+        # start_ts is captured ONCE here (so run_id is constant across rows, new per run);
+        # the run-level config_hash uses the schedule's representative (agent, format).
+        _start_ts = datetime.now(timezone.utc).isoformat()
+        _run_config_hash = _config_hash_for("heuristic", sched.rows[0].format_id)
+        run_id = make_run_id(base, sched.schedule_hash, _run_config_hash, _start_ts)
+        manifest = build_run_manifest(
+            run_id=run_id, seed_base=base, schedule_hash=sched.schedule_hash,
+            panel_hash=sched.panel_hash, config_hash=_run_config_hash, start_ts=_start_ts,
+            pythonhashseed=os.environ.get("PYTHONHASHSEED"), cli_invocation=list(sys.argv),
+            git_sha=git_sha, dirty=dirty,
+        )
+        manifest_out = write_run_manifest(result_out, manifest)
+        print(f"  run manifest -> {manifest_out} (run_id={run_id})")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
         on_br = None
@@ -126,6 +145,7 @@ def run_schedule(args) -> None:
                 config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
                 writer.write({
                     "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                    "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
                     "config_id": config_id, "format_id": format_id,
                     "config_hash": _config_hash_for(config_id, format_id),
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,

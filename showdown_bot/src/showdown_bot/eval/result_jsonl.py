@@ -14,7 +14,7 @@ import hashlib
 import json
 
 REQUIRED_FIELDS = frozenset({
-    "battle_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
+    "battle_id", "run_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
     "opp_policy", "hero_team_path", "opp_team_path", "seed", "seed_base", "winner", "turns",
     "invalid_choices", "crashes", "decision_latency_p95_ms", "git_sha", "dirty",
 })

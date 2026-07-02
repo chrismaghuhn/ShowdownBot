@@ -1,0 +1,8 @@
+# Eval-run provenance constants that are NOT derivable from this repo (T3f Task 3).
+# Consumed by eval/run_manifest.py to stamp the run-manifest sidecar.
+#
+# showdown_commit: the pokemon-showdown server clone the seeded eval runs play against.
+# It lives OUTSIDE this repo (~/.cache/showdownbot/pokemon-showdown), so its commit is
+# pinned here — a run manifest records the exact server it ran against. Update this if the
+# server clone is advanced to a new commit.
+showdown_commit: f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5

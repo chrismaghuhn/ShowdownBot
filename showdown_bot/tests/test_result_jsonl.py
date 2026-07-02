@@ -22,8 +22,8 @@ from showdown_bot.eval.result_jsonl import (
 
 def _row(**over):
     row = {
-        "battle_id": "abc", "config_id": "heuristic", "format_id": "gen9vgc2025regi",
-        "config_hash": "cfg123", "schedule_hash": "h",
+        "battle_id": "abc", "run_id": "run16hex", "config_id": "heuristic",
+        "format_id": "gen9vgc2025regi", "config_hash": "cfg123", "schedule_hash": "h",
         "seed_index": 0, "opp_policy": "heuristic", "hero_team_path": "teams/fixed_team.txt",
         "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "seed_base": "run2026",
         "winner": "hero",
@@ -91,6 +91,16 @@ def test_seed_base_is_distinct_from_seed():
     row = _row(seed_base="run2026", seed="sodium,deadbeef")
     validate_battle_row(row)
     assert row["seed_base"] == "run2026" and row["seed"] != row["seed_base"]
+
+
+def test_run_id_is_required():
+    # T3f Task 3: run_id ties every row to the run manifest.
+    assert "run_id" in REQUIRED_FIELDS
+    validate_battle_row(_row())          # present -> ok
+    row = _row()
+    del row["run_id"]
+    with pytest.raises(ResultRowError):  # missing -> fail fast
+        validate_battle_row(row)
 
 
 def test_team_hashes_are_nullable():
