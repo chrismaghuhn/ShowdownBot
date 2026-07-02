@@ -41,6 +41,16 @@ def run_validate_log(args) -> None:
         )
 
 
+def _file_content_hash(path) -> str | None:
+    """sha1[:16] of a file's bytes, or None if it can't be read (T3f config_hash provenance)."""
+    import hashlib
+
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
+        return None
+
+
 def run_schedule(args) -> None:
     """Non-mirror schedule mode (T1c): run each row as one battle in seed_index order.
 
@@ -65,6 +75,7 @@ def run_schedule(args) -> None:
     writer = None
     written = []
     if result_out:
+        from showdown_bot.eval.config_env import behavior_env, build_config_manifest
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
         from showdown_bot.eval.seeding import derive_battle_seed
         from showdown_bot.learning.provenance import git_sha_and_dirty
@@ -77,6 +88,35 @@ def run_schedule(args) -> None:
         git_sha, dirty = git_sha_and_dirty()  # T3e P4: row provenance includes the dirty flag
         print(f"  result JSONL -> {result_out}")
 
+        # T3f: effective config_hash over the behavior manifest. Snapshot the behavior env once
+        # (env is stable across a run) + model hashes when the reranker is on; priors/spreads
+        # hashes depend on the format, so cache config_hash per (agent, format_id).
+        _behavior_env = behavior_env()
+        _reranker_on = bool(_behavior_env.get("SHOWDOWN_RERANKER_SHADOW"))
+        _model_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MODEL_PATH")) if _reranker_on else None
+        _model_manifest_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MANIFEST_PATH")) if _reranker_on else None
+        _cfg_hash_cache: dict = {}
+
+        def _config_hash_for(agent, format_id):
+            key = (agent, format_id)
+            if key not in _cfg_hash_cache:
+                priors_hash = spreads_hash = None
+                try:
+                    from showdown_bot.engine.format_config import load_format_config
+
+                    cfg = load_format_config(format_id)
+                    priors_hash = _file_content_hash(cfg.meta_path("protect_priors"))
+                    spreads_hash = _file_content_hash(cfg.meta_path("default_spreads"))
+                except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
+                    pass
+                manifest = build_config_manifest(
+                    agent=agent, format_id=format_id,
+                    priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
+                    model_hash=_model_hash, model_manifest_hash=_model_manifest_hash,
+                )
+                _cfg_hash_cache[key] = make_config_hash(manifest)
+            return _cfg_hash_cache[key]
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
         on_br = None
@@ -87,7 +127,7 @@ def run_schedule(args) -> None:
                 writer.write({
                     "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
                     "config_id": config_id, "format_id": format_id,
-                    "config_hash": make_config_hash(config_id, format_id),
+                    "config_hash": _config_hash_for(config_id, format_id),
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                     "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
                     "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,

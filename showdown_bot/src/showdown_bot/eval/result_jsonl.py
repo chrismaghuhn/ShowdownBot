@@ -45,11 +45,15 @@ def make_battle_id(schedule_hash: str, seed_index: int, seed: str) -> str:
     return hashlib.sha1(_canonical([schedule_hash, seed_index, seed]).encode("utf-8")).hexdigest()[:16]
 
 
-def make_config_hash(config_id: str, format_id: str) -> str:
-    """Stable hash of the effective eval config (simple in T2; the field must exist)."""
-    return hashlib.sha1(
-        _canonical({"config_id": config_id, "format_id": format_id}).encode("utf-8")
-    ).hexdigest()[:16]
+def make_config_hash(manifest: dict) -> str:
+    """Stable, order-independent hash of the effective-config manifest (T3f Task 1).
+
+    Two behaviorally-different bots MUST get different hashes; changes to denylisted or
+    captured-by-reason env vars MUST NOT change it (they are simply absent from
+    ``manifest['env']`` — see ``eval.config_env``). Build the manifest with
+    ``config_env.build_config_manifest``.
+    """
+    return hashlib.sha1(_canonical(manifest).encode("utf-8")).hexdigest()[:16]
 
 
 def validate_battle_row(row: dict) -> None:
