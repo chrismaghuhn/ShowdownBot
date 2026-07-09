@@ -142,3 +142,24 @@ def test_write_yaml_roundtrips_team_hashes(tmp_path):
     assert [r.opp_team_hash for r in reloaded.rows] == [r.opp_team_hash for r in sched.rows]
     assert [r.hero_team_hash for r in reloaded.rows] == [r.hero_team_hash for r in sched.rows]
     assert all(r.hero_team_hash for r in reloaded.rows)
+
+
+# --- T3f Task 4: panel_split stamped by generation -------------------------------------
+
+def test_generated_dev_rows_are_stamped_dev():
+    sched = generate_dev_schedule(_panel(), policies=["heuristic"])
+    assert {r.panel_split for r in sched.rows} == {"dev"}
+
+
+def test_generated_heldout_rows_are_stamped_heldout():
+    sched = generate_heldout_schedule(_panel(), confirm_heldout=True, policies=["heuristic"])
+    assert {r.panel_split for r in sched.rows} == {"heldout"}
+
+
+def test_write_yaml_roundtrips_panel_split(tmp_path):
+    sched = generate_dev_schedule(_panel(), policies=["heuristic"])
+    out = tmp_path / "dev.yaml"
+    write_schedule_yaml(sched, str(out))
+    reloaded = load_schedule(str(out))
+    assert reloaded.schedule_hash == sched.schedule_hash          # provenance -> hash unchanged
+    assert {r.panel_split for r in reloaded.rows} == {"dev"}

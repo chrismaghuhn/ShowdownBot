@@ -218,3 +218,35 @@ def test_schedule_hash_unchanged_by_team_hashes(tmp_path):
     with_hashes = load_schedule(_write(tmp_path, _VALID_WITH_HASHES)).schedule_hash
     without = load_schedule(_write(tmp_path, _VALID_NO_HASHES)).schedule_hash
     assert with_hashes == without
+
+
+# --- T3f Task 4: optional per-row panel_split provenance (NOT part of schedule identity) ---
+
+_VALID_WITH_SPLIT = """
+    version: v001
+    rows:
+      - {format_id: gen9vgc2025regi, hero_team_path: teams/a.txt, opp_policy: heuristic, opp_team_path: teams/c.txt, seed_index: 0, panel_split: dev}
+"""
+
+
+def test_panel_split_loads_when_present(tmp_path):
+    sched = load_schedule(_write(tmp_path, _VALID_WITH_SPLIT))
+    assert sched.rows[0].panel_split == "dev"
+
+
+def test_legacy_schedule_rows_have_null_panel_split(tmp_path):
+    sched = load_schedule(_write(tmp_path, _VALID_NO_HASHES))  # no panel_split key
+    assert sched.rows[0].panel_split is None
+
+
+def test_schedule_hash_unchanged_by_panel_split(tmp_path):
+    # panel_split is provenance, not identity payload -> schedule_hash must be identical.
+    with_split = load_schedule(_write(tmp_path, _VALID_WITH_SPLIT)).schedule_hash
+    without = load_schedule(_write(tmp_path, _VALID_NO_HASHES)).schedule_hash
+    assert with_split == without
+
+
+def test_invalid_panel_split_fails_fast(tmp_path):
+    body = _VALID_WITH_SPLIT.replace("panel_split: dev", "panel_split: bogus")
+    with pytest.raises(ScheduleError):
+        load_schedule(_write(tmp_path, body))

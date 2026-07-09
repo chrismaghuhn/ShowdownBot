@@ -41,6 +41,16 @@ def run_validate_log(args) -> None:
         )
 
 
+def _file_content_hash(path) -> str | None:
+    """sha1[:16] of a file's bytes, or None if it can't be read (T3f config_hash provenance)."""
+    import hashlib
+
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
+        return None
+
+
 def run_schedule(args) -> None:
     """Non-mirror schedule mode (T1c): run each row as one battle in seed_index order.
 
@@ -65,7 +75,12 @@ def run_schedule(args) -> None:
     writer = None
     written = []
     if result_out:
+        import sys
+        from datetime import datetime, timezone
+
+        from showdown_bot.eval.config_env import behavior_env, build_config_manifest
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
+        from showdown_bot.eval.run_manifest import build_run_manifest, make_run_id, write_run_manifest
         from showdown_bot.eval.seeding import derive_battle_seed
         from showdown_bot.learning.provenance import git_sha_and_dirty
 
@@ -77,6 +92,50 @@ def run_schedule(args) -> None:
         git_sha, dirty = git_sha_and_dirty()  # T3e P4: row provenance includes the dirty flag
         print(f"  result JSONL -> {result_out}")
 
+        # T3f: effective config_hash over the behavior manifest. Snapshot the behavior env once
+        # (env is stable across a run) + model hashes when the reranker is on; priors/spreads
+        # hashes depend on the format, so cache config_hash per (agent, format_id).
+        _behavior_env = behavior_env()
+        _reranker_on = bool(_behavior_env.get("SHOWDOWN_RERANKER_SHADOW"))
+        _model_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MODEL_PATH")) if _reranker_on else None
+        _model_manifest_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MANIFEST_PATH")) if _reranker_on else None
+        _cfg_hash_cache: dict = {}
+
+        def _config_hash_for(agent, format_id):
+            key = (agent, format_id)
+            if key not in _cfg_hash_cache:
+                priors_hash = spreads_hash = None
+                try:
+                    from showdown_bot.engine.format_config import load_format_config
+
+                    cfg = load_format_config(format_id)
+                    priors_hash = _file_content_hash(cfg.meta_path("protect_priors"))
+                    spreads_hash = _file_content_hash(cfg.meta_path("default_spreads"))
+                except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
+                    pass
+                manifest = build_config_manifest(
+                    agent=agent, format_id=format_id,
+                    priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
+                    model_hash=_model_hash, model_manifest_hash=_model_manifest_hash,
+                )
+                _cfg_hash_cache[key] = make_config_hash(manifest)
+            return _cfg_hash_cache[key]
+
+        # T3f Task 3: one run_id for the whole run + a self-describing manifest sidecar.
+        # start_ts is captured ONCE here (so run_id is constant across rows, new per run);
+        # the run-level config_hash uses the schedule's representative (agent, format).
+        _start_ts = datetime.now(timezone.utc).isoformat()
+        _run_config_hash = _config_hash_for("heuristic", sched.rows[0].format_id)
+        run_id = make_run_id(base, sched.schedule_hash, _run_config_hash, _start_ts)
+        manifest = build_run_manifest(
+            run_id=run_id, seed_base=base, schedule_hash=sched.schedule_hash,
+            panel_hash=sched.panel_hash, config_hash=_run_config_hash, start_ts=_start_ts,
+            pythonhashseed=os.environ.get("PYTHONHASHSEED"), cli_invocation=list(sys.argv),
+            git_sha=git_sha, dirty=dirty,
+        )
+        manifest_out = write_run_manifest(result_out, manifest)
+        print(f"  run manifest -> {manifest_out} (run_id={run_id})")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
         on_br = None
@@ -86,14 +145,19 @@ def run_schedule(args) -> None:
                 config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
                 writer.write({
                     "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                    "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
                     "config_id": config_id, "format_id": format_id,
-                    "config_hash": make_config_hash(config_id, format_id),
+                    "config_hash": _config_hash_for(config_id, format_id),
                     "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                     "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
-                    "opp_team_path": _row.opp_team_path, "seed": seed, "git_sha": git_sha,
+                    "opp_team_path": _row.opp_team_path, "seed": seed,
+                    # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
+                    # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
+                    "seed_base": base, "git_sha": git_sha,
                     "dirty": dirty,  # T3e P4 provenance
-                    # Team-hash provenance from the schedule row (legacy schedules -> null).
+                    # Provenance from the schedule row (legacy schedules -> null).
                     "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
+                    "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
                     "timeouts": None, "panel_hash": sched.panel_hash, **record,
                 })
                 written.append(_row.seed_index)

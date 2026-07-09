@@ -19,10 +19,11 @@ import yaml
 # T3a). Exactly one is required. The rest are core required fields.
 _CORE_REQUIRED = frozenset({"hero_team_path", "opp_policy", "opp_team_path", "seed_index"})
 _FORMAT_FIELDS = frozenset({"format_id", "config_id"})
-# Optional per-row team-content provenance (T3e P4): NOT part of schedule identity
-# (excluded from schedule_hash); legacy rows omit them -> None.
-_OPTIONAL_FIELDS = frozenset({"hero_team_hash", "opp_team_hash"})
+# Optional per-row provenance: NOT part of schedule identity (excluded from schedule_hash);
+# legacy rows omit them -> None. team hashes (T3e P4), panel_split (T3f Task 4).
+_OPTIONAL_FIELDS = frozenset({"hero_team_hash", "opp_team_hash", "panel_split"})
 _ALLOWED_FIELDS = _CORE_REQUIRED | _FORMAT_FIELDS | _OPTIONAL_FIELDS
+_PANEL_SPLITS = frozenset({"dev", "heldout"})
 # Single source of truth for known policies is the T3a registry (eval/policies.py).
 # (Implemented-vs-declared is a runner-level concern — the loader only checks "known".)
 from showdown_bot.eval.policies import POLICIES as _POLICIES  # noqa: E402
@@ -43,6 +44,7 @@ class ScheduleRow:
     seed_index: int
     hero_team_hash: str | None = None  # T3e P4 provenance; not in schedule_hash
     opp_team_hash: str | None = None   # T3e P4 provenance; not in schedule_hash
+    panel_split: str | None = None     # T3f Task 4 provenance ("dev"/"heldout"); not in schedule_hash
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,12 @@ def load_schedule(path: str) -> Schedule:
             raise ScheduleError(f"row {i} seed_index not an int: {r['seed_index']!r}") from None
         hero_team_hash = r.get("hero_team_hash")  # T3e P4 provenance; absent -> None (legacy)
         opp_team_hash = r.get("opp_team_hash")
+        panel_split = r.get("panel_split")        # T3f Task 4 provenance; absent -> None (legacy)
+        if panel_split is not None and panel_split not in _PANEL_SPLITS:
+            raise ScheduleError(
+                f"row {i} panel_split must be one of {sorted(_PANEL_SPLITS)} or absent, "
+                f"got {panel_split!r}"
+            )
         rows.append(
             ScheduleRow(
                 format_id=format_id,
@@ -125,6 +133,7 @@ def load_schedule(path: str) -> Schedule:
                 seed_index=seed_index,
                 hero_team_hash=str(hero_team_hash) if hero_team_hash is not None else None,
                 opp_team_hash=str(opp_team_hash) if opp_team_hash is not None else None,
+                panel_split=str(panel_split) if panel_split is not None else None,
             )
         )
 

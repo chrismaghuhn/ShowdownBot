@@ -446,6 +446,7 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
     return {
         "winner": winner,
         "turns": p["turns"],
+        "end_reason": p["end_reason"],  # T3f Task 5: normal/timeout/forfeit/crash from room_raw
         "end_hp_diff": _end_hp_diff(p, hero_name, villain_name),
         "invalid_choices": invalid_choices,
         "crashes": crashes,

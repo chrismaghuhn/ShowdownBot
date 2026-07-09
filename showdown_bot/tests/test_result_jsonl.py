@@ -22,10 +22,11 @@ from showdown_bot.eval.result_jsonl import (
 
 def _row(**over):
     row = {
-        "battle_id": "abc", "config_id": "heuristic", "format_id": "gen9vgc2025regi",
-        "config_hash": "cfg123", "schedule_hash": "h",
+        "battle_id": "abc", "run_id": "run16hex", "config_id": "heuristic",
+        "format_id": "gen9vgc2025regi", "config_hash": "cfg123", "schedule_hash": "h",
         "seed_index": 0, "opp_policy": "heuristic", "hero_team_path": "teams/fixed_team.txt",
-        "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "winner": "hero",
+        "opp_team_path": "teams/opp_variant_a.txt", "seed": "sodium,00", "seed_base": "run2026",
+        "winner": "hero", "end_reason": "normal",
         "turns": 13, "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 200,
         "git_sha": "deadbeef", "dirty": False, "end_hp_diff": None, "timeouts": None,
         "room_raw_path": None, "panel_hash": None,
@@ -75,11 +76,65 @@ def test_dirty_is_required():
         validate_battle_row(row)
 
 
+def test_seed_base_is_required():
+    # T3f Task 2: seed_base lets T5 pair on (schedule_hash, seed_base, seed_index).
+    assert "seed_base" in REQUIRED_FIELDS
+    validate_battle_row(_row())          # present -> ok
+    row = _row()
+    del row["seed_base"]
+    with pytest.raises(ResultRowError):  # missing -> fail fast
+        validate_battle_row(row)
+
+
+def test_seed_base_is_distinct_from_seed():
+    # seed_base is the raw base string; seed is the per-battle derived value — different fields.
+    row = _row(seed_base="run2026", seed="sodium,deadbeef")
+    validate_battle_row(row)
+    assert row["seed_base"] == "run2026" and row["seed"] != row["seed_base"]
+
+
+def test_run_id_is_required():
+    # T3f Task 3: run_id ties every row to the run manifest.
+    assert "run_id" in REQUIRED_FIELDS
+    validate_battle_row(_row())          # present -> ok
+    row = _row()
+    del row["run_id"]
+    with pytest.raises(ResultRowError):  # missing -> fail fast
+        validate_battle_row(row)
+
+
 def test_team_hashes_are_nullable():
     # T3e P4: hero_team_hash / opp_team_hash are provenance, nullable (legacy schedules omit them).
     assert "hero_team_hash" in NULLABLE_FIELDS and "opp_team_hash" in NULLABLE_FIELDS
     validate_battle_row(_row(hero_team_hash=None, opp_team_hash=None))       # None ok
     validate_battle_row(_row(hero_team_hash="hh16", opp_team_hash="oh16"))   # present ok
+
+
+def test_panel_split_is_nullable():
+    # T3f Task 4: panel_split is "dev"/"heldout" from the schedule row, null for legacy schedules.
+    assert "panel_split" in NULLABLE_FIELDS
+    validate_battle_row(_row(panel_split=None))       # legacy -> null ok
+    validate_battle_row(_row(panel_split="dev"))      # present ok
+    validate_battle_row(_row(panel_split="heldout"))
+
+
+def test_end_reason_is_required():
+    # T3f Task 5: end_reason distinguishes normal vs timeout/forfeit/crash.
+    assert "end_reason" in REQUIRED_FIELDS
+    validate_battle_row(_row())          # "normal" -> ok
+    row = _row()
+    del row["end_reason"]
+    with pytest.raises(ResultRowError):  # missing -> fail fast
+        validate_battle_row(row)
+
+
+def test_end_reason_accepts_all_and_rejects_invalid():
+    for r in ("normal", "timeout", "forfeit", "crash"):
+        validate_battle_row(_row(end_reason=r))
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(end_reason="exploded"))   # not an allowed value
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(end_reason=None))         # None fails the required check
 
 
 def test_make_battle_id_deterministic():
