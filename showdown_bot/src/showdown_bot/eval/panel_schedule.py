@@ -4,7 +4,8 @@ Turns a `Panel` into T1c-format `Schedule`s: dev = (dev_team × policy) cells, h
 gated behind an explicit `confirm_heldout=True`. Reproducible-only by default (`random`
 and other non-reproducible policies require `allow_nonreproducible=True`, T3-CC-3).
 `write_schedule_yaml` emits a YAML the existing `eval/schedule.load_schedule` round-trips
-(schedule_hash stable, panel_hash preserved).
+(schedule_hash stable, panel_hash preserved). `seeds_per_cell` accepts an int or a
+per-policy mapping (T4).
 """
 from __future__ import annotations
 
@@ -60,15 +61,39 @@ def _resolve_policies(panel, policies, allow_nonreproducible: bool) -> list[str]
     return list(policies)
 
 
+def _validate_seeds_per_cell(seeds_per_cell, policies) -> None:
+    if isinstance(seeds_per_cell, bool):
+        raise PanelScheduleError(f"seeds_per_cell must be an int or a mapping, got {seeds_per_cell!r}")
+    if isinstance(seeds_per_cell, int):
+        if seeds_per_cell < 1:
+            raise PanelScheduleError("seeds_per_cell must be >= 1")
+        return
+    unknown = set(seeds_per_cell) - set(policies)
+    if unknown:
+        raise PanelScheduleError(
+            f"seeds_per_cell has policies not in the chosen set: {sorted(unknown)}"
+        )
+    missing = set(policies) - set(seeds_per_cell)
+    if missing:
+        raise PanelScheduleError(f"seeds_per_cell missing policies: {sorted(missing)}")
+    for p, n in seeds_per_cell.items():
+        if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+            raise PanelScheduleError(f"seeds_per_cell[{p!r}] must be an int >= 1, got {n!r}")
+
+
+def _seeds_for(policy: str, seeds_per_cell) -> int:
+    """Per-cell seed count: a plain int applies to every cell; a mapping is per-policy."""
+    return seeds_per_cell if isinstance(seeds_per_cell, int) else seeds_per_cell[policy]
+
+
 def _build(panel, teams, hero_team_path, hero_team_hash, format_id, policies,
            seeds_per_cell, panel_split) -> Schedule:
-    if seeds_per_cell < 1:
-        raise PanelScheduleError("seeds_per_cell must be >= 1")
+    _validate_seeds_per_cell(seeds_per_cell, policies)
     rows: list[ScheduleRow] = []
     idx = 0
     for team in teams:
         for policy in policies:
-            for _ in range(seeds_per_cell):
+            for _ in range(_seeds_for(policy, seeds_per_cell)):
                 rows.append(ScheduleRow(
                     format_id=format_id, hero_team_path=hero_team_path,
                     opp_policy=policy, opp_team_path=team.team_path, seed_index=idx,

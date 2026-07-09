@@ -163,3 +163,44 @@ def test_write_yaml_roundtrips_panel_split(tmp_path):
     reloaded = load_schedule(str(out))
     assert reloaded.schedule_hash == sched.schedule_hash          # provenance -> hash unchanged
     assert {r.panel_split for r in reloaded.rows} == {"dev"}
+
+
+# --- T4: per-policy seeds_per_cell mapping ---------------------------------------------
+
+def test_seeds_per_cell_mapping_counts_and_order():
+    sched = generate_dev_schedule(
+        _panel(), policies=["heuristic", "max_damage"],
+        seeds_per_cell={"heuristic": 3, "max_damage": 1},
+    )
+    # 2 teams x (3 + 1) = 8 rows, team-major then policy order, contiguous seed_index
+    assert len(sched.rows) == 8
+    assert [r.seed_index for r in sched.rows] == list(range(8))
+    assert [r.opp_policy for r in sched.rows] == (
+        ["heuristic"] * 3 + ["max_damage"] + ["heuristic"] * 3 + ["max_damage"]
+    )
+
+
+def test_seeds_per_cell_mapping_missing_policy_raises():
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(
+            _panel(), policies=["heuristic", "max_damage"], seeds_per_cell={"heuristic": 3},
+        )
+
+
+def test_seeds_per_cell_mapping_unknown_policy_raises():
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(
+            _panel(), policies=["heuristic"], seeds_per_cell={"heuristic": 1, "scripted_vgc": 2},
+        )
+
+
+def test_seeds_per_cell_mapping_invalid_value_raises():
+    for bad in (0, -1, True, "2"):
+        with pytest.raises(PanelScheduleError):
+            generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell={"heuristic": bad})
+
+
+def test_seeds_per_cell_int_backcompat_unchanged():
+    a = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=3)
+    b = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell={"heuristic": 3})
+    assert a.schedule_hash == b.schedule_hash  # mapping == uniform int when counts agree
