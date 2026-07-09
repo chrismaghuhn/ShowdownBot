@@ -8,6 +8,7 @@ from showdown_bot.eval.panel_schedule import (
     PanelScheduleError,
     generate_dev_schedule,
     generate_heldout_schedule,
+    prefix_schedule,
     write_schedule_yaml,
 )
 from showdown_bot.eval.schedule import load_schedule
@@ -261,3 +262,31 @@ def test_prefix_cells_none_is_unchanged():
     a = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=2)
     b = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=2, prefix_cells=None)
     assert a.schedule_hash == b.schedule_hash
+
+
+# --- T4: prefix_schedule — first-n-rows reproduction schedule ----------------------------
+
+def test_prefix_schedule_first_n_rows_same_indices():
+    full = generate_dev_schedule(_panel(), policies=["heuristic", "max_damage"], seeds_per_cell=2)
+    pre = prefix_schedule(full, 3)
+    assert len(pre.rows) == 3
+    assert pre.rows == full.rows[:3]                    # identical rows incl. seed_index 0..2
+    assert pre.version == full.version
+    assert pre.panel_hash == full.panel_hash
+    assert pre.schedule_hash != full.schedule_hash      # different row set = different identity
+
+
+def test_prefix_schedule_roundtrips_via_loader(tmp_path):
+    full = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=2)
+    pre = prefix_schedule(full, 2)
+    out = tmp_path / "prefix.yaml"
+    write_schedule_yaml(pre, str(out))
+    reloaded = load_schedule(str(out))
+    assert reloaded.schedule_hash == pre.schedule_hash
+
+
+def test_prefix_schedule_invalid_n_raises():
+    full = generate_dev_schedule(_panel(), policies=["heuristic"])
+    for bad in (0, -1, len(full.rows) + 1, True, "2"):
+        with pytest.raises(PanelScheduleError):
+            prefix_schedule(full, bad)

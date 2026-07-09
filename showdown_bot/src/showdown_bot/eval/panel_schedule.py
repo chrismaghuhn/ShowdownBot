@@ -154,6 +154,21 @@ def generate_heldout_schedule(panel, *, confirm_heldout=False, hero_team_path=_D
                   seeds_per_cell, "heldout")
 
 
+def prefix_schedule(schedule: Schedule, n: int) -> Schedule:
+    """The first ``n`` rows as their own schedule (seed_index already 0..n-1). Under Channel A
+    ``seed_i`` depends only on (seed_base, seed_index), so re-running just this schedule with
+    the same seed_base reproduces exactly those battles — cheap fresh-server reproduction
+    evidence (T4 review §5). schedule_hash is recomputed; version/panel_hash preserved."""
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1 or n > len(schedule.rows):
+        raise PanelScheduleError(f"prefix length must be 1..{len(schedule.rows)}, got {n!r}")
+    rows = schedule.rows[:n]
+    return Schedule(
+        version=schedule.version, rows=rows,
+        schedule_hash=compute_schedule_hash(schedule.version, rows),
+        panel_hash=schedule.panel_hash,
+    )
+
+
 def write_schedule_yaml(schedule: Schedule, path: str) -> None:
     """Emit a YAML the T1c loader round-trips (schedule_hash stable, panel_hash preserved)."""
     data: dict = {"version": schedule.version}
