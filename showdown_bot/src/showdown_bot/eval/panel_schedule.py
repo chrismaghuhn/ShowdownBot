@@ -86,22 +86,46 @@ def _seeds_for(policy: str, seeds_per_cell) -> int:
     return seeds_per_cell if isinstance(seeds_per_cell, int) else seeds_per_cell[policy]
 
 
-def _build(panel, teams, hero_team_path, hero_team_hash, format_id, policies,
-           seeds_per_cell, panel_split) -> Schedule:
-    _validate_seeds_per_cell(seeds_per_cell, policies)
-    rows: list[ScheduleRow] = []
-    idx = 0
+def _ordered_cells(teams, policies, seeds_per_cell, prefix_cells):
+    """One (team, policy) entry per battle: explicit prefix picks first (in the given order),
+    then the canonical remainder (team-major, then policy list order), each cell's remaining
+    seed budget reduced by its prefix picks. Fail-fast on unknown cells / over-consumption."""
+    remaining = {
+        (team.team_id, policy): _seeds_for(policy, seeds_per_cell)
+        for team in teams for policy in policies
+    }
+    teams_by_id = {t.team_id: t for t in teams}
+    ordered = []
+    for policy, team_id in (prefix_cells or ()):
+        if policy not in policies or team_id not in teams_by_id:
+            raise PanelScheduleError(f"prefix cell ({policy!r}, {team_id!r}) not in the matrix")
+        key = (team_id, policy)
+        if remaining[key] < 1:
+            raise PanelScheduleError(
+                f"prefix over-consumes cell ({policy!r}, {team_id!r}): more prefix picks than seeds"
+            )
+        remaining[key] -= 1
+        ordered.append((teams_by_id[team_id], policy))
     for team in teams:
         for policy in policies:
-            for _ in range(_seeds_for(policy, seeds_per_cell)):
-                rows.append(ScheduleRow(
-                    format_id=format_id, hero_team_path=hero_team_path,
-                    opp_policy=policy, opp_team_path=team.team_path, seed_index=idx,
-                    hero_team_hash=hero_team_hash,   # T3e P4 provenance
-                    opp_team_hash=team.team_hash,    # straight from the PanelTeam content hash
-                    panel_split=panel_split,         # T3f Task 4 provenance ("dev"/"heldout")
-                ))
-                idx += 1
+            ordered.extend((team, policy) for _ in range(remaining[(team.team_id, policy)]))
+    return ordered
+
+
+def _build(panel, teams, hero_team_path, hero_team_hash, format_id, policies,
+           seeds_per_cell, panel_split, prefix_cells=None) -> Schedule:
+    _validate_seeds_per_cell(seeds_per_cell, policies)
+    rows: list[ScheduleRow] = []
+    for idx, (team, policy) in enumerate(
+        _ordered_cells(teams, policies, seeds_per_cell, prefix_cells)
+    ):
+        rows.append(ScheduleRow(
+            format_id=format_id, hero_team_path=hero_team_path,
+            opp_policy=policy, opp_team_path=team.team_path, seed_index=idx,
+            hero_team_hash=hero_team_hash,   # T3e P4 provenance
+            opp_team_hash=team.team_hash,    # straight from the PanelTeam content hash
+            panel_split=panel_split,         # T3f Task 4 provenance ("dev"/"heldout")
+        ))
     return Schedule(
         version=panel.version, rows=tuple(rows),
         schedule_hash=compute_schedule_hash(panel.version, rows), panel_hash=panel.panel_hash,
@@ -110,11 +134,11 @@ def _build(panel, teams, hero_team_path, hero_team_hash, format_id, policies,
 
 def generate_dev_schedule(panel, *, hero_team_path=_DEFAULT_HERO, format_id=_DEFAULT_FORMAT,
                           policies=None, seeds_per_cell=1, allow_nonreproducible=False,
-                          teams_root=".") -> Schedule:
+                          teams_root=".", prefix_cells=None) -> Schedule:
     chosen = _resolve_policies(panel, policies, allow_nonreproducible)
     hero_hash = _hero_team_hash(teams_root, hero_team_path)
     return _build(panel, panel.dev_teams, hero_team_path, hero_hash, format_id, chosen,
-                  seeds_per_cell, "dev")
+                  seeds_per_cell, "dev", prefix_cells)
 
 
 def generate_heldout_schedule(panel, *, confirm_heldout=False, hero_team_path=_DEFAULT_HERO,

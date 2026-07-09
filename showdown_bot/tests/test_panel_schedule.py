@@ -204,3 +204,60 @@ def test_seeds_per_cell_int_backcompat_unchanged():
     a = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=3)
     b = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell={"heuristic": 3})
     assert a.schedule_hash == b.schedule_hash  # mapping == uniform int when counts agree
+
+
+# --- T4: prefix_cells — stratified reproduction-prefix ordering --------------------------
+
+def test_prefix_cells_come_first_then_canonical_remainder():
+    sched = generate_dev_schedule(
+        _panel(), policies=["heuristic", "max_damage"],
+        seeds_per_cell={"heuristic": 2, "max_damage": 1},
+        prefix_cells=[("max_damage", "d2"), ("heuristic", "d1")],
+    )
+    # 2 teams x (2 + 1) = 6 rows total; prefix picks occupy seed_index 0 and 1 in given order.
+    assert len(sched.rows) == 6
+    assert (sched.rows[0].opp_policy, sched.rows[0].opp_team_path) == (
+        "max_damage", "teams/panel_v001/sun_dev.txt")
+    assert (sched.rows[1].opp_policy, sched.rows[1].opp_team_path) == (
+        "heuristic", "teams/panel_v001/trickroom_dev.txt")
+    # Remainder is canonical (team-major, policy order), each cell reduced by its prefix picks:
+    assert [(r.opp_policy, r.opp_team_path) for r in sched.rows[2:]] == [
+        ("heuristic", "teams/panel_v001/trickroom_dev.txt"),
+        ("max_damage", "teams/panel_v001/trickroom_dev.txt"),
+        ("heuristic", "teams/panel_v001/sun_dev.txt"),
+        ("heuristic", "teams/panel_v001/sun_dev.txt"),
+    ]
+    assert [r.seed_index for r in sched.rows] == list(range(6))  # still contiguous
+
+
+def test_prefix_cells_preserve_per_cell_totals():
+    sched = generate_dev_schedule(
+        _panel(), policies=["heuristic"], seeds_per_cell=2,
+        prefix_cells=[("heuristic", "d2")],
+    )
+    from collections import Counter
+    assert Counter((r.opp_policy, r.opp_team_path) for r in sched.rows) == Counter({
+        ("heuristic", "teams/panel_v001/trickroom_dev.txt"): 2,
+        ("heuristic", "teams/panel_v001/sun_dev.txt"): 2,
+    })
+
+
+def test_prefix_cells_overconsuming_a_cell_raises():
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(
+            _panel(), policies=["heuristic"], seeds_per_cell=1,
+            prefix_cells=[("heuristic", "d1"), ("heuristic", "d1")],  # cell has only 1 seed
+        )
+
+
+def test_prefix_cells_unknown_policy_or_team_raises():
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(_panel(), policies=["heuristic"], prefix_cells=[("max_damage", "d1")])
+    with pytest.raises(PanelScheduleError):
+        generate_dev_schedule(_panel(), policies=["heuristic"], prefix_cells=[("heuristic", "nope")])
+
+
+def test_prefix_cells_none_is_unchanged():
+    a = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=2)
+    b = generate_dev_schedule(_panel(), policies=["heuristic"], seeds_per_cell=2, prefix_cells=None)
+    assert a.schedule_hash == b.schedule_hash
