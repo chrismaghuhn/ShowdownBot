@@ -272,3 +272,33 @@ def test_paired_report_is_deterministic():
     md2, obj2 = _paired(a, b)
     assert md1 == md2
     assert json.dumps(obj1, sort_keys=True) == json.dumps(obj2, sort_keys=True)
+
+
+# --- 11. Reproduction block lists BOTH runs (Task-4 flagged gap, fixed in T5 Task 5) -----
+
+def test_paired_reproduction_lists_both_runs():
+    """The paired report's Reproduction block previously showed only run A's regenerate
+    inputs (a Task-4 flagged gap). It must now show both runs' recorded invocations AND a
+    single 'regenerate this report' CLI line that carries both --run-a/--seedlog-a AND
+    --run-b/--seedlog-b."""
+    a, b = _make_pair(_go_specs())
+    md, obj = _paired(a, b)
+    rep = obj["reproduction"]
+
+    # both runs' run_command/env/showdown_commit/server_patch_hash/input_sha256 present
+    assert rep["run_command_a"] and rep["run_command_b"]
+    assert "showdown_bot.cli" in rep["run_command_a"]
+    assert "showdown_bot.cli" in rep["run_command_b"]
+    assert rep["env_a"] and rep["env_b"]
+    assert rep["input_sha256_a"] and rep["input_sha256_b"]
+
+    # the regenerate line is a SINGLE eval-report invocation carrying both runs
+    assert rep["report_command"].count("eval-report") == 1
+    assert "--run-a" in rep["report_command"] and "--run-b" in rep["report_command"]
+    assert "--seedlog-a" in rep["report_command"] and "--seedlog-b" in rep["report_command"]
+
+    # md: both "Run A" and "Run B" labelled sections in Reproduction, and the combined command
+    reproduction_section = md[md.index("## Reproduction"):]
+    assert "Run A" in reproduction_section and "Run B" in reproduction_section
+    assert reproduction_section.count("eval-report") == 1
+    assert "--run-a" in reproduction_section and "--run-b" in reproduction_section

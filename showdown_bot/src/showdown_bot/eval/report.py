@@ -435,6 +435,34 @@ def _build_reproduction(bundle: RunBundle) -> dict:
     }
 
 
+def _build_reproduction_paired(bundle_a: RunBundle, bundle_b: RunBundle) -> dict:
+    """Paired variant of ``_build_reproduction`` (T5 Task 5 — fixes the Task-4 flagged gap:
+    the paired report's Reproduction block previously showed only run A's regenerate inputs).
+    Carries BOTH runs' recorded invocation/env/provenance plus a single 'regenerate this
+    report' CLI line that includes both ``--run-a/--seedlog-a`` and ``--run-b/--seedlog-b``.
+    The single-run ``_build_reproduction``/``_render_md`` path is untouched by this function."""
+    rep_a = _build_reproduction(bundle_a)
+    rep_b = _build_reproduction(bundle_b)
+    bn_a, bn_b = bundle_a.input_basenames, bundle_b.input_basenames
+    report_command = (
+        "python -m showdown_bot.cli eval-report "
+        f"--run-a {bn_a.get('results')} --seedlog-a {bn_a.get('seedlog')} "
+        f"--run-b {bn_b.get('results')} --seedlog-b {bn_b.get('seedlog')} "
+        f"--schedule {bn_a.get('schedule')} --panel {bn_a.get('panel')} --out <dir> --mode gate"
+    )
+    return {
+        "run_command_a": rep_a["run_command"], "env_a": rep_a["env"],
+        "showdown_commit_a": rep_a["showdown_commit"],
+        "server_patch_hash_a": rep_a["server_patch_hash"],
+        "input_sha256_a": rep_a["input_sha256"],
+        "run_command_b": rep_b["run_command"], "env_b": rep_b["env"],
+        "showdown_commit_b": rep_b["showdown_commit"],
+        "server_patch_hash_b": rep_b["server_patch_hash"],
+        "input_sha256_b": rep_b["input_sha256"],
+        "report_command": report_command,
+    }
+
+
 # --- Report assembly --------------------------------------------------------------------
 
 def _provenance(bundle) -> dict:
@@ -739,7 +767,7 @@ def _build_data_paired(bundle_a, bundle_b, mode, verdict, reasons, safety_pass,
         "provenance": _provenance(bundle_a), "provenance_b": _provenance(bundle_b),
         "safety_gates": _gates_json(gates_a), "safety_gates_b": _gates_json(gates_b),
         "cells": cells_a, "aggregates": agg_a,
-        "warnings": warnings, "reproduction": _build_reproduction(bundle_a),
+        "warnings": warnings, "reproduction": _build_reproduction_paired(bundle_a, bundle_b),
     }
 
 
@@ -930,21 +958,30 @@ def _render_paired_section(out, p, safety_pass):
         out.append("")
 
 
-def _render_reproduction_block(out, rep):
+def _render_reproduction_run_block(out, label, run_command, env, showdown_commit, server_patch_hash):
+    out.append(f"{label} — from the manifest's recorded invocation:")
+    out.append("")
+    out.append("```")
+    out.append(f"PYTHONHASHSEED={env.get('PYTHONHASHSEED')} "
+               f"SHOWDOWN_BATTLE_SEED_BASE={env.get('SHOWDOWN_BATTLE_SEED_BASE')} \\")
+    out.append(f"  {run_command}")
+    out.append("```")
+    out.append("")
+    out.append(f"showdown_commit {showdown_commit} · server_patch_hash {server_patch_hash}")
+    out.append("")
+
+
+def _render_reproduction_block_paired(out, rep):
+    """Paired Reproduction block: both runs' recorded invocations, then ONE combined
+    'regenerate this report' CLI line carrying both runs (T5 Task 5 — fixes the Task-4
+    flagged gap where only run A's regenerate inputs were shown)."""
     out.append("## Reproduction")
     out.append("")
-    out.append("Run (from the manifest's recorded invocation):")
-    out.append("")
-    out.append("```")
-    out.append(f"PYTHONHASHSEED={rep['env'].get('PYTHONHASHSEED')} "
-               f"SHOWDOWN_BATTLE_SEED_BASE={rep['env'].get('SHOWDOWN_BATTLE_SEED_BASE')} \\")
-    out.append(f"  {rep['run_command']}")
-    out.append("```")
-    out.append("")
-    out.append(f"showdown_commit {rep['showdown_commit']} · "
-               f"server_patch_hash {rep['server_patch_hash']}")
-    out.append("")
-    out.append("Regenerate this report:")
+    _render_reproduction_run_block(out, "Run A (candidate)", rep["run_command_a"], rep["env_a"],
+                                   rep["showdown_commit_a"], rep["server_patch_hash_a"])
+    _render_reproduction_run_block(out, "Run B (baseline)", rep["run_command_b"], rep["env_b"],
+                                   rep["showdown_commit_b"], rep["server_patch_hash_b"])
+    out.append("Regenerate this paired report (both runs):")
     out.append("")
     out.append("```")
     out.append(rep["report_command"])
@@ -993,5 +1030,5 @@ def _render_md_paired(data) -> str:
         out.append(f"> {wtext}")
         out.append("")
 
-    _render_reproduction_block(out, data["reproduction"])
+    _render_reproduction_block_paired(out, data["reproduction"])
     return "\n".join(out) + "\n"
