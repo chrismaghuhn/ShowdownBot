@@ -17,3 +17,4 @@ showdown_bot/teams/** -text
 # The divergent room logs are gzipped, so mark them binary (never touched by CRLF/diff).
 data/eval/t4/** -text
 data/eval/t4/room_raw_divergent/** binary
+data/eval/t4/rerun/room_raw/** binary

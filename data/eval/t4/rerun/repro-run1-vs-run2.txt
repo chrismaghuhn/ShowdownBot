@@ -1,0 +1,106 @@
+battle 0: identical (HeuristicBot9882__battle-gen9vgc2025regi-443.log vs HeuristicBot8414__battle-gen9vgc2025regi-515.log)
+battle 1: identical (HeuristicBot6086__battle-gen9vgc2025regi-444.log vs HeuristicBot8561__battle-gen9vgc2025regi-516.log)
+battle 2: identical (HeuristicBot8202__battle-gen9vgc2025regi-445.log vs HeuristicBot8868__battle-gen9vgc2025regi-517.log)
+battle 3: identical (HeuristicBot5260__battle-gen9vgc2025regi-446.log vs HeuristicBot5516__battle-gen9vgc2025regi-518.log)
+battle 4: identical (HeuristicBot6573__battle-gen9vgc2025regi-447.log vs HeuristicBot4718__battle-gen9vgc2025regi-519.log)
+battle 5: identical (HeuristicBot7042__battle-gen9vgc2025regi-448.log vs HeuristicBot6020__battle-gen9vgc2025regi-520.log)
+battle 6: identical (HeuristicBot9507__battle-gen9vgc2025regi-449.log vs HeuristicBot3504__battle-gen9vgc2025regi-521.log)
+battle 7: identical (HeuristicBot1673__battle-gen9vgc2025regi-450.log vs HeuristicBot4900__battle-gen9vgc2025regi-522.log)
+battle 8: identical (HeuristicBot1105__battle-gen9vgc2025regi-451.log vs HeuristicBot8389__battle-gen9vgc2025regi-523.log)
+battle 9: identical (HeuristicBot4128__battle-gen9vgc2025regi-452.log vs HeuristicBot6736__battle-gen9vgc2025regi-524.log)
+battle 10: identical (HeuristicBot1110__battle-gen9vgc2025regi-453.log vs HeuristicBot7583__battle-gen9vgc2025regi-525.log)
+battle 11: identical (HeuristicBot6168__battle-gen9vgc2025regi-454.log vs HeuristicBot6418__battle-gen9vgc2025regi-526.log)
+battle 12: identical (HeuristicBot3978__battle-gen9vgc2025regi-455.log vs HeuristicBot3524__battle-gen9vgc2025regi-527.log)
+battle 13: identical (HeuristicBot4252__battle-gen9vgc2025regi-456.log vs HeuristicBot3595__battle-gen9vgc2025regi-528.log)
+battle 14: identical (HeuristicBot2631__battle-gen9vgc2025regi-457.log vs HeuristicBot7799__battle-gen9vgc2025regi-529.log)
+battle 15: identical (HeuristicBot4361__battle-gen9vgc2025regi-458.log vs HeuristicBot4938__battle-gen9vgc2025regi-530.log)
+battle 16: identical (HeuristicBot8799__battle-gen9vgc2025regi-459.log vs HeuristicBot7163__battle-gen9vgc2025regi-531.log)
+battle 17: identical (HeuristicBot9903__battle-gen9vgc2025regi-460.log vs HeuristicBot2301__battle-gen9vgc2025regi-532.log)
+battle 18: identical (HeuristicBot1736__battle-gen9vgc2025regi-461.log vs HeuristicBot7976__battle-gen9vgc2025regi-533.log)
+battle 19: identical (HeuristicBot8113__battle-gen9vgc2025regi-462.log vs HeuristicBot9589__battle-gen9vgc2025regi-534.log)
+battle 20: identical (HeuristicBot8067__battle-gen9vgc2025regi-463.log vs HeuristicBot7382__battle-gen9vgc2025regi-535.log)
+battle 21: identical (HeuristicBot2185__battle-gen9vgc2025regi-464.log vs HeuristicBot3836__battle-gen9vgc2025regi-536.log)
+battle 22: identical (HeuristicBot1343__battle-gen9vgc2025regi-465.log vs HeuristicBot8991__battle-gen9vgc2025regi-537.log)
+battle 23: identical (HeuristicBot1950__battle-gen9vgc2025regi-466.log vs HeuristicBot9178__battle-gen9vgc2025regi-538.log)
+battle 24: identical (HeuristicBot8032__battle-gen9vgc2025regi-467.log vs HeuristicBot7571__battle-gen9vgc2025regi-539.log)
+battle 25: identical (HeuristicBot6851__battle-gen9vgc2025regi-468.log vs HeuristicBot3580__battle-gen9vgc2025regi-540.log)
+battle 26: identical (HeuristicBot7454__battle-gen9vgc2025regi-469.log vs HeuristicBot2985__battle-gen9vgc2025regi-541.log)
+battle 27: identical (HeuristicBot5663__battle-gen9vgc2025regi-470.log vs HeuristicBot8678__battle-gen9vgc2025regi-542.log)
+battle 28: identical (HeuristicBot2261__battle-gen9vgc2025regi-471.log vs HeuristicBot5633__battle-gen9vgc2025regi-543.log)
+battle 29: identical (HeuristicBot9023__battle-gen9vgc2025regi-472.log vs HeuristicBot9452__battle-gen9vgc2025regi-544.log)
+battle 30: identical (HeuristicBot4531__battle-gen9vgc2025regi-473.log vs HeuristicBot1115__battle-gen9vgc2025regi-545.log)
+battle 31: identical (HeuristicBot1170__battle-gen9vgc2025regi-474.log vs HeuristicBot3928__battle-gen9vgc2025regi-546.log)
+battle 32: identical (HeuristicBot5462__battle-gen9vgc2025regi-475.log vs HeuristicBot3568__battle-gen9vgc2025regi-547.log)
+battle 33: identical (HeuristicBot3584__battle-gen9vgc2025regi-476.log vs HeuristicBot8515__battle-gen9vgc2025regi-548.log)
+battle 34: identical (HeuristicBot2363__battle-gen9vgc2025regi-477.log vs HeuristicBot9676__battle-gen9vgc2025regi-549.log)
+battle 35: identical (HeuristicBot1710__battle-gen9vgc2025regi-478.log vs HeuristicBot4855__battle-gen9vgc2025regi-550.log)
+battle 36: identical (HeuristicBot6411__battle-gen9vgc2025regi-479.log vs HeuristicBot9117__battle-gen9vgc2025regi-551.log)
+battle 37: identical (HeuristicBot3192__battle-gen9vgc2025regi-480.log vs HeuristicBot4923__battle-gen9vgc2025regi-552.log)
+battle 38: identical (HeuristicBot4756__battle-gen9vgc2025regi-481.log vs HeuristicBot9255__battle-gen9vgc2025regi-553.log)
+battle 39: identical (HeuristicBot6533__battle-gen9vgc2025regi-482.log vs HeuristicBot8972__battle-gen9vgc2025regi-554.log)
+battle 40: identical (HeuristicBot5184__battle-gen9vgc2025regi-483.log vs HeuristicBot1032__battle-gen9vgc2025regi-555.log)
+battle 41: identical (HeuristicBot9501__battle-gen9vgc2025regi-484.log vs HeuristicBot5693__battle-gen9vgc2025regi-556.log)
+battle 42: identical (HeuristicBot3788__battle-gen9vgc2025regi-485.log vs HeuristicBot6120__battle-gen9vgc2025regi-557.log)
+battle 43: identical (HeuristicBot3322__battle-gen9vgc2025regi-486.log vs HeuristicBot4229__battle-gen9vgc2025regi-558.log)
+battle 44: identical (HeuristicBot1084__battle-gen9vgc2025regi-487.log vs HeuristicBot7766__battle-gen9vgc2025regi-559.log)
+battle 45: identical (HeuristicBot2614__battle-gen9vgc2025regi-488.log vs HeuristicBot5687__battle-gen9vgc2025regi-560.log)
+battle 46: identical (HeuristicBot8627__battle-gen9vgc2025regi-489.log vs HeuristicBot9357__battle-gen9vgc2025regi-561.log)
+battle 47: identical (HeuristicBot5431__battle-gen9vgc2025regi-490.log vs HeuristicBot7870__battle-gen9vgc2025regi-562.log)
+battle 48: identical (HeuristicBot2669__battle-gen9vgc2025regi-491.log vs HeuristicBot2946__battle-gen9vgc2025regi-563.log)
+battle 49: identical (HeuristicBot7679__battle-gen9vgc2025regi-492.log vs HeuristicBot2948__battle-gen9vgc2025regi-564.log)
+battle 50: identical (HeuristicBot4792__battle-gen9vgc2025regi-493.log vs HeuristicBot6494__battle-gen9vgc2025regi-565.log)
+row 0: winner hero==hero seed_match=True turns 15==15 hashes_match=True
+row 1: winner villain==villain seed_match=True turns 7==7 hashes_match=True
+row 2: winner villain==villain seed_match=True turns 13==13 hashes_match=True
+row 3: winner villain==villain seed_match=True turns 17==17 hashes_match=True
+row 4: winner villain==villain seed_match=True turns 11==11 hashes_match=True
+row 5: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 6: winner villain==villain seed_match=True turns 16==16 hashes_match=True
+row 7: winner villain==villain seed_match=True turns 9==9 hashes_match=True
+row 8: winner hero==hero seed_match=True turns 9==9 hashes_match=True
+row 9: winner hero==hero seed_match=True turns 13==13 hashes_match=True
+row 10: winner hero==hero seed_match=True turns 12==12 hashes_match=True
+row 11: winner hero==hero seed_match=True turns 21==21 hashes_match=True
+row 12: winner hero==hero seed_match=True turns 13==13 hashes_match=True
+row 13: winner hero==hero seed_match=True turns 13==13 hashes_match=True
+row 14: winner villain==villain seed_match=True turns 15==15 hashes_match=True
+row 15: winner villain==villain seed_match=True turns 16==16 hashes_match=True
+row 16: winner villain==villain seed_match=True turns 16==16 hashes_match=True
+row 17: winner villain==villain seed_match=True turns 17==17 hashes_match=True
+row 18: winner villain==villain seed_match=True turns 16==16 hashes_match=True
+row 19: winner hero==hero seed_match=True turns 11==11 hashes_match=True
+row 20: winner hero==hero seed_match=True turns 14==14 hashes_match=True
+row 21: winner hero==hero seed_match=True turns 13==13 hashes_match=True
+row 22: winner hero==hero seed_match=True turns 12==12 hashes_match=True
+row 23: winner villain==villain seed_match=True turns 13==13 hashes_match=True
+row 24: winner villain==villain seed_match=True turns 7==7 hashes_match=True
+row 25: winner villain==villain seed_match=True turns 7==7 hashes_match=True
+row 26: winner villain==villain seed_match=True turns 7==7 hashes_match=True
+row 27: winner villain==villain seed_match=True turns 8==8 hashes_match=True
+row 28: winner hero==hero seed_match=True turns 11==11 hashes_match=True
+row 29: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 30: winner villain==villain seed_match=True turns 9==9 hashes_match=True
+row 31: winner villain==villain seed_match=True turns 8==8 hashes_match=True
+row 32: winner villain==villain seed_match=True turns 8==8 hashes_match=True
+row 33: winner villain==villain seed_match=True turns 8==8 hashes_match=True
+row 34: winner villain==villain seed_match=True turns 9==9 hashes_match=True
+row 35: winner hero==hero seed_match=True turns 15==15 hashes_match=True
+row 36: winner hero==hero seed_match=True turns 11==11 hashes_match=True
+row 37: winner villain==villain seed_match=True turns 13==13 hashes_match=True
+row 38: winner villain==villain seed_match=True turns 13==13 hashes_match=True
+row 39: winner villain==villain seed_match=True turns 16==16 hashes_match=True
+row 40: winner villain==villain seed_match=True turns 12==12 hashes_match=True
+row 41: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 42: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 43: winner villain==villain seed_match=True turns 9==9 hashes_match=True
+row 44: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 45: winner villain==villain seed_match=True turns 10==10 hashes_match=True
+row 46: winner hero==hero seed_match=True turns 9==9 hashes_match=True
+row 47: winner villain==villain seed_match=True turns 9==9 hashes_match=True
+row 48: winner hero==hero seed_match=True turns 15==15 hashes_match=True
+row 49: winner villain==villain seed_match=True turns 14==14 hashes_match=True
+row 50: winner hero==hero seed_match=True turns 18==18 hashes_match=True
+run_id: full=77993ce0cc2ba67e full2=49dbde26c9af01ab (differ by design)
+config_hash: full=aeafb78a5beea9cd full2=aeafb78a5beea9cd
+schedule_hash: full=a7f000867fdfbde0 full2=a7f000867fdfbde0
+FULL DOUBLE-RUN REPRODUCTION PASS

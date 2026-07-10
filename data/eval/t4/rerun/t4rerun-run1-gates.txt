@@ -1,0 +1,40 @@
+PASS  rows == 51 == schedule  
+PASS  invalid total == 0  
+PASS  crashes total == 0  
+PASS  end_reason all normal  
+PASS  p95 latency < 1000 on every row  worst=216
+PASS  seed-log alignment (51 contiguous, derived)  
+PASS  no duplicate (battle_id, config_hash)  
+PASS  panel_hash all == panel file  
+PASS  dirty all false  
+PASS  hero/opp team hashes present  
+PASS  opp hashes subset of dev teams  
+PASS  no held-out anywhere  
+PASS  schedule reproducible-only  
+PASS  one config_hash across rows  
+PASS  one schedule_hash across rows  
+PASS  one seed_base across rows  
+PASS  one run_id across rows  
+PASS  one git_sha across rows  
+PASS  manifest matches rows  
+PASS  type_effectiveness_fired > 0  101
+PASS  hp_gated_protect_fired > 0  23
+
+per-cell (policy, team): n W/L/T turns_min-max mean_end_hp_diff
+  ('greedy_protect', 'teams/panel_v001/rain_dev.txt'): n=2 1/1/0 14-15 +0.185
+  ('greedy_protect', 'teams/panel_v001/sun_dev.txt'): n=2 0/2/0 9-9 -0.515
+  ('greedy_protect', 'teams/panel_v001/trickroom_dev.txt'): n=2 2/0/0 11-14 +1.510
+  ('heuristic', 'teams/panel_v001/rain_dev.txt'): n=5 0/5/0 12-16 -1.116
+  ('heuristic', 'teams/panel_v001/sun_dev.txt'): n=5 0/5/0 7-13 -1.634
+  ('heuristic', 'teams/panel_v001/trickroom_dev.txt'): n=5 5/0/0 12-21 +1.024
+  ('max_damage', 'teams/panel_v001/rain_dev.txt'): n=5 0/5/0 9-10 -1.222
+  ('max_damage', 'teams/panel_v001/sun_dev.txt'): n=5 1/4/0 8-11 -0.715
+  ('max_damage', 'teams/panel_v001/trickroom_dev.txt'): n=5 1/4/0 13-17 -0.955
+  ('scripted_vgc', 'teams/panel_v001/rain_dev.txt'): n=2 2/0/0 9-18 +1.976
+  ('scripted_vgc', 'teams/panel_v001/sun_dev.txt'): n=2 2/0/0 11-15 +0.993
+  ('scripted_vgc', 'teams/panel_v001/trickroom_dev.txt'): n=2 2/0/0 12-13 +2.329
+  ('simple_heuristic', 'teams/panel_v001/rain_dev.txt'): n=3 1/2/0 9-10 -0.211
+  ('simple_heuristic', 'teams/panel_v001/sun_dev.txt'): n=3 0/3/0 8-8 -1.253
+  ('simple_heuristic', 'teams/panel_v001/trickroom_dev.txt'): n=3 0/3/0 16-17 -1.160
+
+ALL GATES PASS
