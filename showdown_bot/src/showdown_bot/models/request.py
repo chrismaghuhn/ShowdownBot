@@ -6,8 +6,10 @@ from pydantic import BaseModel, Field
 class MoveSlot(BaseModel):
     move: str
     id: str
-    pp: int
-    maxpp: int
+    # Struggle-only requests (all moves out of PP) omit both pp and maxpp
+    # entirely (T6 held-out finding, seed t6heldout2026 idx 23).
+    pp: int | None = None
+    maxpp: int | None = None
     target: str
     disabled: bool = False
 
