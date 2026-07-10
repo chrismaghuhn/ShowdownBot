@@ -152,6 +152,24 @@ def setup_showdown(repo_root, cache_dir) -> str:
     return str(showdown_dir)
 
 
+def setup_calc_bridge(repo_root) -> str:
+    """Install the @smogon/calc node bridge's dependencies (``showdown_bot/tools/calc``).
+
+    The repo commits only a PARTIAL node_modules subset there (TypeScript sources); the
+    package's actual entry point (``dist/index.js``, per its package.json ``main``) is only
+    present after a real npm install -- so on a fresh clone ``node calc.mjs`` dies with
+    ERR_MODULE_NOT_FOUND and every damage calc fails (Task 3 attempt-2 lesson: the gauntlet
+    CLI exited 1 against a perfectly healthy server). ``npm ci`` wipes node_modules and
+    installs the committed lockfile exactly; falls back to ``npm install`` if ci rejects the
+    lockfile. Returns the calc dir."""
+    calc_dir = Path(repo_root) / "showdown_bot" / "tools" / "calc"
+    try:
+        subprocess.run(["npm", "ci"], cwd=str(calc_dir), check=True)
+    except (OSError, subprocess.CalledProcessError):
+        subprocess.run(["npm", "install"], cwd=str(calc_dir), check=True)
+    return str(calc_dir)
+
+
 # ---------------------------------------------------------------------------
 # Seeded schedule run (server + client subprocesses)
 # ---------------------------------------------------------------------------

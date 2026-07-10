@@ -10,10 +10,11 @@ locally) -- this script is just bootstrap + wiring.
 
 Flow: parse own env header -> git clone + checkout REPO_SHA -> put the cloned package on
 sys.path/PYTHONPATH -> import kernel_payload from the clone -> bootstrap_node ->
-setup_showdown -> run_schedule_seeded(prefix schedule, seed base t4rerun2026) ->
-validate_prefix_reproduction -> print_verdict("KAGGLE-REPRO", ...) -> copy_outputs. Wrapped
-so a verdict line is ALWAYS printed, even on a bootstrap-stage exception (the driver's
-``parse_verdict`` must always find one): ``KAGGLE-REPRO: FAIL (exception: ...)`` + traceback.
+setup_showdown -> setup_calc_bridge -> run_schedule_seeded(prefix schedule, seed base
+t4rerun2026) -> validate_prefix_reproduction -> print_verdict("KAGGLE-REPRO", ...) ->
+copy_outputs. Wrapped so a verdict line is ALWAYS printed, even on a bootstrap-stage
+exception (the driver's ``parse_verdict`` must always find one): ``KAGGLE-REPRO: FAIL
+(exception: ...)`` + traceback + salvage (client-log tail + partial-output copy).
 
 Attempt-1 operational lessons (2026-07-10) baked in:
 - ``pip install -e`` does NOT make the package importable in the SAME process: Kaggle runs
@@ -88,6 +89,7 @@ def main() -> None:
 
     kernel_payload.bootstrap_node()
     showdown_dir = kernel_payload.setup_showdown(str(_REPO_DIR), str(_SHOWDOWN_CACHE_DIR))
+    kernel_payload.setup_calc_bridge(str(_REPO_DIR))  # attempt-2 lesson: calc dist/ absent on a fresh clone
     kernel_payload.run_schedule_seeded(
         str(_REPO_DIR), showdown_dir, _SCHEDULE_RELPATH, _SEED_BASE, str(_OUT_DIR),
     )
@@ -98,9 +100,37 @@ def main() -> None:
     kernel_payload.copy_outputs(str(_OUT_DIR))
 
 
+_CLIENT_LOG_TAIL_LINES = 120
+
+
+def _salvage_outputs() -> None:
+    """Best-effort post-failure diagnostics (attempt-2 lesson: the gauntlet CLI's stdout goes
+    to <out>/client.log, and an exception used to skip copy_outputs -- leaving the ONE file
+    that explains the failure stranded on the dead instance). Print the client-log tail into
+    the kernel log (always retrievable) and copy whatever partial outputs exist into
+    /kaggle/working. Never raises."""
+    try:
+        client_log = _OUT_DIR / "client.log"
+        if client_log.exists():
+            lines = client_log.read_text(encoding="utf-8", errors="replace").splitlines()
+            print(f"--- client.log tail ({min(len(lines), _CLIENT_LOG_TAIL_LINES)} of {len(lines)} lines) ---")
+            for line in lines[-_CLIENT_LOG_TAIL_LINES:]:
+                print(line)
+            print("--- end client.log tail ---")
+    except Exception as exc:  # noqa: BLE001 -- diagnostics must never mask the real failure
+        print(f"(salvage: could not read client.log: {exc})")
+    try:
+        import kernel_payload  # importable only after main() got past the clone + sys.path setup
+
+        kernel_payload.copy_outputs(str(_OUT_DIR))
+    except Exception as exc:  # noqa: BLE001
+        print(f"(salvage: copy_outputs unavailable: {exc})")
+
+
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:  # noqa: BLE001 -- the driver must ALWAYS find a verdict line
         print(f"KAGGLE-REPRO: FAIL (exception: {exc})")
         traceback.print_exc()
+        _salvage_outputs()
