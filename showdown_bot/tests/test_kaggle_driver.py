@@ -194,6 +194,33 @@ def test_parse_verdict_bracket_leading_plain_text_still_works():
 
 
 # ---------------------------------------------------------------------------
+# _is_stale_terminal (2b-2.5a Task 5: stale previous-run-status guard for `wait`)
+# ---------------------------------------------------------------------------
+
+def test_is_stale_terminal_true_for_terminal_status_before_min_elapsed():
+    assert kaggle_driver._is_stale_terminal("COMPLETE", 10.0, 90) is True
+
+
+def test_is_stale_terminal_false_for_terminal_status_after_min_elapsed():
+    assert kaggle_driver._is_stale_terminal("COMPLETE", 91.0, 90) is False
+
+
+def test_is_stale_terminal_false_exactly_at_min_elapsed():
+    # elapsed_s == min_elapsed_s is NOT stale (the guard uses a strict '<').
+    assert kaggle_driver._is_stale_terminal("ERROR", 90.0, 90) is False
+
+
+def test_is_stale_terminal_false_for_non_terminal_status_regardless_of_elapsed():
+    assert kaggle_driver._is_stale_terminal("RUNNING", 0.0, 90) is False
+    assert kaggle_driver._is_stale_terminal("QUEUED", 0.0, 90) is False
+
+
+def test_is_stale_terminal_true_for_every_terminal_status_when_early():
+    for state in ("COMPLETE", "ERROR", "CANCEL_ACKNOWLEDGED"):
+        assert kaggle_driver._is_stale_terminal(state, 0.0, 90) is True
+
+
+# ---------------------------------------------------------------------------
 # Module hygiene: kaggle must be imported lazily (inside functions only), so
 # importing/testing this module never requires kaggle credentials.
 # ---------------------------------------------------------------------------

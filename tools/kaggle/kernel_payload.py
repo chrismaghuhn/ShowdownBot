@@ -32,9 +32,13 @@ import sys
 import time
 from pathlib import Path
 
+from showdown_bot.eval import datagen_2b25a
 from showdown_bot.eval.baseline import WinnerSequenceError, verify_winner_sequence
 from showdown_bot.eval.room_dump import GAUNTLET_NAME_SUBS, normalize_battle_log
 from showdown_bot.eval.run_manifest import load_showdown_commit
+from showdown_bot.eval.schedule import ScheduleError, load_schedule, verify_schedule_alignment
+from showdown_bot.eval.seeding import SeedLogError
+from showdown_bot.learning.dataset import load_rows
 
 # Committed Phase-1 reproduction fixture (T4b, see reports/2026-07-10-2b35-T4-rerun.md Sec.9).
 _PREFIX_REFERENCE_JSONL = "data/eval/t4/rerun/t4rerun-prefix.jsonl"
@@ -266,6 +270,114 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
 
 
 # ---------------------------------------------------------------------------
+# Datagen (Task 5): per-hero seeded export + in-kernel validation
+# ---------------------------------------------------------------------------
+
+def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
+    """Validate one hero's datagen ``out_dir`` against its COMMITTED schedule + seed base
+    (``showdown_bot.eval.datagen_2b25a``) -- pure file reads, exactly like
+    ``validate_prefix_reproduction``: never runs a battle, so it is unit-testable against a
+    synthetic ``out_dir`` built by the test. Checks, in order:
+
+    (a) seed-log alignment (``verify_schedule_alignment``) of ``<out_dir>/seeds.jsonl`` against
+        the hero's committed schedule + ``SEED_BASES[hero_key]``;
+    (b) every ``<out_dir>/dataset.jsonl`` row is schema-valid, via
+        ``showdown_bot.learning.dataset.load_rows(..., validate=True)`` -- the SAME
+        schema-validating loader the 2b-1 training pipeline uses (``learning/dataset.py``
+        delegates to ``learning/schema.py``'s ``validate_row``), so a broken export is caught
+        here instead of at train time;
+    (c) zero ``falling back`` / ``frame error`` lines in ``<out_dir>/client.log`` (heuristic
+        timeout/exception fallback and gauntlet frame-parse warnings both indicate a degraded
+        run whose labels should not be trusted);
+    (d) ``<out_dir>/results.jsonl`` has exactly one row per schedule row (T2-CC-4's contract --
+        a retry/extra/missing battle would silently desync Channel-A seeding).
+
+    Returns ``(ok, detail)``, never raises. On success ``detail`` is ``"rows=<n> games=<m>"``
+    (embedded verbatim in ``run_datagen``'s ``DATAGEN: DONE ...`` line); on failure ``detail``
+    is a human-readable reason (embedded in ``DATAGEN: FAIL (<reason>)`` via ``print_verdict``).
+    """
+    repo_root = Path(repo_root)
+    out_dir = Path(out_dir)
+
+    try:
+        schedule = load_schedule(str(repo_root / datagen_2b25a.schedule_relpath(hero_key)))
+    except (ScheduleError, OSError) as exc:
+        return False, f"could not load schedule for hero {hero_key!r}: {exc}"
+
+    seed_base = datagen_2b25a.SEED_BASES[hero_key]
+    try:
+        verify_schedule_alignment(schedule, str(out_dir / "seeds.jsonl"), seed_base)
+    except (ScheduleError, SeedLogError) as exc:
+        return False, f"seed-log alignment failed: {exc}"
+
+    try:
+        rows = load_rows(str(out_dir / "dataset.jsonl"), validate=True)
+    except (OSError, ValueError) as exc:
+        return False, f"dataset validation failed: {exc}"
+
+    try:
+        client_log_text = (out_dir / "client.log").read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return False, f"could not read client.log: {exc}"
+    bad_lines = [ln.strip() for ln in client_log_text.splitlines()
+                 if "falling back" in ln or "frame error" in ln]
+    if bad_lines:
+        return False, (
+            f"{len(bad_lines)} degraded-run warning line(s) in client.log "
+            f"(e.g. {bad_lines[0]!r})"
+        )
+
+    try:
+        result_rows = _load_jsonl(out_dir / "results.jsonl")
+    except OSError as exc:
+        return False, f"could not read result rows: {exc}"
+    if len(result_rows) != len(schedule.rows):
+        return False, (
+            f"result row count mismatch: {len(result_rows)} rows, "
+            f"schedule has {len(schedule.rows)}"
+        )
+
+    return True, f"rows={len(rows)} games={len(schedule.rows)}"
+
+
+def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
+    """Kaggle datagen kernel orchestration for ONE hero (Task 5). Resolves the hero's committed
+    schedule (``datagen_2b25a.schedule_relpath(hero_key)``) and seed base
+    (``datagen_2b25a.SEED_BASES[hero_key]``), runs it via ``run_schedule_seeded`` with a
+    dataset export in rollout-teacher mode, then validates the output
+    (``validate_datagen_output``) and prints the ``DATAGEN`` verdict line itself (``DATAGEN:
+    DONE hero=<key> rows=<n> games=<m>`` on success, ``DATAGEN: FAIL (<reason>)`` on any
+    failure -- the latter via ``print_verdict`` so the wire format matches
+    ``kaggle_driver.parse_verdict``'s expectations exactly). Returns a dict of
+    ``run_schedule_seeded``'s output paths plus ``hero_key``/``ok``/``detail``/``verdict``.
+
+    NOT unit-tested directly -- like ``run_schedule_seeded``, it starts subprocesses (server +
+    gauntlet CLI) and only ever runs on Kaggle (Task 6). Only ``validate_datagen_output`` (the
+    pure validation half) is exercised locally.
+    """
+    repo_root = Path(repo_root)
+    out_dir = Path(out_dir)
+    schedule_rel = datagen_2b25a.schedule_relpath(hero_key)
+    seed_base = datagen_2b25a.SEED_BASES[hero_key]
+    dataset_export = out_dir / "dataset.jsonl"
+
+    paths = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
+        dataset_export=str(dataset_export),
+        extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
+    )
+
+    ok, detail = validate_datagen_output(str(repo_root), str(out_dir), hero_key)
+    if ok:
+        line = f"DATAGEN: DONE hero={hero_key} {detail}"
+        print(line)
+    else:
+        line = print_verdict("DATAGEN", False, detail)
+
+    return {**paths, "hero_key": hero_key, "ok": ok, "detail": detail, "verdict": line}
+
+
+# ---------------------------------------------------------------------------
 # Prefix-reproduction validation (pure file reads; local-testable)
 # ---------------------------------------------------------------------------
 
@@ -366,7 +478,10 @@ def print_verdict(tag: str, ok: bool, detail: str) -> str:
 def copy_outputs(out_dir, working_dir="/kaggle/working") -> list[str]:
     """Copy the flat run outputs (results/manifest/seeds/client log/verdict) plus a gzipped
     copy of every room_raw log into ``working_dir``, so the driver's ``download_output`` picks
-    them all up. Returns the list of destination paths actually written."""
+    them all up. When ``<out_dir>/dataset.jsonl`` is present (Task 5's datagen kernel; absent
+    for repro_validation.py's out_dir) it is copied gzipped as ``dataset.jsonl.gz`` -- the raw
+    per-hero export can run to tens of thousands of rows, so it is never copied uncompressed.
+    Returns the list of destination paths actually written."""
     out_dir = Path(out_dir)
     working_dir = Path(working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
@@ -378,6 +493,13 @@ def copy_outputs(out_dir, working_dir="/kaggle/working") -> list[str]:
             dest = working_dir / name
             shutil.copy2(src, dest)
             written.append(str(dest))
+
+    dataset_src = out_dir / "dataset.jsonl"
+    if dataset_src.exists():
+        dataset_dest = working_dir / "dataset.jsonl.gz"
+        with open(dataset_src, "rb") as src_fh, gzip.open(dataset_dest, "wb") as dst_fh:
+            shutil.copyfileobj(src_fh, dst_fh)
+        written.append(str(dataset_dest))
 
     room_raw_src = out_dir / "room_raw"
     if room_raw_src.is_dir():

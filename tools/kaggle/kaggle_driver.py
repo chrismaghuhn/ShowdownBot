@@ -5,7 +5,7 @@ kernel-side payload code). Two families of functions live here:
 
 1. PURE parts (unit-tested in showdown_bot/tests/test_kaggle_driver.py, no
    network): `build_kernel_metadata`, `inject_env_header`/`parse_env_header`,
-   `parse_verdict`.
+   `parse_verdict`, `_is_stale_terminal`.
 2. Thin NETWORK functions (`push`, `status`, `wait`, `download_output`) --
    NOT unit-tested here (no real Kaggle API calls in tests); exercised
    operationally in Task 3/6. Each imports the `kaggle` package lazily
@@ -42,6 +42,14 @@ fetches is NOT plain text -- it is a JSON array of stream records
 (`[{"stream_name": "stdout", "time": ..., "data": "line\n"}, ...]`).
 `parse_verdict` transparently decodes that shape (`_kaggle_log_text`) before
 scanning, and still accepts plain text (verdict.txt, live captures).
+
+Stale-terminal guard (Task 3 finding, 2026-07-10): re-pushing a kernel to an existing slug
+does not atomically clear its previous run's status -- `status(slug)` can momentarily still
+report the PREVIOUS run's terminal state (e.g. a stale `COMPLETE`/`ERROR` from hours ago)
+before the new run's QUEUED/RUNNING transition lands, which would otherwise make `wait`
+return immediately with data from the wrong run. `wait` now ignores (keeps polling past) any
+terminal status observed within the first `min_elapsed_s` seconds (default 90) after the wait
+call began; `_is_stale_terminal` is the pure decision function.
 """
 from __future__ import annotations
 
@@ -153,6 +161,16 @@ def parse_verdict(log_text: str) -> tuple[str | None, str]:
     return verdict, last_line
 
 
+def _is_stale_terminal(state: str, elapsed_s: float, min_elapsed_s: float) -> bool:
+    """True iff `state` is a terminal status (`_TERMINAL_STATUSES`) reported suspiciously
+    early -- before `min_elapsed_s` seconds have elapsed since `wait` started polling. A
+    terminal status this early is more likely a stale report of the SLUG's previous run than
+    a genuine (implausibly fast) completion of the fresh push, so `wait` treats it as "not
+    actually terminal yet" and keeps polling. A non-terminal `state` is never stale (this
+    function only judges terminal-looking reports)."""
+    return state in _TERMINAL_STATUSES and elapsed_s < min_elapsed_s
+
+
 # ---------------------------------------------------------------------------
 # Thin network functions -- NOT unit-tested; exercised operationally in
 # Task 3/6. `kaggle` is imported lazily so this module loads without it.
@@ -196,14 +214,17 @@ def status(slug: str) -> str:
     return getattr(raw_status, "name", str(raw_status))
 
 
-def wait(slug: str, timeout_s: int = 3600, poll_s: int = 60) -> str:
+def wait(slug: str, timeout_s: int = 3600, poll_s: int = 60, min_elapsed_s: int = 90) -> str:
     """Poll `status(slug)` until it reaches a terminal state (COMPLETE/ERROR/
     CANCEL_ACKNOWLEDGED) or timeout_s elapses. Sleeps poll_s between polls --
-    deliberately no tight loops. Returns the last observed status (which may
-    be non-terminal if timeout_s was hit)."""
-    deadline = time.monotonic() + timeout_s
+    deliberately no tight loops. A terminal status observed before `min_elapsed_s`
+    seconds have elapsed is ignored (`_is_stale_terminal` -- see the module
+    docstring's "Stale-terminal guard" section) and polling continues. Returns
+    the last observed status (which may be non-terminal if timeout_s was hit)."""
+    start = time.monotonic()
+    deadline = start + timeout_s
     last = status(slug)
-    while last not in _TERMINAL_STATUSES:
+    while last not in _TERMINAL_STATUSES or _is_stale_terminal(last, time.monotonic() - start, min_elapsed_s):
         if time.monotonic() >= deadline:
             break
         time.sleep(poll_s)
@@ -248,6 +269,9 @@ def main(argv: list[str] | None = None) -> int:
     p_wait.add_argument("slug")
     p_wait.add_argument("--timeout-s", type=int, default=3600)
     p_wait.add_argument("--poll-s", type=int, default=60)
+    p_wait.add_argument("--min-elapsed-s", type=int, default=90,
+                         help="ignore a terminal status reported before this many seconds "
+                              "have elapsed (stale previous-run status guard)")
 
     p_pull = sub.add_parser("pull", help="Download a kernel's output files.")
     p_pull.add_argument("slug")
@@ -259,7 +283,8 @@ def main(argv: list[str] | None = None) -> int:
         push(args.slug, args.script, _parse_env_args(args.env))
         print(f"pushed {args.slug}")
     elif args.command == "wait":
-        final = wait(args.slug, timeout_s=args.timeout_s, poll_s=args.poll_s)
+        final = wait(args.slug, timeout_s=args.timeout_s, poll_s=args.poll_s,
+                     min_elapsed_s=args.min_elapsed_s)
         print(f"{args.slug}: {final}")
     elif args.command == "pull":
         files = download_output(args.slug, args.dest)
