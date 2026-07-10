@@ -4,7 +4,7 @@ from showdown_bot.battle.actions import enumerate_my_actions
 from showdown_bot.battle.decision import _opp_side, _plan_my_actions
 from showdown_bot.battle.evaluate import DamageModel
 from showdown_bot.battle.oracle import DamageOracle
-from showdown_bot.battle.random_agent import pick_random_pair
+from showdown_bot.battle.random_agent import pick_default_pair
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.belief.hypotheses import SpreadBook
 from showdown_bot.engine.calc.client import CalcClient
@@ -36,12 +36,12 @@ def max_damage_choice(
     Defender uses the standard (defense) preset -- a fair, fixed bulk assumption.
 
     ``fallback`` (T3c): a callable ``req -> choice_str`` used only on the no-legal-action
-    paths. Default ``None`` preserves the current ``pick_random_pair`` behavior
-    BYTE-FOR-BYTE (live path unchanged); the eval dispatch passes a deterministic one.
+    paths. Default ``None`` (T4b) uses ``pick_default_pair`` -- the default fallback is
+    deterministic since T4b; the eval dispatch may still pass its own.
     (The main equal-damage tie-break is already deterministic — enumeration order.)
     """
     def _default_fallback(r):
-        return encode_choose(pick_random_pair(r), rqid=r.rqid)
+        return encode_choose(pick_default_pair(r), rqid=r.rqid)
 
     _fb = fallback if fallback is not None else _default_fallback
 

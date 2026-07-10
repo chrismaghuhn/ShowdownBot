@@ -11,9 +11,13 @@ import json
 import logging
 from pathlib import Path
 
+import pytest
+
 from showdown_bot.battle.actions import enumerate_my_actions
-from showdown_bot.battle.decision import heuristic_choose_for_request
+from showdown_bot.battle.baselines import max_damage_choice
+from showdown_bot.battle.decision import choose_with_fallback, heuristic_choose_for_request
 from showdown_bot.battle.legal_actions import enumerate_slot_pairs
+from showdown_bot.battle.random_agent import pick_default_pair
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.calc.models import DamageResult
 from showdown_bot.engine.format_config import load_format_config
@@ -264,3 +268,87 @@ def test_f4_heuristic_switches_the_only_bench_mon_into_the_forced_slot():
     choice = heuristic_choose_for_request(req, **_fake_deps(req))
     assert choice == next(iter(legal))
     assert choice == f"/choose pass, switch Tornadus|{req.rqid}"
+
+
+# ---------------------------------------------------------------------------
+# Task 4: deterministic last-resort fallbacks. ``pick_random_pair`` and the
+# ``random`` policy are OUT OF SCOPE and stay unchanged -- only the
+# last-resort endpoints (``choose_with_fallback``'s final layer and
+# ``max_damage_choice``'s default no-legal-action fallback) switch to the new
+# ``pick_default_pair`` (first enumeration-order pair, deterministic).
+# ---------------------------------------------------------------------------
+
+
+def test_pick_default_pair_is_first_legal_and_deterministic():
+    req = _load_fixture_request("t4b_force_single_2bench.json")
+    assert pick_default_pair(req) == enumerate_slot_pairs(req)[0]
+    assert pick_default_pair(req) == pick_default_pair(req)
+
+
+def test_pick_default_pair_raises_on_no_actions():
+    # Same no-legal-action shape enumerate_slot_pairs itself treats as empty:
+    # no active slots and no force-switch phase (see legal_actions.py's
+    # `if not req.active and not in_force_phase: return []`).
+    req = BattleRequest.model_validate({})
+    with pytest.raises(ValueError):
+        pick_default_pair(req)
+
+
+def test_choose_with_fallback_last_resort_is_deterministic(monkeypatch):
+    """R3: with BOTH the heuristic core and max_damage_choice raising, the
+    surviving last-resort layer must produce the SAME choice every time --
+    proving it no longer routes through an unseeded random.Random()."""
+    req = _load_fixture_request("t4b_force_single_2bench.json")
+
+    def _raise_heuristic(*_a, **_kw):
+        raise RuntimeError("heuristic broken (test)")
+
+    def _raise_max_damage(*_a, **_kw):
+        raise RuntimeError("max_damage broken (test)")
+
+    monkeypatch.setattr(
+        "showdown_bot.battle.decision.heuristic_choose_for_request", _raise_heuristic
+    )
+    monkeypatch.setattr(
+        "showdown_bot.battle.baselines.max_damage_choice", _raise_max_damage
+    )
+
+    choices = {choose_with_fallback(req, **_fake_deps(req)) for _ in range(5)}
+    assert len(choices) == 1, choices
+    out = next(iter(choices))
+    assert out.startswith("/choose ")
+    assert out.endswith(f"|{req.rqid}")
+
+
+def test_max_damage_default_fallback_is_deterministic(monkeypatch):
+    """R3: max_damage_choice's own no-legal-action fallback (fallback=None,
+    the live default) is deterministic and does NOT call pick_random_pair --
+    proven by making pick_random_pair raise if it's ever invoked. baselines.py
+    no longer imports pick_random_pair at all (T4b); patching its defining
+    module (random_agent) is the strongest available proof it is unreachable
+    from this path regardless of how it might be referenced."""
+    req = _load_fixture_request("t4b_force_single_2bench.json")
+    monkeypatch.setattr(
+        "showdown_bot.battle.baselines.enumerate_my_actions", lambda r: []
+    )
+
+    def _must_not_be_called(*_a, **_kw):
+        raise AssertionError("pick_random_pair must not be called (T4b)")
+
+    monkeypatch.setattr(
+        "showdown_bot.battle.random_agent.pick_random_pair", _must_not_be_called
+    )
+
+    results = {
+        max_damage_choice(
+            req,
+            state=_force_state(req),
+            book=_book(),
+            our_side="p1",
+            oracle=_FakeOracle(),
+            speed_oracle=_FakeSpeed(),
+        )
+        for _ in range(5)
+    }
+    assert len(results) == 1, results
+    assert next(iter(results)).startswith("/choose ")
