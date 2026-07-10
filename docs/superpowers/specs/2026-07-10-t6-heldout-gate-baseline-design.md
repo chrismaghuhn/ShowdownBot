@@ -82,6 +82,12 @@ only trace — discipline made auditable, not enforced.
 - Reproduction evidence for the held-out run itself: a 10-row prefix is NOT defined for this
   schedule; instead run the full 34-game schedule twice (≈2×7 min) and require 34/34
   winner/seed/turns identity (cheap at this size, stronger than a prefix).
+- **Budget interaction (deliberate):** the reproduction re-run appends a second `run` entry for
+  the same config_hash and therefore REQUIRES an explicit justification
+  (`"reproduction re-run of baseline-heldout-v1, same session"`) — exercising the budget
+  mechanism end-to-end on day one instead of special-casing it. `check_access` is called before
+  BOTH runs; the second call must fail without the justification and pass with it (that pair of
+  assertions is part of R7).
 
 ## 4. Requirements (testable)
 
