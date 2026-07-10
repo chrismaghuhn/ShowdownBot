@@ -290,3 +290,43 @@ def test_prefix_schedule_invalid_n_raises():
     for bad in (0, -1, len(full.rows) + 1, True, "2"):
         with pytest.raises(PanelScheduleError):
             prefix_schedule(full, bad)
+
+
+# --- T6 Task 2: ledger_path hook on generate_heldout_schedule ----------------------------
+
+def test_heldout_ledger_hook_appends_one_schedule_entry(tmp_path):
+    from showdown_bot.eval.heldout_ledger import read_ledger
+
+    ledger_path = tmp_path / "ledger.jsonl"
+    sched = generate_heldout_schedule(
+        _panel(), confirm_heldout=True, policies=["heuristic"],
+        ledger_path=str(ledger_path), purpose="test-purpose",
+    )
+    entries = read_ledger(str(ledger_path))
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry["kind"] == "schedule"
+    assert entry["purpose"] == "test-purpose"
+    assert entry["panel_hash"] == sched.panel_hash
+    assert entry["schedule_hash"] == sched.schedule_hash
+    assert isinstance(entry["git_sha"], str) and entry["git_sha"]  # non-empty
+    assert entry["justification"] is None
+
+
+def test_heldout_ledger_hook_requires_purpose(tmp_path):
+    with pytest.raises(PanelScheduleError):
+        generate_heldout_schedule(
+            _panel(), confirm_heldout=True, policies=["heuristic"],
+            ledger_path=str(tmp_path / "ledger.jsonl"),  # purpose omitted -> None
+        )
+
+
+def test_heldout_ledger_hook_default_appends_nothing(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "showdown_bot.eval.heldout_ledger.append_entry",
+        lambda *a, **k: calls.append((a, k)),
+    )
+    sched = generate_heldout_schedule(_panel(), confirm_heldout=True, policies=["heuristic"])
+    assert calls == []
+    assert {r.opp_team_path for r in sched.rows} == {"teams/panel_v001/balance_held.txt"}
