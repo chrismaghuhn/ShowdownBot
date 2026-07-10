@@ -5,10 +5,13 @@ Competitive **Pokémon Showdown VGC Doubles** bot — custom protocol client, ex
 heuristic core, and a **fully reproducible evaluation harness**: every battle is seeded,
 provenance-pinned, and byte-for-byte replayable.
 
-## Highlight: 100% reproducible battles
+## Highlight: byte-reproducible bot-vs-bot evaluation
 
-Pokémon battles are full of randomness (damage rolls, crits, speed ties). This repo makes them a
-controlled measurement instrument instead of noise:
+Pokémon battles are full of randomness (damage rolls, crits, speed ties). This repo makes **our
+local bot-vs-bot eval matches** — under a pinned Showdown commit, a versioned seed patch, fixed
+schedules, deterministic clients, and a fresh server per run — byte-identically reproducible.
+(Scope note: this is about the local eval harness, not arbitrary ladder replays; Showdown keeps
+seeds of non-random ladder games private by design.)
 
 1. **Server seeding** — a versioned patch
    ([tools/eval/patches/](tools/eval/patches/)) injects a derivable per-battle seed
