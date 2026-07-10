@@ -422,20 +422,113 @@ def test_module_has_no_kaggle_path_at_import_time():
 
 
 # ---------------------------------------------------------------------------
-# MEMTRACE (2b-2.5a, added 2026-07-10): memory telemetry sampler, added after datagen VMs
-# OOM'd at deterministic battle counts (see kernel_payload.py's run_datagen docstring / module
-# docstring for the incident). format_memtrace and collect_memtrace_sample are pure/injectable
-# and fully unit-tested here; start_memtrace is exercised with injected fakes + a short
-# interval (no real /proc/meminfo or ps dependency).
+# MEMTRACE (2b-2.5a, added 2026-07-10, extended to v2 same day): memory telemetry sampler, added
+# after datagen VMs OOM'd at deterministic battle counts while the top-8 RSS view stayed flat
+# (see kernel_payload.py's run_datagen / module docstring for the incident). v2 adds per-comm
+# RSS aggregates across ALL processes (not just the top-8) plus kernel-level meminfo fields
+# (Shmem/Slab/Cached/Buffers), to distinguish "many small processes below the top-8 cutoff" from
+# "kernel-level growth". format_memtrace/_parse_meminfo/_parse_ps_rows/_parse_ps_top/
+# _parse_ps_aggregates/collect_memtrace_sample are pure/injectable and fully unit-tested here;
+# start_memtrace is exercised with injected fakes + a short interval (no real /proc/meminfo or
+# ps dependency).
 # ---------------------------------------------------------------------------
 
 def test_format_memtrace_golden_line():
-    line = kernel_payload.format_memtrace(
-        12.7, 3, 4096, 16384,
-        [("node", 1234, 512), ("python3", 5678, 256)],
+    meminfo = {
+        "avail_mb": 4096, "total_mb": 16384,
+        "shmem_mb": 1, "slab_mb": 2048, "cached_mb": 3000, "buffers_mb": 128,
+    }
+    aggregates = {
+        "node": (3, 900),
+        "python3": (4, 700),
+        "chrome": (2, 500),
+        "sh": (5, 100),
+    }
+    top_procs = [("node", 1234, 512), ("python3", 5678, 256)]
+
+    line = kernel_payload.format_memtrace(12.7, 3, meminfo, 20, 2300, aggregates, top_procs)
+
+    assert line == (
+        "MEMTRACE t=12 done=3 availMB=4096/16384 shmem=1 slab=2048 cached=3000 buffers=128 "
+        "procs=20:2300MB "
+        "agg=[node:n=3:900MB python3:n=4:700MB chrome:n=2:500MB sh:n=5:100MB] "
+        "top=[node:1234:512MB python3:5678:256MB]"
     )
 
-    assert line == "MEMTRACE t=12 done=3 availMB=4096/16384 top=[node:1234:512MB python3:5678:256MB]"
+
+def test_format_memtrace_agg_keeps_only_top_4_by_sum_rss_desc():
+    meminfo = {
+        "avail_mb": 0, "total_mb": 0, "shmem_mb": 0, "slab_mb": 0, "cached_mb": 0, "buffers_mb": 0,
+    }
+    # 5 comms -- only the top 4 by sum_rss_mb desc should appear, "z" (lowest sum) dropped.
+    aggregates = {
+        "a": (1, 100),
+        "b": (1, 500),
+        "c": (1, 300),
+        "d": (1, 400),
+        "z": (1, 10),
+    }
+
+    line = kernel_payload.format_memtrace(0.0, 0, meminfo, 5, 1310, aggregates, [])
+
+    assert line.endswith("agg=[b:n=1:500MB d:n=1:400MB c:n=1:300MB a:n=1:100MB] top=[]")
+    assert "z:" not in line
+
+
+def test_parse_meminfo_reads_all_fields_kb_to_mb():
+    text = (
+        "MemTotal:       16777216 kB\n"
+        "MemFree:         1000000 kB\n"
+        "MemAvailable:    4194304 kB\n"
+        "Buffers:           51200 kB\n"
+        "Cached:           102400 kB\n"
+        "SwapCached:            0 kB\n"
+        "Shmem:               2048 kB\n"
+        "Slab:             204800 kB\n"
+    )
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo == {
+        "avail_mb": 4194304 // 1024,
+        "total_mb": 16777216 // 1024,
+        "shmem_mb": 2048 // 1024,
+        "slab_mb": 204800 // 1024,
+        "cached_mb": 102400 // 1024,
+        "buffers_mb": 51200 // 1024,
+    }
+
+
+def test_parse_meminfo_missing_fields_default_to_zero():
+    text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo == {
+        "avail_mb": 4194304 // 1024,
+        "total_mb": 16777216 // 1024,
+        "shmem_mb": 0,
+        "slab_mb": 0,
+        "cached_mb": 0,
+        "buffers_mb": 0,
+    }
+
+
+def test_parse_meminfo_cached_does_not_match_swapcached():
+    # SwapCached only, no bare Cached: line -- must not false-match and must default to 0.
+    text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\nSwapCached:    999999 kB\n"
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo["cached_mb"] == 0
+
+
+def _build_ps_text(procs):
+    # header row first, like real `ps -eo pid,rss,comm` output.
+    lines = ["  PID   RSS COMMAND"]
+    for pid, rss, comm in procs:
+        lines.append(f"{pid:5d} {rss:6d} {comm}")
+    return "\n".join(lines) + "\n"
 
 
 def test_collect_memtrace_sample_with_injected_fakes(tmp_path):
@@ -446,7 +539,6 @@ def test_collect_memtrace_sample_with_injected_fakes(tmp_path):
         "Buffers:           50000 kB\n"
     )
     # 10 rows, already sorted desc by rss (kB); header row first, like real `ps` output.
-    ps_lines = ["  PID   RSS COMMAND"]
     procs = [
         (1, 2000000, "node"),
         (2, 1500000, "python3"),
@@ -459,26 +551,27 @@ def test_collect_memtrace_sample_with_injected_fakes(tmp_path):
         (9, 300000, "python3"),
         (10, 200000, "node"),
     ]
-    for pid, rss, comm in procs:
-        ps_lines.append(f"{pid:5d} {rss:6d} {comm}")
-    ps_text = "\n".join(ps_lines) + "\n"
+    ps_text = _build_ps_text(procs)
 
     results_path = tmp_path / "results.jsonl"
     results_path.write_text('{"a": 1}\n{"a": 2}\n{"a": 3}\n', encoding="utf-8")
 
-    battles_done, avail_mb, total_mb, top = kernel_payload.collect_memtrace_sample(
+    sample = kernel_payload.collect_memtrace_sample(
         str(results_path),
         read_meminfo=lambda: meminfo_text,
         run_ps=lambda: ps_text,
     )
 
-    assert battles_done == 3
-    assert avail_mb == 4194304 // 1024
-    assert total_mb == 16777216 // 1024
+    assert sample["battles_done"] == 3
+    assert sample["meminfo"]["avail_mb"] == 4194304 // 1024
+    assert sample["meminfo"]["total_mb"] == 16777216 // 1024
+    top = sample["top_procs"]
     assert len(top) == 8
     assert top[0] == ("node", 1, 2000000 // 1024)
     assert top[1] == ("python3", 2, 1500000 // 1024)
     assert top[-1] == ("node", 8, 400000 // 1024)
+    assert sample["total_proc_count"] == 10
+    assert sample["total_rss_mb"] == sum(rss for _pid, rss, _comm in procs) // 1024
 
 
 def test_collect_memtrace_sample_missing_results_file_done_zero(tmp_path):
@@ -486,13 +579,49 @@ def test_collect_memtrace_sample_missing_results_file_done_zero(tmp_path):
     ps_text = "  PID   RSS COMMAND\n    1  1000 node\n"
     missing_path = tmp_path / "does_not_exist.jsonl"
 
-    battles_done, avail_mb, total_mb, top = kernel_payload.collect_memtrace_sample(
+    sample = kernel_payload.collect_memtrace_sample(
         str(missing_path),
         read_meminfo=lambda: meminfo_text,
         run_ps=lambda: ps_text,
     )
 
-    assert battles_done == 0
+    assert sample["battles_done"] == 0
+
+
+def test_collect_memtrace_sample_aggregates_cover_all_rows_not_just_top8():
+    # 12 rows across 3 comms -- deliberately more than the top-8 cutoff, so this proves the
+    # aggregate covers ALL processes, not just the individually-listed top-8 (the whole point of
+    # v2: surface a hog made of MANY small processes each below the top-8 cutoff).
+    procs = [
+        (1, 100, "sh"), (2, 100, "sh"), (3, 100, "sh"), (4, 100, "sh"), (5, 100, "sh"),
+        (6, 100, "sh"), (7, 100, "sh"), (8, 100, "sh"), (9, 100, "sh"), (10, 100, "sh"),
+        (11, 5000, "node"),
+        (12, 3000, "python3"),
+    ]
+    ps_text = _build_ps_text(procs)
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+
+    sample = kernel_payload.collect_memtrace_sample(
+        str(Path("does_not_exist_results.jsonl")),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert sample["total_proc_count"] == 12
+    assert sample["total_rss_mb"] == (10 * 100 + 5000 + 3000) // 1024
+
+    agg = sample["aggregates"]
+    assert agg["sh"] == (10, 1000 // 1024)
+    assert agg["node"] == (1, 5000 // 1024)
+    assert agg["python3"] == (1, 3000 // 1024)
+
+    # top-8 individual list is still just the 8 highest-RSS individual processes (node, python3,
+    # then 6 of the 10 "sh" rows) -- "sh" as a GROUP outweighs node/python3, which only the
+    # aggregate reveals.
+    assert len(sample["top_procs"]) == 8
+    top_comms = [comm for comm, _pid, _rss in sample["top_procs"]]
+    assert top_comms[0] == "node"
+    assert top_comms[1] == "python3"
 
 
 def test_start_memtrace_smoke(tmp_path, capsys):

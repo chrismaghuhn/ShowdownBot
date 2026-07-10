@@ -377,12 +377,29 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
 # MEMTRACE: memory telemetry sampler (added 2026-07-10, see module docstring)
 # ---------------------------------------------------------------------------
 
-def format_memtrace(elapsed_s: float, battles_done: int, avail_mb: int, total_mb: int,
+def format_memtrace(elapsed_s: float, battles_done: int, meminfo: dict[str, int],
+                     total_proc_count: int, total_rss_mb: int,
+                     aggregates: dict[str, tuple[int, int]],
                      top_procs: list[tuple[str, int, int]]) -> str:
-    """Format one MEMTRACE line. ``top_procs`` is ``(comm, pid, rss_mb)`` tuples, already sorted
-    desc by rss. Pure formatting -- no I/O."""
+    """Format one MEMTRACE line (v2). ``meminfo`` is the dict returned by ``_parse_meminfo``
+    (``avail_mb``/``total_mb``/``shmem_mb``/``slab_mb``/``cached_mb``/``buffers_mb``).
+    ``aggregates`` is ``comm -> (count, sum_rss_mb)`` across ALL processes (not just the top-8);
+    the top 4 comms by ``sum_rss_mb`` desc are emitted (ties broken by comm name for a
+    deterministic line). ``top_procs`` is ``(comm, pid, rss_mb)`` tuples, already sorted desc by
+    rss. Pure formatting -- no I/O."""
+    top_agg = sorted(aggregates.items(), key=lambda item: (-item[1][1], item[0]))[:4]
+    agg_str = " ".join(
+        f"{comm}:n={count}:{sum_rss_mb}MB" for comm, (count, sum_rss_mb) in top_agg
+    )
     top_str = " ".join(f"{comm}:{pid}:{rss_mb}MB" for comm, pid, rss_mb in top_procs)
-    return f"MEMTRACE t={int(elapsed_s)} done={battles_done} availMB={avail_mb}/{total_mb} top=[{top_str}]"
+    return (
+        f"MEMTRACE t={int(elapsed_s)} done={battles_done} "
+        f"availMB={meminfo['avail_mb']}/{meminfo['total_mb']} "
+        f"shmem={meminfo['shmem_mb']} slab={meminfo['slab_mb']} "
+        f"cached={meminfo['cached_mb']} buffers={meminfo['buffers_mb']} "
+        f"procs={total_proc_count}:{total_rss_mb}MB "
+        f"agg=[{agg_str}] top=[{top_str}]"
+    )
 
 
 def _default_read_meminfo() -> str:
@@ -405,15 +422,27 @@ def _count_nonempty_lines(path) -> int:
         return sum(1 for line in fh if line.strip())
 
 
-def _parse_meminfo(text: str) -> tuple[int, int]:
-    avail_match = re.search(r"MemAvailable:\s+(\d+)", text)
-    total_match = re.search(r"MemTotal:\s+(\d+)", text)
-    avail_kb = int(avail_match.group(1)) if avail_match else 0
-    total_kb = int(total_match.group(1)) if total_match else 0
-    return avail_kb // 1024, total_kb // 1024
+def _parse_meminfo(text: str) -> dict[str, int]:
+    """Parse ``/proc/meminfo`` text into a dict of MB ints. A missing field yields 0. ``Cached``
+    is matched at line-start (``re.MULTILINE``) so it does not also match ``SwapCached``."""
+    def _field_mb(name: str) -> int:
+        match = re.search(rf"^{name}:\s+(\d+)", text, re.MULTILINE)
+        return (int(match.group(1)) // 1024) if match else 0
+
+    return {
+        "avail_mb": _field_mb("MemAvailable"),
+        "total_mb": _field_mb("MemTotal"),
+        "shmem_mb": _field_mb("Shmem"),
+        "slab_mb": _field_mb("Slab"),
+        "cached_mb": _field_mb("Cached"),
+        "buffers_mb": _field_mb("Buffers"),
+    }
 
 
-def _parse_ps_top(text: str, limit: int = 8) -> list[tuple[str, int, int]]:
+def _parse_ps_rows(text: str) -> list[tuple[str, int, int]]:
+    """Parse ``ps -eo pid,rss,comm`` output (skipping the header row) into ``(comm, pid,
+    rss_kb)`` tuples for ALL processes, unsorted, RSS still in kB -- the shared basis for both
+    the top-N list and the per-comm aggregates below."""
     rows: list[tuple[str, int, int]] = []
     for line in text.splitlines()[1:]:  # skip the `ps` header row
         line = line.strip()
@@ -429,25 +458,59 @@ def _parse_ps_top(text: str, limit: int = 8) -> list[tuple[str, int, int]]:
         except ValueError:
             continue
         rows.append((comm, pid, rss_kb))
-    rows.sort(key=lambda row: row[2], reverse=True)
-    return [(comm, pid, rss_kb // 1024) for comm, pid, rss_kb in rows[:limit]]
+    return rows
 
 
-def collect_memtrace_sample(results_path, *, read_meminfo=None,
-                             run_ps=None) -> tuple[int, int, int, list[tuple[str, int, int]]]:
-    """Collect one MEMTRACE sample: battles-done (non-empty lines in ``results_path``, 0 if the
-    file does not exist yet) + system MemAvailable/MemTotal (MB) + the top-8 RSS processes (MB).
-    ``read_meminfo``/``run_ps`` are injectable zero-arg callables (default to reading
-    ``/proc/meminfo`` and running ``ps -eo pid,rss,comm --sort=-rss``) so this is testable off
-    Linux and without spawning a real ``ps``."""
+def _parse_ps_top(rows: list[tuple[str, int, int]], limit: int = 8) -> list[tuple[str, int, int]]:
+    """Top-``limit`` individual processes by RSS desc, converted kB -> MB."""
+    sorted_rows = sorted(rows, key=lambda row: row[2], reverse=True)
+    return [(comm, pid, rss_kb // 1024) for comm, pid, rss_kb in sorted_rows[:limit]]
+
+
+def _parse_ps_aggregates(rows: list[tuple[str, int, int]]) -> dict[str, tuple[int, int]]:
+    """Per-comm aggregates across ALL processes (not just the top-N): ``comm -> (count,
+    sum_rss_mb)``. Sums RSS in kB before the final MB conversion, so small per-process rounding
+    error does not compound across many processes of the same comm -- the whole point of this
+    aggregate is to surface a memory hog made of MANY small processes that each fall below the
+    top-8 individual cutoff."""
+    agg_kb: dict[str, list[int]] = {}
+    for comm, _pid, rss_kb in rows:
+        entry = agg_kb.setdefault(comm, [0, 0])
+        entry[0] += 1
+        entry[1] += rss_kb
+    return {comm: (count, total_kb // 1024) for comm, (count, total_kb) in agg_kb.items()}
+
+
+def collect_memtrace_sample(results_path, *, read_meminfo=None, run_ps=None) -> dict:
+    """Collect one MEMTRACE sample (v2): battles-done (non-empty lines in ``results_path``, 0 if
+    the file does not exist yet), the full ``_parse_meminfo`` dict, the top-8 RSS processes (MB),
+    per-comm aggregates across ALL processes (count + sum_rss_mb), and totals across ALL
+    processes (``total_proc_count``, ``total_rss_mb``). ``read_meminfo``/``run_ps`` are
+    injectable zero-arg callables (default to reading ``/proc/meminfo`` and running ``ps -eo
+    pid,rss,comm --sort=-rss``) so this is testable off Linux and without spawning a real ``ps``.
+
+    Returns a dict: ``{"battles_done", "meminfo", "top_procs", "aggregates",
+    "total_proc_count", "total_rss_mb"}``.
+    """
     read_meminfo = read_meminfo or _default_read_meminfo
     run_ps = run_ps or _default_run_ps
 
     battles_done = _count_nonempty_lines(results_path)
-    avail_mb, total_mb = _parse_meminfo(read_meminfo())
-    top_procs = _parse_ps_top(run_ps())
+    meminfo = _parse_meminfo(read_meminfo())
+    rows = _parse_ps_rows(run_ps())
+    top_procs = _parse_ps_top(rows)
+    aggregates = _parse_ps_aggregates(rows)
+    total_proc_count = len(rows)
+    total_rss_mb = sum(rss_kb for _comm, _pid, rss_kb in rows) // 1024
 
-    return battles_done, avail_mb, total_mb, top_procs
+    return {
+        "battles_done": battles_done,
+        "meminfo": meminfo,
+        "top_procs": top_procs,
+        "aggregates": aggregates,
+        "total_proc_count": total_proc_count,
+        "total_rss_mb": total_rss_mb,
+    }
 
 
 def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
@@ -466,12 +529,15 @@ def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
     def _loop() -> None:
         while not stop_event.is_set():
             try:
-                battles_done, avail_mb, total_mb, top_procs = collect_memtrace_sample(
+                sample = collect_memtrace_sample(
                     results_path, read_meminfo=read_meminfo, run_ps=run_ps,
                 )
                 elapsed_s = time.monotonic() - start_time
-                print(format_memtrace(elapsed_s, battles_done, avail_mb, total_mb, top_procs),
-                      flush=True)
+                print(format_memtrace(
+                    elapsed_s, sample["battles_done"], sample["meminfo"],
+                    sample["total_proc_count"], sample["total_rss_mb"],
+                    sample["aggregates"], sample["top_procs"],
+                ), flush=True)
             except Exception:
                 pass
             stop_event.wait(interval_s)
