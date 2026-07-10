@@ -105,3 +105,40 @@ def test_runtime_close_noop_in_stub_mode(monkeypatch, tmp_path):
     assert rt is not None
     rt.close()  # must not raise
     rt.close()  # idempotent
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a run-scoped fix: `build_schedule_export_runtime` builds ONE runtime for
+# cli.run_schedule to thread through every row (instead of each row's
+# run_local_gauntlet(games=1) call building+closing its own, which overwrote the
+# export file every battle).
+# ---------------------------------------------------------------------------
+
+
+def test_build_schedule_export_runtime_returns_none_when_env_unset(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_DATASET_EXPORT", raising=False)
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    assert build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt") is None
+
+
+def test_build_schedule_export_runtime_builds_with_hero_team_and_format(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt")
+    assert rt is not None
+    assert rt.format_id == "gen9vgc2025regi"
+    assert rt.mirror_flag is False  # schedules are always non-mirror (distinct opp teams)
+    assert len(rt.team_hash_) == 16  # a real (non-empty) packed team was loaded and hashed
+
+
+def test_build_schedule_export_runtime_degrades_gracefully_on_bad_team_path(monkeypatch, tmp_path):
+    """A missing/bad hero_team_path must not raise -- mirrors _resolve_side_teams' existing
+    ""-on-load-failure tolerance (the schedule loop itself would fail loudly elsewhere on a
+    bad team path; this seam just must not crash the export-runtime build specifically)."""
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "no/such/team/file.txt")
+    assert rt is not None  # still built -- degrades to an empty packed_team, not a crash

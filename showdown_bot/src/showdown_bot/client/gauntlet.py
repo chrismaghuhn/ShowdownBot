@@ -161,7 +161,8 @@ class GauntletStats:
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None):
+    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
+                 export_runtime=None, allow_own_export=True):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -185,22 +186,36 @@ class _Client:
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
-        # Dataset export seam — None when SHOWDOWN_DATASET_EXPORT is unset (bit-identical path).
-        # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
-        # the gauntlet's already-built deps (avoids a second CalcClient).
-        # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
-        # in stub mode (default) they are ignored.
-        self._export = DatasetExportRuntime.from_env(
-            format_id=self.format_id,
-            packed_team=self.packed_team,
-            mirror_flag=False,
-            dex=None,
-            move_meta=None,
-            book=self.book,
-            our_spreads=self.our_spreads,
-            opp_sets=self.opp_sets,
-            priors=self.priors,
-        )
+        # Dataset export seam (2b-2.5a run-scoped fix): a caller (cli.run_schedule) can BORROW
+        # a runtime that spans multiple sequential run_local_gauntlet() calls/battles -- this
+        # client must then never build its own AND close() must never close a runtime it does
+        # not own (the runtime outlives this client). `allow_own_export=False` (villain, always)
+        # means this client never touches the export path at all: an explicit hero-only
+        # contract (a "heuristic" villain would otherwise build a SECOND runtime pointed at the
+        # same SHOWDOWN_DATASET_EXPORT path and clobber the hero's flushes) that also removes a
+        # per-battle wasted runtime/CalcClient build for every non-exporting villain.
+        self.owns_export = False
+        if export_runtime is not None:
+            self._export = export_runtime  # borrowed — never built or closed by this client
+        elif allow_own_export:
+            # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
+            # the gauntlet's already-built deps (avoids a second CalcClient).
+            # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
+            # in stub mode (default) they are ignored.
+            self._export = DatasetExportRuntime.from_env(
+                format_id=self.format_id,
+                packed_team=self.packed_team,
+                mirror_flag=False,
+                dex=None,
+                move_meta=None,
+                book=self.book,
+                our_spreads=self.our_spreads,
+                opp_sets=self.opp_sets,
+                priors=self.priors,
+            )
+            self.owns_export = self._export is not None
+        else:
+            self._export = None  # hero-only contract: this client never exports
         # Reranker Shadow Mode seam (slice 2b-3a) — None when SHOWDOWN_RERANKER_SHADOW is unset
         # (bit-identical path). Pass the export's provenance so shadow IDs join the export dataset.
         # RerankerShadowRuntime does NOT import lightgbm at module scope; only from_env does, when
@@ -321,14 +336,19 @@ class _Client:
 
     def close(self) -> None:
         """Idempotent, best-effort: close every calc-owning resource this client
-        created (2b-2.5a Kaggle-OOM fix — the schedule runner builds a fresh hero
-        and villain _Client per battle; each one's export runtime / eval species
-        dex can hold a PersistentCalcBackend Node process that otherwise only
-        dies at process exit). Called once per run_local_gauntlet invocation, on
-        both the success and failure paths (see the caller's try/finally), after
-        the battle result is recorded. Never raises -- one resource's close
-        failure must not skip the others'."""
-        if self._export is not None:
+        created and OWNS (2b-2.5a Kaggle-OOM fix — the schedule runner builds a
+        fresh hero and villain _Client per battle; each one's export runtime /
+        eval species dex can hold a PersistentCalcBackend Node process that
+        otherwise only dies at process exit). Called once per run_local_gauntlet
+        invocation, on both the success and failure paths (see the caller's
+        try/finally), after the battle result is recorded. Never raises -- one
+        resource's close failure must not skip the others'.
+
+        2b-2.5a run-scoped fix: a BORROWED export runtime (``owns_export`` False)
+        must NOT be closed here — it spans multiple battles and the caller
+        (cli.run_schedule) owns its lifecycle, closing it once after the whole
+        schedule finishes."""
+        if self._export is not None and self.owns_export:
             try:
                 self._export.close()
             except Exception as exc:  # noqa: BLE001
@@ -411,6 +431,64 @@ async def _run_client(
         logger.warning("[%s] client loop error: %s", client.name, exc)
 
 
+def _load_belief_deps(format_id: str):
+    """Load ``(book, priors, opp_sets)`` for ``format_id`` (best-effort for book/priors,
+    mirrors run_local_gauntlet's original inline setup). Factored out so a schedule-scoped
+    export runtime (``build_schedule_export_runtime``, 2b-2.5a) can be built with the SAME
+    deps a battle-scoped one would have gotten from inside ``_Client.__init__`` — otherwise a
+    rollout-mode (``SHOWDOWN_DATASET_TEACHER=rollout``) runtime built without them would
+    silently degrade label quality relative to the per-battle path it replaces."""
+    book = None
+    priors = None
+    try:
+        cfg = load_format_config(format_id)
+        book = load_spread_book(cfg.meta_path("default_spreads"))
+        from showdown_bot.engine.belief.protect_priors import load_protect_priors
+
+        priors = load_protect_priors(cfg.meta_path("protect_priors"))
+    except Exception:  # noqa: BLE001
+        pass
+    opp_sets = load_opp_sets_for_format(format_id)
+    return book, priors, opp_sets
+
+
+def build_schedule_export_runtime(format_id: str, hero_team_path: str):
+    """Build ONE run-scoped ``DatasetExportRuntime`` for a whole ``cli.run_schedule`` call
+    (2b-2.5a fix: ``run_schedule`` plays each row as a separate ``run_local_gauntlet(games=1)``
+    call; before this, each call's hero built+closed its OWN runtime pointed at the same
+    ``SHOWDOWN_DATASET_EXPORT`` path, so every battle's flush overwrote the previous battle's
+    rows — only the last battle in a schedule ever survived to disk).
+
+    Returns ``None`` when ``SHOWDOWN_DATASET_EXPORT`` is unset (``from_env``'s own gate) — the
+    caller passes that straight through as ``run_local_gauntlet(export_runtime=None)``, which
+    then means "export disabled" for every row in the schedule (no per-row build attempt).
+
+    Mirrors the deps a hero ``_Client`` would build for itself inside a single
+    ``run_local_gauntlet`` call (book/priors/opp_sets via ``_load_belief_deps``, our_spreads via
+    ``our_spreads_from_packed`` gated by ``SHOWDOWN_REAL_SPREADS``) so passing this ONE runtime
+    through N sequential calls produces the same per-decision rollout labels the old (broken)
+    per-battle runtime would have — just accumulated into a single file instead of N
+    overwriting ones. ``hero_team_path`` is resolved via ``_resolve_side_teams`` (mirror lookup
+    with no opponent path) so a bad/missing team degrades to ``""`` the same way the per-battle
+    path already tolerates.
+    """
+    book, priors, opp_sets = _load_belief_deps(format_id)
+    hero_packed, _ = _resolve_side_teams(hero_team_path)
+    _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
+    our_spreads = our_spreads_from_packed(hero_packed) if (hero_packed and _real) else None
+    return DatasetExportRuntime.from_env(
+        format_id=format_id,
+        packed_team=hero_packed,
+        mirror_flag=False,
+        dex=None,
+        move_meta=None,
+        book=book,
+        our_spreads=our_spreads,
+        opp_sets=opp_sets,
+        priors=priors,
+    )
+
+
 def _resolve_side_teams(team_path, opp_team_path=None):
     """Return ``(hero_packed, villain_packed)`` for the gauntlet.
 
@@ -487,27 +565,26 @@ async def run_local_gauntlet(
     hero_name: str = "HeuristicBot",
     villain_name: str = "BaselineBot",
     on_battle_result=None,
+    export_runtime=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
     ``opp_team_path`` (T1c): when given, the villain fields a **different** packed team
     (non-mirror); default ``None`` keeps the mirror behavior. ``on_battle_result`` (T2):
     when given, a callback is fired once per battle with the assembled battle record
-    (default ``None`` -> no behavior change). Requires a local
+    (default ``None`` -> no behavior change). ``export_runtime`` (2b-2.5a run-scoped fix):
+    when given, the HERO client BORROWS it (does not build or close its own runtime) — the
+    caller (cli.run_schedule) owns its lifecycle across multiple sequential calls so a
+    schedule's battles all land in one file instead of each call's flush overwriting the
+    last. Default ``None`` preserves the plain ``--games N`` path unchanged: the hero builds
+    and owns (and closes) its own runtime spanning this call's games, gated on
+    ``SHOWDOWN_DATASET_EXPORT`` as before. The VILLAIN client NEVER builds or borrows an
+    export runtime, in either mode — an explicit hero-only contract (a "heuristic" villain
+    is a valid opponent policy and would otherwise independently export its own decisions to
+    the same path, racing the hero's flushes). Requires a local
     ``node pokemon-showdown start --no-security`` server.
     """
-    book = None
-    priors = None
-    opp_sets = {}
-    try:
-        cfg = load_format_config(format_id)
-        book = load_spread_book(cfg.meta_path("default_spreads"))
-        from showdown_bot.engine.belief.protect_priors import load_protect_priors
-
-        priors = load_protect_priors(cfg.meta_path("protect_priors"))
-    except Exception:  # noqa: BLE001
-        pass
-    opp_sets = load_opp_sets_for_format(format_id)
+    book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
 
     # Unique names per run so a killed run's lingering battles aren't rejoined
@@ -526,8 +603,12 @@ async def run_local_gauntlet(
     await authenticate_local(villain_conn, villain_name)
 
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=hero_packed, trace=trace, opp_sets=opp_sets)
-    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=villain_packed, opp_sets=opp_sets)
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id,
+                   packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
+                   export_runtime=export_runtime, allow_own_export=True)
+    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
+                       packed_team=villain_packed, opp_sets=opp_sets,
+                       export_runtime=None, allow_own_export=False)
 
     stats = GauntletStats()
     # Per-battle counter deltas (T3e-P0): the row for battle N must carry battle N's
