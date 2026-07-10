@@ -33,12 +33,17 @@ from showdown_bot.eval.result_jsonl import (
     make_battle_id,
     validate_battle_row,
 )
+from showdown_bot.eval.pairing import pair_runs
 from showdown_bot.eval.run_manifest import manifest_path_for
 from showdown_bot.eval.schedule import ScheduleError, load_schedule, verify_schedule_alignment
 from showdown_bot.eval.seeding import SeedLogError, derive_battle_seed
 from showdown_bot.eval.stats import (
     LOSING_CELL_WILSON_UPPER,
+    N_DISCORDANT_CLAIM_MIN,
+    N_DISCORDANT_MATH_FLOOR,
     TIE_FLAG_RATE,
+    exact_binom_two_sided_p,
+    mcnemar_counts,
     wilson_interval,
 )
 
@@ -46,6 +51,21 @@ SCHEMA_VERSION = 1
 
 VERDICT_SINGLE_PASS = "SINGLE-RUN SAFETY-PASS"
 VERDICT_SINGLE_FAIL = "SINGLE-RUN SAFETY-FAIL"
+
+# Paired verdict vocabulary (spec §1.3), most-dominant first. SAFETY dominates everything;
+# a GO requires POSITIVE evidence (review §10 asymmetric rule) — every other outcome is NO-GO.
+VERDICT_SAFETY_FAIL = "SAFETY-FAIL"
+VERDICT_UNDERPOWERED = "UNDERPOWERED"
+VERDICT_GO = "GO"
+VERDICT_NOGO = "NO-GO"
+
+# The only policies that measure strength (review §9): improvement concentrated on the weak
+# policies (greedy_protect/scripted_vgc) while flat/negative here is NOT improvement.
+STRENGTH_POLICIES = frozenset({"heuristic", "max_damage"})
+
+# The discordant-battle list (a human-readable audit aid, review §3) is emitted whenever the
+# discordant count is small enough for a person to read every game.
+DISCORDANT_LIST_MAX = 12
 
 # --- Mandatory verbatim texts (spec §1.3) — code constants so the wording is pinned. --------
 # The UNDERPOWERED phrasing and the HELD-OUT banner are quoted verbatim from the spec; the
@@ -417,9 +437,9 @@ def _build_reproduction(bundle: RunBundle) -> dict:
 
 # --- Report assembly --------------------------------------------------------------------
 
-def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, warnings, heldout):
+def _provenance(bundle) -> dict:
     row0, m = bundle.rows[0], bundle.manifest
-    provenance = {
+    return {
         "run_id": m.get("run_id"), "config_id": row0.get("config_id"),
         "config_hash": m.get("config_hash"), "format_id": row0.get("format_id"),
         "schedule_hash": m.get("schedule_hash"), "seed_base": m.get("seed_base"),
@@ -429,6 +449,10 @@ def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, wa
         "server_patch_hash": m.get("server_patch_hash"), "pythonhashseed": m.get("pythonhashseed"),
         "input_sha256": dict(bundle.input_sha256),
     }
+
+
+def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, warnings, heldout):
+    provenance = _provenance(bundle)
     return {
         "schema_version": SCHEMA_VERSION, "mode": mode, "paired": False,
         "verdict": verdict, "safety_pass": safety_pass, "heldout": heldout,
@@ -440,10 +464,21 @@ def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, wa
     }
 
 
-def generate_report(bundle: RunBundle, mode: str = "gate"):
-    """Return ``(report_md: str, report_json: dict)`` for a single run. Safety gates first:
-    any FAIL yields ``SINGLE-RUN SAFETY-FAIL`` and no GO/NO-GO text anywhere. Deterministic:
-    same inputs → byte-identical outputs."""
+def generate_report(bundle_a: RunBundle, bundle_b: "RunBundle | None" = None,
+                    mode: str = "gate"):
+    """Return ``(report_md: str, report_json: dict)``.
+
+    One bundle → single-run safety readout (``SINGLE-RUN SAFETY-PASS/FAIL``, never GO). Two
+    bundles → paired McNemar report with the positive-evidence verdict tree (spec §1.3). Safety
+    gates run FIRST in both modes: any gate FAIL (in EITHER bundle for a paired report) yields a
+    SAFETY verdict and no strength claim anywhere. Deterministic: same inputs → identical output.
+    """
+    if bundle_b is None:
+        return _generate_single(bundle_a, mode)
+    return _generate_paired(bundle_a, bundle_b, mode)
+
+
+def _generate_single(bundle: RunBundle, mode: str):
     gates = run_safety_gates(bundle, mode)
     safety_pass = all(g.status != "FAIL" for g in gates)
     verdict = VERDICT_SINGLE_PASS if safety_pass else VERDICT_SINGLE_FAIL
@@ -575,3 +610,388 @@ def _render_md(data) -> str:
 def _render_json(data) -> dict:
     """The JSON report IS the shared data dict (already json-serializable)."""
     return data
+
+
+# --- Paired mode: McNemar + positive-evidence verdict tree (spec §1.3, review §3/§9/§10) ---
+
+def _find_cell_flips(cells_a, cells_b) -> list:
+    """Cells that were winning under baseline B (win_rate > 0.5) but are losing under candidate
+    A (win_rate < 0.5) — an archetype regression the candidate introduced (review §9). Returned
+    as sorted ``[opp_policy, opp_team_hash]`` lists (JSON-ready, deterministic)."""
+    wr_a = {(c["opp_policy"], c["opp_team_hash"]): c["win_rate"] for c in cells_a}
+    wr_b = {(c["opp_policy"], c["opp_team_hash"]): c["win_rate"] for c in cells_b}
+    flips = []
+    for cell in sorted(wr_a.keys() & wr_b.keys()):
+        if wr_b[cell] > 0.5 and wr_a[cell] < 0.5:
+            flips.append([cell[0], cell[1]])
+    return flips
+
+
+def _strength_delta(pairs):
+    """delta restricted to the strength cells — heuristic + max_damage, the only policies that
+    measure strength (review §9). Returns ``(delta, n_pairs, n10, n01)``. delta is 0.0 when no
+    strength cell exists, which correctly *blocks* GO: there is then no positive strength
+    evidence, and absence of evidence never unblocks (review §10)."""
+    n10 = n01 = n = 0
+    for p in pairs:
+        if p.cell[0] in STRENGTH_POLICIES:
+            n += 1
+            if p.hero_win_a and not p.hero_win_b:
+                n10 += 1
+            elif p.hero_win_b and not p.hero_win_a:
+                n01 += 1
+    return ((n10 - n01) / n if n else 0.0), n, n10, n01
+
+
+def _discordant_battles(pairs) -> list:
+    """Every discordant pair (A and B disagree), in seed order, with the human-review fields
+    the review §3 mandates: battle_id, cell, turns, end_hp_diff (both sides)."""
+    out = []
+    for p in pairs:
+        if p.hero_win_a == p.hero_win_b:
+            continue
+        out.append({
+            "battle_id": p.battle_id, "seed_index": p.seed_index,
+            "cell": [p.cell[0], p.cell[1]],
+            "outcome": "A won, B lost" if p.hero_win_a else "B won, A lost",
+            "turns_a": p.row_a.get("turns"), "turns_b": p.row_b.get("turns"),
+            "end_hp_diff_a": p.row_a.get("end_hp_diff"), "end_hp_diff_b": p.row_b.get("end_hp_diff"),
+        })
+    return out
+
+
+def _paired_verdict(counts, exact_p, cell_flips, strength_delta, safety_pass):
+    """The spec §1.3 decision tree — SAFETY dominates, then the underpowered floor, then a GO
+    that requires POSITIVE evidence on every axis; anything else is NO-GO with named reasons.
+    Returns ``(verdict, blocking_reasons)``."""
+    if not safety_pass:
+        return VERDICT_SAFETY_FAIL, []
+    if counts.n_discordant < N_DISCORDANT_CLAIM_MIN:
+        return VERDICT_UNDERPOWERED, []
+    reasons: list = []
+    if counts.delta <= 0:
+        reasons.append("delta <= 0 (candidate not ahead)")
+    if exact_p >= 0.05:
+        reasons.append(f"p too high (p={_f(exact_p)} >= 0.05)")
+    if cell_flips:
+        named = ", ".join(f"{c[0]} x {c[1]}" for c in cell_flips)
+        reasons.append(f"cell flip winning->losing: {named}")
+    if strength_delta <= 0:
+        reasons.append("weak-policy-only improvement "
+                       "(flat/negative delta on heuristic+max_damage cells)")
+    if reasons:
+        return VERDICT_NOGO, reasons
+    return VERDICT_GO, []
+
+
+def _build_paired_stats(counts, exact_p, cell_flips, strength_delta, n_strength, n10_s, n01_s,
+                        pairs, agg_a, agg_b, tie_flag, safety_pass) -> dict:
+    n = counts.total
+    winrate_a = (counts.n11 + counts.n10) / n if n else 0.0
+    winrate_b = (counts.n11 + counts.n01) / n if n else 0.0
+    underpowered = counts.n_discordant < N_DISCORDANT_CLAIM_MIN
+    banner = None
+    ambiguity = None
+    if counts.n_discordant == 0:
+        # 0 discordant is ALWAYS ambiguous between "identical" and "mislabeled duplicate"
+        # (review §10) — never reported as stability.
+        ambiguity = ZERO_DISCORDANT_TEXT
+    elif underpowered:
+        banner = UNDERPOWERED_TEXT.format(k=counts.n_discordant)
+    return {
+        "n11": counts.n11, "n00": counts.n00, "n10": counts.n10, "n01": counts.n01,
+        "n_discordant": counts.n_discordant, "total": n,
+        "delta": counts.delta, "winrate_a": winrate_a, "winrate_b": winrate_b,
+        "delta_winrate_form": winrate_a - winrate_b,
+        # p is a strength signal: withheld entirely on SAFETY-FAIL (no strength claim anywhere).
+        "exact_p": (exact_p if safety_pass else None),
+        "underpowered": underpowered,
+        "n_discordant_claim_min": N_DISCORDANT_CLAIM_MIN,
+        "n_discordant_math_floor": N_DISCORDANT_MATH_FLOOR,
+        "strength_delta": strength_delta, "strength_pairs": n_strength,
+        "strength_n10": n10_s, "strength_n01": n01_s,
+        "cell_flips": cell_flips,
+        "discordant_battles": _discordant_battles(pairs),
+        "tie_rate_a": agg_a["tie_rate"], "tie_rate_b": agg_b["tie_rate"], "tie_flag": tie_flag,
+        "underpowered_banner": banner, "zero_discordant_ambiguity": ambiguity,
+    }
+
+
+def _build_warnings_paired(cells_a, cells_b, heldout) -> list:
+    w = [CEILING_EFFECT_CAVEAT, PAIRED_SEED_DIVERGENCE_CAVEAT]
+    if any(c["opp_policy"] == "scripted_vgc" for c in (*cells_a, *cells_b)):
+        w.append(SCRIPTED_VGC_CAVEAT)
+    if heldout:
+        w.append(HELDOUT_BANNER)
+    return w
+
+
+def _gates_json(gates) -> list:
+    return [{"gate": g.gate, "status": g.status, "measured": g.measured} for g in gates]
+
+
+def _build_data_paired(bundle_a, bundle_b, mode, verdict, reasons, safety_pass,
+                       gates_a, gates_b, cells_a, agg_a, warnings, heldout, paired) -> dict:
+    return {
+        "schema_version": SCHEMA_VERSION, "mode": mode, "paired": paired,
+        "verdict": verdict, "verdict_reasons": reasons, "safety_pass": safety_pass,
+        "heldout": heldout, "worst_cell": agg_a["worst_cell"],
+        "provenance": _provenance(bundle_a), "provenance_b": _provenance(bundle_b),
+        "safety_gates": _gates_json(gates_a), "safety_gates_b": _gates_json(gates_b),
+        "cells": cells_a, "aggregates": agg_a,
+        "warnings": warnings, "reproduction": _build_reproduction(bundle_a),
+    }
+
+
+def _generate_paired(bundle_a, bundle_b, mode):
+    # Safety gates FIRST, on BOTH runs: any FAIL in either → SAFETY-FAIL, no strength claim.
+    gates_a = run_safety_gates(bundle_a, mode)
+    gates_b = run_safety_gates(bundle_b, mode)
+    safety_pass = (all(g.status != "FAIL" for g in gates_a)
+                   and all(g.status != "FAIL" for g in gates_b))
+
+    # Pairing is fail-fast (self-comparison, missing pairs, seed mismatch all raise) — a
+    # structural precondition for any statistics.
+    pairs = pair_runs(bundle_a.rows, bundle_b.rows)
+    counts = mcnemar_counts([(p.hero_win_a, p.hero_win_b) for p in pairs])
+
+    cells_a = _build_cells(bundle_a.rows, bundle_a.team_path_by_hash)
+    cells_b = _build_cells(bundle_b.rows, bundle_b.team_path_by_hash)
+    agg_a = _build_aggregates(cells_a)
+    agg_b = _build_aggregates(cells_b)
+
+    exact_p = exact_binom_two_sided_p(counts.n10, counts.n_discordant)
+    cell_flips = _find_cell_flips(cells_a, cells_b)
+    strength_delta, n_strength, n10_s, n01_s = _strength_delta(pairs)
+    tie_flag = agg_a["tie_rate"] > TIE_FLAG_RATE or agg_b["tie_rate"] > TIE_FLAG_RATE
+
+    verdict, reasons = _paired_verdict(counts, exact_p, cell_flips, strength_delta, safety_pass)
+
+    heldout = any(r.get("panel_split") == "heldout"
+                  for r in (*bundle_a.rows, *bundle_b.rows))
+    warnings = _build_warnings_paired(cells_a, cells_b, heldout)
+    paired = _build_paired_stats(counts, exact_p, cell_flips, strength_delta, n_strength,
+                                 n10_s, n01_s, pairs, agg_a, agg_b, tie_flag, safety_pass)
+    data = _build_data_paired(bundle_a, bundle_b, mode, verdict, reasons, safety_pass,
+                              gates_a, gates_b, cells_a, agg_a, warnings, heldout, paired)
+    return _render_md_paired(data), _render_json(data)
+
+
+# --- Paired markdown renderer (single-run ``_render_md`` is intentionally left untouched) ---
+
+def _worst_cell_phrase(worst) -> str:
+    if not worst:
+        return "worst cell: n/a"
+    return (f"worst cell: {worst['opp_policy']} x {worst['opp_team_hash']} "
+            f"(win_rate {_f(worst['win_rate'])}, wilson upper {_f(worst['wilson_hi'])})")
+
+
+def _verdict_line(verdict, reasons, worst) -> str:
+    wc = _worst_cell_phrase(worst)
+    if reasons:
+        return f"# VERDICT: {verdict} — {' · '.join(reasons)} · {wc}"
+    return f"# VERDICT: {verdict} — {wc}"
+
+
+def _render_provenance_table(out, p, label):
+    out.append(f"{label}:")
+    out.append("")
+    out.append("| field | value |")
+    out.append("|---|---|")
+    for k in ["run_id", "config_id", "config_hash", "format_id", "schedule_hash", "seed_base",
+              "panel_hash", "recomputed_panel_hash", "git_sha", "dirty", "row_count", "start_ts",
+              "showdown_commit", "server_patch_hash", "pythonhashseed"]:
+        out.append(f"| {k} | {p.get(k)} |")
+    out.append("")
+    out.append("| input file | sha256 |")
+    out.append("|---|---|")
+    for role in ["results", "seedlog", "schedule", "panel", "manifest"]:
+        out.append(f"| {role} | {p['input_sha256'].get(role)} |")
+    out.append("")
+
+
+def _render_gate_table(out, gates, label):
+    out.append(f"{label}:")
+    out.append("")
+    out.append("| gate | status | measured |")
+    out.append("|---|---|---|")
+    for g in gates:
+        out.append(f"| {g['gate']} | {g['status']} | {g['measured']} |")
+    out.append("")
+
+
+def _render_cell_table(out, cells):
+    out.append("| opp_policy | opp_team_hash | team_path | n | W/L/T | win_rate | "
+               "wilson_lo | wilson_hi | losing |")
+    out.append("|---|---|---|---|---|---|---|---|---|")
+    for c in cells:
+        wlt = f"{c['wins']}/{c['losses']}/{c['ties']}"
+        out.append(f"| {c['opp_policy']} | {c['opp_team_hash']} | {c['opp_team_path']} | "
+                   f"{c['n']} | {wlt} | {_f(c['win_rate'])} | {_f(c['wilson_lo'])} | "
+                   f"{_f(c['wilson_hi'])} | {'yes' if c['losing'] else 'no'} |")
+    out.append("")
+
+
+def _render_aggregates_block(out, agg):
+    out.append("## Aggregates")
+    out.append("")
+    out.append("Per-policy pooled:")
+    out.append("")
+    out.append("| opp_policy | n | wins | win_rate | wilson_lo | wilson_hi |")
+    out.append("|---|---|---|---|---|---|")
+    for pp in agg["per_policy"]:
+        out.append(f"| {pp['opp_policy']} | {pp['n']} | {pp['wins']} | {_f(pp['win_rate'])} | "
+                   f"{_f(pp['wilson_lo'])} | {_f(pp['wilson_hi'])} |")
+    out.append("")
+    op = agg["overall_pooled"]
+    out.append(f"Overall pooled: n={op['n']} wins={op['wins']} win_rate={_f(op['win_rate'])} "
+               f"wilson=[{_f(op['wilson_lo'])}, {_f(op['wilson_hi'])}]")
+    out.append("")
+    out.append(f"Unweighted cell mean win rate: {_f(agg['unweighted_cell_mean'])}")
+    out.append("")
+    if agg["worst_cell"]:
+        wc = agg["worst_cell"]
+        out.append(f"Worst cell: {wc['opp_policy']} x {wc['opp_team_hash']} — "
+                   f"win_rate {_f(wc['win_rate'])}, wilson upper {_f(wc['wilson_hi'])} "
+                   f"(n={wc['n']})")
+        out.append("")
+    if agg["losing_cells"]:
+        out.append("Losing cells (Wilson upper < 0.5):")
+        for lc in agg["losing_cells"]:
+            out.append(f"- {lc[0]} x {lc[1]}")
+    else:
+        out.append("Losing cells (Wilson upper < 0.5): none")
+    out.append("")
+
+
+def _render_paired_section(out, p, safety_pass):
+    out.append("## Paired McNemar (A vs B)")
+    out.append("")
+    if not safety_pass:
+        out.append("SAFETY-FAIL: a safety gate failed — this paired analysis is "
+                   "NON-EVIDENTIARY. Raw counts follow for debugging only; no p-value, delta, "
+                   "or strength claim is made.")
+        out.append("")
+    out.append("| n11 (both won) | n00 (both lost) | n10 (A won, B lost) | "
+               "n01 (B won, A lost) | n_discordant | total |")
+    out.append("|---|---|---|---|---|---|")
+    out.append(f"| {p['n11']} | {p['n00']} | {p['n10']} | {p['n01']} | "
+               f"{p['n_discordant']} | {p['total']} |")
+    out.append("")
+    if safety_pass:
+        # both delta forms (identical by construction — review §3)
+        out.append(f"delta_winrate = (n10 - n01) / N = {_f(p['delta'])}")
+        out.append(f"delta (winrate_A - winrate_B) = {_f(p['winrate_a'])} - "
+                   f"{_f(p['winrate_b'])} = {_f(p['delta_winrate_form'])}")
+        out.append("")
+        if p["exact_p"] is not None:
+            out.append(f"exact two-sided binomial p = {_f(p['exact_p'])} "
+                       f"(n10 of n_discordant, H0 p=0.5)")
+            out.append("")
+        out.append(f"strength-cell delta (heuristic+max_damage only): "
+                   f"{_f(p['strength_delta'])} over {p['strength_pairs']} pairs "
+                   f"(won {p['strength_n10']}, lost {p['strength_n01']})")
+        out.append("")
+        out.append(f"power floor: n_discordant={p['n_discordant']} vs math floor "
+                   f"{p['n_discordant_math_floor']} (p<0.05 unreachable below it) / claim "
+                   f"minimum {p['n_discordant_claim_min']}")
+        out.append("")
+        if p["zero_discordant_ambiguity"]:
+            out.append(f"> {p['zero_discordant_ambiguity']}")
+            out.append("")
+        if p["underpowered_banner"]:
+            out.append(f"> {p['underpowered_banner']}")
+            out.append("")
+        if p["cell_flips"]:
+            out.append("Cell flips (winning under baseline B, losing under candidate A):")
+            for c in p["cell_flips"]:
+                out.append(f"- {c[0]} x {c[1]}")
+            out.append("")
+        if p["tie_flag"]:
+            out.append(f"TIE FLAG: tie share A={_f(p['tie_rate_a'])} / B={_f(p['tie_rate_b'])} "
+                       f"exceeds {TIE_FLAG_RATE} — check for degeneracy.")
+            out.append("")
+    disc = p["discordant_battles"]
+    if 0 < p["n_discordant"] <= DISCORDANT_LIST_MAX:
+        out.append(f"Discordant battles ({len(disc)}) — read every one at this scale "
+                   "(review §3):")
+        out.append("")
+        out.append("| battle_id | cell | outcome | turns_a | turns_b | "
+                   "end_hp_diff_a | end_hp_diff_b |")
+        out.append("|---|---|---|---|---|---|---|")
+        for d in disc:
+            cell = f"{d['cell'][0]} x {d['cell'][1]}"
+            out.append(f"| {d['battle_id']} | {cell} | {d['outcome']} | {d['turns_a']} | "
+                       f"{d['turns_b']} | {d['end_hp_diff_a']} | {d['end_hp_diff_b']} |")
+        out.append("")
+    elif p["n_discordant"] > DISCORDANT_LIST_MAX:
+        out.append(f"(discordant list omitted: n_discordant={p['n_discordant']} > "
+                   f"{DISCORDANT_LIST_MAX})")
+        out.append("")
+
+
+def _render_reproduction_block(out, rep):
+    out.append("## Reproduction")
+    out.append("")
+    out.append("Run (from the manifest's recorded invocation):")
+    out.append("")
+    out.append("```")
+    out.append(f"PYTHONHASHSEED={rep['env'].get('PYTHONHASHSEED')} "
+               f"SHOWDOWN_BATTLE_SEED_BASE={rep['env'].get('SHOWDOWN_BATTLE_SEED_BASE')} \\")
+    out.append(f"  {rep['run_command']}")
+    out.append("```")
+    out.append("")
+    out.append(f"showdown_commit {rep['showdown_commit']} · "
+               f"server_patch_hash {rep['server_patch_hash']}")
+    out.append("")
+    out.append("Regenerate this report:")
+    out.append("")
+    out.append("```")
+    out.append(rep["report_command"])
+    out.append("```")
+    out.append("")
+
+
+def _render_md_paired(data) -> str:
+    p = data["paired"]
+    out: list = []
+    out.append(_verdict_line(data["verdict"], data["verdict_reasons"], data["worst_cell"]))
+    out.append("")
+    out.append(f"Mode: {data['mode']} · schema_version {data['schema_version']} · paired: true")
+    out.append("")
+    out.append("A = candidate (run A); B = baseline (run B). The A-vs-B comparison is the "
+               "paired McNemar section below, never a side-by-side independent CI (review §10.3).")
+    out.append("")
+
+    out.append("## Provenance")
+    out.append("")
+    _render_provenance_table(out, data["provenance"], "Run A (candidate)")
+    _render_provenance_table(out, data["provenance_b"], "Run B (baseline)")
+
+    out.append("## Safety Gates")
+    out.append("")
+    out.append(f"Result: {'SAFETY-PASS' if data['safety_pass'] else 'SAFETY-FAIL'} "
+               "(any FAIL in EITHER run fails the whole paired analysis)")
+    out.append("")
+    _render_gate_table(out, data["safety_gates"], "Run A (candidate)")
+    _render_gate_table(out, data["safety_gates_b"], "Run B (baseline)")
+
+    out.append("## Per-Cell Results")
+    out.append("")
+    out.append("Candidate (run A) per cell. The A-vs-B comparison is the paired section, never "
+               "a side-by-side independent CI (review §10.3).")
+    out.append("")
+    _render_cell_table(out, data["cells"])
+
+    _render_aggregates_block(out, data["aggregates"])
+
+    _render_paired_section(out, p, data["safety_pass"])
+
+    out.append("## Warnings")
+    out.append("")
+    for wtext in data["warnings"]:
+        out.append(f"> {wtext}")
+        out.append("")
+
+    _render_reproduction_block(out, data["reproduction"])
+    return "\n".join(out) + "\n"
