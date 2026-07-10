@@ -18,3 +18,9 @@ showdown_bot/teams/** -text
 data/eval/t4/** -text
 data/eval/t4/room_raw_divergent/** binary
 data/eval/t4/rerun/room_raw/** binary
+
+# T6 held-out baseline evidence: results, seed logs, manifests, eval-report md/json,
+# repro/spot-check logs are byte-pinned by sha256.txt — keep LF-stable so the checksums
+# survive checkout on any platform. The gzipped room logs are binary (never CRLF/diff'd).
+data/eval/t6/** -text
+data/eval/t6/room_raw/** binary

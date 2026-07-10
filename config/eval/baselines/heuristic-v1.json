@@ -1,0 +1,29 @@
+{
+  "baseline_id": "heuristic-v1",
+  "config_hash": "aeafb78a5beea9cd",
+  "config_id": "heuristic",
+  "dev_schedule_hash": "a7f000867fdfbde0",
+  "dev_schedule_path": "config/eval/schedules/t4_smoke_v001.yaml",
+  "git_sha": "e2d6f34d96126d0779ee5a00d67314d39ce3fbac",
+  "heldout_reference_jsonl": "data/eval/t6/t6-run1.jsonl",
+  "heldout_reference_sha256": "ab6d6227a1be303fcb2da11ba341fd628aca85bbd7d0830ff4d8668661c57e8e",
+  "heldout_schedule_hash": "3076a71aa6841c8c",
+  "heldout_schedule_path": "config/eval/schedules/t6_heldout_v001.yaml",
+  "heldout_seed_base": "t6heldout2026",
+  "hero_team_hash": "5aef213f351a6627",
+  "opp_team_hashes": {
+    "balance": "f10c6e672c9362c9",
+    "rain": "69f471c2740f1927",
+    "sun": "b0048ae65f0e9ee5",
+    "tailwind": "389416a631f66266",
+    "trickroom": "e622869d6c68307e"
+  },
+  "panel_hash": "760c1e5935fe0474",
+  "panel_version": "v001",
+  "pythonhashseed": "0",
+  "reference_jsonl": "data/eval/t4/rerun/t4rerun-run1.jsonl",
+  "reference_sha256": "14107d6c2004298de007a970f41dc533f264af08766fcb396ddc9589f56377dd",
+  "seed_base": "t4rerun2026",
+  "server_patch_hash": "bb973ec76d83cddb",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+}

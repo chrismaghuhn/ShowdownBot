@@ -222,6 +222,23 @@ def test_verify_baseline_provenance_commit_change_drift(tmp_path):
     assert "showdown_commit" in str(exc_info.value)
 
 
+# --- verify_baseline on the REAL committed manifest ----------------------------------------
+
+def test_verify_baseline_real_committed_manifest_green():
+    """The committed ``config/eval/baselines/heuristic-v1.json`` verifies against the real
+    working tree (T6 Task 6). Unlike the tmp_path tests above, this re-derives every hash
+    from the ACTUAL repo files the baseline was frozen against -- panel v001, the five panel
+    teams + hero, the dev + held-out schedules, provenance.yaml, the server patch, and both
+    reference JSONLs -- so it fails the moment any of those drift from the frozen manifest."""
+    manifest_path = _REPO_ROOT / "config/eval/baselines/heuristic-v1.json"
+    assert manifest_path.exists(), f"committed baseline manifest missing: {manifest_path}"
+    baseline = load_baseline(str(manifest_path))
+    checks = verify_baseline(baseline, repo_root=str(_REPO_ROOT))
+    assert checks and all(c.ok for c in checks), [
+        (c.name, c.measured) for c in checks if not c.ok
+    ]
+
+
 # --- verify_winner_sequence ---------------------------------------------------------------
 
 def test_verify_winner_sequence_identical_ok():
