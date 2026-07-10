@@ -11,3 +11,9 @@ models/reranker/** -text
 # .txt + .packed). CRLF rewriting on checkout would drift team_hash/panel_hash across
 # platforms — keep them LF-stable.
 showdown_bot/teams/** -text
+
+# T4 smoke evidence: result rows, seed logs, manifests, gate/repro logs and diffs are
+# byte-pinned by sha256.txt. CRLF rewriting would break those checksums — keep LF-stable.
+# The divergent room logs are gzipped, so mark them binary (never touched by CRLF/diff).
+data/eval/t4/** -text
+data/eval/t4/room_raw_divergent/** binary

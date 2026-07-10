@@ -1,0 +1,33 @@
+battle 0: identical (HeuristicBot1167__battle-gen9vgc2025regi-310.log vs HeuristicBot5026__battle-gen9vgc2025regi-371.log)
+battle 1: identical (HeuristicBot8422__battle-gen9vgc2025regi-311.log vs HeuristicBot7466__battle-gen9vgc2025regi-372.log)
+battle 2: identical (HeuristicBot4138__battle-gen9vgc2025regi-312.log vs HeuristicBot5667__battle-gen9vgc2025regi-373.log)
+battle 3: identical (HeuristicBot1276__battle-gen9vgc2025regi-313.log vs HeuristicBot5553__battle-gen9vgc2025regi-374.log)
+battle 4: identical (HeuristicBot8588__battle-gen9vgc2025regi-314.log vs HeuristicBot6608__battle-gen9vgc2025regi-375.log)
+battle 5: identical (HeuristicBot3418__battle-gen9vgc2025regi-315.log vs HeuristicBot9940__battle-gen9vgc2025regi-376.log)
+battle 6: identical (HeuristicBot9507__battle-gen9vgc2025regi-316.log vs HeuristicBot9475__battle-gen9vgc2025regi-377.log)
+battle 7: identical (HeuristicBot3355__battle-gen9vgc2025regi-317.log vs HeuristicBot7123__battle-gen9vgc2025regi-378.log)
+battle 8: identical (HeuristicBot1078__battle-gen9vgc2025regi-318.log vs HeuristicBot4938__battle-gen9vgc2025regi-379.log)
+battle 9: DIFFERS (HeuristicBot2899__battle-gen9vgc2025regi-319.log vs HeuristicBot3519__battle-gen9vgc2025regi-380.log)
+--- run_a
++++ run_b
+@@ -112,100 +112,76 @@
+ |-fieldend|move: Psychic Terrain
+ |upkeep
+ |request|{"wait":true,"side":{"name":"HeuristicBot","id":"p1","pokemon":[{"ident":"p1: Incineroar","details":"Incineroar, L50, M","condition":"150/202","active":true,"stats":{"atk":149,"def":110,"spa":90,"spd":142,"spe":80},"moves":["fakeout","flareblitz","knockoff","protect"],"baseAbility":"intimidate","item":"","pokeball":"pokeball","ability":"intimidate","commanding":false,"reviving":false,"teraType":"Fire","terastallized":""},{"ident":"p1: Tornadus","details":"Tornadus, L50, M","condition":"154/154","active":true,"stats":{"atk":121,"def":90,"spa":177,"spd":101,"spe":179},"moves":["tailwind","bleakwindstorm","taunt","protect"],"baseAbility":"prankster","item":"covertcloak","pokeball":"pokeball","ability":"prankster","commanding":false,"reviving":false,"teraType":"Flying","terastallized":""},{"ident":"p1: Rillaboom","details":"Rillaboom, L50, M","condition":"0 fnt","active":false,"stats":{"atk":194,"def":110,"spa":72,"spd":91,"spe":105},"moves":["fakeout","grassyglide","woodhammer","protect"],"baseAbility":"grassysurge","item":"","pokeball":"pokeball","ability":"grassysurge","commanding":false,"reviving":false,"teraType":"Grass","terastallized":""},{"ident":"p1: Flutter Mane","details":"Flutter Mane, L50","condition":"130/130","active":false,"stats":{"atk":54,"def":75,"spa":187,"spd":156,"spe":205},"moves":["moonblast","shadowball","dazzlinggleam","protect"],"baseAbility":"protosynthesis","item":"choicespecs","pokeball":"pokeball","ability":"protosynthesis","commanding":false,"reviving":false,"teraType":"Ghost","terastallized":""}]},"rqid":16}
+-|switch|p2a: Hatterene|Hatterene, L50, F|100/100
+-|switch|p2b: Amoonguss|Amoonguss, L50, M|100/100
++|switch|p2a: Amoonguss|Amoonguss, L50, M|100/100
++|switch|p2b: Hatterene|Hatterene, L50, F|100/100
+ |turn|6
+ |request|{"active":[{"moves":[{"move":"Fake Out","id":"fakeout","pp":15,"maxpp":16,"target":"normal","disabled":false},{"move":"Fla
+row 0: winner hero==hero seed_match=True turns 16==16
+row 1: winner villain==villain seed_match=True turns 7==7
+row 2: winner villain==villain seed_match=True turns 13==13
+row 3: winner villain==villain seed_match=True turns 17==17
+row 4: winner villain==villain seed_match=True turns 8==8
+row 5: winner villain==villain seed_match=True turns 9==9
+row 6: winner villain==villain seed_match=True turns 18==18
+row 7: winner villain==villain seed_match=True turns 9==9
+row 8: winner hero==hero seed_match=True turns 10==10
+row 9: winner hero==hero seed_match=True turns 13==11
+PREFIX REPRODUCTION FAIL (2)

@@ -194,9 +194,9 @@ def test_prefix_cells_come_first_then_canonical_remainder():
     # Remainder is canonical (team-major, policy order), each cell reduced by its prefix picks:
     assert [(r.opp_policy, r.opp_team_path) for r in sched.rows[2:]] == [
         ("heuristic", "teams/panel_v001/trickroom_dev.txt"),
-        ("heuristic", "teams/panel_v001/sun_dev.txt"),
-        ("heuristic", "teams/panel_v001/sun_dev.txt"),
         ("max_damage", "teams/panel_v001/trickroom_dev.txt"),
+        ("heuristic", "teams/panel_v001/sun_dev.txt"),
+        ("heuristic", "teams/panel_v001/sun_dev.txt"),
     ]
     assert [r.seed_index for r in sched.rows] == list(range(6))  # still contiguous
 

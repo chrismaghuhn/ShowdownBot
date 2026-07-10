@@ -1,0 +1,10 @@
+c982a7e8122c5fd5af468f48f6d2bd1af8ce47850ec7e29b9cde1f1a91c76457 *data/eval/t4/t4-prefix-seedlog.jsonl
+246c7f23283c15c8d47f39caeec07fe0be7e868bef164e6f3c46115a424d8bad *data/eval/t4/t4-prefix.jsonl
+ca313bed06c3ccac32c079c9f4dd381ee6b1643244e0b9ceab2b2589ef90e0d0 *data/eval/t4/t4-run1-seedlog.jsonl
+4119425383b9c0549668d7e430cf671b95bc88b676e4f4aff3900dab621f61c1 *data/eval/t4/t4-run1-telemetry.jsonl
+f7c4833d72cdd2608179f9be29dd654044e23397615b979820847bb063e5617c *data/eval/t4/t4-run1.jsonl
+ca313bed06c3ccac32c079c9f4dd381ee6b1643244e0b9ceab2b2589ef90e0d0 *data/eval/t4/t4-run2-seedlog.jsonl
+b2a0e306ceaea60a0ffc5ff80f372d19fad02b6a02bc59e28815acc571b80a93 *data/eval/t4/t4-run2.jsonl
+4be23d1c983702c6f29ffd24d83a586eea86dcb2fec10fb324538f0b0daf3e19 *data/eval/t4/t4-prefix.jsonl.manifest.json
+4ab3c16a6d7e964c031d0379f9798d8829f6de3322468ad1fb3482e17f4c3c03 *data/eval/t4/t4-run1.jsonl.manifest.json
+699f6ea12f9823403da49c1293f944654f89a96ed77577dd8038bc0e816e0c35 *data/eval/t4/t4-run2.jsonl.manifest.json
