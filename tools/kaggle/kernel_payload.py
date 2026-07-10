@@ -18,6 +18,13 @@ Two families of functions live here, exactly like ``kaggle_driver.py``'s split:
    particular only ever READS committed artifacts (the T4b prefix-reproduction fixture under
    ``data/eval/t4/rerun/``) plus a synthetic ``out_dir`` the test builds by copying that same
    fixture -- it never runs a battle.
+
+MEMTRACE (added 2026-07-10): datagen kernels were dying at a deterministic battle count with a
+VM-level OOM -- a Showdown child process got OOM-killed, the server crashed (write EPIPE), the
+run failed, with no visibility into which process was actually growing. ``start_memtrace``
+samples free memory + the top-8 RSS processes + battles-done every 30s to stdout during
+``run_datagen``'s schedule run, so the next Kaggle run yields a per-process memory growth curve
+instead of a single crash line.
 """
 from __future__ import annotations
 
@@ -29,8 +36,10 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from showdown_bot.eval import datagen_2b25a
 from showdown_bot.eval.baseline import WinnerSequenceError, verify_winner_sequence
@@ -354,6 +363,119 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
     return True, f"rows={len(rows)} games={len(schedule.rows)}"
 
 
+# ---------------------------------------------------------------------------
+# MEMTRACE: memory telemetry sampler (added 2026-07-10, see module docstring)
+# ---------------------------------------------------------------------------
+
+def format_memtrace(elapsed_s: float, battles_done: int, avail_mb: int, total_mb: int,
+                     top_procs: list[tuple[str, int, int]]) -> str:
+    """Format one MEMTRACE line. ``top_procs`` is ``(comm, pid, rss_mb)`` tuples, already sorted
+    desc by rss. Pure formatting -- no I/O."""
+    top_str = " ".join(f"{comm}:{pid}:{rss_mb}MB" for comm, pid, rss_mb in top_procs)
+    return f"MEMTRACE t={int(elapsed_s)} done={battles_done} availMB={avail_mb}/{total_mb} top=[{top_str}]"
+
+
+def _default_read_meminfo() -> str:
+    with open("/proc/meminfo", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _default_run_ps() -> str:
+    result = subprocess.run(
+        ["ps", "-eo", "pid,rss,comm", "--sort=-rss"], capture_output=True, text=True,
+    )
+    return result.stdout
+
+
+def _count_nonempty_lines(path) -> int:
+    p = Path(path)
+    if not p.exists():
+        return 0
+    with open(p, encoding="utf-8") as fh:
+        return sum(1 for line in fh if line.strip())
+
+
+def _parse_meminfo(text: str) -> tuple[int, int]:
+    avail_match = re.search(r"MemAvailable:\s+(\d+)", text)
+    total_match = re.search(r"MemTotal:\s+(\d+)", text)
+    avail_kb = int(avail_match.group(1)) if avail_match else 0
+    total_kb = int(total_match.group(1)) if total_match else 0
+    return avail_kb // 1024, total_kb // 1024
+
+
+def _parse_ps_top(text: str, limit: int = 8) -> list[tuple[str, int, int]]:
+    rows: list[tuple[str, int, int]] = []
+    for line in text.splitlines()[1:]:  # skip the `ps` header row
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 3:
+            continue
+        pid_str, rss_str, comm = parts
+        try:
+            pid = int(pid_str)
+            rss_kb = int(rss_str)
+        except ValueError:
+            continue
+        rows.append((comm, pid, rss_kb))
+    rows.sort(key=lambda row: row[2], reverse=True)
+    return [(comm, pid, rss_kb // 1024) for comm, pid, rss_kb in rows[:limit]]
+
+
+def collect_memtrace_sample(results_path, *, read_meminfo=None,
+                             run_ps=None) -> tuple[int, int, int, list[tuple[str, int, int]]]:
+    """Collect one MEMTRACE sample: battles-done (non-empty lines in ``results_path``, 0 if the
+    file does not exist yet) + system MemAvailable/MemTotal (MB) + the top-8 RSS processes (MB).
+    ``read_meminfo``/``run_ps`` are injectable zero-arg callables (default to reading
+    ``/proc/meminfo`` and running ``ps -eo pid,rss,comm --sort=-rss``) so this is testable off
+    Linux and without spawning a real ``ps``."""
+    read_meminfo = read_meminfo or _default_read_meminfo
+    run_ps = run_ps or _default_run_ps
+
+    battles_done = _count_nonempty_lines(results_path)
+    avail_mb, total_mb = _parse_meminfo(read_meminfo())
+    top_procs = _parse_ps_top(run_ps())
+
+    return battles_done, avail_mb, total_mb, top_procs
+
+
+def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
+                    run_ps=None) -> Callable[[], None]:
+    """Start a daemon background thread that samples memory (``collect_memtrace_sample``) and
+    prints a ``MEMTRACE`` line to stdout every ``interval_s`` seconds, starting immediately.
+    Printing to stdout is intentional: Kaggle captures stdout with timestamps, and
+    ``kaggle_driver``'s log parser tolerates arbitrary extra lines. A single tick's failure
+    (e.g. ``/proc/meminfo`` or ``ps`` unavailable) is swallowed so the sampler never crashes or
+    spams the log -- it just skips that tick. Returns a ``stop()`` callable that signals the
+    thread to exit and joins it (5s timeout); waiting is done on a ``threading.Event`` so
+    ``stop()`` does not block for a full ``interval_s``."""
+    stop_event = threading.Event()
+    start_time = time.monotonic()
+
+    def _loop() -> None:
+        while not stop_event.is_set():
+            try:
+                battles_done, avail_mb, total_mb, top_procs = collect_memtrace_sample(
+                    results_path, read_meminfo=read_meminfo, run_ps=run_ps,
+                )
+                elapsed_s = time.monotonic() - start_time
+                print(format_memtrace(elapsed_s, battles_done, avail_mb, total_mb, top_procs),
+                      flush=True)
+            except Exception:
+                pass
+            stop_event.wait(interval_s)
+
+    thread = threading.Thread(target=_loop, daemon=True)
+    thread.start()
+
+    def stop() -> None:
+        stop_event.set()
+        thread.join(timeout=5)
+
+    return stop
+
+
 def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     """Kaggle datagen kernel orchestration for ONE hero (Task 5). Resolves the hero's committed
     schedule (``datagen_2b25a.schedule_relpath(hero_key)``) and seed base
@@ -368,18 +490,26 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     NOT unit-tested directly -- like ``run_schedule_seeded``, it starts subprocesses (server +
     gauntlet CLI) and only ever runs on Kaggle (Task 6). Only ``validate_datagen_output`` (the
     pure validation half) is exercised locally.
+
+    Runs a MEMTRACE sampler (``start_memtrace``, 30s interval) for the duration of the schedule
+    run -- see the module docstring for why.
     """
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
     schedule_rel = datagen_2b25a.schedule_relpath(hero_key)
     seed_base = datagen_2b25a.SEED_BASES[hero_key]
     dataset_export = out_dir / "dataset.jsonl"
+    results_path = out_dir / "results.jsonl"
 
-    paths = run_schedule_seeded(
-        str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
-        dataset_export=str(dataset_export),
-        extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
-    )
+    stop_memtrace = start_memtrace(str(results_path), interval_s=30.0)
+    try:
+        paths = run_schedule_seeded(
+            str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
+            dataset_export=str(dataset_export),
+            extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
+        )
+    finally:
+        stop_memtrace()
 
     ok, detail = validate_datagen_output(str(repo_root), str(out_dir), hero_key)
     if ok:

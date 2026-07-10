@@ -24,6 +24,7 @@ import gzip
 import importlib.util
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -418,3 +419,98 @@ def test_module_has_no_kaggle_path_at_import_time():
     assert not str(_MODULE_PATH.parent).startswith("/kaggle")
     # Importing the module (already done at collection time, above) must not have raised.
     assert hasattr(kernel_payload, "validate_prefix_reproduction")
+
+
+# ---------------------------------------------------------------------------
+# MEMTRACE (2b-2.5a, added 2026-07-10): memory telemetry sampler, added after datagen VMs
+# OOM'd at deterministic battle counts (see kernel_payload.py's run_datagen docstring / module
+# docstring for the incident). format_memtrace and collect_memtrace_sample are pure/injectable
+# and fully unit-tested here; start_memtrace is exercised with injected fakes + a short
+# interval (no real /proc/meminfo or ps dependency).
+# ---------------------------------------------------------------------------
+
+def test_format_memtrace_golden_line():
+    line = kernel_payload.format_memtrace(
+        12.7, 3, 4096, 16384,
+        [("node", 1234, 512), ("python3", 5678, 256)],
+    )
+
+    assert line == "MEMTRACE t=12 done=3 availMB=4096/16384 top=[node:1234:512MB python3:5678:256MB]"
+
+
+def test_collect_memtrace_sample_with_injected_fakes(tmp_path):
+    meminfo_text = (
+        "MemTotal:       16777216 kB\n"
+        "MemFree:         1000000 kB\n"
+        "MemAvailable:    4194304 kB\n"
+        "Buffers:           50000 kB\n"
+    )
+    # 10 rows, already sorted desc by rss (kB); header row first, like real `ps` output.
+    ps_lines = ["  PID   RSS COMMAND"]
+    procs = [
+        (1, 2000000, "node"),
+        (2, 1500000, "python3"),
+        (3, 900000, "node"),
+        (4, 800000, "python3"),
+        (5, 700000, "chrome"),
+        (6, 600000, "node"),
+        (7, 500000, "python3"),
+        (8, 400000, "node"),
+        (9, 300000, "python3"),
+        (10, 200000, "node"),
+    ]
+    for pid, rss, comm in procs:
+        ps_lines.append(f"{pid:5d} {rss:6d} {comm}")
+    ps_text = "\n".join(ps_lines) + "\n"
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text('{"a": 1}\n{"a": 2}\n{"a": 3}\n', encoding="utf-8")
+
+    battles_done, avail_mb, total_mb, top = kernel_payload.collect_memtrace_sample(
+        str(results_path),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert battles_done == 3
+    assert avail_mb == 4194304 // 1024
+    assert total_mb == 16777216 // 1024
+    assert len(top) == 8
+    assert top[0] == ("node", 1, 2000000 // 1024)
+    assert top[1] == ("python3", 2, 1500000 // 1024)
+    assert top[-1] == ("node", 8, 400000 // 1024)
+
+
+def test_collect_memtrace_sample_missing_results_file_done_zero(tmp_path):
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+    ps_text = "  PID   RSS COMMAND\n    1  1000 node\n"
+    missing_path = tmp_path / "does_not_exist.jsonl"
+
+    battles_done, avail_mb, total_mb, top = kernel_payload.collect_memtrace_sample(
+        str(missing_path),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert battles_done == 0
+
+
+def test_start_memtrace_smoke(tmp_path, capsys):
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+    ps_text = "  PID   RSS COMMAND\n    1  1000 node\n"
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text("", encoding="utf-8")
+
+    stop = kernel_payload.start_memtrace(
+        str(results_path), interval_s=0.01,
+        read_meminfo=lambda: meminfo_text, run_ps=lambda: ps_text,
+    )
+    time.sleep(0.05)  # let ~a few ticks happen
+    stop()
+
+    out_after_stop = capsys.readouterr().out
+    assert out_after_stop.count("MEMTRACE") >= 1
+
+    time.sleep(0.05)  # stop() must actually stop the thread -- no further output
+    out_after_wait = capsys.readouterr().out
+    assert "MEMTRACE" not in out_after_wait
