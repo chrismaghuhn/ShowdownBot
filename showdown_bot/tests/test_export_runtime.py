@@ -1,5 +1,6 @@
 # tests/test_export_runtime.py
 import io
+from showdown_bot.learning.export import DatasetExporter, SamplingPolicy
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 
 
@@ -49,3 +50,58 @@ def test_runtime_flush_writes(monkeypatch, tmp_path):
     rt = DatasetExportRuntime.from_env(format_id="fmt", packed_team="t", mirror_flag=False)
     rt.flush()                                     # empty exporter -> writes an (empty) file, no crash
     assert p.exists()
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a Kaggle-OOM fix: DatasetExportRuntime.close() must tear down the
+# rollout-mode CalcClient (PersistentCalcBackend -> leaked Node process
+# otherwise, one per battle since the schedule runner builds a fresh runtime
+# per run_local_gauntlet(games=1) call).
+# ---------------------------------------------------------------------------
+
+class _FakeCalcClient:
+    """Minimal CalcClient stand-in: only close() matters for these tests."""
+
+    def __init__(self):
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
+def test_runtime_close_closes_injected_calc_client():
+    fake_calc = _FakeCalcClient()
+    rt = DatasetExportRuntime(
+        DatasetExporter(SamplingPolicy(policy="all", rate=1, seed=0)),
+        "unused.jsonl",
+        git_sha="gs", dirty_flag=False, team_hash_="th", config_hash_="ch",
+        run_seed=0, format_id="fmt", mirror_flag=False, sampling_policy_name="all",
+        calc=fake_calc,
+    )
+    rt.close()
+    assert fake_calc.close_calls == 1
+
+
+def test_runtime_close_is_idempotent():
+    fake_calc = _FakeCalcClient()
+    rt = DatasetExportRuntime(
+        DatasetExporter(SamplingPolicy(policy="all", rate=1, seed=0)),
+        "unused.jsonl",
+        git_sha="gs", dirty_flag=False, team_hash_="th", config_hash_="ch",
+        run_seed=0, format_id="fmt", mirror_flag=False, sampling_policy_name="all",
+        calc=fake_calc,
+    )
+    rt.close()
+    rt.close()  # second call must not close the backend again
+    assert fake_calc.close_calls == 1
+
+
+def test_runtime_close_noop_in_stub_mode(monkeypatch, tmp_path):
+    """Stub mode (the default, no SHOWDOWN_DATASET_TEACHER=rollout) never builds a
+    calc client -> close() is a safe no-op (does not raise, no calc to close)."""
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    monkeypatch.delenv("SHOWDOWN_DATASET_TEACHER", raising=False)
+    rt = DatasetExportRuntime.from_env(format_id="fmt", packed_team="t", mirror_flag=False)
+    assert rt is not None
+    rt.close()  # must not raise
+    rt.close()  # idempotent

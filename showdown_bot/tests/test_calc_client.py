@@ -10,6 +10,7 @@ class FakeBackend:
     def __init__(self, results: list[DamageResult]):
         self._results = results
         self.calls: list[list[DamageRequest]] = []
+        self.close_calls = 0
 
     def calc_batch(self, requests):
         self.calls.append(list(requests))
@@ -19,6 +20,9 @@ class FakeBackend:
             res.id = req.id
             out.append(res)
         return out
+
+    def close(self):
+        self.close_calls += 1
 
 
 def _req(move: str = "Moonblast") -> DamageRequest:
@@ -57,6 +61,22 @@ def test_error_result_raises():
     client = CalcClient(backend=FakeBackend([DamageResult(error="bad species")]))
     with pytest.raises(CalcError):
         client.damage(_req())
+
+
+def test_calcclient_close_delegates_to_backend():
+    """2b-2.5a Kaggle-OOM fix: CalcClient.close() is a passthrough to backend.close()."""
+    backend = FakeBackend([])
+    client = CalcClient(backend=backend)
+    client.close()
+    assert backend.close_calls == 1
+
+
+def test_subprocess_backend_close_is_noop():
+    """SubprocessCalcBackend has no process/handle to release -> close() is a no-op
+    (must not raise), for uniformity with PersistentCalcBackend.close()."""
+    backend = SubprocessCalcBackend()
+    backend.close()  # must not raise
+    backend.close()  # idempotent by construction (no state to double-release)
 
 
 def test_payload_uses_camelcase_tera_and_field_default():

@@ -319,6 +319,26 @@ class _Client:
             except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
                 logger.debug("[%s] trace failed: %s", self.name, exc)
 
+    def close(self) -> None:
+        """Idempotent, best-effort: close every calc-owning resource this client
+        created (2b-2.5a Kaggle-OOM fix — the schedule runner builds a fresh hero
+        and villain _Client per battle; each one's export runtime / eval species
+        dex can hold a PersistentCalcBackend Node process that otherwise only
+        dies at process exit). Called once per run_local_gauntlet invocation, on
+        both the success and failure paths (see the caller's try/finally), after
+        the battle result is recorded. Never raises -- one resource's close
+        failure must not skip the others'."""
+        if self._export is not None:
+            try:
+                self._export.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] export close failed: %s", self.name, exc)
+        if self._eval_species_dex is not None:
+            try:
+                self._eval_species_dex.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] eval species dex close failed: %s", self.name, exc)
+
 
 async def _run_client(
     client: _Client,
@@ -589,6 +609,12 @@ async def run_local_gauntlet(
             t.cancel()
         await hero_conn.close()
         await villain_conn.close()
+        # 2b-2.5a Kaggle-OOM fix: release calc-owning resources (export runtime's
+        # rollout CalcClient, eval species dex) per battle -- success AND failure
+        # paths -- so the schedule runner's 75 sequential run_local_gauntlet(games=1)
+        # calls don't leak a Node process per hero/villain client per battle.
+        hero.close()
+        villain.close()
 
     stats.latencies = hero.latencies
     stats.invalid_choices = hero.invalid + villain.invalid

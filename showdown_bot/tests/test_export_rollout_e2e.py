@@ -392,3 +392,71 @@ def test_from_env_rollout_deps_threads_priors(tmp_path, monkeypatch):
         f"priors must be threaded into rollout deps for label-decision consistency, "
         f"got {deps['priors']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a Kaggle-OOM fix: the CalcClient _build_rollout_provider builds must be
+# reachable from DatasetExportRuntime.close() (real wiring, not just the close()
+# method in isolation).
+# ---------------------------------------------------------------------------
+
+def test_from_env_rollout_close_closes_the_built_calc_client(tmp_path, monkeypatch):
+    """Guard: from_env's real rollout path (provider=None, mode=rollout) must thread
+    the CalcClient it builds into the runtime so close() can tear it down. Before the
+    fix: from_env has no calc-tracking seam -> the CalcClient (a PersistentCalcBackend
+    Node process in production) is only closed by the process-lifetime atexit hook,
+    leaking one process per battle in the Kaggle schedule runner."""
+    import showdown_bot.engine.calc.client as _calc_mod
+    import showdown_bot.engine.speed as _speed_mod
+    import showdown_bot.battle.oracle as _oracle_mod
+
+    class _StubCalc:
+        backend = None
+
+        def __init__(self):
+            self.close_calls = 0
+
+        def damage_batch(self, requests):
+            from showdown_bot.engine.calc.models import DamageResult
+            return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+        def close(self):
+            self.close_calls += 1
+
+    stub_calc = _StubCalc()
+    monkeypatch.setattr(_calc_mod, "CalcClient", lambda **kw: stub_calc)
+
+    class _StubSpeedOracle:
+        def __init__(self, stats_backend=None):
+            self.backend = stats_backend
+
+    monkeypatch.setattr(_speed_mod, "SpeedOracle", _StubSpeedOracle)
+
+    class _StubOracle:
+        def __init__(self, client=None):
+            self.client = client
+
+        def flush(self):
+            pass
+
+    monkeypatch.setattr(_oracle_mod, "DamageOracle", _StubOracle)
+
+    out_path = tmp_path / "close_guard_out.jsonl"
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(out_path))
+    monkeypatch.setenv("SHOWDOWN_DATASET_TEACHER", "rollout")
+    monkeypatch.setenv("SHOWDOWN_ROLLOUT_HORIZON", "1")
+
+    rt = DatasetExportRuntime.from_env(
+        format_id="gen9vgc2025regi",
+        packed_team="packed",
+        mirror_flag=False,
+        provider=None,  # forces real _build_rollout_provider
+    )
+    assert rt is not None
+    assert stub_calc.close_calls == 0  # not closed yet -- battle "in progress"
+
+    rt.close()
+    assert stub_calc.close_calls == 1
+
+    rt.close()  # idempotent -- second close() must not double-close
+    assert stub_calc.close_calls == 1

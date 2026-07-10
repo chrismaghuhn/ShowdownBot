@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from showdown_bot.battle.opponent import (
+    SpeciesDex,
     best_damaging_move,
     predict_responses,
     revealed_support,
@@ -14,6 +15,25 @@ class FakeDex:
 
     def types(self, species):
         return self.mapping.get(species, ["Normal"])
+
+
+class _FakeCalcBackend:
+    def __init__(self):
+        self.close_calls = 0
+
+    def types_batch(self, species):
+        return [["Normal"] for _ in species]
+
+    def close(self):
+        self.close_calls += 1
+
+
+def test_species_dex_close_delegates_to_backend():
+    """2b-2.5a Kaggle-OOM fix: SpeciesDex.close() closes its calc backend."""
+    backend = _FakeCalcBackend()
+    dex = SpeciesDex(backend)
+    dex.close()
+    assert backend.close_calls == 1
 
 
 def _state():

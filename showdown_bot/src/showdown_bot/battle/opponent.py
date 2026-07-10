@@ -46,6 +46,11 @@ class SpeciesDex:
             self._cache[species] = self.backend.types_batch([species])[0]
         return self._cache[species]
 
+    def close(self) -> None:
+        """Close the backing calc backend (idempotent). Per-battle teardown seam
+        (2b-2.5a Kaggle-OOM fix) — see PersistentCalcBackend.close."""
+        self.backend.close()
+
 
 @dataclass
 class OppResponse:
