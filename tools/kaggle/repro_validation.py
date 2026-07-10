@@ -8,16 +8,28 @@ with ``{"REPO_URL": ..., "REPO_SHA": ...}`` before pushing (see kaggle_driver.py
 for the convention). After the clone, everything delegates to ``kernel_payload`` (testable
 locally) -- this script is just bootstrap + wiring.
 
-Flow: parse own env header -> git clone + checkout REPO_SHA -> pip install -e the cloned
-package -> import kernel_payload from the clone -> bootstrap_node -> setup_showdown ->
-run_schedule_seeded(prefix schedule, seed base t4rerun2026) -> validate_prefix_reproduction ->
-print_verdict("KAGGLE-REPRO", ...) -> copy_outputs. Wrapped so a verdict line is ALWAYS
-printed, even on a bootstrap-stage exception (the driver's ``parse_verdict`` must always find
-one): ``KAGGLE-REPRO: FAIL (exception: ...)`` + traceback.
+Flow: parse own env header -> git clone + checkout REPO_SHA -> put the cloned package on
+sys.path/PYTHONPATH -> import kernel_payload from the clone -> bootstrap_node ->
+setup_showdown -> run_schedule_seeded(prefix schedule, seed base t4rerun2026) ->
+validate_prefix_reproduction -> print_verdict("KAGGLE-REPRO", ...) -> copy_outputs. Wrapped
+so a verdict line is ALWAYS printed, even on a bootstrap-stage exception (the driver's
+``parse_verdict`` must always find one): ``KAGGLE-REPRO: FAIL (exception: ...)`` + traceback.
+
+Attempt-1 operational lessons (2026-07-10) baked in:
+- ``pip install -e`` does NOT make the package importable in the SAME process: Kaggle runs
+  script kernels through a notebook conversion, and the editable install's .pth finder only
+  takes effect at interpreter startup. Fix: ``sys.path`` insert for this process +
+  ``PYTHONPATH`` for the gauntlet CLI subprocess that kernel_payload starts.
+- Scratch trees (repo clone, showdown checkout, raw out dir) must live under ``/tmp``, NOT
+  ``/kaggle/working``: /kaggle/working IS the kernel-output directory, and attempt 1
+  uploaded the entire repo clone as kernel output. /kaggle/working stays reserved for
+  ``kernel_payload.copy_outputs`` results.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import traceback
@@ -28,9 +40,19 @@ _SCHEDULE_RELPATH = "config/eval/schedules/t4_smoke_v001_prefix.yaml"
 _SEED_BASE = "t4rerun2026"
 _DEFAULT_REPO_URL = "https://github.com/chrismaghuhn/ShowdownBot"
 
-_REPO_DIR = Path("/kaggle/working/repo")
-_OUT_DIR = Path("/kaggle/working/out")
-_SHOWDOWN_CACHE_DIR = Path("/kaggle/working/showdown-cache")
+_REPO_DIR = Path("/tmp/sb_repo")
+_OUT_DIR = Path("/tmp/sb_out")
+_SHOWDOWN_CACHE_DIR = Path("/tmp/sb_showdown_cache")
+
+# showdown_bot runtime deps (import name -> pip name). The 2026-07 Kaggle image ships all
+# four ("Requirement already satisfied" in the attempt-1 log) -- the install branch is a
+# guard against future image changes only.
+_RUNTIME_DEPS = (
+    ("pydantic", "pydantic"),
+    ("yaml", "pyyaml"),
+    ("websockets", "websockets"),
+    ("dotenv", "python-dotenv"),
+)
 
 
 def _own_env() -> dict:
@@ -40,6 +62,13 @@ def _own_env() -> dict:
     return json.loads(first_line[len(_ENV_HEADER_PREFIX):])
 
 
+def _ensure_runtime_deps() -> None:
+    missing = [pip_name for module_name, pip_name in _RUNTIME_DEPS
+               if importlib.util.find_spec(module_name) is None]
+    if missing:
+        subprocess.run([sys.executable, "-m", "pip", "install", *missing], check=True)
+
+
 def main() -> None:
     env = _own_env()
     repo_url = env.get("REPO_URL", _DEFAULT_REPO_URL)
@@ -47,11 +76,14 @@ def main() -> None:
 
     subprocess.run(["git", "clone", repo_url, str(_REPO_DIR)], check=True)
     subprocess.run(["git", "checkout", repo_sha], cwd=str(_REPO_DIR), check=True)
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", str(_REPO_DIR / "showdown_bot")], check=True,
-    )
 
+    _ensure_runtime_deps()
+    src_dir = _REPO_DIR / "showdown_bot" / "src"
+    sys.path.insert(0, str(src_dir))          # this process (kernel_payload's imports)
     sys.path.insert(0, str(_REPO_DIR / "tools" / "kaggle"))
+    prior = os.environ.get("PYTHONPATH")
+    os.environ["PYTHONPATH"] = str(src_dir) + (os.pathsep + prior if prior else "")  # subprocesses (gauntlet CLI)
+
     import kernel_payload  # from the clone above -- not importable before this point
 
     kernel_payload.bootstrap_node()
