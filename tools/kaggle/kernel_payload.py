@@ -380,25 +380,32 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
 def format_memtrace(elapsed_s: float, battles_done: int, meminfo: dict[str, int],
                      total_proc_count: int, total_rss_mb: int,
                      aggregates: dict[str, tuple[int, int]],
-                     top_procs: list[tuple[str, int, int]]) -> str:
-    """Format one MEMTRACE line (v2). ``meminfo`` is the dict returned by ``_parse_meminfo``
+                     parents: dict[str, tuple[str, int]],
+                     top_procs: list[tuple[str, int, int, int]]) -> str:
+    """Format one MEMTRACE line (v3). ``meminfo`` is the dict returned by ``_parse_meminfo``
     (``avail_mb``/``total_mb``/``shmem_mb``/``slab_mb``/``cached_mb``/``buffers_mb``).
-    ``aggregates`` is ``comm -> (count, sum_rss_mb)`` across ALL processes (not just the top-8);
-    the top 4 comms by ``sum_rss_mb`` desc are emitted (ties broken by comm name for a
-    deterministic line). ``top_procs`` is ``(comm, pid, rss_mb)`` tuples, already sorted desc by
-    rss. Pure formatting -- no I/O."""
+    ``aggregates`` is ``sig -> (count, sum_rss_mb)`` across ALL processes (not just the top-8);
+    the top 4 signatures by ``sum_rss_mb`` desc are emitted (ties broken by signature name for a
+    deterministic line). ``parents`` is ``sig -> (parent_sig, count)`` (see
+    ``_parse_ps_parent_attribution``); the SAME top-4-by-sum-RSS signatures are emitted, in the
+    same order, so ``agg=[...]`` and ``parents=[...]`` line up entry-for-entry. ``top_procs`` is
+    ``(sig, pid, ppid, rss_mb)`` tuples, already sorted desc by rss. Pure formatting -- no I/O."""
     top_agg = sorted(aggregates.items(), key=lambda item: (-item[1][1], item[0]))[:4]
     agg_str = " ".join(
-        f"{comm}:n={count}:{sum_rss_mb}MB" for comm, (count, sum_rss_mb) in top_agg
+        f"{sig}:n={count}:{sum_rss_mb}MB" for sig, (count, sum_rss_mb) in top_agg
     )
-    top_str = " ".join(f"{comm}:{pid}:{rss_mb}MB" for comm, pid, rss_mb in top_procs)
+    parents_str = " ".join(
+        f"{sig}<-{parents.get(sig, ('?', 0))[0]}:{parents.get(sig, ('?', 0))[1]}"
+        for sig, _agg in top_agg
+    )
+    top_str = " ".join(f"{sig}:{pid}:{ppid}:{rss_mb}MB" for sig, pid, ppid, rss_mb in top_procs)
     return (
         f"MEMTRACE t={int(elapsed_s)} done={battles_done} "
         f"availMB={meminfo['avail_mb']}/{meminfo['total_mb']} "
         f"shmem={meminfo['shmem_mb']} slab={meminfo['slab_mb']} "
         f"cached={meminfo['cached_mb']} buffers={meminfo['buffers_mb']} "
         f"procs={total_proc_count}:{total_rss_mb}MB "
-        f"agg=[{agg_str}] top=[{top_str}]"
+        f"agg=[{agg_str}] parents=[{parents_str}] top=[{top_str}]"
     )
 
 
@@ -409,7 +416,7 @@ def _default_read_meminfo() -> str:
 
 def _default_run_ps() -> str:
     result = subprocess.run(
-        ["ps", "-eo", "pid,rss,comm", "--sort=-rss"], capture_output=True, text=True,
+        ["ps", "-eo", "pid,ppid,rss,args", "--sort=-rss"], capture_output=True, text=True,
     )
     return result.stdout
 
@@ -439,57 +446,117 @@ def _parse_meminfo(text: str) -> dict[str, int]:
     }
 
 
-def _parse_ps_rows(text: str) -> list[tuple[str, int, int]]:
-    """Parse ``ps -eo pid,rss,comm`` output (skipping the header row) into ``(comm, pid,
-    rss_kb)`` tuples for ALL processes, unsorted, RSS still in kB -- the shared basis for both
-    the top-N list and the per-comm aggregates below."""
-    rows: list[tuple[str, int, int]] = []
+def _parse_ps_rows(text: str) -> list[tuple[int, int, int, str]]:
+    """Parse ``ps -eo pid,ppid,rss,args`` output (skipping the header row) into ``(pid, ppid,
+    rss_kb, args)`` tuples for ALL processes, unsorted, RSS still in kB -- the shared basis for
+    the top-N list, the per-signature aggregates, and parent attribution below. ``args`` is the
+    full command line and may itself contain spaces, so it is always the LAST ps column and each
+    row is split with ``maxsplit=3`` (at most 4 parts) rather than on whitespace generally."""
+    rows: list[tuple[int, int, int, str]] = []
     for line in text.splitlines()[1:]:  # skip the `ps` header row
         line = line.strip()
         if not line:
             continue
-        parts = line.split(None, 2)
-        if len(parts) < 3:
+        parts = line.split(None, 3)
+        if len(parts) < 4:
             continue
-        pid_str, rss_str, comm = parts
+        pid_str, ppid_str, rss_str, args = parts
         try:
             pid = int(pid_str)
+            ppid = int(ppid_str)
             rss_kb = int(rss_str)
         except ValueError:
             continue
-        rows.append((comm, pid, rss_kb))
+        rows.append((pid, ppid, rss_kb, args))
     return rows
 
 
-def _parse_ps_top(rows: list[tuple[str, int, int]], limit: int = 8) -> list[tuple[str, int, int]]:
-    """Top-``limit`` individual processes by RSS desc, converted kB -> MB."""
+def _proc_signature(args: str) -> str:
+    """Classify a process's full command line (``args``, as parsed by ``_parse_ps_rows``) into a
+    short, stable signature label -- v2's ``comm`` column collapsed every leaked process to the
+    single string ``"node"`` regardless of what script it was actually running, which is exactly
+    what made the v2-era OOM unattributable. Rules, checked in order:
+
+    - command line contains ``calc.mjs`` -> ``"calc.mjs"`` (the @smogon/calc bridge process).
+    - command line contains ``pokemon-showdown`` -> ``"pokemon-showdown"`` (the sim server).
+    - otherwise, if the first token is a ``node`` interpreter (bare ``node`` or a path ending in
+      ``node``) -> ``"node:" + <last path component of the second token>``, or ``"node:?"`` if
+      there is no second token (e.g. a bare ``node`` REPL with no script argument).
+    - otherwise -> the last path component of the first token (e.g. ``python3``, ``sh``, ``ps``).
+
+    An empty/whitespace-only ``args`` yields ``"?"``."""
+    if "calc.mjs" in args:
+        return "calc.mjs"
+    if "pokemon-showdown" in args:
+        return "pokemon-showdown"
+    tokens = args.split()
+    if not tokens:
+        return "?"
+    if Path(tokens[0]).name == "node":
+        if len(tokens) > 1:
+            return f"node:{Path(tokens[1]).name}"
+        return "node:?"
+    return Path(tokens[0]).name
+
+
+def _parse_ps_top(rows: list[tuple[int, int, int, str]], limit: int = 8) -> list[tuple[str, int, int, int]]:
+    """Top-``limit`` individual processes by RSS desc: ``(sig, pid, ppid, rss_mb)``, RSS
+    converted kB -> MB."""
     sorted_rows = sorted(rows, key=lambda row: row[2], reverse=True)
-    return [(comm, pid, rss_kb // 1024) for comm, pid, rss_kb in sorted_rows[:limit]]
+    return [
+        (_proc_signature(args), pid, ppid, rss_kb // 1024)
+        for pid, ppid, rss_kb, args in sorted_rows[:limit]
+    ]
 
 
-def _parse_ps_aggregates(rows: list[tuple[str, int, int]]) -> dict[str, tuple[int, int]]:
-    """Per-comm aggregates across ALL processes (not just the top-N): ``comm -> (count,
+def _parse_ps_aggregates(rows: list[tuple[int, int, int, str]]) -> dict[str, tuple[int, int]]:
+    """Per-signature aggregates across ALL processes (not just the top-N): ``sig -> (count,
     sum_rss_mb)``. Sums RSS in kB before the final MB conversion, so small per-process rounding
-    error does not compound across many processes of the same comm -- the whole point of this
-    aggregate is to surface a memory hog made of MANY small processes that each fall below the
-    top-8 individual cutoff."""
+    error does not compound across many processes of the same signature -- the whole point of
+    this aggregate is to surface a memory hog made of MANY small processes that each fall below
+    the top-8 individual cutoff."""
     agg_kb: dict[str, list[int]] = {}
-    for comm, _pid, rss_kb in rows:
-        entry = agg_kb.setdefault(comm, [0, 0])
+    for _pid, _ppid, rss_kb, args in rows:
+        sig = _proc_signature(args)
+        entry = agg_kb.setdefault(sig, [0, 0])
         entry[0] += 1
         entry[1] += rss_kb
-    return {comm: (count, total_kb // 1024) for comm, (count, total_kb) in agg_kb.items()}
+    return {sig: (count, total_kb // 1024) for sig, (count, total_kb) in agg_kb.items()}
+
+
+def _parse_ps_parent_attribution(rows: list[tuple[int, int, int, str]]) -> dict[str, tuple[str, int]]:
+    """For each signature, WHO spawns it: ``sig -> (parent_sig, count)`` where ``count`` is how
+    many of that signature's processes share the most common PPID, and ``parent_sig`` is that
+    PPID's OWN signature, resolved via the pid -> args map built from this SAME ps snapshot (a
+    parent that has already exited, or is outside the snapshot, resolves to ``"?"``). Ties in the
+    "most common PPID" count are broken by lowest PPID, for a deterministic result."""
+    pid_to_args: dict[int, str] = {pid: args for pid, _ppid, _rss_kb, args in rows}
+
+    sig_ppid_counts: dict[str, dict[int, int]] = {}
+    for pid, ppid, _rss_kb, args in rows:
+        sig = _proc_signature(args)
+        counts = sig_ppid_counts.setdefault(sig, {})
+        counts[ppid] = counts.get(ppid, 0) + 1
+
+    result: dict[str, tuple[str, int]] = {}
+    for sig, ppid_counts in sig_ppid_counts.items():
+        mode_ppid, count = max(ppid_counts.items(), key=lambda item: (item[1], -item[0]))
+        parent_args = pid_to_args.get(mode_ppid)
+        parent_sig = _proc_signature(parent_args) if parent_args is not None else "?"
+        result[sig] = (parent_sig, count)
+    return result
 
 
 def collect_memtrace_sample(results_path, *, read_meminfo=None, run_ps=None) -> dict:
-    """Collect one MEMTRACE sample (v2): battles-done (non-empty lines in ``results_path``, 0 if
+    """Collect one MEMTRACE sample (v3): battles-done (non-empty lines in ``results_path``, 0 if
     the file does not exist yet), the full ``_parse_meminfo`` dict, the top-8 RSS processes (MB),
-    per-comm aggregates across ALL processes (count + sum_rss_mb), and totals across ALL
-    processes (``total_proc_count``, ``total_rss_mb``). ``read_meminfo``/``run_ps`` are
-    injectable zero-arg callables (default to reading ``/proc/meminfo`` and running ``ps -eo
-    pid,rss,comm --sort=-rss``) so this is testable off Linux and without spawning a real ``ps``.
+    per-signature aggregates across ALL processes (count + sum_rss_mb), per-signature parent
+    attribution, and totals across ALL processes (``total_proc_count``, ``total_rss_mb``).
+    ``read_meminfo``/``run_ps`` are injectable zero-arg callables (default to reading
+    ``/proc/meminfo`` and running ``ps -eo pid,ppid,rss,args --sort=-rss``) so this is testable
+    off Linux and without spawning a real ``ps``.
 
-    Returns a dict: ``{"battles_done", "meminfo", "top_procs", "aggregates",
+    Returns a dict: ``{"battles_done", "meminfo", "top_procs", "aggregates", "parents",
     "total_proc_count", "total_rss_mb"}``.
     """
     read_meminfo = read_meminfo or _default_read_meminfo
@@ -500,14 +567,16 @@ def collect_memtrace_sample(results_path, *, read_meminfo=None, run_ps=None) -> 
     rows = _parse_ps_rows(run_ps())
     top_procs = _parse_ps_top(rows)
     aggregates = _parse_ps_aggregates(rows)
+    parents = _parse_ps_parent_attribution(rows)
     total_proc_count = len(rows)
-    total_rss_mb = sum(rss_kb for _comm, _pid, rss_kb in rows) // 1024
+    total_rss_mb = sum(rss_kb for _pid, _ppid, rss_kb, _args in rows) // 1024
 
     return {
         "battles_done": battles_done,
         "meminfo": meminfo,
         "top_procs": top_procs,
         "aggregates": aggregates,
+        "parents": parents,
         "total_proc_count": total_proc_count,
         "total_rss_mb": total_rss_mb,
     }
@@ -536,7 +605,7 @@ def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
                 print(format_memtrace(
                     elapsed_s, sample["battles_done"], sample["meminfo"],
                     sample["total_proc_count"], sample["total_rss_mb"],
-                    sample["aggregates"], sample["top_procs"],
+                    sample["aggregates"], sample["parents"], sample["top_procs"],
                 ), flush=True)
             except Exception:
                 pass
