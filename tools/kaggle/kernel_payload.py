@@ -227,6 +227,11 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
     server_env = dict(os.environ)
     server_env["SHOWDOWN_BATTLE_SEED_BASE"] = seed_base
     server_env["SHOWDOWN_EVAL_SEED_LOG"] = str(seed_log)
+    # [2b-2.5a OOM fix] Immediate room dealloc (server patch v2): a headless schedule run plays
+    # 75+ sequential battles; stock deallocation waits up to 40min, so finished rooms + their
+    # sim-child Battle objects accumulate -> VM OOM. This env-gated flag expires an ended battle
+    # room the moment its last user leaves (strictly post-battle -> zero effect on RNG/log bytes).
+    server_env["SHOWDOWN_EVAL_ROOM_DEALLOC"] = "immediate"
 
     server_proc = subprocess.Popen(
         ["node", "pokemon-showdown", "start", str(_SERVER_PORT), "--no-security"],
@@ -242,6 +247,11 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
             "SHOWDOWN_BATTLE_SEED_BASE": seed_base,
             "SHOWDOWN_EVAL_SEED_LOG": str(seed_log),
             "SHOWDOWN_ROOM_RAW_DUMP": str(room_raw_dir),
+            # [2b-2.5a] Mirror the server-side OOM-fix flag into the gauntlet (client) env too,
+            # exactly like the seed vars above: it is config-hash-relevant (config_env classifies
+            # it server-side-behavior-affecting -> fail-closed included in behavior_env), so the
+            # run manifest's config_hash records that this run played under immediate-dealloc.
+            "SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate",
         })
         if dataset_export is not None:
             client_env["SHOWDOWN_DATASET_EXPORT"] = str(dataset_export)

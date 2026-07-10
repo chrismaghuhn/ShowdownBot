@@ -14,6 +14,7 @@ from pathlib import Path
 import showdown_bot.eval.config_env as config_env
 from showdown_bot.eval.config_env import (
     BEHAVIOR_AFFECTING,
+    SERVER_SIDE_BEHAVIOR_AFFECTING,
     behavior_env,
     build_config_manifest,
     is_classified,
@@ -46,6 +47,30 @@ def test_behavior_env_failclosed_includes_unknown_var():
     env = {"SHOWDOWN_BRAND_NEW_FLAG": "7", "SHOWDOWN_CALC_BACKEND": "persistent"}
     # Unknown SHOWDOWN_* -> INCLUDED (non-pairable, safe); known denylisted -> excluded.
     assert behavior_env(env) == {"SHOWDOWN_BRAND_NEW_FLAG": "7"}
+
+
+# --- server-side (TS-patch) behavior-affecting flags (2b-2.5a) --------------------------
+
+def test_server_side_room_dealloc_is_classified_and_not_in_behavior_affecting():
+    # SHOWDOWN_EVAL_ROOM_DEALLOC lives in the server-side set (read in the TS server patch),
+    # NOT BEHAVIOR_AFFECTING — the "read in Python source" hardening test must stay green.
+    assert "SHOWDOWN_EVAL_ROOM_DEALLOC" in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_EVAL_ROOM_DEALLOC" not in BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_EVAL_ROOM_DEALLOC")
+
+
+def test_behavior_env_includes_server_side_room_dealloc():
+    # It is config-hash-relevant: not excluded -> included in behavior_env (fail-closed).
+    env = {"SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_room_dealloc_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate"})))
+    assert h_off != h_on
 
 
 # --- make_config_hash over the manifest ------------------------------------------------
