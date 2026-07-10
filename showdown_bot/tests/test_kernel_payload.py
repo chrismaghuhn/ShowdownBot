@@ -102,16 +102,22 @@ def _valid_dataset_row_line(*, game_id="g0", decision_id="d0", candidate_index=0
 
 def _build_datagen_out_dir(tmp_path, *, n_results=None) -> Path:
     """A synthetic out_dir that PASSES validate_datagen_output for hero='fixed': a seed log
-    matching the committed 75-row schedule + SEED_BASES['fixed'], one valid dataset row, a
-    clean client.log, and one results.jsonl row per schedule row. Reads the committed schedule
-    YAML only -- runs no battle."""
+    matching the committed 75-row schedule + SEED_BASES['fixed'], one valid dataset row PER
+    scheduled game (distinct game_ids g0..g74 -- the full-game-coverage check added after the
+    Task-6 attempt-1 overwrite finding requires exactly one distinct game_id per schedule
+    row), a clean client.log, and one results.jsonl row per schedule row. Reads the committed
+    schedule YAML only -- runs no battle."""
     schedule = _datagen_schedule()
     n = len(schedule.rows) if n_results is None else n_results
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     _write_seed_log(out_dir / "seeds.jsonl", SEED_BASES[_DATAGEN_HERO], len(schedule.rows))
-    (out_dir / "dataset.jsonl").write_text(_valid_dataset_row_line() + "\n", encoding="utf-8")
+    dataset_lines = [
+        _valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}")
+        for i in range(len(schedule.rows))
+    ]
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
     (out_dir / "client.log").write_text("battle started\nturn 1\nbattle ended\n", encoding="utf-8")
     with open(out_dir / "results.jsonl", "w", encoding="utf-8", newline="\n") as fh:
         for i in range(n):
@@ -224,7 +230,7 @@ def test_validate_datagen_output_matching_synthetic_out_dir_passes(tmp_path):
     ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
 
     assert ok is True
-    assert detail == "rows=1 games=75"
+    assert detail == "rows=75 games=75"
 
 
 def test_validate_datagen_output_seed_log_wrong_base_fails(tmp_path):
@@ -292,6 +298,41 @@ def test_validate_datagen_output_frame_error_warning_fails(tmp_path):
     assert ok is False
     assert "warning line" in detail
     assert "frame error" in detail
+
+
+def test_validate_datagen_output_missing_game_coverage_fails(tmp_path):
+    """One scheduled game absent from the export (74 distinct game_ids, not 75) -> FAIL."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    schedule = _datagen_schedule()
+    dataset_lines = [
+        _valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}")
+        for i in range(len(schedule.rows) - 1)  # drop the last game
+    ]
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is False
+    assert "game coverage" in detail
+    assert "74" in detail and "75" in detail
+
+
+def test_validate_datagen_output_single_game_overwrite_signature_fails(tmp_path):
+    """The Task-6 trickroom attempt-1 corruption signature: many schema-valid rows that ALL
+    share one game_id (a battle-scoped export runtime overwrote dataset.jsonl each battle,
+    leaving only the last battle's rows). Schema validation passes; coverage must FAIL."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = [
+        _valid_dataset_row_line(game_id="g_last", decision_id=f"d{i}")
+        for i in range(21)  # same row count as the real attempt-1 salvage
+    ]
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is False
+    assert "game coverage" in detail
+    assert "1 distinct game_id" in detail
 
 
 def test_validate_datagen_output_result_row_count_mismatch_fails(tmp_path):

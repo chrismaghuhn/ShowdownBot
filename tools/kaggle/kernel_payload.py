@@ -286,10 +286,17 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
         schema-validating loader the 2b-1 training pipeline uses (``learning/dataset.py``
         delegates to ``learning/schema.py``'s ``validate_row``), so a broken export is caught
         here instead of at train time;
-    (c) zero ``falling back`` / ``frame error`` lines in ``<out_dir>/client.log`` (heuristic
+    (c) FULL GAME COVERAGE: the dataset contains exactly one distinct ``metadata.game_id``
+        per schedule row. Added after the Task-6 trickroom attempt-1 finding (2026-07-10): a
+        battle-scoped export runtime under the schedule runner overwrote ``dataset.jsonl``
+        with only the LAST battle's rows (21 schema-valid rows, 1 game_id, after 50 clean
+        battles) -- per-row schema validation alone cannot catch that corruption class, so an
+        export that does not cover every scheduled game must hard-fail HERE, in-kernel, not
+        an hour later at local merge;
+    (d) zero ``falling back`` / ``frame error`` lines in ``<out_dir>/client.log`` (heuristic
         timeout/exception fallback and gauntlet frame-parse warnings both indicate a degraded
         run whose labels should not be trusted);
-    (d) ``<out_dir>/results.jsonl`` has exactly one row per schedule row (T2-CC-4's contract --
+    (e) ``<out_dir>/results.jsonl`` has exactly one row per schedule row (T2-CC-4's contract --
         a retry/extra/missing battle would silently desync Channel-A seeding).
 
     Returns ``(ok, detail)``, never raises. On success ``detail`` is ``"rows=<n> games=<m>"``
@@ -314,6 +321,13 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
         rows = load_rows(str(out_dir / "dataset.jsonl"), validate=True)
     except (OSError, ValueError) as exc:
         return False, f"dataset validation failed: {exc}"
+
+    game_ids = {row["metadata"]["game_id"] for row in rows}
+    if len(game_ids) != len(schedule.rows):
+        return False, (
+            f"game coverage: {len(game_ids)} distinct game_id(s) in dataset.jsonl, "
+            f"schedule has {len(schedule.rows)} games"
+        )
 
     try:
         client_log_text = (out_dir / "client.log").read_text(encoding="utf-8", errors="replace")
