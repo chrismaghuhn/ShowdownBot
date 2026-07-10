@@ -200,6 +200,73 @@ def run_schedule(args) -> None:
         print("seed-log alignment SKIPPED (SHOWDOWN_BATTLE_SEED_BASE / SHOWDOWN_EVAL_SEED_LOG not both set)")
 
 
+def run_eval_report(args) -> None:
+    """T5 Task 5: `eval-report` CLI — turns one or two eval runs into a deterministic
+    md+json report (spec §1.4). Manifest sidecars are found via the existing
+    `<run>.manifest.json` convention (``RunBundle.load`` does this internally).
+
+    Exit code signals SAFETY, not strength (spec §1.4): 0 for SAFETY-PASS/GO/NO-GO/
+    UNDERPOWERED, 1 (SystemExit) iff the verdict is a SAFETY-FAIL (single- or paired-mode).
+    A load-time ``ReportInputError`` (unreadable/tampered/missing-sidecar input) also becomes
+    a clean SystemExit(1) rather than an uncaught traceback.
+    """
+    import json as _json
+
+    from showdown_bot.eval.report import (
+        VERDICT_SAFETY_FAIL,
+        VERDICT_SINGLE_FAIL,
+        ReportInputError,
+        RunBundle,
+        generate_report,
+    )
+
+    if not args.run_a or not args.seedlog_a:
+        raise SystemExit("eval-report requires --run-a and --seedlog-a")
+    if not args.schedule:
+        raise SystemExit("eval-report requires --schedule")
+    if not args.panel:
+        raise SystemExit("eval-report requires --panel")
+    if not args.out:
+        raise SystemExit("eval-report requires --out")
+    if bool(args.run_b) != bool(args.seedlog_b):
+        raise SystemExit(
+            "eval-report: --run-b and --seedlog-b must be given together "
+            "(paired mode needs both, single-run mode needs neither)"
+        )
+
+    try:
+        bundle_a = RunBundle.load(
+            args.run_a, args.seedlog_a, args.schedule, args.panel, teams_root=args.teams_root,
+        )
+        bundle_b = None
+        if args.run_b:
+            bundle_b = RunBundle.load(
+                args.run_b, args.seedlog_b, args.schedule, args.panel, teams_root=args.teams_root,
+            )
+    except ReportInputError as exc:
+        # Load-time input audit failure (unreadable/tampered/missing-sidecar input): a bare
+        # SystemExit(1) so the numeric exit code matches the SAFETY-FAIL contract below exactly
+        # (not just "truthy" via the string-to-1 coercion Python applies at process shutdown).
+        print(f"eval-report: input audit failed: {exc}")
+        raise SystemExit(1) from exc
+
+    md, obj = generate_report(bundle_a, bundle_b, mode=args.mode)
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with open(out_dir / "report.md", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(md)
+    with open(out_dir / "report.json", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(_json.dumps(obj, sort_keys=True, indent=2) + "\n")
+
+    print(f"eval-report: wrote {out_dir / 'report.md'} and {out_dir / 'report.json'}")
+    print(f"verdict: {obj['verdict']}")
+
+    # Exit code signals SAFETY, not strength (spec §1.4): NO-GO/UNDERPOWERED still exit 0.
+    if obj["verdict"] in (VERDICT_SAFETY_FAIL, VERDICT_SINGLE_FAIL):
+        raise SystemExit(1)
+
+
 def run_gauntlet(args) -> None:
     import os
 
@@ -249,8 +316,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
-        choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet"],
-        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet",
+        choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
+                 "eval-report"],
+        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -319,9 +387,10 @@ def main() -> None:
     parser.add_argument(
         "--schedule",
         default="",
-        help="Path to a non-mirror eval schedule YAML (gauntlet). Runs each row as one "
+        help="Path to a non-mirror eval schedule YAML. For gauntlet: runs each row as one "
         "battle in seed_index order; requires a fresh server when using "
-        "SHOWDOWN_BATTLE_SEED_BASE (Channel A).",
+        "SHOWDOWN_BATTLE_SEED_BASE (Channel A). For eval-report (required): re-verifies seed-"
+        "log alignment against this same schedule.",
     )
     parser.add_argument(
         "--result-out",
@@ -329,6 +398,63 @@ def main() -> None:
         default="",
         help="Path for the T2 per-battle result JSONL (gauntlet --schedule). Must be "
         "non-existing or empty; requires SHOWDOWN_BATTLE_SEED_BASE.",
+    )
+    parser.add_argument(
+        "--run-a",
+        dest="run_a",
+        default="",
+        help="Path to run A's per-battle result JSONL (eval-report, required). The run "
+        "manifest sidecar is found via the '<run>.manifest.json' convention.",
+    )
+    parser.add_argument(
+        "--seedlog-a",
+        dest="seedlog_a",
+        default="",
+        help="Path to run A's seed log (eval-report, required), for re-verifying schedule "
+        "alignment.",
+    )
+    parser.add_argument(
+        "--run-b",
+        dest="run_b",
+        default="",
+        help="Path to run B's (baseline) per-battle result JSONL (eval-report, optional). "
+        "Give together with --seedlog-b to switch to paired McNemar mode; omit both for "
+        "single-run safety mode.",
+    )
+    parser.add_argument(
+        "--seedlog-b",
+        dest="seedlog_b",
+        default="",
+        help="Path to run B's seed log (eval-report). Required iff --run-b is given.",
+    )
+    parser.add_argument(
+        "--panel",
+        default="",
+        help="Path to the eval panel YAML (eval-report, required); team_path entries inside "
+        "it resolve against --teams-root.",
+    )
+    parser.add_argument(
+        "--out",
+        default="",
+        help="Output directory for report.md + report.json (eval-report, required); "
+        "created if missing.",
+    )
+    parser.add_argument(
+        "--mode",
+        default="gate",
+        choices=["gate", "dev"],
+        help="eval-report safety-gate strictness (default 'gate'): 'gate' fails the run on "
+        "latency-budget or dirty-worktree violations; 'dev' downgrades only those two gates "
+        "to WARN. Every other safety gate is a hard FAIL in both modes.",
+    )
+    parser.add_argument(
+        "--teams-root",
+        dest="teams_root",
+        default=".",
+        help="Directory panel team_path entries resolve against (eval-report). Team paths in "
+        "config/eval/panels/*.yaml are written relative to the gauntlet working directory, so "
+        "this defaults to '.' -- run eval-report from inside showdown_bot/ (as gauntlet runs "
+        "already are), or pass the absolute path to showdown_bot/ explicitly.",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
@@ -343,6 +469,10 @@ def main() -> None:
 
     if args.command == "gauntlet":
         run_gauntlet(args)
+        return
+
+    if args.command == "eval-report":
+        run_eval_report(args)
         return
 
     settings = Settings.from_env()
