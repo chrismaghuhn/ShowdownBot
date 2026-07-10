@@ -18,6 +18,13 @@ def _active_item_id(req: BattleRequest, active_index: int) -> str:
     return ""
 
 
+def _bench_count(req: BattleRequest) -> int:
+    """Live (non-fainted) bench mons available as replacements."""
+    return sum(
+        1 for mon in req.side.pokemon if not mon.active and "fnt" not in mon.condition
+    )
+
+
 def _bench_switch_targets(req: BattleRequest, slot_index: int) -> list[SlotAction]:
     actions: list[SlotAction] = []
     for mon in req.side.pokemon:
@@ -62,7 +69,16 @@ def _slot_move_actions(
         and req.force_switch[active_index]
     )
     if forced:
-        return _bench_switch_targets(req, active_index)
+        out = _bench_switch_targets(req, active_index)
+        n_forced = sum(1 for f in (req.force_switch or []) if f)
+        # Fewer live bench mons than forced slots (T4b, plan
+        # 2026-07-10-2b35-T4b-forced-replacement-determinism): someone must pass
+        # (the server accepts the switch in either forced slot). Offer pass so the
+        # joint want-filter can pick the maximal-switch assignments. A fully empty
+        # bench already yields [pass] via _bench_switch_targets.
+        if 0 < _bench_count(req) < n_forced and not any(a.kind == "pass" for a in out):
+            out.append(SlotAction(kind="pass"))
+        return out
     # During a force-switch phase, non-forced slots simply pass (no `active`).
     if req.force_switch and any(req.force_switch):
         return [SlotAction(kind="pass")]
@@ -129,10 +145,19 @@ def enumerate_slot_pairs(req: BattleRequest) -> list[SlotPair]:
     n_slots = _slot_count(req)
     slot0_actions = _slot_move_actions(0, req)
     slot1_actions = _slot_move_actions(1, req) if n_slots > 1 else [SlotAction(kind="pass")]
+    # Force-phase contract (T4b): you must switch in as many replacements as the
+    # bench allows -- drop joint choices with fewer/more switches than that (e.g.
+    # (pass, pass) with a live bench mon is illegal on the server).
+    n_forced = sum(1 for f in (req.force_switch or []) if f)
+    want_switches = min(_bench_count(req), n_forced) if in_force_phase else None
     pairs: list[SlotPair] = []
     for a0, a1 in product(slot0_actions, slot1_actions):
         if a0.kind == "switch" and a1.kind == "switch":
             if a0.target_ident == a1.target_ident:
+                continue
+        if want_switches is not None:
+            n_sw = (a0.kind == "switch") + (a1.kind == "switch")
+            if n_sw != want_switches:
                 continue
         # Showdown only allows ONE Terastallization per side per battle;
         # drop illegal double-tera pairs before they can be sampled.
