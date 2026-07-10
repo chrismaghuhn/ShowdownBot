@@ -1,0 +1,21 @@
+battle 0: identical (HeuristicBot9882__battle-gen9vgc2025regi-443.log vs HeuristicBot5854__battle-gen9vgc2025regi-504.log)
+battle 1: identical (HeuristicBot6086__battle-gen9vgc2025regi-444.log vs HeuristicBot3272__battle-gen9vgc2025regi-505.log)
+battle 2: identical (HeuristicBot8202__battle-gen9vgc2025regi-445.log vs HeuristicBot6904__battle-gen9vgc2025regi-506.log)
+battle 3: identical (HeuristicBot5260__battle-gen9vgc2025regi-446.log vs HeuristicBot9135__battle-gen9vgc2025regi-507.log)
+battle 4: identical (HeuristicBot6573__battle-gen9vgc2025regi-447.log vs HeuristicBot7863__battle-gen9vgc2025regi-508.log)
+battle 5: identical (HeuristicBot7042__battle-gen9vgc2025regi-448.log vs HeuristicBot7670__battle-gen9vgc2025regi-509.log)
+battle 6: identical (HeuristicBot9507__battle-gen9vgc2025regi-449.log vs HeuristicBot8020__battle-gen9vgc2025regi-510.log)
+battle 7: identical (HeuristicBot1673__battle-gen9vgc2025regi-450.log vs HeuristicBot9669__battle-gen9vgc2025regi-511.log)
+battle 8: identical (HeuristicBot1105__battle-gen9vgc2025regi-451.log vs HeuristicBot8545__battle-gen9vgc2025regi-512.log)
+battle 9: identical (HeuristicBot4128__battle-gen9vgc2025regi-452.log vs HeuristicBot6195__battle-gen9vgc2025regi-513.log)
+row 0: winner hero==hero seed_match=True turns 15==15
+row 1: winner villain==villain seed_match=True turns 7==7
+row 2: winner villain==villain seed_match=True turns 13==13
+row 3: winner villain==villain seed_match=True turns 17==17
+row 4: winner villain==villain seed_match=True turns 11==11
+row 5: winner villain==villain seed_match=True turns 10==10
+row 6: winner villain==villain seed_match=True turns 16==16
+row 7: winner villain==villain seed_match=True turns 9==9
+row 8: winner hero==hero seed_match=True turns 9==9
+row 9: winner hero==hero seed_match=True turns 13==13
+PREFIX REPRODUCTION PASS

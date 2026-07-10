@@ -10,7 +10,7 @@ from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
 from showdown_bot.battle.opponent import SpeciesDex, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import pick_best, tera_decision
-from showdown_bot.battle.random_agent import pick_random_pair
+from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.belief.game_mode import classify_game_mode
@@ -629,7 +629,7 @@ def choose_with_fallback(
         logger.warning("max_damage fallback failed: %s", exc)
 
     try:
-        return encode_choose(pick_random_pair(req), rqid=req.rqid)
+        return encode_choose(pick_default_pair(req), rqid=req.rqid)
     except Exception as exc:  # noqa: BLE001
         logger.warning("random fallback failed: %s", exc)
 

@@ -1,0 +1,21 @@
+{
+  "cli_invocation": [
+    "C:\\Users\\chris\\Documents\\SHowdown BOt\\showdown_bot\\src\\showdown_bot\\cli.py",
+    "gauntlet",
+    "--schedule",
+    "../config/eval/schedules/t4_smoke_v001.yaml",
+    "--result-out",
+    "C:/tmp/t4rerun/run1_results.jsonl"
+  ],
+  "config_hash": "aeafb78a5beea9cd",
+  "dirty": false,
+  "git_sha": "e2d6f34d96126d0779ee5a00d67314d39ce3fbac",
+  "panel_hash": "760c1e5935fe0474",
+  "pythonhashseed": "0",
+  "run_id": "77993ce0cc2ba67e",
+  "schedule_hash": "a7f000867fdfbde0",
+  "seed_base": "t4rerun2026",
+  "server_patch_hash": "bb973ec76d83cddb",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-10T01:03:16.763425+00:00"
+}

@@ -3,7 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from itertools import product
 
-from showdown_bot.battle.legal_actions import _active_mon_fainted, _slot_move_actions
+from showdown_bot.battle.legal_actions import (
+    _active_mon_fainted,
+    _bench_count,
+    _slot_move_actions,
+)
 from showdown_bot.models.actions import SlotAction, SlotPair
 from showdown_bot.models.request import BattleRequest
 
@@ -63,7 +67,8 @@ def _slot_actions(
         and req.force_switch[active_index]
     )
     if forced:
-        # legal_actions already yields forced switch targets / pass for this slot.
+        # legal_actions yields forced switch targets, plus pass when the bench
+        # cannot fill every forced slot (T4b pass-supplement lives there).
         return _slot_move_actions(active_index, req)
     if req.force_switch and any(req.force_switch):
         # Force-switch phase but this slot isn't switching -> it just passes.
@@ -92,7 +97,11 @@ def enumerate_my_actions(
 
     Pruning (documented assumptions):
     - Tera stripped (overlay only) -> ~4x smaller space.
-    - Double-switches dropped by default (rarely the one-ply optimum, expensive).
+    - Double-switches dropped by default on VOLUNTARY turns (rarely the one-ply
+      optimum, expensive). Force phases (T4b) are exempt: forced replacements
+      enumerate the maximal-switch joint assignments per the force-phase
+      contract (`docs/superpowers/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md`) --
+      every slot with ``force_switch[i]`` true must switch if the bench allows it.
     - Same-target double-switch is always illegal and skipped.
     - Dead Fake Out / First Impression dropped per slot when ``moved_since_switch``
       (by active index) says the mon already acted since switching in.
@@ -108,11 +117,17 @@ def enumerate_my_actions(
     s0 = _slot_actions(0, req, drop_first_turn=_df(0))
     s1 = _slot_actions(1, req, drop_first_turn=_df(1)) if n_slots > 1 else [SlotAction(kind="pass")]
     out: list[JointAction] = []
+    n_forced = sum(1 for f in (req.force_switch or []) if f)
+    want_switches = min(_bench_count(req), n_forced) if in_force_phase else None
     for a0, a1 in product(s0, s1):
         if a0.kind == "switch" and a1.kind == "switch":
             if a0.target_ident == a1.target_ident:
                 continue
-            if not allow_double_switch:
+            if not allow_double_switch and not in_force_phase:
+                continue
+        if want_switches is not None:
+            n_sw = (a0.kind == "switch") + (a1.kind == "switch")
+            if n_sw != want_switches:
                 continue
         out.append(JointAction(slot0=a0, slot1=a1))
     return out

@@ -95,18 +95,20 @@ def test_equal_damage_tie_is_deterministic():
     assert a == b
 
 
-def test_default_fallback_routes_through_pick_random_pair(monkeypatch):
-    # fallback=None (live default) must still route the no-actions path through
-    # pick_random_pair -> live behavior byte-for-byte preserved.
+def test_default_fallback_routes_through_pick_default_pair(monkeypatch):
+    # T4b (docs/superpowers/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md):
+    # fallback=None (live default) now routes the no-actions path through the
+    # DETERMINISTIC pick_default_pair, not pick_random_pair -- superseding the T3c
+    # "byte-for-byte" note this test previously pinned.
     from showdown_bot.battle.legal_actions import enumerate_slot_pairs
     monkeypatch.setattr("showdown_bot.battle.baselines.enumerate_my_actions", lambda req: [])
     seen = {}
 
-    def fake_prp(req):
+    def fake_pdp(req):
         seen["called"] = True
         return enumerate_slot_pairs(req)[0]
 
-    monkeypatch.setattr("showdown_bot.battle.baselines.pick_random_pair", fake_prp)
+    monkeypatch.setattr("showdown_bot.battle.baselines.pick_default_pair", fake_pdp)
     out = max_damage_choice(_req(), state=_state(), book=_book(), our_side="p1",
                             oracle=FakeOracle(0.3), speed_oracle=None)  # fallback default (None)
     assert seen.get("called") and out.startswith("/choose")
