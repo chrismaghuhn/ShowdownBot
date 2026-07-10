@@ -1,0 +1,27 @@
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=HeuristicBot3849)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot6267)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot6352)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot3783)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot1410)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot4334)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot2427)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=BaselineBot5522)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=HeuristicBot3525)
+INFO:showdown_bot.client.gauntlet:game 1/1 done (winner=HeuristicBot1414)
+schedule /tmp/sb_repo/config/eval/schedules/t4_smoke_v001_prefix.yaml: 10 rows, schedule_hash=e1bb784bbc307378
+  seed mode: per-battle (SHOWDOWN_BATTLE_SEED_BASE) — REQUIRES a fresh server (Channel A)
+  result JSONL -> /tmp/sb_out/results.jsonl
+  run manifest -> /tmp/sb_out/results.jsonl.manifest.json (run_id=510beee81696bd50)
+  seed_index=0: teams/fixed_team.txt vs teams/panel_v001/trickroom_dev.txt [heuristic] -> games=1 hero_wins=1 invalid=0 crashes=0
+  seed_index=1: teams/fixed_team.txt vs teams/panel_v001/sun_dev.txt [heuristic] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=2: teams/fixed_team.txt vs teams/panel_v001/rain_dev.txt [heuristic] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=3: teams/fixed_team.txt vs teams/panel_v001/trickroom_dev.txt [max_damage] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=4: teams/fixed_team.txt vs teams/panel_v001/sun_dev.txt [max_damage] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=5: teams/fixed_team.txt vs teams/panel_v001/rain_dev.txt [max_damage] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=6: teams/fixed_team.txt vs teams/panel_v001/trickroom_dev.txt [simple_heuristic] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=7: teams/fixed_team.txt vs teams/panel_v001/sun_dev.txt [greedy_protect] -> games=1 hero_wins=0 invalid=0 crashes=0
+  seed_index=8: teams/fixed_team.txt vs teams/panel_v001/rain_dev.txt [scripted_vgc] -> games=1 hero_wins=1 invalid=0 crashes=0
+  seed_index=9: teams/fixed_team.txt vs teams/panel_v001/trickroom_dev.txt [heuristic] -> games=1 hero_wins=1 invalid=0 crashes=0
+schedule totals: {'games': 10, 'hero_wins': 3, 'villain_wins': 7, 'ties': 0, 'invalid': 0, 'crashes': 0}
+result JSONL: 10 rows written (one per schedule row)
+seed-log alignment OK: 10 battles, seed_i == derive_battle_seed(base, seed_index)

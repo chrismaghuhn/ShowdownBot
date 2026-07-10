@@ -1,0 +1,81 @@
+[{"stream_name":"stderr","time":0.864664662,"data":"Cloning into '/tmp/sb_repo'...\n"}
+,{"stream_name":"stderr","time":1.927088575,"data":"Note: switching to '4f75696987b488867af024ce045944b4214ef8f2'.\n"}
+,{"stream_name":"stderr","time":1.927120881,"data":"\n"}
+,{"stream_name":"stderr","time":1.927125851,"data":"You are in 'detached HEAD' state. You can look around, make experimental\n"}
+,{"stream_name":"stderr","time":1.927130228,"data":"changes and commit them, and you can discard any commits you make in this\n"}
+,{"stream_name":"stderr","time":1.927134489,"data":"state without impacting any branches by switching back to a branch.\n"}
+,{"stream_name":"stderr","time":1.927138244,"data":"\n"}
+,{"stream_name":"stderr","time":1.927141864,"data":"If you want to create a new branch to retain commits you create, you may\n"}
+,{"stream_name":"stderr","time":1.927146122,"data":"do so (now or later) by using -c with the switch command. Example:\n"}
+,{"stream_name":"stderr","time":1.9271500160000001,"data":"\n"}
+,{"stream_name":"stderr","time":1.9271536089999999,"data":"  git switch -c \u003cnew-branch-name\u003e\n"}
+,{"stream_name":"stderr","time":1.927157789,"data":"\n"}
+,{"stream_name":"stderr","time":1.9271615340000001,"data":"Or undo this operation with:\n"}
+,{"stream_name":"stderr","time":1.9271652289999999,"data":"\n"}
+,{"stream_name":"stderr","time":1.927168735,"data":"  git switch -\n"}
+,{"stream_name":"stderr","time":1.927172388,"data":"\n"}
+,{"stream_name":"stderr","time":1.927176094,"data":"Turn off this advice by setting config variable advice.detachedHead to false\n"}
+,{"stream_name":"stderr","time":1.927179074,"data":"\n"}
+,{"stream_name":"stderr","time":1.927181373,"data":"HEAD is now at 4f75696 fix(2b-2.5a): kaggle bootstrap — npm ci for calc bridge + failure-path output salvage\n"}
+,{"stream_name":"stderr","time":2.218695897,"data":"Cloning into '/tmp/sb_showdown_cache/pokemon-showdown'...\n"}
+,{"stream_name":"stderr","time":24.643408046,"data":"Note: switching to 'f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5'.\n"}
+,{"stream_name":"stderr","time":24.643439563,"data":"\n"}
+,{"stream_name":"stderr","time":24.643446431,"data":"You are in 'detached HEAD' state. You can look around, make experimental\n"}
+,{"stream_name":"stderr","time":24.643451941,"data":"changes and commit them, and you can discard any commits you make in this\n"}
+,{"stream_name":"stderr","time":24.643457034,"data":"state without impacting any branches by switching back to a branch.\n"}
+,{"stream_name":"stderr","time":24.643461879,"data":"\n"}
+,{"stream_name":"stderr","time":24.64346615,"data":"If you want to create a new branch to retain commits you create, you may\n"}
+,{"stream_name":"stderr","time":24.643470516,"data":"do so (now or later) by using -c with the switch command. Example:\n"}
+,{"stream_name":"stderr","time":24.643475142,"data":"\n"}
+,{"stream_name":"stderr","time":24.643479739,"data":"  git switch -c \u003cnew-branch-name\u003e\n"}
+,{"stream_name":"stderr","time":24.6434837,"data":"\n"}
+,{"stream_name":"stderr","time":24.643486749,"data":"Or undo this operation with:\n"}
+,{"stream_name":"stderr","time":24.643490259,"data":"\n"}
+,{"stream_name":"stderr","time":24.643493265,"data":"  git switch -\n"}
+,{"stream_name":"stderr","time":24.643496404,"data":"\n"}
+,{"stream_name":"stderr","time":24.643499398,"data":"Turn off this advice by setting config variable advice.detachedHead to false\n"}
+,{"stream_name":"stderr","time":24.643502652,"data":"\n"}
+,{"stream_name":"stderr","time":24.643505528,"data":"HEAD is now at f8ac14003 Update Champions Random Battle for 1.1.0 changes (#12119)\n"}
+,{"stream_name":"stdout","time":24.848671746,"data":"Installing dependencies...\n"}
+,{"stream_name":"stderr","time":28.253680296,"data":"npm warn deprecated rimraf@3.0.2: Rimraf versions prior to v4 are no longer supported\n"}
+,{"stream_name":"stderr","time":28.46721455,"data":"npm warn deprecated npmlog@6.0.2: This package is no longer supported.\n"}
+,{"stream_name":"stderr","time":29.276717149,"data":"npm warn deprecated are-we-there-yet@3.0.1: This package is no longer supported.\n"}
+,{"stream_name":"stderr","time":29.347197744,"data":"npm warn deprecated gauge@4.0.4: This package is no longer supported.\n"}
+,{"stream_name":"stderr","time":29.396895509,"data":"npm warn deprecated @npmcli/move-file@1.1.2: This functionality has been moved to @npmcli/fs\n"}
+,{"stream_name":"stdout","time":32.444536935,"data":"\n"}
+,{"stream_name":"stdout","time":32.44457418,"data":"added 355 packages, and audited 356 packages in 7s\n"}
+,{"stream_name":"stdout","time":32.444579944,"data":"\n"}
+,{"stream_name":"stdout","time":32.444584467,"data":"72 packages are looking for funding\n"}
+,{"stream_name":"stdout","time":32.444589215,"data":"  run `npm fund` for details\n"}
+,{"stream_name":"stdout","time":32.476135544,"data":"\n"}
+,{"stream_name":"stdout","time":32.476172103,"data":"23 vulnerabilities (3 low, 8 moderate, 12 high)\n"}
+,{"stream_name":"stdout","time":32.476178501,"data":"\n"}
+,{"stream_name":"stdout","time":32.476183296,"data":"To address issues that do not require attention, run:\n"}
+,{"stream_name":"stdout","time":32.476188023,"data":"  npm audit fix\n"}
+,{"stream_name":"stdout","time":32.476192579,"data":"\n"}
+,{"stream_name":"stdout","time":32.476197093,"data":"To address all issues (including breaking changes), run:\n"}
+,{"stream_name":"stdout","time":32.476201892,"data":"  npm audit fix --force\n"}
+,{"stream_name":"stdout","time":32.476207159,"data":"\n"}
+,{"stream_name":"stdout","time":32.476211657,"data":"Run `npm audit` for details.\n"}
+,{"stream_name":"stderr","time":32.477516955,"data":"npm notice\n"}
+,{"stream_name":"stderr","time":32.477537562,"data":"npm notice New major version of npm available! 10.8.2 -\u003e 12.0.0\n"}
+,{"stream_name":"stderr","time":32.477543506,"data":"npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.0\n"}
+,{"stream_name":"stderr","time":32.477548506,"data":"npm notice To update run: npm install -g npm@12.0.0\n"}
+,{"stream_name":"stderr","time":32.477553304,"data":"npm notice\n"}
+,{"stream_name":"stdout","time":32.499124858,"data":"config.js does not exist. Creating one with default settings...\n"}
+,{"stream_name":"stdout","time":36.693464565,"data":"\n"}
+,{"stream_name":"stdout","time":36.693495222,"data":"added 3 packages, and audited 4 packages in 1s\n"}
+,{"stream_name":"stdout","time":36.69475039,"data":"\n"}
+,{"stream_name":"stdout","time":36.694772243,"data":"found 0 vulnerabilities\n"}
+,{"stream_name":"stdout","time":40.418742921,"data":"RESTORE CHATROOM: lobby\n"}
+,{"stream_name":"stdout","time":40.41971092,"data":"RESTORE CHATROOM: staff\n"}
+,{"stream_name":"stdout","time":40.873505018,"data":"Worker 1 now listening on 0.0.0.0:8000\n"}
+,{"stream_name":"stdout","time":40.87379631,"data":"Test your server at http://localhost:8000\n"}
+,{"stream_name":"stdout","time":143.397978028,"data":"KAGGLE-REPRO: PASS (10/10 winner+seed match, 10/10 room logs byte-identical after normalization)\n"}
+,{"stream_name":"stderr","time":145.907572087,"data":"/usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\\|'\n"}
+,{"stream_name":"stderr","time":145.907609273,"data":"  cells[i][c] = re.sub('\\\\\\\\\\|', '|', cell)\n"}
+,{"stream_name":"stderr","time":146.231237971,"data":"/usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\\_'\n"}
+,{"stream_name":"stderr","time":146.231270295,"data":"  text = re.sub(r'_', '\\_', text) # Escape underscores in display text\n"}
+,{"stream_name":"stderr","time":146.950084083,"data":"[NbConvertApp] Converting notebook __script__.ipynb to html\n"}
+,{"stream_name":"stderr","time":148.460174019,"data":"[NbConvertApp] Writing 294104 bytes to __results__.html\n"}
+]

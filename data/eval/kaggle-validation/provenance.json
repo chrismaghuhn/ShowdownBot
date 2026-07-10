@@ -1,0 +1,20 @@
+{
+  "slice": "2b-2.5a Task 3 (Phase-1 Kaggle validation gate)",
+  "date": "2026-07-10",
+  "kernel": "chrismaghuhn/sb-repro-validation",
+  "kernel_version": 3,
+  "repo_sha": "4f75696987b488867af024ce045944b4214ef8f2",
+  "branch": "feat/slice-2b25a-kaggle-datagen",
+  "schedule": "config/eval/schedules/t4_smoke_v001_prefix.yaml",
+  "seed_base": "t4rerun2026",
+  "reference_fixture": "data/eval/t4/rerun/t4rerun-prefix.jsonl + data/eval/t4/rerun/room_raw/prefix/",
+  "verdict": "KAGGLE-REPRO: PASS (10/10 winner+seed match, 10/10 room logs byte-identical after normalization)",
+  "kernel_run_duration_s": 148,
+  "attempts": {
+    "1": "FAIL \u2014 pip install -e not importable same-process (kernel v1, sha 9f3eaeb)",
+    "2": "FAIL \u2014 @smogon/calc dist/ missing on fresh clone, gauntlet exit 1 (kernel v2, sha fff09dc)",
+    "3": "PASS (kernel v3, sha 4f75696)"
+  },
+  "local_revalidation": "validate_prefix_reproduction re-run locally on the downloaded artifacts: True",
+  "notes": "sb-repro-validation.log is the raw Kaggle kernel log (JSON stream-record format)."
+}
