@@ -5,7 +5,10 @@ gated behind an explicit `confirm_heldout=True`. Reproducible-only by default (`
 and other non-reproducible policies require `allow_nonreproducible=True`, T3-CC-3).
 `write_schedule_yaml` emits a YAML the existing `eval/schedule.load_schedule` round-trips
 (schedule_hash stable, panel_hash preserved). `seeds_per_cell` accepts an int or a
-per-policy mapping (T4).
+per-policy mapping (T4). `generate_heldout_schedule`'s optional `ledger_path`/`purpose`
+(T6) append one `schedule` entry to the held-out access ledger (`eval/heldout_ledger.py`)
+after generation; `ledger_path=None` (the default) keeps the function pure -- no ledger
+module is even imported.
 """
 from __future__ import annotations
 
@@ -143,15 +146,42 @@ def generate_dev_schedule(panel, *, hero_team_path=_DEFAULT_HERO, format_id=_DEF
 
 def generate_heldout_schedule(panel, *, confirm_heldout=False, hero_team_path=_DEFAULT_HERO,
                               format_id=_DEFAULT_FORMAT, policies=None, seeds_per_cell=1,
-                              allow_nonreproducible=False, teams_root=".") -> Schedule:
+                              allow_nonreproducible=False, teams_root=".",
+                              ledger_path=None, purpose=None) -> Schedule:
     if not confirm_heldout:
         raise PanelScheduleError(
             "held-out schedule generation requires confirm_heldout=True (T3-CC-1)"
         )
+    if ledger_path is not None and purpose is None:
+        raise PanelScheduleError(
+            "purpose is required when ledger_path is set (T6 choke-point wiring: every "
+            "held-out access must be auditable)"
+        )
     chosen = _resolve_policies(panel, policies, allow_nonreproducible)
     hero_hash = _hero_team_hash(teams_root, hero_team_path)
-    return _build(panel, panel.heldout_teams, hero_team_path, hero_hash, format_id, chosen,
-                  seeds_per_cell, "heldout")
+    schedule = _build(panel, panel.heldout_teams, hero_team_path, hero_hash, format_id, chosen,
+                      seeds_per_cell, "heldout")
+    if ledger_path is not None:
+        # Imported here (T6 choke-point) to keep the module import graph flat, matching
+        # eval.schedule.verify_schedule_alignment's local-import pattern. ledger_path=None
+        # (the default) never touches these modules, so the pure-function behavior of
+        # generate_heldout_schedule is unchanged unless a caller opts in.
+        from datetime import datetime, timezone
+
+        from showdown_bot.eval import heldout_ledger
+        from showdown_bot.learning.provenance import git_sha_and_dirty
+
+        git_sha, _dirty = git_sha_and_dirty()
+        heldout_ledger.append_entry(ledger_path, {
+            "kind": "schedule",
+            "date": datetime.now(timezone.utc).date().isoformat(),  # audit log wall-clock use
+            "purpose": purpose,
+            "panel_hash": schedule.panel_hash,
+            "schedule_hash": schedule.schedule_hash,
+            "git_sha": git_sha,
+            "justification": None,
+        })
+    return schedule
 
 
 def prefix_schedule(schedule: Schedule, n: int) -> Schedule:

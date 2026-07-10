@@ -1,0 +1,21 @@
+{
+  "cli_invocation": [
+    "C:\\Users\\chris\\Documents\\SHowdown BOt\\showdown_bot\\src\\showdown_bot\\cli.py",
+    "gauntlet",
+    "--schedule",
+    "../config/eval/schedules/t6_heldout_v001.yaml",
+    "--result-out",
+    "C:/tmp/t6/run1_results.jsonl"
+  ],
+  "config_hash": "aeafb78a5beea9cd",
+  "dirty": false,
+  "git_sha": "564a06f7d5afa5e74ed92cac333e3c2b5b479947",
+  "panel_hash": "760c1e5935fe0474",
+  "pythonhashseed": "0",
+  "run_id": "31f0c2bee34f5695",
+  "schedule_hash": "3076a71aa6841c8c",
+  "seed_base": "t6heldout2026",
+  "server_patch_hash": "bb973ec76d83cddb",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-10T13:55:43.538575+00:00"
+}

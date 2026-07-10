@@ -1,0 +1,12 @@
+reference rows: 10 ; fresh rows: 10
+BASELINE DEV SPOT-CHECK PASS: winner+seed sequences match (10/10)
+row 0: winner=hero seed_match=True
+row 1: winner=villain seed_match=True
+row 2: winner=villain seed_match=True
+row 3: winner=villain seed_match=True
+row 4: winner=villain seed_match=True
+row 5: winner=villain seed_match=True
+row 6: winner=villain seed_match=True
+row 7: winner=villain seed_match=True
+row 8: winner=hero seed_match=True
+row 9: winner=hero seed_match=True

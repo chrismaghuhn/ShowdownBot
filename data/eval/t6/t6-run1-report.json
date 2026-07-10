@@ -1,0 +1,356 @@
+{
+  "aggregates": {
+    "losing_cells": [
+      [
+        "max_damage",
+        "389416a631f66266"
+      ],
+      [
+        "max_damage",
+        "f10c6e672c9362c9"
+      ]
+    ],
+    "overall_pooled": {
+      "n": 34,
+      "wilson_hi": 0.3679871610821398,
+      "wilson_lo": 0.1034939602235132,
+      "win_rate": 0.20588235294117646,
+      "wins": 7
+    },
+    "per_policy": [
+      {
+        "n": 4,
+        "opp_policy": "greedy_protect",
+        "wilson_hi": 0.6993639475573634,
+        "wilson_lo": 0.045586062644636216,
+        "win_rate": 0.25,
+        "wins": 1
+      },
+      {
+        "n": 10,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.5098431532792765,
+        "wilson_lo": 0.056680947980693314,
+        "win_rate": 0.2,
+        "wins": 2
+      },
+      {
+        "n": 10,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.2775401687666166,
+        "wilson_lo": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      {
+        "n": 4,
+        "opp_policy": "scripted_vgc",
+        "wilson_hi": 1.0,
+        "wilson_lo": 0.5100999795960008,
+        "win_rate": 1.0,
+        "wins": 4
+      },
+      {
+        "n": 6,
+        "opp_policy": "simple_heuristic",
+        "wilson_hi": 0.3903430336530645,
+        "wilson_lo": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.29,
+    "worst_cell": {
+      "n": 5,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "389416a631f66266",
+      "wilson_hi": 0.43449149475208104,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "cells": [
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 2,
+      "opp_policy": "greedy_protect",
+      "opp_team_hash": "389416a631f66266",
+      "opp_team_path": "teams/panel_v001/tailwind_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.9054713451991339,
+      "wilson_lo": 0.09452865480086614,
+      "win_rate": 0.5,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 2,
+      "n": 2,
+      "opp_policy": "greedy_protect",
+      "opp_team_hash": "f10c6e672c9362c9",
+      "opp_team_path": "teams/panel_v001/balance_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.6576280471103807,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 4,
+      "n": 5,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "389416a631f66266",
+      "opp_team_path": "teams/panel_v001/tailwind_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.6244717358814613,
+      "wilson_lo": 0.03622316096978745,
+      "win_rate": 0.2,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 4,
+      "n": 5,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "f10c6e672c9362c9",
+      "opp_team_path": "teams/panel_v001/balance_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.6244717358814613,
+      "wilson_lo": 0.03622316096978745,
+      "win_rate": 0.2,
+      "wins": 1
+    },
+    {
+      "losing": true,
+      "losses": 5,
+      "n": 5,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "389416a631f66266",
+      "opp_team_path": "teams/panel_v001/tailwind_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.43449149475208104,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": true,
+      "losses": 5,
+      "n": 5,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "f10c6e672c9362c9",
+      "opp_team_path": "teams/panel_v001/balance_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.43449149475208104,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 2,
+      "opp_policy": "scripted_vgc",
+      "opp_team_hash": "389416a631f66266",
+      "opp_team_path": "teams/panel_v001/tailwind_held.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.34237195288961925,
+      "win_rate": 1.0,
+      "wins": 2
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 2,
+      "opp_policy": "scripted_vgc",
+      "opp_team_hash": "f10c6e672c9362c9",
+      "opp_team_path": "teams/panel_v001/balance_held.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.34237195288961925,
+      "win_rate": 1.0,
+      "wins": 2
+    },
+    {
+      "losing": false,
+      "losses": 3,
+      "n": 3,
+      "opp_policy": "simple_heuristic",
+      "opp_team_hash": "389416a631f66266",
+      "opp_team_path": "teams/panel_v001/tailwind_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.5615060804490177,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 3,
+      "n": 3,
+      "opp_policy": "simple_heuristic",
+      "opp_team_hash": "f10c6e672c9362c9",
+      "opp_team_path": "teams/panel_v001/balance_held.txt",
+      "ties": 0,
+      "wilson_hi": 0.5615060804490177,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "heldout": true,
+  "mode": "gate",
+  "paired": false,
+  "provenance": {
+    "config_hash": "aeafb78a5beea9cd",
+    "config_id": "heuristic",
+    "dirty": false,
+    "format_id": "gen9vgc2025regi",
+    "git_sha": "564a06f7d5afa5e74ed92cac333e3c2b5b479947",
+    "input_sha256": {
+      "manifest": "f029065e047b083026d06c20c51de09b96ff7af6570f42461e137a5b8083a47c",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "ab6d6227a1be303fcb2da11ba341fd628aca85bbd7d0830ff4d8668661c57e8e",
+      "schedule": "248c1451c31f766e06a955dbe3741fc677782818f59eb6f14bad48e884570b24",
+      "seedlog": "74f9689a70beec3c1b6d417650456a33117e363e454616fe8e5d3449a0f2fd25"
+    },
+    "panel_hash": "760c1e5935fe0474",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "760c1e5935fe0474",
+    "row_count": 34,
+    "run_id": "31f0c2bee34f5695",
+    "schedule_hash": "3076a71aa6841c8c",
+    "seed_base": "t6heldout2026",
+    "server_patch_hash": "bb973ec76d83cddb",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-10T13:55:43.538575+00:00"
+  },
+  "reproduction": {
+    "env": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "t6heldout2026"
+    },
+    "input_sha256": {
+      "manifest": "f029065e047b083026d06c20c51de09b96ff7af6570f42461e137a5b8083a47c",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "ab6d6227a1be303fcb2da11ba341fd628aca85bbd7d0830ff4d8668661c57e8e",
+      "schedule": "248c1451c31f766e06a955dbe3741fc677782818f59eb6f14bad48e884570b24",
+      "seedlog": "74f9689a70beec3c1b6d417650456a33117e363e454616fe8e5d3449a0f2fd25"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a run1_results.jsonl --seedlog-a run1_seeds.jsonl --schedule t6_heldout_v001.yaml --panel panel_v001.yaml --out <dir> --mode gate",
+    "run_command": "python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/t6_heldout_v001.yaml --result-out C:/tmp/t6/run1_results.jsonl",
+    "server_patch_hash": "bb973ec76d83cddb",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "34 == 34",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=334 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "34 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "760c1e5935fe0474",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "aeafb78a5beea9cd",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "3076a71aa6841c8c",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "t6heldout2026",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "31f0c2bee34f5695",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "564a06f7d5afa5e74ed92cac333e3c2b5b479947",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": true,
+  "schema_version": 1,
+  "verdict": "SINGLE-RUN SAFETY-PASS",
+  "warnings": [
+    "This is a single-run safety readout, not a comparison. A single run cannot establish improvement over any baseline \u2014 it can only pass or fail the safety gates. Any strength claim requires a paired run against a pinned baseline (T6) with the positive-evidence rule.",
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim.",
+    "scripted_vgc cells measure coverage, not strength: the scripted opponent is a fixed policy used to exercise pipeline paths, so a high win rate against it is not evidence of skill.",
+    "HELD-OUT RUN \u2014 these numbers must never inform tuning decisions."
+  ]
+}

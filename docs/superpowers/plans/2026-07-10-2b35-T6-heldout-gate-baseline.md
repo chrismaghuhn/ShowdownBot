@@ -143,6 +143,11 @@ Known ops facts: fresh seeded server per run; `MSYS_NO_PATHCONV=1` with `C:/...`
   the run manifest, result_sha256 of run1_results.jsonl, git_sha) via a `python -c` using the
   ledger API. Do NOT commit yet (Task 6 commits everything together — the ledger file will show
   entries 1-3 in one commit; append-only history starts from there).
+  **AMENDED at dispatch (controller): appending to the TRACKED ledger between runs would dirty
+  the tree and flip run 2's dirty gate. Task 5 therefore writes both pending run entries to
+  `C:/tmp/t6/pending_ledger_entries.jsonl` (same shape) and runs the budget exercise against a
+  tmp COPY of the ledger with entry #1 applied; Task 6 appends the pending entries to the real
+  ledger and commits. The tracked ledger stays untouched during the runs.**
 - [ ] **Budget exercise (R7, spec amendment):** `check_access(entries, <config_hash>)` → MUST
   raise AccessBudgetError now; `check_access(..., justification="reproduction re-run of
   baseline-heldout-v1, same session")` → MUST pass. Record both outputs verbatim.

@@ -49,7 +49,13 @@ only trace — discipline made auditable, not enforced.
   "seed_base": "t4rerun2026", "pythonhashseed": "0",
   "reference_jsonl": "data/eval/t4/rerun/t4rerun-run1.jsonl", "reference_sha256": <from
   data/eval/t4/rerun/sha256.txt>, "heldout_reference_jsonl": <this slice's run>,
-  "heldout_reference_sha256": <...>, "heldout_seed_base": <this slice's fresh base>}`.
+  "heldout_reference_sha256": <...>, "heldout_seed_base": <this slice's fresh base>,
+  "dev_schedule_path": "config/eval/schedules/t4_smoke_v001.yaml",
+  "heldout_schedule_path": "config/eval/schedules/t6_heldout_v001.yaml"}`.
+  **(Amended 2026-07-10 during Task 3: the `*_schedule_path` fields are required alongside the
+  hashes — a hash alone cannot be loaded for verification. Also clarified: `verify_baseline`
+  checks only the team_ids listed in the manifest; full-panel coverage is transitively enforced
+  by the `panel_hash` re-hash check, and a panel bump correctly fails old baselines as drift.)**
 - API: `load_baseline(path)`; `verify_baseline(baseline, *, repo_root) -> list[check results]` —
   re-checks EVERY hash against the working tree: panel re-hash + team content hashes,
   provenance.yaml showdown_commit, patch file hash, schedule hashes via `load_schedule`,
