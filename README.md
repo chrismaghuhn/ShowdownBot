@@ -1,73 +1,109 @@
 # ShowdownBot
 
-Competitive **Pokémon Showdown VGC Doubles** bot — custom protocol client, hybrid architecture (Preview → Belief → Policy → Search → Fusion).
+Competitive **Pokémon Showdown VGC Doubles** bot — custom protocol client, exact-mechanics engine
+(`@smogon/calc` bridge + one-ply tactical resolver), a learned action reranker on top of a
+heuristic core, and a **fully reproducible evaluation harness**: every battle is seeded,
+provenance-pinned, and byte-for-byte replayable.
+
+## Highlight: 100% reproducible battles
+
+Pokémon battles are full of randomness (damage rolls, crits, speed ties). This repo makes them a
+controlled measurement instrument instead of noise:
+
+1. **Server seeding** — a versioned patch
+   ([tools/eval/patches/](tools/eval/patches/)) injects a derivable per-battle seed
+   (`sha256(base:index)`) into the Showdown server and logs every seed.
+2. **Client determinism** — `PYTHONHASHSEED` pinned; every decision path deterministic (the
+   reproducibility gate itself caught and killed a hidden unseeded-random fallback — see
+   [reports/2026-07-10-2b35-T4-smoke.md](reports/2026-07-10-2b35-T4-smoke.md)).
+3. **Run discipline** — fixed battle order, fresh server per run, **no retries ever**; every run
+   carries its full provenance (config/panel/schedule/team hashes, git sha, server commit+patch
+   hash) in a manifest sidecar.
+4. **Proof, not trust** — normalized battle logs are compared **byte-for-byte**; two independent
+   51-game runs match 51/51 ([reports/2026-07-10-2b35-T4-rerun.md](reports/2026-07-10-2b35-T4-rerun.md)),
+   and the same battles reproduce exactly on foreign cloud hardware
+   ([data/eval/kaggle-validation/](data/eval/kaggle-validation/)).
+
+On top of that sits a statistics layer built for honest claims: paired exact-binomial McNemar with
+a positive-evidence-only rule, per-cell Wilson intervals, safety gates before any strength
+statement, an append-only **held-out access ledger** with a per-config budget, and a frozen,
+drift-verified baseline manifest ([config/eval/baselines/](config/eval/baselines/)).
 
 ## Status
 
-- **Phase 0** — Showdown client, legal actions, random agent ✅
-- **Phase 0.5** — Challstr auth, team preview, packed teams, multiline protocol, challenge/smoke CLI ✅
-- **Phase 1** — Offline game engine: format config, log parser, `BattleState`, `@smogon/calc` bridge, set hypotheses / belief tracking, `validate-log` (>95% calc-match) ✅
-- **Phase 2** — Heuristic doubles bot: speed primitive + `SpeedOracle`, one-ply tactical resolver (`resolve_turn`: Fake Out, redirection w/ powder immunity, spread moves, retargeting), memoized/batched `DamageOracle`, opponent response prediction with Protect priors, game-mode-aware policy aggregation, Tera overlay, hard-timeout fallback chain, `max_damage`/`random` baselines, and a local-server `gauntlet` harness ✅
+| Phase | State |
+|---|---|
+| 0–0.5 Protocol client, auth, teams, CLI | ✅ |
+| 1 Offline engine: parser, `BattleState`, calc bridge, belief tracking | ✅ |
+| 2 Heuristic doubles bot (resolver, oracles, game modes, Tera, fallbacks, gauntlet) | ✅ |
+| 3 Learned reranker — data pipeline (frozen schema, counterfactual rollout teacher, internal turn simulator, persistent calc), offline LightGBM reranker, live shadow mode | ✅ |
+| 3 **Eval harness 2b-3.5** (T0–T6): seeded battles, opponent panel, per-battle result JSONL, report generator (`eval-report`), held-out gate + baseline | ✅ |
+| 3 Enriched retrain (panel-diverse dataset generated on Kaggle) | 🔄 in progress |
+| 3 Gated override (paired McNemar vs pinned baseline) | ⏳ next |
 
-Architecture: **Preview → Belief → Policy → Search → Fusion** (currently heuristic search; learned policy/fusion come in later phases).
+Architecture: **Preview → Belief → Policy → Search → Fusion** (heuristic core = candidate
+generator and safety floor; learned components rerank, never overrule legality/safety).
 
 ## Quick start
 
 ```bash
 cd showdown_bot
 pip install -e ".[dev]"
-python -m pytest -v
+python -m pytest -q          # 850+ tests
 python -m showdown_bot.cli replay-fixture
 ```
 
-### Auth + ladder (VGC)
+### Local gauntlet + seeded, reproducible eval
+
+Local server setup: `showdown_bot/tools/localserver/README.md` (clone Showdown, apply the seeded-
+battle patch). Then:
 
 ```bash
-cp .env.example .env
-# SHOWDOWN_USERNAME=yourname  (guest: any alphanumeric name, no password)
-# SHOWDOWN_PASSWORD=          (registered account only)
-python -m showdown_bot.cli ladder -v
+# plain gauntlet
+python -m showdown_bot.cli gauntlet --games 20 --villain max_damage --strict
+
+# fully seeded, schedule-driven run (fresh server started with SHOWDOWN_BATTLE_SEED_BASE + SHOWDOWN_EVAL_SEED_LOG)
+PYTHONHASHSEED=0 SHOWDOWN_CALC_BACKEND=persistent SHOWDOWN_BATTLE_SEED_BASE=mybase \
+  SHOWDOWN_EVAL_SEED_LOG=/tmp/seeds.jsonl \
+  python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/t4_smoke_v001.yaml \
+  --result-out /tmp/results.jsonl
+
+# audited report (safety gates -> Wilson tables -> paired McNemar in two-run mode)
+python -m showdown_bot.cli eval-report --run-a /tmp/results.jsonl --seedlog-a /tmp/seeds.jsonl \
+  --schedule ../config/eval/schedules/t4_smoke_v001.yaml \
+  --panel ../config/eval/panels/panel_v001.yaml --out /tmp/report
 ```
 
-**Note:** VGC ladders on `sim3.psim.us` are often **closed** (`not ladderable`). Use challenge vs a friend:
+### Ladder / challenge
 
 ```bash
+cp .env.example .env   # SHOWDOWN_USERNAME / SHOWDOWN_PASSWORD
+python -m showdown_bot.cli ladder -v
 python -m showdown_bot.cli challenge --opponent TheirUsername -v
 ```
 
-### Smoke test (random doubles, no custom team)
+## Repo map
 
-```bash
-python -m showdown_bot.cli smoke -v
-```
+| Path | What |
+|---|---|
+| `showdown_bot/src/showdown_bot/battle/` | Live decision core (resolver, evaluation, policy, fallbacks) |
+| `showdown_bot/src/showdown_bot/engine/` | Calc bridge, belief/spread book, format config |
+| `showdown_bot/src/showdown_bot/eval/` | The harness: seeding, schedules, panel, result rows, stats, pairing, report, ledger, baseline |
+| `showdown_bot/src/showdown_bot/learning/` | Frozen dataset schema, feature extraction, rollout teacher, reranker train/eval, shadow runtime |
+| `config/eval/` | Panels, schedules, gates, baselines, held-out ledger |
+| `data/eval/` | Committed run evidence (sha256-pinned): T4/T4-rerun, T6 held-out baseline, Kaggle validation |
+| `data/datasets/` | Training datasets (gz + manifest) |
+| `tools/kaggle/` | Cloud runners: repro-validation + datagen kernels, API driver |
+| `reports/` | Every eval run's report — verdict-first, fully provenanced |
+| `docs/superpowers/` | Specs, plans, and review artifacts for every slice |
 
-Regenerate packed team after editing `teams/fixed_team.txt`:
+## Ground rules (enforced by tests)
 
-```bash
-pip install poke-env   # dev only
-python tools/generate_packed_team.py
-```
-
-### Offline log validation (Phase 1)
-
-```bash
-python -m showdown_bot.cli validate-log <battle.log> --sets <sets.json>
-```
-
-### Local gauntlet (Phase 2)
-
-Run the heuristic against a baseline on a local Showdown server (setup: `showdown_bot/tools/localserver/README.md`):
-
-```bash
-python -m showdown_bot.cli gauntlet --games 20 --villain max_damage --strict
-```
-
-`--strict` enforces exit criteria (winrate, p95 decision latency, zero crashes / invalid choices).
-
-## Docs
-
-- Design: [docs/superpowers/specs/2026-06-29-vgc-showdown-bot-design.md](docs/superpowers/specs/2026-06-29-vgc-showdown-bot-design.md)
-- Plans: [docs/superpowers/plans/2026-06-29-vgc-showdown-bot-index.md](docs/superpowers/plans/2026-06-29-vgc-showdown-bot-index.md)
+- The live path only ever plays **legal** actions; the heuristic is the safety floor.
+- **No label leakage**: model inputs are the frozen feature columns, never labels/outcomes.
+- Model artifacts carry dataset/schema/config hashes; a mismatch at load falls back to heuristic-only.
+- Held-out teams: append-only ledger, one gate attempt per config lineage, numbers never inform tuning.
+- No battle-level retries; a non-reproducible run is a void run.
 
 ## License
 
