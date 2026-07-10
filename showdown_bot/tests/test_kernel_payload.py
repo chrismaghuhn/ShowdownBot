@@ -301,27 +301,56 @@ def test_validate_datagen_output_frame_error_warning_fails(tmp_path):
     assert "frame error" in detail
 
 
+def _dataset_lines_for_n_games(n: int) -> list[str]:
+    return [_valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}") for i in range(n)]
+
+
 def test_validate_datagen_output_missing_game_coverage_fails(tmp_path):
-    """One scheduled game absent from the export (74 distinct game_ids, not 75) -> FAIL."""
+    """67/75 distinct game_ids -- one below ceil(0.9 * 75) == 68 -- must FAIL: below the 90%
+    coverage threshold (2026-07-11: the coverage check is now a threshold, not exact equality,
+    see the module docstring's COVERAGE THRESHOLD note)."""
     out_dir = _build_datagen_out_dir(tmp_path)
-    schedule = _datagen_schedule()
-    dataset_lines = [
-        _valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}")
-        for i in range(len(schedule.rows) - 1)  # drop the last game
-    ]
+    dataset_lines = _dataset_lines_for_n_games(67)
     (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
 
     ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
 
     assert ok is False
     assert "game coverage" in detail
-    assert "74" in detail and "75" in detail
+    assert "67" in detail and "75" in detail and "68" in detail
+
+
+def test_validate_datagen_output_below_threshold_game_coverage_passes_with_detail(tmp_path):
+    """74/75 distinct game_ids (one legitimate zero-row blowout game, e.g. trickroom's final
+    run) is AT/ABOVE the 90% threshold (ceil(0.9*75) == 68) -> PASS, with the shortfall
+    surfaced in the detail string rather than silently swallowed."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = _dataset_lines_for_n_games(74)
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is True
+    assert detail == "rows=74 games=74/75 (1 game(s) with zero sampled rows — below-threshold OK)"
+
+
+def test_validate_datagen_output_exactly_at_threshold_passes(tmp_path):
+    """68/75 distinct game_ids == ceil(0.9 * 75) exactly -> PASS (the boundary case)."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = _dataset_lines_for_n_games(68)
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is True
+    assert detail == "rows=68 games=68/75 (7 game(s) with zero sampled rows — below-threshold OK)"
 
 
 def test_validate_datagen_output_single_game_overwrite_signature_fails(tmp_path):
     """The Task-6 trickroom attempt-1 corruption signature: many schema-valid rows that ALL
     share one game_id (a battle-scoped export runtime overwrote dataset.jsonl each battle,
-    leaving only the last battle's rows). Schema validation passes; coverage must FAIL."""
+    leaving only the last battle's rows). Schema validation passes; coverage must still FAIL --
+    1 distinct game is far below the 90% threshold, not just below exact equality."""
     out_dir = _build_datagen_out_dir(tmp_path)
     dataset_lines = [
         _valid_dataset_row_line(game_id="g_last", decision_id=f"d{i}")
