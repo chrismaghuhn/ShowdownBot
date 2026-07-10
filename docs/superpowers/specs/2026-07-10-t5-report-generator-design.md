@@ -119,8 +119,15 @@ The runs' `--result-out` naming from T2 stays untouched.
   verdict line in that case; discordant list present whenever n_discordant ≤ 12.
 - **R5** Byte-identical regeneration (golden test, run twice in the same test).
 - **R6** The generator detects tampered inputs: a mutated seed-log line, a panel file whose hash
-  no longer matches rows, and an edited result row (winner flipped) must each flip the report to
-  SAFETY-FAIL — proven by tests that tamper copies of the real fixture.
+  no longer matches rows, and an edited result row (seed/seed_index/schedule fields — caught by
+  recomputing `battle_id` and the seed derivation per row) must each surface as SAFETY-FAIL or a
+  load-time `ReportInputError` — proven by tests that tamper copies of the real fixture.
+  **Documented limitation (amended 2026-07-10 during Task 3):** a PURE winner flip in the result
+  JSONL is undetectable — the manifest carries no per-row integrity hashes and the audit does not
+  re-parse room_raw. A test pins this limitation explicitly. An `end_hp_diff`-sign-consistency
+  heuristic was considered and REJECTED (unsound: a coordinated flip passes; the forfeit/timeout
+  exclusion paths would ship untested). Threat model: accidental corruption and process bugs, not
+  adversarial edits by the repo owner.
 - **R7** Single-run mode on the committed T4-rerun fixture yields `SINGLE-RUN SAFETY-PASS` with
   the per-cell table matching the T4-rerun report's numbers.
 - **R8** Full suite green (688 baseline); no `battle/` changes; stdlib-only (no new deps).
