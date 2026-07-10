@@ -195,3 +195,101 @@ def test_export_runtime_param_takes_precedence_over_allow_own_export(monkeypatch
     assert c.owns_export is False
     c.close()
     assert fake_export.close_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a Kaggle-OOM ROOT CAUSE: the client now owns ONE calc/oracle/speed_oracle/
+# dex bundle per battle (built lazily on the first live decision, threaded into
+# every decision, closed once in the per-battle teardown seam). Before this,
+# agent_choose never passed a calc down, so the decision core spawned a fresh
+# `node calc.mjs --server` PER DECISION. Only agents that actually use calc
+# (heuristic, max_damage) build the bundle; the request-only eval policies
+# (greedy_protect/simple_heuristic/scripted_vgc) and random never do.
+# ---------------------------------------------------------------------------
+
+
+class _FakeCalcClient:
+    """Stand-in for CalcClient: counts constructions, exposes a `backend` for the
+    oracle/speed-oracle/dex to bind to (none of which spawn Node at construction)."""
+
+    def __init__(self):
+        _FakeCalcClient.instances += 1
+        self.backend = object()
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
+_FakeCalcClient.instances = 0
+
+
+def _patch_calc(monkeypatch):
+    import showdown_bot.client.gauntlet as gauntlet_mod
+
+    _FakeCalcClient.instances = 0
+    monkeypatch.setattr(gauntlet_mod, "CalcClient", _FakeCalcClient)
+
+
+def test_decision_deps_built_once_and_cached_for_heuristic(monkeypatch):
+    _patch_calc(monkeypatch)
+    c = _client(agent="heuristic")
+    calc, oracle, speed_oracle, dex = c._decision_deps()
+    assert calc is c._decision_calc
+    assert isinstance(calc, _FakeCalcClient)
+    assert oracle is not None and speed_oracle is not None and dex is not None
+    # Second call is cached -- ONE calc per battle, not per decision.
+    again = c._decision_deps()
+    assert again == (calc, oracle, speed_oracle, dex)
+    assert _FakeCalcClient.instances == 1
+
+
+def test_decision_deps_built_for_max_damage(monkeypatch):
+    _patch_calc(monkeypatch)
+    c = _client(agent="max_damage")
+    calc, oracle, speed_oracle, dex = c._decision_deps()
+    assert isinstance(calc, _FakeCalcClient)
+    assert _FakeCalcClient.instances == 1
+
+
+def test_decision_deps_never_built_for_request_only_agent(monkeypatch):
+    """Eval-policy guard: a request-only opponent (greedy_protect) never uses calc,
+    so it must never construct one."""
+    _patch_calc(monkeypatch)
+    c = _client(agent="greedy_protect")
+    assert c._decision_deps() == (None, None, None, None)
+    assert c._decision_calc is None
+    assert _FakeCalcClient.instances == 0
+    c.close()  # must not raise
+
+
+def test_decision_deps_never_built_for_random(monkeypatch):
+    _patch_calc(monkeypatch)
+    c = _client(agent="random")
+    assert c._decision_deps() == (None, None, None, None)
+    assert _FakeCalcClient.instances == 0
+
+
+def test_close_closes_decision_calc():
+    c = _client(agent="heuristic")
+    fake_calc = _FakeCloser()
+    c._decision_calc = fake_calc
+    c.close()
+    assert fake_calc.close_calls == 1
+
+
+def test_close_survives_decision_calc_raising():
+    # A raising decision-calc close() must not skip the other resources' closes.
+    c = _client(agent="heuristic")
+    fake_dex = _FakeCloser()
+    c._decision_calc = _RaisingCloser()
+    c._eval_species_dex = fake_dex
+    c.close()  # must not raise
+    assert fake_dex.close_calls == 1
+
+
+def test_close_noop_when_no_decision_calc_built():
+    # Never took a decision (or a request-only agent) -> _decision_calc stays None.
+    c = _client(agent="greedy_protect")
+    assert c._decision_calc is None
+    c.close()  # must not raise

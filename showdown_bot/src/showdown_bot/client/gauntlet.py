@@ -10,12 +10,16 @@ from dataclasses import dataclass, field
 
 from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
 from showdown_bot.battle.decision_trace import DecisionTrace
+from showdown_bot.battle.opponent import SpeciesDex
+from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.client.connection import (
     ShowdownConnection,
     authenticate_local,
 )
+from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
@@ -54,12 +58,25 @@ def agent_choose(
     opp_sets: dict | None = None,
     trace=None,
     species_resolver=None,
+    calc=None,
+    oracle=None,
+    speed_oracle=None,
+    dex=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
     ``heuristic`` uses the full fallback chain; ``max_damage`` uses the baseline
     via the fallback chain; ``random`` uses the legacy random agent. ``report``
     (heuristic only) collects a readable decision block for the turn trace.
+
+    ``calc``/``oracle``/``speed_oracle``/``dex`` (2b-2.5a Kaggle-OOM root-cause
+    fix) are the CLIENT-OWNED decision deps, threaded into the heuristic
+    (``choose_with_fallback``) and max_damage (``max_damage_choice``) branches so
+    the decision core reuses ONE calc for the whole battle instead of the buggy
+    per-decision ``calc = calc or CalcClient()`` (which spawned a fresh
+    ``node calc.mjs --server`` per live decision, ~70/battle, never closed).
+    ``None`` (the request-only eval policies + random never pass them) preserves
+    the prior default-construction behavior for callers that don't own a calc.
     """
     # Eval-only opponent policies (T3c): request-only + deterministic, no state/book needed.
     # Local imports keep eval/opponents off the default/import path (live-path guard).
@@ -89,6 +106,7 @@ def agent_choose(
         try:
             return max_damage_choice(
                 req, state=state, book=book, our_side=our_side,
+                calc=calc, oracle=oracle, speed_oracle=speed_oracle,
                 fallback=lambda r: f"/choose default|{r.rqid}",
             )
         except Exception:  # noqa: BLE001
@@ -96,6 +114,7 @@ def agent_choose(
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
+        calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
     )
 
 
@@ -180,6 +199,15 @@ class _Client:
         # cached so the type-aware path can activate when the live state has only species.
         self._eval_species_dex = None
         self._eval_species_dex_tried = False
+        # Client-owned live-decision deps (2b-2.5a Kaggle-OOM root-cause fix): ONE
+        # calc/oracle/speed_oracle/dex bundle per battle, built lazily on the first
+        # decision that needs it (heuristic/max_damage only) and threaded into every
+        # decision so the core never default-builds a fresh CalcClient per decision.
+        self._decision_deps_built = False
+        self._decision_calc = None
+        self._decision_oracle = None
+        self._decision_speed_oracle = None
+        self._decision_dex = None
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
         self.last_request: dict[str, str] = {}
@@ -246,6 +274,51 @@ class _Client:
                 self._eval_species_dex = None
         return self._eval_species_dex
 
+    def _decision_deps(self):
+        """Client-owned ``(calc, oracle, speed_oracle, dex)`` bundle for the live
+        decision path (2b-2.5a Kaggle-OOM ROOT-CAUSE fix). Built ONCE per client
+        (= per battle; the schedule runner plays games=1 per battle) and threaded
+        into every decision so the core reuses one calc instead of the buggy
+        per-decision ``calc = calc or CalcClient()`` that spawned a fresh
+        ``node calc.mjs --server`` per live decision (~70/battle, MEMTRACE v3),
+        never closed.
+
+        Only agents that actually use calc build the bundle: ``heuristic`` and
+        ``max_damage``. The request-only eval policies (greedy_protect /
+        simple_heuristic / scripted_vgc) and ``random`` return all-None and never
+        construct a CalcClient (live-path/OOM guard). Built lazily + cached; the
+        speed_oracle/dex fall back to ``None`` if the calc backend can't be built,
+        mirroring decision.py so a decision still degrades gracefully.
+
+        Determinism: DamageOracle/SpeedOracle/SpeciesDex are memoized PURE lookups
+        (damage/speed/typing keyed by full semantic payload), so sharing them
+        across a battle's decisions changes no decision output -- only the number
+        of Node round trips. Per-battle scope (a fresh client per battle) keeps the
+        bit-identical contract with prior recorded runs; never shared across battles.
+        """
+        if self.agent not in ("heuristic", "max_damage"):
+            return (None, None, None, None)
+        if not self._decision_deps_built:
+            self._decision_deps_built = True
+            self._decision_calc = CalcClient()
+            self._decision_oracle = DamageOracle(self._decision_calc)
+            try:
+                self._decision_speed_oracle = SpeedOracle(stats_backend=self._decision_calc.backend)
+            except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
+                logger.debug("[%s] decision speed oracle unavailable: %s", self.name, exc)
+                self._decision_speed_oracle = None
+            try:
+                self._decision_dex = SpeciesDex(self._decision_calc.backend)
+            except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
+                logger.debug("[%s] decision species dex unavailable: %s", self.name, exc)
+                self._decision_dex = None
+        return (
+            self._decision_calc,
+            self._decision_oracle,
+            self._decision_speed_oracle,
+            self._decision_dex,
+        )
+
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
             return None
@@ -274,6 +347,10 @@ class _Client:
         trace_obj = DecisionTrace() if (
             (self._export is not None or self._shadow is not None)
             and self.agent == "heuristic" and state is not None) else None
+        # Client-owned decision deps (2b-2.5a Kaggle-OOM root-cause fix): built once
+        # per battle (heuristic/max_damage only) and threaded into every decision so
+        # the core reuses ONE calc instead of spawning a fresh Node server per decision.
+        calc, oracle, speed_oracle, dex = self._decision_deps()
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -281,6 +358,7 @@ class _Client:
                 our_side=req.side.id, priors=self.priors, report=report,
                 our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
                 species_resolver=self._species_type_resolver(),
+                calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -337,12 +415,15 @@ class _Client:
     def close(self) -> None:
         """Idempotent, best-effort: close every calc-owning resource this client
         created and OWNS (2b-2.5a Kaggle-OOM fix — the schedule runner builds a
-        fresh hero and villain _Client per battle; each one's export runtime /
-        eval species dex can hold a PersistentCalcBackend Node process that
-        otherwise only dies at process exit). Called once per run_local_gauntlet
-        invocation, on both the success and failure paths (see the caller's
-        try/finally), after the battle result is recorded. Never raises -- one
-        resource's close failure must not skip the others'.
+        fresh hero and villain _Client per battle; each one's live-decision calc /
+        export runtime / eval species dex can hold a PersistentCalcBackend Node
+        process that otherwise only dies at process exit). The live-decision calc
+        (``_decision_calc``) is THE root-cause resource: before this it was never
+        even threaded into the decision path, so the core spawned a fresh Node
+        server per decision. Called once per run_local_gauntlet invocation, on both
+        the success and failure paths (see the caller's try/finally), after the
+        battle result is recorded. Never raises -- one resource's close failure
+        must not skip the others'.
 
         2b-2.5a run-scoped fix: a BORROWED export runtime (``owns_export`` False)
         must NOT be closed here — it spans multiple battles and the caller
@@ -358,6 +439,13 @@ class _Client:
                 self._eval_species_dex.close()
             except Exception as exc:  # noqa: BLE001
                 logger.debug("[%s] eval species dex close failed: %s", self.name, exc)
+        # 2b-2.5a root-cause fix: tear down the client-owned live-decision calc
+        # (one Node server per battle now, instead of ~70). Idempotent, best-effort.
+        if self._decision_calc is not None:
+            try:
+                self._decision_calc.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] decision calc close failed: %s", self.name, exc)
 
 
 async def _run_client(
