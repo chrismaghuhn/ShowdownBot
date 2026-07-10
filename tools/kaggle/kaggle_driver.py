@@ -36,6 +36,12 @@ e.g.:
 
 `parse_verdict` scans a downloaded log and returns the LAST such line found
 (later lines win, e.g. after a retry), split into a (status, full_line) pair.
+
+Live-API finding (Task 3, 2026-07-10): the `<slug>.log` file `download_output`
+fetches is NOT plain text -- it is a JSON array of stream records
+(`[{"stream_name": "stdout", "time": ..., "data": "line\n"}, ...]`).
+`parse_verdict` transparently decodes that shape (`_kaggle_log_text`) before
+scanning, and still accepts plain text (verdict.txt, live captures).
 """
 from __future__ import annotations
 
@@ -106,14 +112,36 @@ def parse_env_header(script_text: str) -> dict:
     return json.loads(first_line[len(_ENV_HEADER_PREFIX):])
 
 
+def _kaggle_log_text(log_text: str) -> str:
+    """Decode a Kaggle kernel log downloaded via `download_output` into plain
+    text. Kaggle's `<slug>.log` output file is a JSON array of stream records
+    (`{"stream_name": "stdout"|"stderr", "time": <s>, "data": "<text>"}`);
+    concatenating the `data` payloads reconstructs the interleaved console
+    output. Anything that does not parse as that shape (already-plain logs,
+    verdict.txt) is returned unchanged."""
+    stripped = log_text.lstrip()
+    if not stripped.startswith("["):
+        return log_text
+    try:
+        records = json.loads(log_text)
+    except json.JSONDecodeError:
+        return log_text
+    if not isinstance(records, list):
+        return log_text
+    parts = [rec["data"] for rec in records
+             if isinstance(rec, dict) and isinstance(rec.get("data"), str)]
+    return "".join(parts) if parts else log_text
+
+
 def parse_verdict(log_text: str) -> tuple[str | None, str]:
     """Find the LAST line starting with `KAGGLE-REPRO:` or `DATAGEN:` in a
     kernel log. Returns (verdict, full_line) where verdict is one of
     "PASS"/"FAIL"/"DONE" (the first token after the prefix) or None if no
     such line is present (or its token isn't recognized). full_line is ""
-    when no matching line was found."""
+    when no matching line was found. Accepts both plain text and Kaggle's
+    JSON-stream `<slug>.log` download format (see `_kaggle_log_text`)."""
     last_line = ""
-    for raw in log_text.splitlines():
+    for raw in _kaggle_log_text(log_text).splitlines():
         stripped = raw.strip()
         if stripped.startswith(_VERDICT_PREFIXES):
             last_line = stripped

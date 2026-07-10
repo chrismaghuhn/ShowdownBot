@@ -156,6 +156,43 @@ def test_parse_verdict_last_line_wins_mixed_prefixes():
     assert line == "KAGGLE-REPRO: PASS (ok)"
 
 
+def test_parse_verdict_kaggle_json_stream_log():
+    # Live-API shape (Task 3): download_output's <slug>.log is a JSON array of
+    # {stream_name, time, data} records, not plain text.
+    import json as _json
+    records = [
+        {"stream_name": "stdout", "time": 1.0, "data": "cloning...\n"},
+        {"stream_name": "stdout", "time": 15.4, "data": "KAGGLE-REPRO: FAIL (exception: No module named 'showdown_bot')\n"},
+        {"stream_name": "stderr", "time": 15.5, "data": "Traceback (most recent call last):\n"},
+    ]
+    verdict, line = kaggle_driver.parse_verdict(_json.dumps(records))
+    assert verdict == "FAIL"
+    assert "No module named" in line
+
+
+def test_parse_verdict_kaggle_json_stream_log_data_split_across_records():
+    # The verdict line itself arriving as one record among many, with other
+    # lines split across records arbitrarily.
+    import json as _json
+    records = [
+        {"stream_name": "stdout", "time": 1.0, "data": "setup "},
+        {"stream_name": "stdout", "time": 1.1, "data": "done\n"},
+        {"stream_name": "stdout", "time": 99.0, "data": "KAGGLE-REPRO: PASS (10/10 winner+seed match)\n"},
+    ]
+    verdict, line = kaggle_driver.parse_verdict(_json.dumps(records))
+    assert verdict == "PASS"
+    assert line == "KAGGLE-REPRO: PASS (10/10 winner+seed match)"
+
+
+def test_parse_verdict_bracket_leading_plain_text_still_works():
+    # Plain-text logs that merely START with '[' (e.g. "[NbConvertApp] ...")
+    # must not be mistaken for the JSON-stream shape.
+    log = "[NbConvertApp] Converting notebook\nKAGGLE-REPRO: PASS (ok)\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "PASS"
+    assert line == "KAGGLE-REPRO: PASS (ok)"
+
+
 # ---------------------------------------------------------------------------
 # Module hygiene: kaggle must be imported lazily (inside functions only), so
 # importing/testing this module never requires kaggle credentials.
