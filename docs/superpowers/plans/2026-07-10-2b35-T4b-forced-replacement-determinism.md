@@ -146,7 +146,16 @@ Do not commit here; hand off the failing-test state to Task 2.)
 
 **Files:**
 - Modify: `showdown_bot/src/showdown_bot/battle/actions.py` (`_slot_actions`, `enumerate_my_actions`)
+- Modify: `showdown_bot/src/showdown_bot/battle/legal_actions.py` (`_bench_count`,
+  `_slot_move_actions`, `enumerate_slot_pairs`)
 - Test: the Task 1 file (must go green)
+
+> **Scope amendment (discovered during implementation):** the pass-supplement lives in
+> `legal_actions.py::_slot_move_actions` (the shared forced-branch; `_bench_count` is defined
+> there and imported by `actions.py`), and `enumerate_slot_pairs` gets the same want-filter
+> (`min(bench, n_forced)` switches, force phase only). Discovered during implementation: F3 was
+> empty there too (same-target dedup ate the only combination, no pass offered), which would
+> have broken Task 4's `pick_default_pair`.
 
 - [ ] **Step 1: Implement** in `actions.py`:
 
