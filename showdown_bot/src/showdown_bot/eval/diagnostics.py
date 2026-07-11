@@ -33,6 +33,18 @@ _PANIC_SWITCHING: DiagnosticBucket = "PANIC_SWITCHING"
 _SIDES = ("p1", "p2")
 _PANIC_WINDOW_TURNS = 3
 
+# All v0 buckets, sorted -- the canonical iteration order for aggregate()/bucket_delta() so every
+# bucket is ALWAYS present in their output (a bucket with zero events must show 0, never be
+# silently missing -- same fail-closed ethos as the per-line try/except in the detectors).
+_ALL_BUCKETS: tuple = tuple(sorted((_ATTACK_INTO_PROTECT, _IMMUNITY_PUNISHED, _PANIC_SWITCHING)))
+
+# The not-a-gate invariant, embedded verbatim (per spec) in both bucket_delta()'s return value
+# and format_diagnostics_md()'s output -- diagnostics are a signal for habit changes, NEVER a
+# pass/fail gate. The strength gate stays paired McNemar/winrate (see eval/stats.py).
+_NOT_A_GATE_NOTE = (
+    "diagnostic signal only — NOT a gate; strength gate stays paired McNemar/winrate"
+)
+
 
 @dataclass(frozen=True)
 class DiagnosticEvent:
@@ -306,3 +318,196 @@ def diagnose_battle(frames, *, battle_id: str) -> list:
     events.extend(detect_immunity_punished(frames, battle_id=battle_id))
     events.extend(detect_panic_switching(frames, battle_id=battle_id))
     return sorted(events, key=lambda e: (e.turn, e.side, e.bucket))
+
+
+# --- aggregation ------------------------------------------------------------------------------
+
+def _empty_bucket_stats() -> dict:
+    return {"count": 0, "by_severity": {"info": 0, "warn": 0, "fail": 0}}
+
+
+def aggregate(events) -> dict:
+    """Aggregate a flat ``list[DiagnosticEvent]`` into per-bucket counts/severity breakdowns.
+
+    Pure, deterministic: buckets are iterated in sorted order (``_ALL_BUCKETS``) so EVERY v0
+    bucket appears in the output with a zero-filled entry even if no event of that bucket was
+    observed -- a bucket that is absent from ``events`` must never be silently missing from the
+    aggregate.
+
+    Returns ``{bucket: {"count": int, "by_severity": {"info": int, "warn": int, "fail": int}},
+    ..., "total": int, "n_battles": int}``.
+
+    CAVEAT (documented, per controller notes): ``n_battles`` is the count of DISTINCT
+    ``battle_id`` values seen among ``events`` -- NOT the true number of battles diagnosed. A
+    battle that produced zero diagnostic events contributes no ``battle_id`` here and is
+    invisible to this count. Callers who need the true battle total (and a parse-skipped tally)
+    should use ``diagnose_run``, which layers ``battles_total``/``parse_skipped`` on top of this
+    function's output.
+    """
+    stats: dict = {bucket: _empty_bucket_stats() for bucket in _ALL_BUCKETS}
+    battle_ids: set = set()
+    total = 0
+    for event in events:
+        total += 1
+        battle_ids.add(event.battle_id)
+        bucket_stats = stats.setdefault(event.bucket, _empty_bucket_stats())
+        bucket_stats["count"] += 1
+        bucket_stats["by_severity"][event.severity] = (
+            bucket_stats["by_severity"].get(event.severity, 0) + 1
+        )
+
+    result: dict = {bucket: stats[bucket] for bucket in sorted(stats)}
+    result["total"] = total
+    result["n_battles"] = len(battle_ids)
+    return result
+
+
+def diagnose_run(battles) -> tuple:
+    """Run ``diagnose_battle`` over an iterable of ``(battle_id, frames)`` pairs.
+
+    Fail-closed: a battle whose ``frames`` cannot be diagnosed (any exception escaping
+    ``diagnose_battle`` -- e.g. malformed/non-iterable frames) is SKIPPED, never crashes the
+    run, and is tallied in the returned aggregate's ``parse_skipped`` count -- it is never
+    silently dropped. ``battles_total`` (parsed + skipped) is also surfaced.
+
+    Returns ``(all_events, run_aggregate)`` where ``all_events`` is the concatenation of every
+    successfully-diagnosed battle's events (re-sorted by ``(battle_id, turn, side, bucket)`` for
+    determinism regardless of input iteration order) and ``run_aggregate`` is
+    ``aggregate(all_events)`` with ``"parse_skipped"`` and ``"battles_total"`` merged in.
+    """
+    all_events: list = []
+    parse_skipped = 0
+    battles_total = 0
+    for battle_id, frames in battles:
+        battles_total += 1
+        try:
+            events = diagnose_battle(frames, battle_id=battle_id)
+        except Exception:  # noqa: BLE001 - fail-closed: skip, tally, never crash the run
+            parse_skipped += 1
+            continue
+        all_events.extend(events)
+
+    all_events.sort(key=lambda e: (e.battle_id, e.turn, e.side, e.bucket))
+    run_aggregate = aggregate(all_events)
+    run_aggregate["parse_skipped"] = parse_skipped
+    run_aggregate["battles_total"] = battles_total
+    return all_events, run_aggregate
+
+
+# --- candidate-vs-baseline bucket delta --------------------------------------------------------
+
+def bucket_delta(events_a, events_b, *, hero_side_a: str, hero_side_b: str) -> dict:
+    """Per-bucket HERO-side event-count delta between two paired runs.
+
+    ``events_a`` is the BASELINE agent's run, ``events_b`` is the CANDIDATE agent's run (same
+    seeds/paired battles). Only events whose ``side`` matches the respective ``hero_side_*`` are
+    counted -- the two runs may have the hero on different sides, though in the 2b-4 case both
+    are ``p1``.
+
+    SIGN CONVENTION (documented, load-bearing): ``delta = b_count - a_count`` (candidate minus
+    baseline). ``delta < 0`` means the candidate has FEWER of that failure bucket than the
+    baseline -> ``"candidate_improves"``. ``delta > 0`` means the candidate has MORE ->
+    ``"candidate_regresses"``. ``delta == 0`` -> ``"flat"``.
+
+    Every bucket in ``_ALL_BUCKETS`` is present in the output, even at 0/0/flat, so an absent
+    bucket is never silently missing.
+
+    Returns ``{"hero_side_a", "hero_side_b", "per_bucket": {bucket: {"a_count", "b_count",
+    "delta"}}, "verdict_per_bucket": {bucket: verdict}, "note": <not-a-gate invariant>}``.
+    """
+    counts_a: dict = {bucket: 0 for bucket in _ALL_BUCKETS}
+    counts_b: dict = {bucket: 0 for bucket in _ALL_BUCKETS}
+    for event in events_a:
+        if event.side == hero_side_a:
+            counts_a[event.bucket] = counts_a.get(event.bucket, 0) + 1
+    for event in events_b:
+        if event.side == hero_side_b:
+            counts_b[event.bucket] = counts_b.get(event.bucket, 0) + 1
+
+    per_bucket: dict = {}
+    verdict_per_bucket: dict = {}
+    for bucket in sorted(set(counts_a) | set(counts_b) | set(_ALL_BUCKETS)):
+        a_count = counts_a.get(bucket, 0)
+        b_count = counts_b.get(bucket, 0)
+        delta = b_count - a_count
+        if delta < 0:
+            verdict = "candidate_improves"
+        elif delta > 0:
+            verdict = "candidate_regresses"
+        else:
+            verdict = "flat"
+        per_bucket[bucket] = {"a_count": a_count, "b_count": b_count, "delta": delta}
+        verdict_per_bucket[bucket] = verdict
+
+    return {
+        "hero_side_a": hero_side_a,
+        "hero_side_b": hero_side_b,
+        "per_bucket": per_bucket,
+        "verdict_per_bucket": verdict_per_bucket,
+        "note": _NOT_A_GATE_NOTE,
+    }
+
+
+# --- markdown formatting -------------------------------------------------------------------------
+
+def format_diagnostics_md(aggregate: dict, *, delta: dict | None = None) -> str:
+    """Render a compact, deterministic markdown diagnostics section.
+
+    Always includes: a bucket-count table (sorted buckets), the ``parse_skipped`` tally (0 if
+    the given ``aggregate`` has none -- e.g. the plain ``aggregate()`` output rather than
+    ``diagnose_run``'s), and the not-a-gate invariant note verbatim. If ``delta`` (a
+    ``bucket_delta`` result) is given, also includes a candidate-vs-baseline delta table.
+    Deterministic: buckets are always visited in sorted order.
+    """
+    lines: list = []
+    lines.append("## Diagnostics v0")
+    lines.append("")
+    lines.append(
+        f"Total events: {aggregate.get('total', 0)} across "
+        f"{aggregate.get('n_battles', 0)} battle(s) with events."
+    )
+    battles_total = aggregate.get("battles_total")
+    if battles_total is not None:
+        lines.append(f"Battles diagnosed (parsed + skipped): {battles_total}.")
+    lines.append(f"parse_skipped: {aggregate.get('parse_skipped', 0)}")
+    lines.append("")
+    lines.append("### Bucket counts")
+    lines.append("")
+    lines.append("| bucket | count | info | warn | fail |")
+    lines.append("|---|---|---|---|---|")
+    for bucket in sorted(_ALL_BUCKETS):
+        bucket_stats = aggregate.get(bucket, _empty_bucket_stats())
+        by_sev = bucket_stats.get("by_severity", {})
+        lines.append(
+            f"| {bucket} | {bucket_stats.get('count', 0)} | {by_sev.get('info', 0)} | "
+            f"{by_sev.get('warn', 0)} | {by_sev.get('fail', 0)} |"
+        )
+    lines.append("")
+
+    if delta is not None:
+        lines.append("### Candidate vs baseline bucket delta")
+        lines.append("")
+        lines.append(
+            f"hero_side_a (baseline) = {delta.get('hero_side_a')}, "
+            f"hero_side_b (candidate) = {delta.get('hero_side_b')}. "
+            "delta = b_count - a_count (negative = candidate improves)."
+        )
+        lines.append("")
+        lines.append("| bucket | baseline (A) | candidate (B) | delta | verdict |")
+        lines.append("|---|---|---|---|---|")
+        per_bucket = delta.get("per_bucket", {})
+        verdict_per_bucket = delta.get("verdict_per_bucket", {})
+        for bucket in sorted(_ALL_BUCKETS):
+            row = per_bucket.get(bucket, {"a_count": 0, "b_count": 0, "delta": 0})
+            verdict = verdict_per_bucket.get(bucket, "flat")
+            lines.append(
+                f"| {bucket} | {row.get('a_count', 0)} | {row.get('b_count', 0)} | "
+                f"{row.get('delta', 0)} | {verdict} |"
+            )
+        lines.append("")
+
+    lines.append("### Not a gate")
+    lines.append("")
+    lines.append(_NOT_A_GATE_NOTE)
+    lines.append("")
+    return "\n".join(lines)
