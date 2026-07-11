@@ -7,15 +7,15 @@
     "--result-out",
     "/tmp/sb_out/results.jsonl"
   ],
-  "config_hash": "cc77594524b7bc24",
+  "config_hash": "23351717487f69e5",
   "dirty": true,
-  "git_sha": "ee89eaa591a5b97098af2dbb6e79c1b4f1b97569",
+  "git_sha": "583e0a032e699492a70cdeade556f769acc8caba",
   "panel_hash": "760c1e5935fe0474",
   "pythonhashseed": "0",
-  "run_id": "bdc8f1638dbb064c",
+  "run_id": "6c7ab8a2ad570c34",
   "schedule_hash": "539d4ac6a88ef5d2",
   "seed_base": "dg25a-trickroom",
   "server_patch_hash": "86e31891547e87da",
   "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
-  "start_ts": "2026-07-10T22:49:36.661929+00:00"
+  "start_ts": "2026-07-11T03:26:39.048902+00:00"
 }
