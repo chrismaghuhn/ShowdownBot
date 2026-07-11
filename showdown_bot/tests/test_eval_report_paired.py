@@ -48,7 +48,7 @@ def _row(seed_index, *, config_hash, run_id, policy, team_hash, winner,
     }
 
 
-def _bundle(rows, *, run_id, config_hash, budget=1000):
+def _bundle(rows, *, run_id, config_hash, budget=1000, environment=None):
     team_hashes = {r["opp_team_hash"] for r in rows}
     manifest = {
         "run_id": run_id, "config_hash": config_hash, "schedule_hash": "schX",
@@ -56,6 +56,8 @@ def _bundle(rows, *, run_id, config_hash, budget=1000):
         "dirty": rows[0]["dirty"], "start_ts": "2026-07-10T00:00:00+00:00",
         "cli_invocation": ["cli.py", "gauntlet"], "pythonhashseed": "0",
     }
+    if environment is not None:   # T4c Task 4: opt-in, mirrors a "legacy" manifest by default
+        manifest["environment"] = environment
     return RunBundle(
         rows=rows, manifest=manifest, recomputed_panel_hash="panX",
         panel_dev_hashes=frozenset(team_hashes), panel_held_hashes=frozenset(),
@@ -302,3 +304,34 @@ def test_paired_reproduction_lists_both_runs():
     assert "Run A" in reproduction_section and "Run B" in reproduction_section
     assert reproduction_section.count("eval-report") == 1
     assert "--run-a" in reproduction_section and "--run-b" in reproduction_section
+
+
+# --- 12. Environment block, paired mode (T4c Task 4, R4) --------------------------------
+
+def test_paired_environment_rendered_per_run_when_present():
+    """Each run's Provenance sub-table renders its OWN environment block (they can legitimately
+    differ -- e.g. a candidate run on a newer node than the baseline). Absent on one side ->
+    that side renders nothing, independently of the other."""
+    env_a = {"python": "3.11.5", "node": "v20.11.0", "platform": "Windows-11",
+              "deps": {"pydantic": "2.13.4", "websockets": "16.0", "lightgbm": "4.6.0"}}
+    rows_a, rows_b = [], []
+    for i, (policy, team, aw, bw) in enumerate(_go_specs()):
+        rows_a.append(_row(i, config_hash="cfgA", run_id="runA", policy=policy,
+                           team_hash=team, winner=aw))
+        rows_b.append(_row(i, config_hash="cfgB", run_id="runB", policy=policy,
+                           team_hash=team, winner=bw))
+    a = _bundle(rows_a, run_id="runA", config_hash="cfgA", environment=env_a)
+    b = _bundle(rows_b, run_id="runB", config_hash="cfgB")   # legacy: no environment
+    md, obj = _paired(a, b)
+
+    assert obj["provenance"]["environment"] == env_a
+    assert "environment" not in obj["provenance_b"]
+
+    # Run A's sub-table appears once (between its Provenance table and Run B's label);
+    # Run B has no such block at all.
+    run_a_section = md[md.index("Run A (candidate):"):md.index("Run B (baseline):")]
+    run_b_section = md[md.index("Run B (baseline):"):md.index("## Safety Gates")]
+    assert "| environment field | value |" in run_a_section
+    assert "| node | v20.11.0 |" in run_a_section
+    assert "| dep:lightgbm | 4.6.0 |" in run_a_section
+    assert "environment field" not in run_b_section

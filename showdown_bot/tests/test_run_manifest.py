@@ -1,7 +1,13 @@
-"""T3f Task 3: run_id + run-manifest sidecar + provenance config."""
+"""T3f Task 3: run_id + run-manifest sidecar + provenance config.
+
+T4c Task 4 additions: the informational ``environment`` block (``collect_environment`` /
+``collect_node_version``) and the config_hash-unchanged pin
+(``docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md`` R4).
+"""
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -9,6 +15,8 @@ import pytest
 from showdown_bot.eval.run_manifest import (
     ProvenanceError,
     build_run_manifest,
+    collect_environment,
+    collect_node_version,
     load_showdown_commit,
     make_run_id,
     manifest_path_for,
@@ -122,3 +130,107 @@ def test_write_run_manifest_roundtrips(tmp_path):
     path = write_run_manifest(result_out, m)
     assert path == result_out + ".manifest.json"
     assert json.loads(Path(path).read_text(encoding="utf-8")) == m
+
+
+# --- environment block (T4c R4) ----------------------------------------------------------
+
+class _FakeCompleted:
+    def __init__(self, returncode, stdout):
+        self.returncode = returncode
+        self.stdout = stdout
+
+
+def test_collect_node_version_returns_stripped_output_on_success():
+    def _fake_run(cmd, **kw):
+        assert cmd == ["node", "--version"]
+        return _FakeCompleted(0, "v20.11.0\n")
+
+    assert collect_node_version(run=_fake_run) == "v20.11.0"
+
+
+def test_collect_node_version_none_on_nonzero_exit():
+    def _fake_run(cmd, **kw):
+        return _FakeCompleted(1, "")
+
+    assert collect_node_version(run=_fake_run) is None
+
+
+def test_collect_node_version_none_on_missing_binary():
+    def _fake_run(cmd, **kw):
+        raise FileNotFoundError("node not found")
+
+    assert collect_node_version(run=_fake_run) is None
+
+
+def test_collect_node_version_none_on_timeout():
+    def _fake_run(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd="node --version", timeout=5)
+
+    assert collect_node_version(run=_fake_run) is None
+
+
+def test_collect_node_version_none_on_empty_stdout():
+    def _fake_run(cmd, **kw):
+        return _FakeCompleted(0, "   \n")
+
+    assert collect_node_version(run=_fake_run) is None
+
+
+def test_collect_environment_shape_with_injected_node_version():
+    import sys
+
+    env = collect_environment(node_version_fn=lambda: "v20.11.0")
+    assert env["python"] == sys.version.split()[0]
+    assert env["node"] == "v20.11.0"
+    assert isinstance(env["platform"], str) and env["platform"]
+    assert set(env["deps"]) == {"pydantic", "websockets", "lightgbm"}
+    # pydantic/websockets are hard dependencies of this package -> always resolvable here.
+    assert isinstance(env["deps"]["pydantic"], str)
+    assert isinstance(env["deps"]["websockets"], str)
+
+
+def test_collect_environment_never_calls_real_subprocess_when_injected(monkeypatch):
+    def _boom(*a, **kw):
+        raise AssertionError("real subprocess.run must not be called when node_version_fn is injected")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    env = collect_environment(node_version_fn=lambda: "v20.0.0")
+    assert env["node"] == "v20.0.0"
+
+
+def test_collect_environment_deps_not_importable_is_none():
+    from showdown_bot.eval import run_manifest as _rm
+
+    assert _rm._dep_version("this-package-does-not-exist-xyz") is None
+
+
+def test_manifest_environment_defaults_to_none_when_not_passed():
+    m = _manifest()
+    assert m["environment"] is None
+
+
+def test_manifest_environment_is_carried_through_when_passed():
+    env = {"python": "3.11.5", "node": "v20.11.0", "platform": "Windows-11",
+           "deps": {"pydantic": "2.13.4", "websockets": "16.0", "lightgbm": None}}
+    m = _manifest(environment=env)
+    assert m["environment"] == env
+
+
+# --- pin: config_hash is UNCHANGED by the environment block (T4c R4) ---------------------
+
+def test_config_hash_unchanged_by_environment_block():
+    """The environment block must never fork config lineage. ``config_hash`` is passed into
+    ``build_run_manifest`` as an already-computed opaque string (see ``eval/config_env.py`` +
+    ``eval/result_jsonl.make_config_hash`` for its actual construction, which never reads
+    python/node/platform/dep versions) -- so it must come out identical whether the manifest
+    carries no environment block, an empty one, or a fully populated one."""
+    env = collect_environment(node_version_fn=lambda: "v20.11.0")
+
+    m_absent = _manifest()
+    m_present = _manifest(environment=env)
+    m_none_explicit = _manifest(environment=None)
+
+    assert m_absent["config_hash"] == m_present["config_hash"] == m_none_explicit["config_hash"]
+    assert m_absent["config_hash"] == "cfg16"
+    # The environment block itself differs (that's the point) while config_hash does not.
+    assert m_absent["environment"] != m_present["environment"]

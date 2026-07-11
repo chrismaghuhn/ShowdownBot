@@ -95,7 +95,12 @@ def run_schedule(args) -> None:
 
         from showdown_bot.eval.config_env import behavior_env, build_config_manifest
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
-        from showdown_bot.eval.run_manifest import build_run_manifest, make_run_id, write_run_manifest
+        from showdown_bot.eval.run_manifest import (
+            build_run_manifest,
+            collect_environment,
+            make_run_id,
+            write_run_manifest,
+        )
         from showdown_bot.eval.seeding import derive_battle_seed
         from showdown_bot.learning.provenance import git_sha_and_dirty
 
@@ -146,7 +151,7 @@ def run_schedule(args) -> None:
             run_id=run_id, seed_base=base, schedule_hash=sched.schedule_hash,
             panel_hash=sched.panel_hash, config_hash=_run_config_hash, start_ts=_start_ts,
             pythonhashseed=os.environ.get("PYTHONHASHSEED"), cli_invocation=list(sys.argv),
-            git_sha=git_sha, dirty=dirty,
+            git_sha=git_sha, dirty=dirty, environment=collect_environment(),
         )
         manifest_out = write_run_manifest(result_out, manifest)
         print(f"  run manifest -> {manifest_out} (run_id={run_id})")

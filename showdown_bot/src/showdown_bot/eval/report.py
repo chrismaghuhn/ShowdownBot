@@ -607,7 +607,7 @@ def _build_reproduction_paired(bundle_a: RunBundle, bundle_b: RunBundle) -> dict
 
 def _provenance(bundle) -> dict:
     row0, m = bundle.rows[0], bundle.manifest
-    return {
+    provenance = {
         "run_id": m.get("run_id"), "config_id": row0.get("config_id"),
         "config_hash": m.get("config_hash"), "format_id": row0.get("format_id"),
         "schedule_hash": m.get("schedule_hash"), "seed_base": m.get("seed_base"),
@@ -617,6 +617,14 @@ def _provenance(bundle) -> dict:
         "server_patch_hash": m.get("server_patch_hash"), "pythonhashseed": m.get("pythonhashseed"),
         "input_sha256": dict(bundle.input_sha256),
     }
+    # T4c R4: environment is informational-only and rendered ONLY when the manifest actually
+    # carries it. Legacy manifests (every committed golden fixture predates this key) simply
+    # lack "environment", so ``m.get`` returns None and this key is omitted entirely -- the
+    # JSON provenance dict for those runs is byte-identical to before T4c.
+    env = m.get("environment")
+    if env is not None:
+        provenance["environment"] = env
+    return provenance
 
 
 def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, warnings, heldout):
@@ -663,6 +671,22 @@ def _f(x) -> str:
     return f"{x:.4f}"
 
 
+def _render_environment_block(out, env) -> None:
+    """T4c R4: informational-only environment sub-table, appended to a Provenance section ONLY
+    when the manifest actually carries an ``environment`` block. Absent (every legacy manifest,
+    including the committed golden fixtures) -> no lines emitted at all, so pre-T4c renders —
+    both markdown and JSON (via ``_provenance`` omitting the key) — stay byte-identical."""
+    if not env:
+        return
+    out.append("| environment field | value |")
+    out.append("|---|---|")
+    for k in ("python", "node", "platform"):
+        out.append(f"| {k} | {env.get(k)} |")
+    for dep, ver in (env.get("deps") or {}).items():
+        out.append(f"| dep:{dep} | {ver} |")
+    out.append("")
+
+
 def _render_md(data) -> str:
     p = data["provenance"]
     agg = data["aggregates"]
@@ -687,6 +711,7 @@ def _render_md(data) -> str:
     for role in ["results", "seedlog", "schedule", "panel", "manifest"]:
         out.append(f"| {role} | {p['input_sha256'].get(role)} |")
     out.append("")
+    _render_environment_block(out, p.get("environment"))
 
     out.append("## Safety Gates")
     out.append("")
@@ -976,6 +1001,7 @@ def _render_provenance_table(out, p, label):
     for role in ["results", "seedlog", "schedule", "panel", "manifest"]:
         out.append(f"| {role} | {p['input_sha256'].get(role)} |")
     out.append("")
+    _render_environment_block(out, p.get("environment"))
 
 
 def _render_gate_table(out, gates, label):

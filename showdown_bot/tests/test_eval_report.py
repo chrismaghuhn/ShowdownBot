@@ -307,13 +307,15 @@ def _synthetic_row(seed_index, *, winner="hero", dirty=False, latency=100, crash
     }
 
 
-def _synthetic_bundle(rows, *, budget=200):
+def _synthetic_bundle(rows, *, budget=200, environment=None):
     manifest = {
         "run_id": "runS", "config_hash": "cfgS", "schedule_hash": "schS",
         "seed_base": "baseS", "panel_hash": "panS", "git_sha": "gitS", "dirty": rows[0]["dirty"],
         "start_ts": "2026-07-10T00:00:00+00:00", "cli_invocation": ["cli.py", "gauntlet"],
         "pythonhashseed": "0",
     }
+    if environment is not None:      # T4c Task 4: opt-in, mirrors a "legacy" manifest by default
+        manifest["environment"] = environment
     return RunBundle(
         rows=rows, manifest=manifest, recomputed_panel_hash="panS",
         panel_dev_hashes=frozenset({"dev1"}), panel_held_hashes=frozenset({"held1"}),
@@ -363,3 +365,53 @@ def test_verbatim_constants_present():
     assert "must not be cited to unblock 2b-4" in UNDERPOWERED_TEXT
     assert "HELD-OUT RUN" in HELDOUT_BANNER
     assert "must never inform tuning decisions" in HELDOUT_BANNER
+
+
+# --- environment block rendering (T4c Task 4, R4) ---------------------------------------
+# Unit-tested on a synthetic bundle (per the plan: "New-manifest rendering covered by a unit
+# test, not by regenerating goldens"). The real committed golden fixture's manifest has no
+# "environment" key at all -- test_eval_report_golden.py proves that path stays byte-identical.
+
+_ENV_BLOCK = {
+    "python": "3.11.5", "node": "v20.11.0", "platform": "Windows-11-10.0.26200",
+    "deps": {"pydantic": "2.13.4", "websockets": "16.0", "lightgbm": None},
+}
+
+
+def test_environment_absent_from_legacy_manifest_renders_nothing():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows)   # no "environment" key in the manifest -> legacy
+    assert "environment" not in b.manifest
+    md, obj = generate_report(b, mode="gate")
+    assert "environment" not in obj["provenance"]
+    assert "environment field" not in md
+    assert "platform" not in md.lower()
+
+
+def test_environment_rendered_when_manifest_carries_it():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows, environment=_ENV_BLOCK)
+    md, obj = generate_report(b, mode="gate")
+    # JSON: informational sub-dict carried through verbatim in provenance.
+    assert obj["provenance"]["environment"] == _ENV_BLOCK
+    # Markdown: rendered as a sub-table inside "## Provenance", after the input-file table.
+    assert "| environment field | value |" in md
+    assert "| python | 3.11.5 |" in md
+    assert "| node | v20.11.0 |" in md
+    assert "| platform | Windows-11-10.0.26200 |" in md
+    assert "| dep:pydantic | 2.13.4 |" in md
+    assert "| dep:websockets | 16.0 |" in md
+    assert "| dep:lightgbm | None |" in md
+    prov_idx = md.index("## Provenance")
+    env_idx = md.index("| environment field | value |")
+    gates_idx = md.index("## Safety Gates")
+    assert prov_idx < env_idx < gates_idx
+
+
+def test_environment_rendering_is_deterministic():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows, environment=_ENV_BLOCK)
+    md1, obj1 = generate_report(b, mode="gate")
+    md2, obj2 = generate_report(b, mode="gate")
+    assert md1 == md2
+    assert json.dumps(obj1, sort_keys=True) == json.dumps(obj2, sort_keys=True)
