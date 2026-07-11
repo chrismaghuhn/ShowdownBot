@@ -1,10 +1,11 @@
-"""Tests for eval/teacher_disagreement.py -- classification + bucketing core (2b-3.5 T1,
-teacher-disagreement atlas).
+"""Tests for eval/teacher_disagreement.py -- topset-model classification + bucketing core
+(2b-3.5 T3, replacing the T1 single-best snapshot that crashed on this codebase's
+``value_gap_to_best <= 0`` labels).
 
 Fixtures fabricate decision groups shaped like ``learning.dataset.load_rows`` output (the
-``_candidate`` helper is ported from the user's external Decision-Error-Atlas prototype,
-``docs/superpowers/plans/2026-07-10-decision-error-atlas.md`` Task 5 Step 1). No dataset file,
-no CLI -- fabricated dicts only (Task 2 wires the real loader).
+``_candidate`` helper is ported, with adaptations for the topset model's stricter typed
+validation layer, from the user's external Decision-Error-Atlas prototype). No dataset file,
+no CLI -- fabricated dicts only (a later task wires the real loader).
 """
 from __future__ import annotations
 
@@ -25,12 +26,14 @@ def _candidate(
     *,
     chosen: bool,
     teacher_best: bool,
-    gap: float,
+    gap: float = 0.0,
+    heuristic_rank: int | None = None,
+    teacher_rank: int | None = None,
     turn: int = 4,
     mode: str = "NEUTRAL",
     game_id: str = "game-1",
     slot1_action_type: str = "move",
-    slot2_action_type: str | None = None,
+    slot2_action_type: str = "switch",
     slot1_is_protect: bool = False,
     slot2_is_protect: bool = False,
     ko_threatened_count: int = 1,
@@ -38,8 +41,10 @@ def _candidate(
     opponent_response_entropy: float = 1.0,
     score_gap_to_second: float = 0.5,
 ) -> dict:
-    if slot2_action_type is None:
-        slot2_action_type = "switch" if candidate_index else "move"
+    if heuristic_rank is None:
+        heuristic_rank = 0 if chosen else 1
+    if teacher_rank is None:
+        teacher_rank = 0 if teacher_best else 1
     return {
         "features": {
             "turn_number": turn,
@@ -56,6 +61,8 @@ def _candidate(
         "label": {
             "chosen_by_current_heuristic": chosen,
             "teacher_best": teacher_best,
+            "heuristic_rank": heuristic_rank,
+            "teacher_rank": teacher_rank,
             "value_gap_to_best": gap,
         },
         "metadata": {
@@ -81,7 +88,7 @@ def test_group_by_decision_keys_on_metadata_decision_id():
     rows = [
         _candidate("b", 0, chosen=True, teacher_best=True, gap=0.0),
         _candidate("a", 0, chosen=True, teacher_best=True, gap=0.0),
-        _candidate("a", 1, chosen=False, teacher_best=False, gap=1.0),
+        _candidate("a", 1, chosen=False, teacher_best=False, gap=-1.0),
     ]
 
     grouped = group_by_decision(rows)
@@ -106,7 +113,7 @@ def test_group_by_decision_returns_sorted_keys():
 def test_group_by_decision_preserves_row_order_within_a_decision():
     rows = [
         _candidate("a", 0, chosen=True, teacher_best=True, gap=0.0),
-        _candidate("a", 1, chosen=False, teacher_best=False, gap=1.0),
+        _candidate("a", 1, chosen=False, teacher_best=False, gap=-1.0),
     ]
 
     grouped = group_by_decision(rows)
@@ -114,91 +121,319 @@ def test_group_by_decision_preserves_row_order_within_a_decision():
     assert [row["metadata"]["candidate_index"] for row in grouped["a"]] == [0, 1]
 
 
-# --- classification + corpus counts -------------------------------------------------------------
+# --- topset classification + corpus counts -------------------------------------------------------
 
 
-def test_analyze_disagreement_separates_forced_ties_and_disagreement():
+def test_forced_decision_is_skipped_from_multi_candidate_and_strict_counts():
     decisions = {
         "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
-        "tie": (
-            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("tie", 1, chosen=False, teacher_best=True, gap=0.0),
-        ),
-        "agree": (
-            _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("agree", 1, chosen=False, teacher_best=False, gap=1.0),
-        ),
-        "disagree": (
-            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=2.5),
-            _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
-        ),
     }
 
     result = analyze_disagreement(decisions)
 
     assert result["corpus"] == {
-        "decisions": 4,
+        "decisions": 1,
         "forced": 1,
-        "teacher_ties": 1,
-        "genuine_choices": 2,
-        "disagreements": 1,
+        "multi_candidate": 0,
+        "heuristic_ties": 0,
+        "teacher_ties": 0,
+        "strict_unique_choices": 0,
+        "topset_agreements": 0,
+        "topset_disagreements": 0,
+        "strict_agreements": 0,
+        "strict_disagreements": 0,
     }
-    assert result["disagreement_rate"] == 0.5
-    assert result["high_value_threshold"] == 2.5
-    assert result["top_opportunities"][0]["decision_id"] == "disagree"
-    assert {row["value"] for row in result["breakdowns"]["response_entropy_bucket"]} == {"medium"}
-    assert {row["value"] for row in result["breakdowns"]["heuristic_confidence_bucket"]} == {"medium"}
+    assert result["topset_disagreement_rate"] == 0.0
+    assert result["strict_disagreement_rate"] == 0.0
+    assert result["disagreement_rate"] == 0.0
+    assert result["top_opportunities"] == []
 
 
-def test_disagreement_rate_denominator_is_genuine_choices_only():
-    # 1 forced + 1 teacher-tie + 3 genuine choices (2 agree, 1 disagree) -> rate is 1/3, not 1/4.
+def test_multi_candidate_with_overlapping_topsets_is_a_strict_agreement():
     decisions = {
-        "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
-        "tie": (
-            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("tie", 1, chosen=False, teacher_best=True, gap=0.0),
+        "agree": (
+            _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0),
         ),
-        "agree1": (
-            _candidate("agree1", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("agree1", 1, chosen=False, teacher_best=False, gap=1.0),
-        ),
-        "agree2": (
-            _candidate("agree2", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("agree2", 1, chosen=False, teacher_best=False, gap=1.0),
-        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["corpus"]["multi_candidate"] == 1
+    assert result["corpus"]["topset_agreements"] == 1
+    assert result["corpus"]["topset_disagreements"] == 0
+    assert result["corpus"]["strict_agreements"] == 1
+    assert result["corpus"]["strict_disagreements"] == 0
+    assert result["corpus"]["strict_unique_choices"] == 1
+    assert result["disagreement_rate"] == 0.0
+    assert result["top_opportunities"] == []
+
+
+def test_disjoint_topsets_is_a_strict_disagreement():
+    decisions = {
         "disagree": (
-            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=3.0),
+            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-2.5),
             _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
     }
 
     result = analyze_disagreement(decisions)
 
-    assert result["corpus"]["genuine_choices"] == 3
-    assert result["corpus"]["disagreements"] == 1
-    assert result["disagreement_rate"] == pytest.approx(1 / 3)
+    assert result["corpus"]["topset_agreements"] == 0
+    assert result["corpus"]["topset_disagreements"] == 1
+    assert result["corpus"]["strict_agreements"] == 0
+    assert result["corpus"]["strict_disagreements"] == 1
+    assert result["disagreement_rate"] == 1.0
+    assert result["topset_disagreement_rate"] == 1.0
 
 
-def test_disagreement_rate_is_zero_with_no_genuine_choices():
+def test_heuristic_tie_counted_and_excluded_from_strict():
+    # two chosen rows -> heuristic topset {0, 1}; still overlaps the teacher topset {0}, so it's
+    # a topset agreement, but it can't be a strict-unique choice (needs exactly one chosen row).
     decisions = {
-        "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
+        "tie": (
+            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("tie", 1, chosen=True, teacher_best=False, gap=-1.0),
+        ),
     }
 
     result = analyze_disagreement(decisions)
 
+    assert result["corpus"]["heuristic_ties"] == 1
+    assert result["corpus"]["teacher_ties"] == 0
+    assert result["corpus"]["strict_unique_choices"] == 0
+    assert result["corpus"]["topset_agreements"] == 1
+    assert result["corpus"]["strict_agreements"] == 0
+    assert result["corpus"]["strict_disagreements"] == 0
+    assert result["disagreement_rate"] == 0.0
+
+
+def test_teacher_tie_counted_and_excluded_from_strict():
+    # two teacher_best rows -> teacher topset {0, 1}; overlaps heuristic topset {0}, so it's a
+    # topset agreement, but not a strict-unique choice (needs exactly one teacher row).
+    decisions = {
+        "tie": (
+            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("tie", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["corpus"]["teacher_ties"] == 1
+    assert result["corpus"]["heuristic_ties"] == 0
+    assert result["corpus"]["strict_unique_choices"] == 0
+    assert result["corpus"]["topset_agreements"] == 1
+    assert result["corpus"]["strict_agreements"] == 0
+    assert result["corpus"]["strict_disagreements"] == 0
+
+
+def test_topset_disagreement_rate_uses_multi_candidate_denominator_not_strict():
+    # 1 heuristic-tie (topset agreement, not strict) + 1 strict disagreement -> 2 multi_candidate,
+    # 1 topset_disagreement (rate 1/2); but only 1 strict_unique_choice, which IS the disagreement
+    # (strict rate 1/1). The two rates must differ, proving the denominators are independent.
+    decisions = {
+        "tie": (
+            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("tie", 1, chosen=True, teacher_best=False, gap=-1.0),
+        ),
+        "disagree": (
+            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-3.0),
+            _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["corpus"]["multi_candidate"] == 2
+    assert result["corpus"]["strict_unique_choices"] == 1
+    assert result["topset_disagreement_rate"] == pytest.approx(0.5)
+    assert result["strict_disagreement_rate"] == 1.0
+    assert result["disagreement_rate"] == 1.0
+
+
+def test_disagreement_rate_is_zero_with_no_strict_unique_choices():
+    decisions = {
+        "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
+        "tie": (
+            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("tie", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["corpus"]["strict_unique_choices"] == 0
+    assert result["strict_disagreement_rate"] == 0.0
     assert result["disagreement_rate"] == 0.0
     assert result["high_value_threshold"] == 0.0
     assert result["top_opportunities"] == []
 
 
+# --- regret_gap + strict-unique records ----------------------------------------------------------
+
+
+def test_strict_unique_disagreement_record_has_regret_gap_equal_to_negated_raw_gap():
+    decisions = {
+        "disagree": (
+            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-3.25),
+            _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    record = result["top_opportunities"][0]
+    assert record["raw_value_gap"] == -3.25
+    assert record["regret_gap"] == 3.25
+    assert record["disagreement"] is True
+
+
+def test_strict_unique_agreement_record_is_excluded_from_top_opportunities():
+    decisions = {
+        "agree": (
+            _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["top_opportunities"] == []
+
+
+def test_negative_score_gap_on_strict_unique_heuristic_row_raises():
+    decisions = {
+        "bad": (
+            _candidate(
+                "bad", 0, chosen=True, teacher_best=False, gap=-1.0, score_gap_to_second=-0.1
+            ),
+            _candidate("bad", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    with pytest.raises(TeacherDisagreementError, match="score_gap_to_second"):
+        analyze_disagreement(decisions)
+
+
+# --- fail-closed validation layer (_validate_row / _validate_decisions) --------------------------
+
+
+def test_decisions_must_be_a_dict():
+    with pytest.raises(TeacherDisagreementError, match="decisions must be a JSON object"):
+        analyze_disagreement([])  # type: ignore[arg-type]
+
+
+def test_decision_rows_must_be_a_list():
+    with pytest.raises(TeacherDisagreementError, match="rows must be a list"):
+        analyze_disagreement({"bad": "not-a-list"})  # type: ignore[dict-item]
+
+
+def test_decision_rows_must_not_be_empty():
+    with pytest.raises(TeacherDisagreementError, match="empty candidate group"):
+        analyze_disagreement({"bad": ()})
+
+
+def test_row_missing_top_level_field_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0)
+    del row["label"]
+
+    with pytest.raises(TeacherDisagreementError, match="missing fields"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_row_with_non_boolean_protect_flag_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0)
+    row["features"]["slot1_is_protect"] = 1  # not a real bool
+
+    with pytest.raises(TeacherDisagreementError, match="must be a boolean"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_ko_threatened_count_out_of_vgc_doubles_domain_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0, ko_threatened_count=3)
+
+    with pytest.raises(TeacherDisagreementError, match="VGC doubles domain"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_rank_zero_flag_mismatch_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0, heuristic_rank=1)
+
+    with pytest.raises(TeacherDisagreementError, match="rank-zero status"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_teacher_best_row_with_nonzero_gap_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=-0.5)
+
+    with pytest.raises(TeacherDisagreementError, match="exactly zero"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_positive_value_gap_raises():
+    row = _candidate("bad", 0, chosen=True, teacher_best=False, gap=0.5)
+
+    with pytest.raises(TeacherDisagreementError, match="less than or equal to zero"):
+        analyze_disagreement({"bad": (row,)})
+
+
+def test_noncontiguous_candidate_indices_raises():
+    decisions = {
+        "bad": (
+            _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("bad", 2, chosen=False, teacher_best=False, gap=-1.0),
+        ),
+    }
+
+    with pytest.raises(TeacherDisagreementError, match="contiguous"):
+        analyze_disagreement(decisions)
+
+
+def test_decision_with_multiple_game_ids_raises():
+    decisions = {
+        "bad": (
+            _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0, game_id="g1"),
+            _candidate("bad", 1, chosen=False, teacher_best=False, gap=-1.0, game_id="g2"),
+        ),
+    }
+
+    with pytest.raises(TeacherDisagreementError, match="exactly one game_id"):
+        analyze_disagreement(decisions)
+
+
+def test_decision_without_a_heuristic_top_row_raises():
+    decisions = {
+        "bad": (
+            _candidate("bad", 0, chosen=False, teacher_best=True, gap=0.0),
+            _candidate("bad", 1, chosen=False, teacher_best=False, gap=-1.0),
+        ),
+    }
+
+    with pytest.raises(TeacherDisagreementError, match="heuristic-top row"):
+        analyze_disagreement(decisions)
+
+
+def test_decision_without_a_teacher_top_row_raises():
+    decisions = {
+        "bad": (
+            _candidate("bad", 0, chosen=True, teacher_best=False, gap=0.0),
+            _candidate("bad", 1, chosen=False, teacher_best=False, gap=-1.0),
+        ),
+    }
+
+    with pytest.raises(TeacherDisagreementError, match="teacher-top row"):
+        analyze_disagreement(decisions)
+
+
 # --- high_value_threshold + top_opportunities ----------------------------------------------------
 
 
-def test_high_value_threshold_is_90th_nearest_rank_of_positive_disagreement_gaps():
-    # 10 disagreements with gaps 1..10 -> ceil(0.9*10)-1 = 8 -> sorted[8] == 9.0
+def test_high_value_threshold_is_90th_nearest_rank_of_disagreement_regret_gaps():
+    # 10 disagreements with raw gaps -1..-10 -> regret_gaps 1..10 -> ceil(0.9*10)-1 = 8 -> sorted[8] == 9.0
     decisions = {
         f"d{i:02d}": (
-            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=float(i)),
+            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=-float(i)),
             _candidate(f"d{i:02d}", 1, chosen=False, teacher_best=True, gap=0.0),
         )
         for i in range(1, 11)
@@ -211,18 +446,18 @@ def test_high_value_threshold_is_90th_nearest_rank_of_positive_disagreement_gaps
     assert result["high_value_threshold"] == 9.0
 
 
-def test_top_opportunities_first_entry_is_the_largest_gap_disagreement():
+def test_top_opportunities_first_entry_is_the_largest_regret_disagreement():
     decisions = {
         "small": (
-            _candidate("small", 0, chosen=True, teacher_best=False, gap=0.5),
+            _candidate("small", 0, chosen=True, teacher_best=False, gap=-0.5),
             _candidate("small", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
         "large": (
-            _candidate("large", 0, chosen=True, teacher_best=False, gap=7.0),
+            _candidate("large", 0, chosen=True, teacher_best=False, gap=-7.0),
             _candidate("large", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
         "medium": (
-            _candidate("medium", 0, chosen=True, teacher_best=False, gap=3.0),
+            _candidate("medium", 0, chosen=True, teacher_best=False, gap=-3.0),
             _candidate("medium", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
     }
@@ -230,7 +465,7 @@ def test_top_opportunities_first_entry_is_the_largest_gap_disagreement():
     result = analyze_disagreement(decisions)
 
     assert result["top_opportunities"][0]["decision_id"] == "large"
-    assert result["top_opportunities"][0]["value_gap"] == 7.0
+    assert result["top_opportunities"][0]["regret_gap"] == 7.0
     assert [row["decision_id"] for row in result["top_opportunities"]] == [
         "large",
         "medium",
@@ -241,7 +476,7 @@ def test_top_opportunities_first_entry_is_the_largest_gap_disagreement():
 def test_top_opportunities_ties_break_on_decision_id():
     decisions = {
         decision_id: (
-            _candidate(decision_id, 0, chosen=True, teacher_best=False, gap=5.0),
+            _candidate(decision_id, 0, chosen=True, teacher_best=False, gap=-5.0),
             _candidate(decision_id, 1, chosen=False, teacher_best=True, gap=0.0),
         )
         for decision_id in ("z-last", "a-first")
@@ -258,7 +493,7 @@ def test_top_opportunities_ties_break_on_decision_id():
 def test_top_opportunities_capped_at_20():
     decisions = {
         f"d{i:02d}": (
-            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=float(i)),
+            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=-float(i)),
             _candidate(f"d{i:02d}", 1, chosen=False, teacher_best=True, gap=0.0),
         )
         for i in range(1, 26)
@@ -270,6 +505,23 @@ def test_top_opportunities_capped_at_20():
     assert result["top_opportunities"][0]["decision_id"] == "d25"
 
 
+def test_high_value_flag_requires_positive_regret_gap():
+    # a disagreement with raw gap == 0.0 has regret_gap == 0.0 -- never high_value, even though
+    # the threshold itself is 0.0 in a single-record corpus (>= 0.0 alone would wrongly pass).
+    decisions = {
+        "zero_regret": (
+            _candidate("zero_regret", 0, chosen=True, teacher_best=False, gap=0.0),
+            _candidate("zero_regret", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    assert result["high_value_threshold"] == 0.0
+    assert result["top_opportunities"][0]["regret_gap"] == 0.0
+    assert result["top_opportunities"][0]["high_value"] is False
+
+
 # --- bucketing -------------------------------------------------------------------------------
 
 
@@ -278,7 +530,7 @@ def test_turn_bucket_value_set_reflects_boundaries():
     decisions = {
         decision_id: (
             _candidate(decision_id, 0, chosen=True, teacher_best=True, gap=0.0, turn=turn),
-            _candidate(decision_id, 1, chosen=False, teacher_best=False, gap=1.0, turn=turn),
+            _candidate(decision_id, 1, chosen=False, teacher_best=False, gap=-1.0, turn=turn),
         )
         for decision_id, turn in contexts
     }
@@ -286,9 +538,9 @@ def test_turn_bucket_value_set_reflects_boundaries():
     result = analyze_disagreement(decisions)
 
     assert {row["value"] for row in result["breakdowns"]["turn_bucket"]} == {
-        "turn_1_3",
-        "turn_4_6",
-        "turn_7_plus",
+        "1-3",
+        "4-6",
+        "7+",
     }
 
 
@@ -306,7 +558,7 @@ def test_action_signature_bucket_counts_protects():
                 slot1_is_protect=True,
                 slot2_is_protect=True,
             ),
-            _candidate("both_protect", 1, chosen=False, teacher_best=False, gap=1.0),
+            _candidate("both_protect", 1, chosen=False, teacher_best=False, gap=-1.0),
         ),
     }
 
@@ -316,14 +568,32 @@ def test_action_signature_bucket_counts_protects():
     assert signature_row["value"] == "move+move|protects=2"
 
 
-def test_breakdown_disagreement_rate_and_mean_gap_per_bucket():
+def test_heuristic_confidence_bucket_is_tie_or_zero_when_score_gap_is_zero():
+    decisions = {
+        "flat": (
+            _candidate(
+                "flat", 0, chosen=True, teacher_best=False, gap=-1.0, score_gap_to_second=0.0
+            ),
+            _candidate("flat", 1, chosen=False, teacher_best=True, gap=0.0),
+        ),
+    }
+
+    result = analyze_disagreement(decisions)
+
+    record = result["top_opportunities"][0]
+    assert record["heuristic_confidence_bucket"] == "tie_or_zero"
+
+
+def test_breakdown_disagreement_rate_and_mean_regret_per_bucket():
     decisions = {
         "agree": (
             _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0, mode="NEUTRAL"),
-            _candidate("agree", 1, chosen=False, teacher_best=False, gap=1.0, mode="NEUTRAL"),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0, mode="NEUTRAL"),
         ),
         "disagree": (
-            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=4.0, mode="NEUTRAL"),
+            _candidate(
+                "disagree", 0, chosen=True, teacher_best=False, gap=-4.0, mode="NEUTRAL"
+            ),
             _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0, mode="NEUTRAL"),
         ),
     }
@@ -332,61 +602,29 @@ def test_breakdown_disagreement_rate_and_mean_gap_per_bucket():
 
     mode_rows = {row["value"]: row for row in result["breakdowns"]["game_mode"]}
     assert mode_rows["NEUTRAL"]["decisions"] == 2
+    assert mode_rows["NEUTRAL"]["agreements"] == 1
     assert mode_rows["NEUTRAL"]["disagreements"] == 1
     assert mode_rows["NEUTRAL"]["disagreement_rate"] == 0.5
-    assert mode_rows["NEUTRAL"]["mean_disagreement_gap"] == 4.0
+    assert mode_rows["NEUTRAL"]["mean_disagreement_regret"] == 4.0
 
 
-# --- fail-closed invariants --------------------------------------------------------------------
-
-
-def test_rejects_decision_without_exactly_one_chosen_row_multiple():
+def test_breakdown_scope_and_denominator_report_strict_unique_choices():
     decisions = {
-        "bad": (
-            _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("bad", 1, chosen=True, teacher_best=False, gap=1.0),
-        )
+        "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
+        "tie": (
+            _candidate("tie", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("tie", 1, chosen=True, teacher_best=False, gap=-1.0),
+        ),
+        "agree": (
+            _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0),
+        ),
     }
 
-    with pytest.raises(TeacherDisagreementError, match="exactly one chosen"):
-        analyze_disagreement(decisions)
+    result = analyze_disagreement(decisions)
 
-
-def test_rejects_decision_without_exactly_one_chosen_row_zero():
-    decisions = {
-        "bad": (
-            _candidate("bad", 0, chosen=False, teacher_best=True, gap=0.0),
-            _candidate("bad", 1, chosen=False, teacher_best=False, gap=1.0),
-        )
-    }
-
-    with pytest.raises(TeacherDisagreementError, match="exactly one chosen"):
-        analyze_disagreement(decisions)
-
-
-def test_rejects_decision_with_no_teacher_best_row():
-    decisions = {
-        "bad": (
-            _candidate("bad", 0, chosen=True, teacher_best=False, gap=0.0),
-            _candidate("bad", 1, chosen=False, teacher_best=False, gap=1.0),
-        )
-    }
-
-    with pytest.raises(TeacherDisagreementError, match="no teacher-best row"):
-        analyze_disagreement(decisions)
-
-
-@pytest.mark.parametrize("bad_gap", (float("nan"), float("inf"), -float("inf"), -1.0))
-def test_rejects_non_finite_or_negative_value_gap_on_chosen_row(bad_gap):
-    decisions = {
-        "bad": (
-            _candidate("bad", 0, chosen=True, teacher_best=False, gap=bad_gap),
-            _candidate("bad", 1, chosen=False, teacher_best=True, gap=0.0),
-        )
-    }
-
-    with pytest.raises(TeacherDisagreementError, match="invalid value gap"):
-        analyze_disagreement(decisions)
+    assert result["breakdown_scope"] == "strict_unique_choices"
+    assert result["breakdown_denominator"] == 1
 
 
 # --- determinism -------------------------------------------------------------------------------
@@ -401,10 +639,10 @@ def test_analyze_disagreement_is_deterministic_across_calls():
         ),
         "agree": (
             _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("agree", 1, chosen=False, teacher_best=False, gap=1.0),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0),
         ),
         "disagree": (
-            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=2.5),
+            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-2.5),
             _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
     }
@@ -418,7 +656,7 @@ def test_analyze_disagreement_is_deterministic_across_calls():
 def test_analyze_disagreement_is_input_order_independent():
     decisions = {
         f"d{i:02d}": (
-            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=float(i)),
+            _candidate(f"d{i:02d}", 0, chosen=True, teacher_best=False, gap=-float(i)),
             _candidate(f"d{i:02d}", 1, chosen=False, teacher_best=True, gap=0.0),
         )
         for i in range(1, 6)
@@ -435,10 +673,10 @@ def test_group_by_decision_then_analyze_disagreement_round_trip():
         "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0),),
         "agree": (
             _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0),
-            _candidate("agree", 1, chosen=False, teacher_best=False, gap=1.0),
+            _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0),
         ),
         "disagree": (
-            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=2.0),
+            _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-2.0),
             _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0),
         ),
     }
@@ -447,10 +685,8 @@ def test_group_by_decision_then_analyze_disagreement_round_trip():
     grouped = group_by_decision(rows)
     result = analyze_disagreement(grouped)
 
-    assert result["corpus"] == {
-        "decisions": 3,
-        "forced": 1,
-        "teacher_ties": 0,
-        "genuine_choices": 2,
-        "disagreements": 1,
-    }
+    assert result["corpus"]["decisions"] == 3
+    assert result["corpus"]["forced"] == 1
+    assert result["corpus"]["strict_unique_choices"] == 2
+    assert result["corpus"]["strict_disagreements"] == 1
+    assert result["disagreement_rate"] == 0.5
