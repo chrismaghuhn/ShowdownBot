@@ -148,6 +148,49 @@ def test_parse_node_major_unparseable_raises():
 
 
 # ---------------------------------------------------------------------------
+# run_schedule_seeded env assembly (2b-2.5a, 2026-07-11): SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S
+# ---------------------------------------------------------------------------
+#
+# run_schedule_seeded itself starts real subprocesses (server + gauntlet CLI) and is NOT
+# unit-tested elsewhere in this module (see the module docstring / this file's docstring) --
+# HARD CONSTRAINT: no local battle runs or Showdown servers. This test stays inside that
+# constraint by monkeypatching subprocess.Popen/subprocess.run and _wait_for_port to fakes
+# that never spawn anything and only record the env dicts the function builds, mirroring how
+# SHOWDOWN_EVAL_ROOM_DEALLOC was added to both server_env and client_env at 3b8f1fc.
+
+class _FakeServerProc:
+    def terminate(self):
+        pass
+
+    def wait(self, timeout=None):
+        pass
+
+
+def test_run_schedule_seeded_sets_gauntlet_battle_timeout_env(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_popen(cmd, cwd=None, env=None):
+        captured["server_env"] = env
+        return _FakeServerProc()
+
+    def fake_run(cmd, cwd=None, env=None, stdout=None, stderr=None, timeout=None, check=None):
+        captured["client_env"] = env
+
+    monkeypatch.setattr(kernel_payload.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(kernel_payload.subprocess, "run", fake_run)
+    monkeypatch.setattr(kernel_payload, "_wait_for_port", lambda *a, **k: None)
+
+    out_dir = tmp_path / "out"
+    kernel_payload.run_schedule_seeded(
+        str(_REPO_ROOT), str(tmp_path / "showdown_dir_fake"),
+        "config/eval/schedules/datagen_2b25a_hero_fixed.yaml", "seedbase-x", str(out_dir),
+    )
+
+    assert captured["server_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
+    assert captured["client_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
+
+
+# ---------------------------------------------------------------------------
 # validate_prefix_reproduction
 # ---------------------------------------------------------------------------
 

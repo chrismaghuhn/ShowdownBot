@@ -247,6 +247,12 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
     # sim-child Battle objects accumulate -> VM OOM. This env-gated flag expires an ended battle
     # room the moment its last user leaves (strictly post-battle -> zero effect on RNG/log bytes).
     server_env["SHOWDOWN_EVAL_ROOM_DEALLOC"] = "immediate"
+    # [2b-2.5a, 2026-07-11] Per-battle gauntlet timeout override: rollout-teacher datagen labels
+    # every decision (~3-4s each), so legitimate 50+-turn stall wars (sun_dev vs rain_dev tail
+    # cells) exceed the client's flat 180s budget -> the battle yields no result row and the
+    # schedule run fails. The client (not the server) reads this flag, but it is harmless -- and
+    # kept consistent -- to also set it here on server_env.
+    server_env["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] = "900"
 
     server_proc = subprocess.Popen(
         ["node", "pokemon-showdown", "start", str(_SERVER_PORT), "--no-security"],
@@ -267,6 +273,12 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
             # it server-side-behavior-affecting -> fail-closed included in behavior_env), so the
             # run manifest's config_hash records that this run played under immediate-dealloc.
             "SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate",
+            # [2b-2.5a, 2026-07-11] Raise the per-battle gauntlet timeout for datagen: rollout-
+            # teacher labeling makes some legitimate long stall games exceed the 180s formula
+            # default (see server_env comment above). config_env classifies this
+            # BEHAVIOR_AFFECTING (read directly in showdown_bot.client.gauntlet) -> fail-closed
+            # included in behavior_env, so the run manifest's config_hash records the override.
+            "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": "900",
         })
         if dataset_export is not None:
             client_env["SHOWDOWN_DATASET_EXPORT"] = str(dataset_export)

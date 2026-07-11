@@ -35,6 +35,13 @@ BEHAVIOR_AFFECTING = frozenset({
     "SHOWDOWN_RERANKER_SHADOW_TIMEOUT_MS",
     # A calc timeout can trigger fallback behavior under load -> behavior-affecting.
     "SHOWDOWN_CALC_TIMEOUT_MS",
+    # [2b-2.5a, 2026-07-11] Per-battle gauntlet wall-clock timeout override (datagen: 900s).
+    # It changes which battles produce a result row at all (a battle that times out yields NO
+    # row -> a lower-effort/lower-timeout run silently drops legitimate long stall games), so
+    # two runs that differ on it must not be paired -> part of config_hash. Read directly in
+    # Python source (showdown_bot.client.gauntlet), so it belongs in this set, NOT
+    # SERVER_SIDE_BEHAVIOR_AFFECTING.
+    "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the

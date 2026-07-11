@@ -73,6 +73,30 @@ def test_config_hash_changes_when_room_dealloc_toggled():
     assert h_off != h_on
 
 
+# --- gauntlet battle-timeout override (2b-2.5a, 2026-07-11) -----------------------------
+
+def test_gauntlet_battle_timeout_is_behavior_affecting_and_classified():
+    # Unlike SHOWDOWN_EVAL_ROOM_DEALLOC, this one IS read in Python source
+    # (showdown_bot.client.gauntlet), so it belongs in BEHAVIOR_AFFECTING, not the
+    # server-side set.
+    assert "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S")
+
+
+def test_behavior_env_includes_gauntlet_battle_timeout():
+    env = {"SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": "900", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": "900",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_gauntlet_battle_timeout_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": "900"})))
+    assert h_off != h_on
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):

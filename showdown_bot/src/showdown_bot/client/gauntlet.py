@@ -641,6 +641,31 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
     }
 
 
+def _effective_battle_timeout(games: int, battle_timeout_s: float | None, env) -> float:
+    """Resolve the per-battle gauntlet timeout in seconds (2b-2.5a, 2026-07-11).
+
+    Precedence: the explicit ``battle_timeout_s`` param (if not ``None``) > the
+    ``SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`` env var (if set to a float > 0) > the pre-existing
+    formula ``max(180.0, games * 150.0)``. The formula is always the final fallback -- a guard
+    against truly endless games -- so this function never returns "unlimited".
+
+    Pure + injectable: ``env`` is a plain mapping (production passes a dict sourced from
+    ``os.environ``), so the precedence logic is unit-testable without mutating real process env
+    vars.
+    """
+    if battle_timeout_s is not None:
+        return float(battle_timeout_s)
+    raw = env.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S", "") if env else ""
+    if raw:
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            parsed = 0.0
+        if parsed > 0:
+            return parsed
+    return max(180.0, games * 150.0)
+
+
 async def run_local_gauntlet(
     *,
     games: int,
@@ -654,6 +679,7 @@ async def run_local_gauntlet(
     villain_name: str = "BaselineBot",
     on_battle_result=None,
     export_runtime=None,
+    battle_timeout_s: float | None = None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -669,7 +695,10 @@ async def run_local_gauntlet(
     ``SHOWDOWN_DATASET_EXPORT`` as before. The VILLAIN client NEVER builds or borrows an
     export runtime, in either mode — an explicit hero-only contract (a "heuristic" villain
     is a valid opponent policy and would otherwise independently export its own decisions to
-    the same path, racing the hero's flushes). Requires a local
+    the same path, racing the hero's flushes). ``battle_timeout_s`` (2b-2.5a, 2026-07-11): see
+    ``_effective_battle_timeout`` for the full precedence rule (param > env > formula) — this
+    knob exists because rollout-teacher datagen makes some legitimate long stall games exceed
+    the flat 180s budget. Requires a local
     ``node pokemon-showdown start --no-security`` server.
     """
     book, priors, opp_sets = _load_belief_deps(format_id)
@@ -767,9 +796,18 @@ async def run_local_gauntlet(
     chal_task = asyncio.create_task(challenger())
 
     try:
-        # VGC games run ~15-25 turns and each decision can take a couple seconds
-        # (Node calc per turn), so budget generously per game.
-        await asyncio.wait_for(stop.wait(), timeout=max(180.0, games * 150.0))
+        # VGC games run ~15-25 turns and each decision can take a couple seconds (Node calc per
+        # turn), so budget generously per game via the formula below. SHOWDOWN_GAUNTLET_BATTLE_
+        # TIMEOUT_S (2026-07-11) overrides it: rollout-teacher datagen labels every decision
+        # (~3-4s each), so legitimate 50+-turn stall wars (e.g. sun_dev vs rain_dev tail cells)
+        # can exceed the flat 180s budget even on a healthy VM (the leak fix alone wasn't
+        # enough) -- datagen kernels set it to 900s. A timeout is still always applied (never
+        # unlimited) as a guard against truly endless games.
+        battle_timeout = _effective_battle_timeout(
+            games, battle_timeout_s,
+            {"SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": os.environ.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S", "")},
+        )
+        await asyncio.wait_for(stop.wait(), timeout=battle_timeout)
     except asyncio.TimeoutError:
         logger.warning("gauntlet timed out")
         stop.set()
