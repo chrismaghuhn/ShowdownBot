@@ -29,6 +29,7 @@ from pathlib import Path
 
 import pytest
 
+from showdown_bot.eval import datagen_2b25a
 from showdown_bot.eval.datagen_2b25a import SEED_BASES
 from showdown_bot.eval.schedule import load_schedule
 from showdown_bot.eval.seeding import derive_battle_seed
@@ -268,6 +269,195 @@ def test_run_datagen_extra_env_caller_can_explicitly_override_teacher_key(tmp_pa
 
 
 # ---------------------------------------------------------------------------
+# shard_rows (2b-2.5a schedule sharding, 2026-07-11): pure index-math split, extracted so it is
+# unit-testable without touching run_datagen/subprocesses at all.
+# ---------------------------------------------------------------------------
+
+def test_shard_rows_75_over_3_splits_into_three_equal_25s():
+    rows = list(range(75))
+
+    assert kernel_payload.shard_rows(rows, 0, 3) == (0, 25, rows[0:25])
+    assert kernel_payload.shard_rows(rows, 1, 3) == (25, 50, rows[25:50])
+    assert kernel_payload.shard_rows(rows, 2, 3) == (50, 75, rows[50:75])
+
+
+def test_shard_rows_75_over_4_covers_all_rows_no_gaps_or_overlaps():
+    rows = list(range(75))
+
+    starts_ends = [kernel_payload.shard_rows(rows, i, 4)[:2] for i in range(4)]
+    sizes = [end - start for start, end in starts_ends]
+
+    assert sizes == [19, 19, 19, 18]
+    assert starts_ends[0][0] == 0
+    for i in range(3):
+        assert starts_ends[i][1] == starts_ends[i + 1][0]  # no gap, no overlap
+    assert starts_ends[-1][1] == 75
+
+    # every row appears in exactly one shard
+    covered = []
+    for i in range(4):
+        _, _, sliced = kernel_payload.shard_rows(rows, i, 4)
+        covered.extend(sliced)
+    assert covered == rows
+
+
+def test_shard_rows_shard_count_one_is_full_range():
+    rows = list(range(75))
+
+    start, end, sliced = kernel_payload.shard_rows(rows, 0, 1)
+
+    assert (start, end, sliced) == (0, 75, rows)
+
+
+def test_shard_rows_shard_index_out_of_range_raises():
+    rows = list(range(75))
+
+    with pytest.raises(ValueError):
+        kernel_payload.shard_rows(rows, 3, 3)
+    with pytest.raises(ValueError):
+        kernel_payload.shard_rows(rows, -1, 3)
+
+
+def test_shard_rows_shard_count_less_than_one_raises():
+    with pytest.raises(ValueError):
+        kernel_payload.shard_rows(list(range(75)), 0, 0)
+
+
+def test_shard_rows_shard_count_larger_than_rows_raises_for_empty_shard():
+    # 5 rows, 10 shards -> size=ceil(5/10)=1, shard_index=5 starts at row 5 >= total (5).
+    with pytest.raises(ValueError):
+        kernel_payload.shard_rows(list(range(5)), 5, 10)
+
+
+# ---------------------------------------------------------------------------
+# run_datagen shard passthrough (2b-2.5a schedule sharding, 2026-07-11): run_datagen itself is
+# NOT otherwise unit-tested (starts real subprocesses via run_schedule_seeded) -- these tests
+# monkeypatch BOTH run_schedule_seeded and validate_datagen_output to fakes that only record
+# their arguments, staying inside the no-battles constraint (same technique as the extra_env
+# tests above).
+# ---------------------------------------------------------------------------
+
+def _fake_run_schedule_seeded_capturing_shard(captured):
+    def fake(repo_root, showdown_dir, schedule_relpath, seed_base, out_dir, *,
+             dataset_export=None, extra_env=None, timeout_s=9000):
+        captured["schedule_relpath"] = schedule_relpath
+        captured["seed_base"] = seed_base
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        return {"results": str(Path(out_dir) / "results.jsonl")}
+    return fake
+
+
+def _fake_validate_datagen_output_capturing(captured):
+    def fake(repo_root, out_dir, hero_key, *, schedule=None, seed_base=None):
+        captured["validate_schedule"] = schedule
+        captured["validate_seed_base"] = seed_base
+        return True, "rows=1 games=1"
+    return fake
+
+
+def test_run_datagen_shard_count_one_is_byte_identical_to_unsharded(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_shard(captured),
+    )
+    monkeypatch.setattr(
+        kernel_payload, "validate_datagen_output",
+        _fake_validate_datagen_output_capturing(captured),
+    )
+
+    kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+    )  # default shard_index=0, shard_count=1
+
+    assert captured["schedule_relpath"] == datagen_2b25a.schedule_relpath(_DATAGEN_HERO)
+    assert captured["seed_base"] == SEED_BASES[_DATAGEN_HERO]
+    assert captured["validate_schedule"] is None
+    assert captured["validate_seed_base"] is None
+
+
+def test_run_datagen_shard_path_uses_suffixed_seed_base_and_sliced_schedule(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_shard(captured),
+    )
+    monkeypatch.setattr(
+        kernel_payload, "validate_datagen_output",
+        _fake_validate_datagen_output_capturing(captured),
+    )
+
+    result = kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+        shard_index=1, shard_count=3,
+    )
+
+    full_schedule = _datagen_schedule()  # 75 rows, hero='fixed'
+    expected_seed_base = f"{SEED_BASES[_DATAGEN_HERO]}-s1"
+    assert captured["seed_base"] == expected_seed_base
+
+    # schedule_relpath must point at a REAL written YAML sized to this shard (rows 25:50 of 75).
+    sliced = load_schedule(captured["schedule_relpath"])
+    assert len(sliced.rows) == 25
+    assert [r.seed_index for r in sliced.rows] == list(range(25))  # renumbered 0-contiguous
+    assert sliced.rows[0].opp_team_path == full_schedule.rows[25].opp_team_path
+    assert sliced.rows[0].opp_policy == full_schedule.rows[25].opp_policy
+    assert sliced.rows[-1].opp_team_path == full_schedule.rows[49].opp_team_path
+
+    # validate_datagen_output must be pointed at the SAME sliced schedule + suffixed seed_base,
+    # not the full 75-row schedule / base seed_base.
+    assert captured["validate_seed_base"] == expected_seed_base
+    assert len(captured["validate_schedule"].rows) == 25
+
+    assert "shard=1/3" in result["verdict"]
+    assert "rows=25" in result["verdict"]
+
+
+def test_run_datagen_last_shard_gets_the_remainder(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_shard(captured),
+    )
+    monkeypatch.setattr(
+        kernel_payload, "validate_datagen_output",
+        _fake_validate_datagen_output_capturing(captured),
+    )
+
+    result = kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+        shard_index=3, shard_count=4,
+    )
+
+    expected_seed_base = f"{SEED_BASES[_DATAGEN_HERO]}-s3"
+    assert captured["seed_base"] == expected_seed_base
+
+    sliced = load_schedule(captured["schedule_relpath"])
+    assert len(sliced.rows) == 18  # 75 = 19+19+19+18
+    assert [r.seed_index for r in sliced.rows] == list(range(18))
+
+    assert "shard=3/4" in result["verdict"]
+    assert "rows=18" in result["verdict"]
+
+
+def test_run_datagen_shard_index_out_of_range_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_shard({}),
+    )
+    monkeypatch.setattr(
+        kernel_payload, "validate_datagen_output",
+        _fake_validate_datagen_output_capturing({}),
+    )
+
+    with pytest.raises(ValueError):
+        kernel_payload.run_datagen(
+            str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+            shard_index=5, shard_count=3,
+        )
+
+
+# ---------------------------------------------------------------------------
 # datagen_kernel._extra_env_from_header (2b-2.5a EXTRA_ENV passthrough, 2026-07-11): pure
 # header-field parsing/validation, tested directly -- the kernel's main() is never run here.
 # ---------------------------------------------------------------------------
@@ -320,6 +510,71 @@ def test_extra_env_from_header_list_raises():
 
     with pytest.raises(ValueError, match="EXTRA_ENV"):
         datagen_kernel._extra_env_from_header(env)
+
+
+# ---------------------------------------------------------------------------
+# datagen_kernel._shard_from_header (2b-2.5a schedule sharding, 2026-07-11): pure header-field
+# parsing/validation, tested directly -- the kernel's main() is never run here.
+# ---------------------------------------------------------------------------
+
+def test_shard_from_header_absent_fields_default_to_zero_one():
+    assert datagen_kernel._shard_from_header({"REPO_SHA": "abc", "HERO_KEY": "rain"}) == (0, 1)
+
+
+def test_shard_from_header_explicit_valid_values_pass_through():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": 2, "SHARD_COUNT": 5}
+
+    assert datagen_kernel._shard_from_header(env) == (2, 5)
+
+
+def test_shard_from_header_only_shard_count_given_index_defaults_zero():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_COUNT": 4}
+
+    assert datagen_kernel._shard_from_header(env) == (0, 4)
+
+
+def test_shard_from_header_non_int_shard_index_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": "2", "SHARD_COUNT": 5}
+
+    with pytest.raises(ValueError, match="SHARD_INDEX"):
+        datagen_kernel._shard_from_header(env)
+
+
+def test_shard_from_header_non_int_shard_count_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": 0, "SHARD_COUNT": 2.5}
+
+    with pytest.raises(ValueError, match="SHARD_COUNT"):
+        datagen_kernel._shard_from_header(env)
+
+
+def test_shard_from_header_shard_count_less_than_one_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": 0, "SHARD_COUNT": 0}
+
+    with pytest.raises(ValueError, match="SHARD_COUNT"):
+        datagen_kernel._shard_from_header(env)
+
+
+def test_shard_from_header_shard_index_out_of_range_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": 5, "SHARD_COUNT": 3}
+
+    with pytest.raises(ValueError, match="SHARD_INDEX"):
+        datagen_kernel._shard_from_header(env)
+
+
+def test_shard_from_header_negative_shard_index_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": -1, "SHARD_COUNT": 3}
+
+    with pytest.raises(ValueError, match="SHARD_INDEX"):
+        datagen_kernel._shard_from_header(env)
+
+
+def test_shard_from_header_bool_shard_index_raises():
+    # JSON true/false decode to Python bool, a subclass of int -- must be rejected, not silently
+    # treated as 0/1.
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "SHARD_INDEX": True, "SHARD_COUNT": 3}
+
+    with pytest.raises(ValueError, match="SHARD_INDEX"):
+        datagen_kernel._shard_from_header(env)
 
 
 # ---------------------------------------------------------------------------
