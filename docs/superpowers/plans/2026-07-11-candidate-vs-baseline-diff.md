@@ -1000,11 +1000,12 @@ def bound_trace_fixture(tmp_path, decision_fixture):
             config_hash="config-a", schedule_hash="schedule-a",
             format_id="gen9vgc2025regi", git_sha="a" * 40,
         )
-        writer.write(build_trace_row(
-            context=context, prepared=prepare_capture(kw["state"], req), request=req,
-            choose=f"/choose move 1 1, move 2 2|{req.rqid}", trace=None,
-            decision_index=0, decision_latency_ms=1.0,
-        ))
+        for decision_index in (0, 1):
+            writer.write(build_trace_row(
+                context=context, prepared=prepare_capture(kw["state"], req), request=req,
+                choose=f"/choose move 1 1, move 2 2|{req.rqid}", trace=None,
+                decision_index=decision_index, decision_latency_ms=1.0,
+            ))
         results.append({
             "battle_id": battle_id, "seed_index": seed_index,
             "config_hash": "config-a", "schedule_hash": "schedule-a",
