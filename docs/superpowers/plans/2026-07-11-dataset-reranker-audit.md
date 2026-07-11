@@ -345,12 +345,18 @@ def _schema_row(game_id, decision_id, candidate_index, *, format_id="gen9vgc2025
 
 @pytest.fixture
 def audit_dataset():
-    def write(tmp_path, *, games=3, candidate_indices=(0, 1), mixed_format=False):
+    def write(tmp_path, *, games=3, candidate_indices=(0, 1), mixed_format=False,
+              mixed_provenance=False):
         path = tmp_path / "dataset.jsonl"
         lines = []
         for game_index in range(games):
             for candidate_index in candidate_indices:
-                format_id = "other-format" if mixed_format and candidate_index == candidate_indices[-1] else "gen9vgc2025regi"
+                if mixed_provenance:
+                    format_id = "gen9vgc2025regi" if game_index % 2 == 0 else "other-format"
+                elif mixed_format and candidate_index == candidate_indices[-1]:
+                    format_id = "other-format"
+                else:
+                    format_id = "gen9vgc2025regi"
                 lines.append(to_jsonl_line(_schema_row(
                     f"g{game_index}", f"g{game_index}-d0", candidate_index,
                     format_id=format_id,
@@ -409,7 +415,7 @@ def test_effective_feature_denylist_is_fail(tmp_path, audit_dataset):
 
 
 def test_mixed_provenance_is_reported(tmp_path, audit_dataset):
-    path = audit_dataset(tmp_path, mixed_format=True)
+    path = audit_dataset(tmp_path, mixed_provenance=True)
     _corpus, findings = load_and_audit_integrity(path, AuditConfig())
     assert any(f.code == "MIXED_PROVENANCE" for f in findings)
 ```
