@@ -30,3 +30,8 @@ data/eval/t6/room_raw/** binary
 # the checksums survive checkout on any platform. The merged dataset .gz is binary.
 data/datasets/phase3-slice2b25a/** -text
 data/datasets/phase3-slice2b25a/dataset.jsonl.gz binary
+
+# 2b-4 gated-override evidence: determinism double-run results/manifests/seeds and the
+# dev-strength paired-report results/manifests/seeds/report are byte-pinned by sha256.txt —
+# keep LF-stable so the checksums survive checkout on any platform.
+data/eval/2b4/** -text

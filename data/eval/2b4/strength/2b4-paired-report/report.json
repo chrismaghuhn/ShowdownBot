@@ -1,0 +1,1151 @@
+{
+  "aggregates": {
+    "losing_cells": [
+      [
+        "max_damage",
+        "69f471c2740f1927"
+      ],
+      [
+        "max_damage",
+        "b0048ae65f0e9ee5"
+      ],
+      [
+        "max_damage",
+        "e622869d6c68307e"
+      ]
+    ],
+    "overall_pooled": {
+      "n": 150,
+      "wilson_hi": 0.24186132105713584,
+      "wilson_lo": 0.12111982318473372,
+      "win_rate": 0.17333333333333334,
+      "wins": 26
+    },
+    "per_policy": [
+      {
+        "n": 150,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.24186132105713584,
+        "wilson_lo": 0.12111982318473372,
+        "win_rate": 0.17333333333333334,
+        "wins": 26
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.17333333333333334,
+    "worst_cell": {
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "69f471c2740f1927",
+      "wilson_hi": 0.13460337877954667,
+      "wilson_lo": 0.011038652660826577,
+      "win_rate": 0.04
+    }
+  },
+  "cells": [
+    {
+      "losing": true,
+      "losses": 48,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "69f471c2740f1927",
+      "opp_team_path": "teams/panel_v001/rain_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.13460337877954667,
+      "wilson_lo": 0.011038652660826577,
+      "win_rate": 0.04,
+      "wins": 2
+    },
+    {
+      "losing": true,
+      "losses": 35,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "b0048ae65f0e9ee5",
+      "opp_team_path": "teams/panel_v001/sun_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.4375061227736339,
+      "wilson_lo": 0.1910338908960936,
+      "win_rate": 0.3,
+      "wins": 15
+    },
+    {
+      "losing": true,
+      "losses": 41,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e622869d6c68307e",
+      "opp_team_path": "teams/panel_v001/trickroom_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.3079631945470261,
+      "wilson_lo": 0.0977008273245379,
+      "win_rate": 0.18,
+      "wins": 9
+    }
+  ],
+  "heldout": false,
+  "mode": "gate",
+  "paired": {
+    "cell_flips": [
+      [
+        "max_damage",
+        "69f471c2740f1927"
+      ]
+    ],
+    "delta": -0.08666666666666667,
+    "delta_winrate_form": -0.08666666666666667,
+    "discordant_battles": [
+      {
+        "battle_id": "651157891c045f98",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": -0.11,
+        "end_hp_diff_b": 0.785377,
+        "outcome": "B won, A lost",
+        "seed_index": 4,
+        "turns_a": 16,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "420807deebd99e1a",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.564356,
+        "end_hp_diff_b": -2.0,
+        "outcome": "A won, B lost",
+        "seed_index": 5,
+        "turns_a": 13,
+        "turns_b": 19
+      },
+      {
+        "battle_id": "523f18991d3d1f7f",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": -0.17,
+        "end_hp_diff_b": 1.290251,
+        "outcome": "B won, A lost",
+        "seed_index": 9,
+        "turns_a": 12,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "38c256f96f89793a",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.386139,
+        "end_hp_diff_b": -1.7,
+        "outcome": "A won, B lost",
+        "seed_index": 17,
+        "turns_a": 12,
+        "turns_b": 18
+      },
+      {
+        "battle_id": "aada029ea3706102",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.20297,
+        "end_hp_diff_b": -1.16,
+        "outcome": "A won, B lost",
+        "seed_index": 18,
+        "turns_a": 15,
+        "turns_b": 16
+      },
+      {
+        "battle_id": "250c167d90bdb867",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.847982,
+        "end_hp_diff_b": -1.0,
+        "outcome": "A won, B lost",
+        "seed_index": 22,
+        "turns_a": 13,
+        "turns_b": 17
+      },
+      {
+        "battle_id": "b8c8d31680b4cb08",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.133663,
+        "end_hp_diff_b": -1.46,
+        "outcome": "A won, B lost",
+        "seed_index": 25,
+        "turns_a": 12,
+        "turns_b": 16
+      },
+      {
+        "battle_id": "c0e5e7f1bfe7872a",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.336634,
+        "end_hp_diff_b": -1.55,
+        "outcome": "A won, B lost",
+        "seed_index": 29,
+        "turns_a": 9,
+        "turns_b": 19
+      },
+      {
+        "battle_id": "9ff4eaa2574ddb3c",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.391089,
+        "end_hp_diff_b": -2.0,
+        "outcome": "A won, B lost",
+        "seed_index": 30,
+        "turns_a": 11,
+        "turns_b": 19
+      },
+      {
+        "battle_id": "68fe9c8f2854741b",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": 0.366337,
+        "end_hp_diff_b": -1.77,
+        "outcome": "A won, B lost",
+        "seed_index": 31,
+        "turns_a": 11,
+        "turns_b": 18
+      },
+      {
+        "battle_id": "28cb671e1af5cd2e",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": -1.71,
+        "end_hp_diff_b": 0.405941,
+        "outcome": "B won, A lost",
+        "seed_index": 33,
+        "turns_a": 15,
+        "turns_b": 14
+      },
+      {
+        "battle_id": "70f3a56d56bd3e43",
+        "cell": [
+          "max_damage",
+          "e622869d6c68307e"
+        ],
+        "end_hp_diff_a": -0.2,
+        "end_hp_diff_b": 0.519802,
+        "outcome": "B won, A lost",
+        "seed_index": 42,
+        "turns_a": 12,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "603ef3926487fd3c",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.738462,
+        "end_hp_diff_b": -0.02,
+        "outcome": "A won, B lost",
+        "seed_index": 53,
+        "turns_a": 12,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "e3eeb0a6858f5579",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -1.25,
+        "end_hp_diff_b": 0.084158,
+        "outcome": "B won, A lost",
+        "seed_index": 54,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "0d71739659c1562a",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.738462,
+        "end_hp_diff_b": -0.29,
+        "outcome": "A won, B lost",
+        "seed_index": 55,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "2432efe8308bcdec",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.707692,
+        "end_hp_diff_b": -0.39,
+        "outcome": "A won, B lost",
+        "seed_index": 59,
+        "turns_a": 11,
+        "turns_b": 8
+      },
+      {
+        "battle_id": "6f3960f0b9854f20",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.386139,
+        "end_hp_diff_b": -0.53,
+        "outcome": "A won, B lost",
+        "seed_index": 63,
+        "turns_a": 11,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "f94773738fbb911c",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -1.52,
+        "end_hp_diff_b": 0.00495,
+        "outcome": "B won, A lost",
+        "seed_index": 68,
+        "turns_a": 9,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "63e608c0e9d134f9",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.232673,
+        "end_hp_diff_b": -1.35,
+        "outcome": "A won, B lost",
+        "seed_index": 69,
+        "turns_a": 11,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "a34f3b99ba8c4a78",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.569231,
+        "end_hp_diff_b": -1.49,
+        "outcome": "A won, B lost",
+        "seed_index": 73,
+        "turns_a": 10,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "7afe3b86cf7de322",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.089109,
+        "end_hp_diff_b": -0.62,
+        "outcome": "A won, B lost",
+        "seed_index": 75,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "25e3d075d8ff2880",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.738462,
+        "end_hp_diff_b": -0.12,
+        "outcome": "A won, B lost",
+        "seed_index": 76,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "ac54a6b4aaa4f780",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.257426,
+        "end_hp_diff_b": -0.04,
+        "outcome": "A won, B lost",
+        "seed_index": 78,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "949929a26b158661",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -1.44,
+        "end_hp_diff_b": 0.019802,
+        "outcome": "B won, A lost",
+        "seed_index": 81,
+        "turns_a": 7,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "f1a1be7aa4cc5c41",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.995804,
+        "end_hp_diff_b": -0.17,
+        "outcome": "A won, B lost",
+        "seed_index": 84,
+        "turns_a": 10,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "25ebc1e7cde4feff",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.386139,
+        "end_hp_diff_b": -0.19,
+        "outcome": "A won, B lost",
+        "seed_index": 85,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "a4ef5e6ed19209d0",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": 0.730769,
+        "end_hp_diff_b": -0.28,
+        "outcome": "A won, B lost",
+        "seed_index": 88,
+        "turns_a": 11,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "6ce0efb2a488335d",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -1.19,
+        "end_hp_diff_b": 0.118812,
+        "outcome": "B won, A lost",
+        "seed_index": 89,
+        "turns_a": 8,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "f846a961d780042d",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.22,
+        "end_hp_diff_b": 0.544554,
+        "outcome": "B won, A lost",
+        "seed_index": 100,
+        "turns_a": 10,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "db3a6193b9e10bca",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.25,
+        "end_hp_diff_b": 0.619577,
+        "outcome": "B won, A lost",
+        "seed_index": 101,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "35a110fdd1b8b48e",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.68,
+        "end_hp_diff_b": 0.168317,
+        "outcome": "B won, A lost",
+        "seed_index": 105,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "0f6e1c373b6d32b8",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.22,
+        "end_hp_diff_b": 0.720579,
+        "outcome": "B won, A lost",
+        "seed_index": 106,
+        "turns_a": 10,
+        "turns_b": 8
+      },
+      {
+        "battle_id": "2ac6383285d33335",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.15,
+        "end_hp_diff_b": 0.223077,
+        "outcome": "B won, A lost",
+        "seed_index": 107,
+        "turns_a": 9,
+        "turns_b": 16
+      },
+      {
+        "battle_id": "6d16f973e8a04a62",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.26,
+        "end_hp_diff_b": 0.445545,
+        "outcome": "B won, A lost",
+        "seed_index": 109,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "d5df0c97edaaad0f",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.24,
+        "end_hp_diff_b": 0.579017,
+        "outcome": "B won, A lost",
+        "seed_index": 110,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "9ba6858843b4a482",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": 0.577532,
+        "end_hp_diff_b": -0.98,
+        "outcome": "A won, B lost",
+        "seed_index": 113,
+        "turns_a": 9,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "1fcfffd987272177",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.48,
+        "end_hp_diff_b": 0.614985,
+        "outcome": "B won, A lost",
+        "seed_index": 115,
+        "turns_a": 8,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "6692df8170ae4f3f",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.69,
+        "end_hp_diff_b": 0.193069,
+        "outcome": "B won, A lost",
+        "seed_index": 117,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "4d3d49a7cbe1ad14",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -0.64,
+        "end_hp_diff_b": 0.619458,
+        "outcome": "B won, A lost",
+        "seed_index": 118,
+        "turns_a": 9,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "72861c28685210a4",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.21,
+        "end_hp_diff_b": 0.328131,
+        "outcome": "B won, A lost",
+        "seed_index": 120,
+        "turns_a": 10,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "2750e53612039c38",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.67,
+        "end_hp_diff_b": 0.292079,
+        "outcome": "B won, A lost",
+        "seed_index": 122,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "add18ef97ae56f79",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.22,
+        "end_hp_diff_b": 0.366337,
+        "outcome": "B won, A lost",
+        "seed_index": 123,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "1815af0d4f6dc4bc",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.24,
+        "end_hp_diff_b": 0.619218,
+        "outcome": "B won, A lost",
+        "seed_index": 125,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "76cc992616b8cae8",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.13,
+        "end_hp_diff_b": 1.490099,
+        "outcome": "B won, A lost",
+        "seed_index": 126,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "c561d14bb091c552",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.26,
+        "end_hp_diff_b": 0.399315,
+        "outcome": "B won, A lost",
+        "seed_index": 127,
+        "turns_a": 10,
+        "turns_b": 13
+      },
+      {
+        "battle_id": "fed8700132491739",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.24,
+        "end_hp_diff_b": 0.046154,
+        "outcome": "B won, A lost",
+        "seed_index": 129,
+        "turns_a": 10,
+        "turns_b": 9
+      },
+      {
+        "battle_id": "c6513fe2c536d7c3",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.21,
+        "end_hp_diff_b": 0.615225,
+        "outcome": "B won, A lost",
+        "seed_index": 131,
+        "turns_a": 10,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "724fc86d40204db6",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.24,
+        "end_hp_diff_b": 0.63395,
+        "outcome": "B won, A lost",
+        "seed_index": 132,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "abe43410c297e9b9",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.54,
+        "end_hp_diff_b": 0.649913,
+        "outcome": "B won, A lost",
+        "seed_index": 135,
+        "turns_a": 8,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "b8d730e616e3e1af",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.26,
+        "end_hp_diff_b": 0.351485,
+        "outcome": "B won, A lost",
+        "seed_index": 138,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "5d99beb04f120475",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.14,
+        "end_hp_diff_b": 0.430084,
+        "outcome": "B won, A lost",
+        "seed_index": 140,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "713588e322e498e1",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.23,
+        "end_hp_diff_b": 0.440594,
+        "outcome": "B won, A lost",
+        "seed_index": 141,
+        "turns_a": 10,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "97015bd005977663",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.21,
+        "end_hp_diff_b": 0.883197,
+        "outcome": "B won, A lost",
+        "seed_index": 142,
+        "turns_a": 10,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "17b8c18e4c065879",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.22,
+        "end_hp_diff_b": 0.0,
+        "outcome": "B won, A lost",
+        "seed_index": 145,
+        "turns_a": 10,
+        "turns_b": 14
+      },
+      {
+        "battle_id": "918b41f7bfcc54db",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": -1.27,
+        "end_hp_diff_b": 0.587205,
+        "outcome": "B won, A lost",
+        "seed_index": 147,
+        "turns_a": 9,
+        "turns_b": 13
+      }
+    ],
+    "exact_p": 0.10478948242660335,
+    "n00": 90,
+    "n01": 34,
+    "n10": 21,
+    "n11": 5,
+    "n_discordant": 55,
+    "n_discordant_claim_min": 10,
+    "n_discordant_math_floor": 6,
+    "strength_delta": -0.08666666666666667,
+    "strength_n01": 34,
+    "strength_n10": 21,
+    "strength_pairs": 150,
+    "tie_flag": false,
+    "tie_rate_a": 0.0,
+    "tie_rate_b": 0.0,
+    "total": 150,
+    "underpowered": false,
+    "underpowered_banner": null,
+    "winrate_a": 0.17333333333333334,
+    "winrate_b": 0.26,
+    "zero_discordant_ambiguity": null
+  },
+  "provenance": {
+    "config_hash": "23351717487f69e5",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.12.3",
+        "websockets": "15.0.1"
+      },
+      "node": "v20.19.0",
+      "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+      "python": "3.12.13"
+    },
+    "format_id": "gen9vgc2025regi",
+    "git_sha": "13795ab9df4f4204d90d1d295ccd3ae2e7c05019",
+    "input_sha256": {
+      "manifest": "fab2f0f09c3e1dbcc83c7e50330649defa8716cd2c64ccf4a3e9232b9a3e3866",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "935473728be070081e172289964e80a2263acaf6096ef1091a33da2ea816f707",
+      "schedule": "36972d3ad611bc47168a595603ff1bceecd76c5544b0457eaa5d602aa20237e4",
+      "seedlog": "3ceaca2055db5ab61deb7246eafa7a3243a96a47aa0573df674f2f91f8e5f2ea"
+    },
+    "panel_hash": "760c1e5935fe0474",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "760c1e5935fe0474",
+    "row_count": 150,
+    "run_id": "14b3aaa041b1fcc9",
+    "schedule_hash": "9ce8872b75065c63",
+    "seed_base": "2b4-devstrength-v001",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-11T10:49:34.819224+00:00"
+  },
+  "provenance_b": {
+    "config_hash": "cb5dd363dd630277",
+    "config_id": "heuristic_reranker",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.12.3",
+        "websockets": "15.0.1"
+      },
+      "node": "v20.19.0",
+      "platform": "Linux-6.12.90+-x86_64-with-glibc2.35",
+      "python": "3.12.13"
+    },
+    "format_id": "gen9vgc2025regi",
+    "git_sha": "13795ab9df4f4204d90d1d295ccd3ae2e7c05019",
+    "input_sha256": {
+      "manifest": "48f9705395923e285d437ac1e509a156836a52dc3b02ae19d07d6faaf0f1921e",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "4c08fae5a3079c2dedfe390557f3248db9a83f2035a8318be4bba8c20a70836b",
+      "schedule": "36972d3ad611bc47168a595603ff1bceecd76c5544b0457eaa5d602aa20237e4",
+      "seedlog": "3ceaca2055db5ab61deb7246eafa7a3243a96a47aa0573df674f2f91f8e5f2ea"
+    },
+    "panel_hash": "760c1e5935fe0474",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "760c1e5935fe0474",
+    "row_count": 150,
+    "run_id": "f2bb1d3dfd2849b5",
+    "schedule_hash": "9ce8872b75065c63",
+    "seed_base": "2b4-devstrength-v001",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-11T10:59:07.444694+00:00"
+  },
+  "reproduction": {
+    "env_a": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "2b4-devstrength-v001"
+    },
+    "env_b": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "2b4-devstrength-v001"
+    },
+    "input_sha256_a": {
+      "manifest": "fab2f0f09c3e1dbcc83c7e50330649defa8716cd2c64ccf4a3e9232b9a3e3866",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "935473728be070081e172289964e80a2263acaf6096ef1091a33da2ea816f707",
+      "schedule": "36972d3ad611bc47168a595603ff1bceecd76c5544b0457eaa5d602aa20237e4",
+      "seedlog": "3ceaca2055db5ab61deb7246eafa7a3243a96a47aa0573df674f2f91f8e5f2ea"
+    },
+    "input_sha256_b": {
+      "manifest": "48f9705395923e285d437ac1e509a156836a52dc3b02ae19d07d6faaf0f1921e",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "4c08fae5a3079c2dedfe390557f3248db9a83f2035a8318be4bba8c20a70836b",
+      "schedule": "36972d3ad611bc47168a595603ff1bceecd76c5544b0457eaa5d602aa20237e4",
+      "seedlog": "3ceaca2055db5ab61deb7246eafa7a3243a96a47aa0573df674f2f91f8e5f2ea"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --run-b results.jsonl --seedlog-b seeds.jsonl --schedule 2b4_devstrength_v001.yaml --panel panel_v001.yaml --out <dir> --mode gate",
+    "run_command_a": "python -m showdown_bot.cli gauntlet --schedule /tmp/sb_repo/config/eval/schedules/2b4_devstrength_v001.yaml --result-out /tmp/sb_out/heuristic/results.jsonl",
+    "run_command_b": "python -m showdown_bot.cli gauntlet --schedule /tmp/sb_repo/config/eval/schedules/2b4_devstrength_v001.yaml --result-out /tmp/sb_out/override/results.jsonl",
+    "server_patch_hash_a": "86e31891547e87da",
+    "server_patch_hash_b": "86e31891547e87da",
+    "showdown_commit_a": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "showdown_commit_b": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "150 == 150",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=399 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "150 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "760c1e5935fe0474",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "23351717487f69e5",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "9ce8872b75065c63",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "2b4-devstrength-v001",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "14b3aaa041b1fcc9",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "13795ab9df4f4204d90d1d295ccd3ae2e7c05019",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_gates_b": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "150 == 150",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=440 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "150 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "760c1e5935fe0474",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "cb5dd363dd630277",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "9ce8872b75065c63",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "2b4-devstrength-v001",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "f2bb1d3dfd2849b5",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "13795ab9df4f4204d90d1d295ccd3ae2e7c05019",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": true,
+  "schema_version": 1,
+  "verdict": "NO-GO",
+  "verdict_reasons": [
+    "delta <= 0 (candidate not ahead)",
+    "p too high (p=0.1048 >= 0.05)",
+    "cell flip winning->losing: max_damage x 69f471c2740f1927",
+    "weak-policy-only improvement (flat/negative delta on heuristic+max_damage cells)"
+  ],
+  "warnings": [
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim.",
+    "Paired seeds share luck only up to the first differing choice: after the two configs diverge, the battles are no longer luck-matched, so per-turn comparisons past that point are not paired."
+  ],
+  "worst_cell": {
+    "n": 50,
+    "opp_policy": "max_damage",
+    "opp_team_hash": "69f471c2740f1927",
+    "wilson_hi": 0.13460337877954667,
+    "wilson_lo": 0.011038652660826577,
+    "win_rate": 0.04
+  }
+}
