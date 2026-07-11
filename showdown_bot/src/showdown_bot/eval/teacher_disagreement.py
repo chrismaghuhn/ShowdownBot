@@ -46,8 +46,13 @@ by value; ``top_opportunities`` ties break on ``decision_id``. No time/random in
 """
 from __future__ import annotations
 
+import argparse
+import json
 import math
 from collections import defaultdict
+from pathlib import Path
+
+from showdown_bot.learning.dataset import load_rows
 
 _BREAKDOWN_KEYS = (
     "turn_bucket",
@@ -478,3 +483,173 @@ def analyze_disagreement(decisions: dict[str, list[dict]]) -> dict:
     }
     _validate_output_numbers(result)
     return result
+
+
+# --- loader wiring (2b-3.5 T3f Task 2) -----------------------------------------------------------
+
+LIMITATIONS_NOTE = (
+    "The rollout teacher is an OFFLINE one-step counterfactual rollout, which makes it "
+    "optimistic: a strict disagreement here is NOT a proven play error, and a strict "
+    "agreement is NOT a strength claim. This atlas identifies WHERE regret concentrates, "
+    "to aim the next reranker/belief work -- it is aimed measurement, not a gate."
+)
+
+
+def teacher_disagreement_atlas(dataset_path: str, *, validate: bool = True) -> dict:
+    """Load a rollout-label dataset and run the topset disagreement classifier.
+
+    Wires ``learning.dataset.load_rows`` -> ``group_by_decision`` -> ``analyze_disagreement``
+    and adds a top-level ``dataset`` block (``path``/``rows``/``decisions``/``games``, the
+    last counting distinct ``metadata.game_id`` values across ALL loaded rows). Deterministic
+    for a given dataset file (``analyze_disagreement`` iterates in sorted ``decision_id``
+    order; see its docstring).
+
+    ``validate`` is TEST-ONLY: production callers must keep the default ``True`` (the
+    committed rollout datasets are schema-valid, so ``load_rows`` should never silently
+    accept a malformed row). Tests may pass ``validate=False`` to exercise this function
+    against a minimal hand-authored fixture that satisfies this module's OWN
+    ``_validate_row`` invariants without satisfying the full frozen dataset schema
+    (``learning.schema.validate_row``, which demands an exact, larger key set)."""
+    rows = load_rows(dataset_path, validate=validate)
+    decisions = group_by_decision(rows)
+    atlas = analyze_disagreement(decisions)
+    games = len({row["metadata"]["game_id"] for row in rows})
+    result = {
+        "dataset": {
+            "path": str(dataset_path),
+            "rows": len(rows),
+            "decisions": len(decisions),
+            "games": games,
+        },
+        **atlas,
+    }
+    _validate_output_numbers(result)
+    return result
+
+
+# --- markdown rendering ---------------------------------------------------------------------------
+
+_BREAKDOWN_TABLE_COLUMNS = (
+    "value",
+    "decisions",
+    "agreements",
+    "disagreements",
+    "disagreement_rate",
+    "mean_disagreement_regret",
+)
+_TOP_OPPORTUNITY_COLUMNS = (
+    "decision_id",
+    "game_id",
+    "regret_gap",
+    "turn_bucket",
+    "game_mode",
+    "action_signature",
+    "high_value",
+)
+
+
+def _fmt(value: object) -> str:
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.6f}"
+    return str(value)
+
+
+def _md_table(headers: tuple[str, ...], rows: list[dict]) -> str:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(_fmt(row[h]) for h in headers) + " |")
+    return "\n".join(lines)
+
+
+def format_md(atlas: dict) -> str:
+    """Render a deterministic markdown report for a ``teacher_disagreement_atlas`` result.
+
+    Sections: Summary (denominators + topset/strict disagreement rates), one table per
+    bucket in ``breakdowns`` (sorted by bucket-key name), Top Opportunities, and an
+    honest-limitations section (``LIMITATIONS_NOTE``) making clear the rollout teacher is
+    an optimistic offline counterfactual, not a gate. Purely a function of ``atlas`` --
+    no time/random -- so equal input always renders equal output."""
+    dataset = atlas["dataset"]
+    corpus = atlas["corpus"]
+
+    lines = ["# Teacher-Disagreement Atlas", ""]
+
+    lines += [
+        "## Summary",
+        "",
+        f"- dataset: `{dataset['path']}` ({dataset['rows']} rows, "
+        f"{dataset['decisions']} decisions, {dataset['games']} games)",
+        f"- decisions: {corpus['decisions']}",
+        f"- forced: {corpus['forced']}",
+        f"- multi_candidate: {corpus['multi_candidate']}",
+        f"- strict_unique_choices: {corpus['strict_unique_choices']}",
+        f"- topset_disagreement_rate: {_fmt(atlas['topset_disagreement_rate'])} "
+        f"({corpus['topset_disagreements']}/{corpus['multi_candidate']})",
+        f"- strict_disagreement_rate: {_fmt(atlas['strict_disagreement_rate'])} "
+        f"({corpus['strict_disagreements']}/{corpus['strict_unique_choices']})",
+        f"- high_value_threshold: {_fmt(atlas['high_value_threshold'])}",
+        "",
+    ]
+
+    lines += ["## Breakdowns", ""]
+    for key in sorted(atlas["breakdowns"]):
+        lines += [f"### {key}", "", _md_table(_BREAKDOWN_TABLE_COLUMNS, atlas["breakdowns"][key]), ""]
+
+    lines += ["## Top Opportunities", ""]
+    if atlas["top_opportunities"]:
+        lines += [_md_table(_TOP_OPPORTUNITY_COLUMNS, atlas["top_opportunities"]), ""]
+    else:
+        lines += ["(none)", ""]
+
+    lines += ["## Limitations", "", LIMITATIONS_NOTE, ""]
+
+    return "\n".join(lines) + "\n"
+
+
+# --- CLI --------------------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> None:
+    """``python -m showdown_bot.eval.teacher_disagreement <dataset> --out-md <..> --out-json <..>``
+
+    Runs ``teacher_disagreement_atlas`` on a committed rollout-label dataset and writes both
+    a markdown report (``format_md``) and a pretty, sort_keys=True JSON dump (both with a
+    trailing newline)."""
+    parser = argparse.ArgumentParser(
+        prog="python -m showdown_bot.eval.teacher_disagreement",
+        description=(
+            "Mine a rollout-label dataset for WHERE the current heuristic's chosen action "
+            "disagrees with the rollout teacher's best candidate."
+        ),
+    )
+    parser.add_argument("dataset", help="path to a rollout-label .jsonl(.gz) dataset")
+    parser.add_argument("--out-md", required=True, help="output path for the markdown report")
+    parser.add_argument("--out-json", required=True, help="output path for the JSON atlas")
+    args = parser.parse_args(argv)
+
+    atlas = teacher_disagreement_atlas(args.dataset)
+    md = format_md(atlas)
+    json_text = json.dumps(atlas, indent=2, sort_keys=True) + "\n"
+
+    out_md = Path(args.out_md)
+    out_json = Path(args.out_json)
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_md.write_text(md, encoding="utf-8")
+    out_json.write_text(json_text, encoding="utf-8")
+
+    corpus = atlas["corpus"]
+    print(
+        f"DISAGREEMENT ATLAS: decisions={corpus['decisions']} "
+        f"strict_disagreements={corpus['strict_disagreements']} "
+        f"(rate={atlas['strict_disagreement_rate']:.6f})"
+    )
+
+
+if __name__ == "__main__":
+    main()

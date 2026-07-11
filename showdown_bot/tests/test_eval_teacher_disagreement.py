@@ -9,14 +9,20 @@ no CLI -- fabricated dicts only (a later task wires the real loader).
 """
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
 
+import showdown_bot.eval.teacher_disagreement as teacher_disagreement
 from showdown_bot.eval.teacher_disagreement import (
+    LIMITATIONS_NOTE,
     TeacherDisagreementError,
     analyze_disagreement,
+    format_md,
     group_by_decision,
+    main,
+    teacher_disagreement_atlas,
 )
 
 
@@ -690,3 +696,128 @@ def test_group_by_decision_then_analyze_disagreement_round_trip():
     assert result["corpus"]["strict_unique_choices"] == 2
     assert result["corpus"]["strict_disagreements"] == 1
     assert result["disagreement_rate"] == 0.5
+
+
+# --- loader wiring + markdown/JSON + CLI (2b-3.5 T3f Task 2) ------------------------------------
+#
+# A schema-VALID rollout row must carry the full frozen ``learning.schema`` key set (74 feature
+# columns alone), which is heavy to hand-fabricate for a tiny fixture. This module's own
+# ``_validate_row`` only requires the small field subset the ``_candidate`` helper above already
+# produces, so the fixture rows below reuse ``_candidate`` verbatim and load with
+# ``validate=False`` (documented as test-only on ``teacher_disagreement_atlas``).
+
+_TINY_DECISIONS = {
+    "forced": (_candidate("forced", 0, chosen=True, teacher_best=True, gap=0.0, game_id="g1"),),
+    "agree": (
+        _candidate("agree", 0, chosen=True, teacher_best=True, gap=0.0, game_id="g1"),
+        _candidate("agree", 1, chosen=False, teacher_best=False, gap=-1.0, game_id="g1"),
+    ),
+    "disagree": (
+        _candidate("disagree", 0, chosen=True, teacher_best=False, gap=-2.5, game_id="g2"),
+        _candidate("disagree", 1, chosen=False, teacher_best=True, gap=0.0, game_id="g2"),
+    ),
+}
+
+
+def _write_jsonl(path, decisions: dict[str, tuple[dict, ...]]) -> None:
+    with open(path, "w", encoding="utf-8") as fh:
+        for row in _flatten(decisions):
+            fh.write(json.dumps(row) + "\n")
+
+
+def test_teacher_disagreement_atlas_returns_internally_consistent_counts(tmp_path):
+    dataset_path = tmp_path / "fixture.jsonl"
+    _write_jsonl(dataset_path, _TINY_DECISIONS)
+
+    atlas = teacher_disagreement_atlas(str(dataset_path), validate=False)
+
+    assert atlas["dataset"]["path"] == str(dataset_path)
+    assert atlas["dataset"]["rows"] == 5
+    assert atlas["dataset"]["decisions"] == 3
+    assert atlas["dataset"]["games"] == 2
+
+    corpus = atlas["corpus"]
+    assert corpus["forced"] + corpus["multi_candidate"] == corpus["decisions"]
+    assert corpus["strict_disagreements"] <= corpus["strict_unique_choices"]
+    assert corpus["forced"] == 1
+    assert corpus["strict_unique_choices"] == 2
+    assert corpus["strict_disagreements"] == 1
+
+
+def test_teacher_disagreement_atlas_is_deterministic_across_calls(tmp_path):
+    dataset_path = tmp_path / "fixture.jsonl"
+    _write_jsonl(dataset_path, _TINY_DECISIONS)
+
+    first = teacher_disagreement_atlas(str(dataset_path), validate=False)
+    second = teacher_disagreement_atlas(str(dataset_path), validate=False)
+
+    assert first == second
+
+
+def test_format_md_contains_required_sections_and_limitations_note(tmp_path):
+    dataset_path = tmp_path / "fixture.jsonl"
+    _write_jsonl(dataset_path, _TINY_DECISIONS)
+    atlas = teacher_disagreement_atlas(str(dataset_path), validate=False)
+
+    md = format_md(atlas)
+
+    assert "## Summary" in md
+    assert "strict_unique_choices" in md
+    assert "topset_disagreement_rate" in md
+    assert "strict_disagreement_rate" in md
+    assert "## Breakdowns" in md
+    for key in atlas["breakdowns"]:
+        assert f"### {key}" in md
+    assert "## Top Opportunities" in md
+    assert "## Limitations" in md
+    # Exact-substring assert: the honest-limitations framing must survive verbatim.
+    assert LIMITATIONS_NOTE in md
+    assert "OFFLINE one-step counterfactual" in LIMITATIONS_NOTE
+    assert "NOT a proven play error" in LIMITATIONS_NOTE
+    assert "NOT a strength claim" in LIMITATIONS_NOTE
+
+
+def test_format_md_is_deterministic_across_calls(tmp_path):
+    dataset_path = tmp_path / "fixture.jsonl"
+    _write_jsonl(dataset_path, _TINY_DECISIONS)
+    atlas = teacher_disagreement_atlas(str(dataset_path), validate=False)
+
+    assert format_md(atlas) == format_md(atlas)
+
+
+def test_main_writes_markdown_and_json_reports(tmp_path, monkeypatch):
+    # main() always calls teacher_disagreement_atlas with the production default
+    # (validate=True), matching the real committed dataset. The tiny fixture here only
+    # satisfies this module's OWN validation layer, not the full frozen dataset schema, so
+    # the loader dependency is patched to load leniently (validate=False) for this
+    # structure test -- this does not change teacher_disagreement_atlas's own signature or
+    # default.
+    real_load_rows = teacher_disagreement.load_rows
+    monkeypatch.setattr(
+        teacher_disagreement,
+        "load_rows",
+        lambda path, validate=True: real_load_rows(path, validate=False),
+    )
+
+    dataset_path = tmp_path / "fixture.jsonl"
+    _write_jsonl(dataset_path, _TINY_DECISIONS)
+    out_md = tmp_path / "out" / "atlas.md"
+    out_json = tmp_path / "out" / "atlas.json"
+
+    main([str(dataset_path), "--out-md", str(out_md), "--out-json", str(out_json)])
+
+    assert out_md.exists()
+    assert out_json.exists()
+
+    md_text = out_md.read_text(encoding="utf-8")
+    assert "# Teacher-Disagreement Atlas" in md_text
+    assert LIMITATIONS_NOTE in md_text
+
+    json_text = out_json.read_text(encoding="utf-8")
+    assert json_text.endswith("\n")
+    payload = json.loads(json_text)
+    assert payload["dataset"]["decisions"] == 3
+    assert payload["corpus"]["strict_unique_choices"] == 2
+    # sort_keys=True: top-level keys must come back alphabetically ordered.
+    raw_top_level_line = json_text.splitlines()[1].strip()
+    assert raw_top_level_line.startswith('"breakdown_denominator"')
