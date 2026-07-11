@@ -36,10 +36,20 @@ from showdown_bot.learning.schema import FEATURE_COLUMNS, LABEL_KEYS, METADATA_K
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MODULE_PATH = _REPO_ROOT / "tools" / "kaggle" / "kernel_payload.py"
+_DATAGEN_KERNEL_MODULE_PATH = _REPO_ROOT / "tools" / "kaggle" / "datagen_kernel.py"
 
 _spec = importlib.util.spec_from_file_location("kernel_payload", _MODULE_PATH)
 kernel_payload = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(kernel_payload)
+
+# 2b-2.5a EXTRA_ENV passthrough (2026-07-11): datagen_kernel.py's own env-header helper
+# (``_extra_env_from_header``) is pure (just dict shape validation, no clone/subprocess), so it
+# is loaded + unit-tested directly here too, same importlib-from-path technique as
+# kernel_payload above -- the kernel itself is never run.
+_datagen_kernel_spec = importlib.util.spec_from_file_location(
+    "datagen_kernel", _DATAGEN_KERNEL_MODULE_PATH)
+datagen_kernel = importlib.util.module_from_spec(_datagen_kernel_spec)
+_datagen_kernel_spec.loader.exec_module(datagen_kernel)
 
 _PREFIX_REFERENCE_JSONL = _REPO_ROOT / "data" / "eval" / "t4" / "rerun" / "t4rerun-prefix.jsonl"
 _PREFIX_REFERENCE_ROOM_RAW_DIR = _REPO_ROOT / "data" / "eval" / "t4" / "rerun" / "room_raw" / "prefix"
@@ -188,6 +198,154 @@ def test_run_schedule_seeded_sets_gauntlet_battle_timeout_env(tmp_path, monkeypa
 
     assert captured["server_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
     assert captured["client_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
+
+
+# ---------------------------------------------------------------------------
+# run_datagen extra_env passthrough (2b-2.5a, 2026-07-11): the controller needs to inject an
+# extra SHOWDOWN_* env var (e.g. SHOWDOWN_FAST_BOARD_PROTECT_PENALTY) into a datagen run without
+# disturbing default behavior. run_datagen itself is NOT otherwise unit-tested (starts real
+# subprocesses via run_schedule_seeded) -- these tests monkeypatch run_schedule_seeded to a fake
+# that only records its extra_env kwarg, staying inside the no-battles constraint. The fake
+# creates out_dir but leaves it otherwise empty, so validate_datagen_output (called for real,
+# unmonkeypatched) fails cleanly (missing seeds.jsonl etc., exactly like the "fails cleanly"
+# tests above) -- that's fine, these tests only assert on the captured extra_env kwarg.
+# ---------------------------------------------------------------------------
+
+def _fake_run_schedule_seeded_capturing_extra_env(captured):
+    def fake(repo_root, showdown_dir, schedule_relpath, seed_base, out_dir, *,
+             dataset_export=None, extra_env=None, timeout_s=9000):
+        captured["extra_env"] = extra_env
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        return {"results": str(Path(out_dir) / "results.jsonl")}
+    return fake
+
+
+def test_run_datagen_extra_env_none_is_byte_identical_to_teacher_only(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_extra_env(captured),
+    )
+
+    kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+    )
+
+    assert captured["extra_env"] == {"SHOWDOWN_DATASET_TEACHER": "rollout"}
+
+
+def test_run_datagen_extra_env_merges_caller_keys_over_teacher_default(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_extra_env(captured),
+    )
+
+    kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+        extra_env={"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0"},
+    )
+
+    assert captured["extra_env"] == {
+        "SHOWDOWN_DATASET_TEACHER": "rollout",
+        "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0",
+    }
+
+
+def test_run_datagen_extra_env_caller_can_explicitly_override_teacher_key(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded",
+        _fake_run_schedule_seeded_capturing_extra_env(captured),
+    )
+
+    kernel_payload.run_datagen(
+        str(_REPO_ROOT), "fake_showdown_dir", _DATAGEN_HERO, str(tmp_path / "out"),
+        extra_env={"SHOWDOWN_DATASET_TEACHER": "heuristic"},
+    )
+
+    assert captured["extra_env"] == {"SHOWDOWN_DATASET_TEACHER": "heuristic"}
+
+
+# ---------------------------------------------------------------------------
+# datagen_kernel._extra_env_from_header (2b-2.5a EXTRA_ENV passthrough, 2026-07-11): pure
+# header-field parsing/validation, tested directly -- the kernel's main() is never run here.
+# ---------------------------------------------------------------------------
+
+def test_extra_env_from_header_absent_field_returns_none():
+    assert datagen_kernel._extra_env_from_header({"REPO_SHA": "abc", "HERO_KEY": "rain"}) is None
+
+
+def test_extra_env_from_header_dict_passes_through():
+    env = {
+        "REPO_SHA": "abc", "HERO_KEY": "rain",
+        "EXTRA_ENV": {"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0"},
+    }
+
+    assert datagen_kernel._extra_env_from_header(env) == {
+        "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0",
+    }
+
+
+def test_extra_env_from_header_empty_dict_passes_through():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "EXTRA_ENV": {}}
+
+    assert datagen_kernel._extra_env_from_header(env) == {}
+
+
+def test_extra_env_from_header_non_dict_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "EXTRA_ENV": "not a dict"}
+
+    with pytest.raises(ValueError, match="EXTRA_ENV"):
+        datagen_kernel._extra_env_from_header(env)
+
+
+def test_extra_env_from_header_non_string_value_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain",
+           "EXTRA_ENV": {"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": -3.0}}
+
+    with pytest.raises(ValueError, match="EXTRA_ENV"):
+        datagen_kernel._extra_env_from_header(env)
+
+
+def test_extra_env_from_header_non_string_key_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "EXTRA_ENV": {1: "x"}}
+
+    with pytest.raises(ValueError, match="EXTRA_ENV"):
+        datagen_kernel._extra_env_from_header(env)
+
+
+def test_extra_env_from_header_list_raises():
+    env = {"REPO_SHA": "abc", "HERO_KEY": "rain", "EXTRA_ENV": ["not", "a", "dict"]}
+
+    with pytest.raises(ValueError, match="EXTRA_ENV"):
+        datagen_kernel._extra_env_from_header(env)
+
+
+# ---------------------------------------------------------------------------
+# EXTRA_ENV header round-trip through kaggle_driver's env-header injection (pure -- confirms
+# json.dumps/json.loads nest an EXTRA_ENV object without any special-casing needed in
+# kaggle_driver.push, which reuses inject_env_header/parse_env_header for the whole header).
+# ---------------------------------------------------------------------------
+
+def test_extra_env_round_trips_through_kaggle_driver_env_header():
+    kaggle_driver_path = _REPO_ROOT / "tools" / "kaggle" / "kaggle_driver.py"
+    spec = importlib.util.spec_from_file_location("kaggle_driver_for_extra_env_test", kaggle_driver_path)
+    kaggle_driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kaggle_driver)
+
+    env = {
+        "REPO_URL": "https://example.invalid/repo.git",
+        "REPO_SHA": "deadbeef",
+        "HERO_KEY": "rain",
+        "EXTRA_ENV": {"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0"},
+    }
+    injected = kaggle_driver.inject_env_header("print(1)\n", env)
+
+    assert kaggle_driver.parse_env_header(injected) == env
+    assert datagen_kernel._extra_env_from_header(kaggle_driver.parse_env_header(injected)) == {
+        "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-3.0",
+    }
 
 
 # ---------------------------------------------------------------------------

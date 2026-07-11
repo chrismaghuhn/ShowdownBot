@@ -679,7 +679,7 @@ def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
     return stop
 
 
-def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
+def run_datagen(repo_root, showdown_dir, hero_key, out_dir, *, extra_env=None) -> dict:
     """Kaggle datagen kernel orchestration for ONE hero (Task 5). Resolves the hero's committed
     schedule (``datagen_2b25a.schedule_relpath(hero_key)``) and seed base
     (``datagen_2b25a.SEED_BASES[hero_key]``), runs it via ``run_schedule_seeded`` with a
@@ -690,9 +690,20 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     ``kaggle_driver.parse_verdict``'s expectations exactly). Returns a dict of
     ``run_schedule_seeded``'s output paths plus ``hero_key``/``ok``/``detail``/``verdict``.
 
-    NOT unit-tested directly -- like ``run_schedule_seeded``, it starts subprocesses (server +
-    gauntlet CLI) and only ever runs on Kaggle (Task 6). Only ``validate_datagen_output`` (the
-    pure validation half) is exercised locally.
+    ``extra_env`` (2b-2.5a, EXTRA_ENV passthrough, 2026-07-11): an optional dict of additional
+    ``SHOWDOWN_*`` env vars to inject into the gauntlet subprocess for THIS run only (e.g. a
+    play-quality knob like ``SHOWDOWN_FAST_BOARD_PROTECT_PENALTY`` under measurement). Merged
+    OVER the base ``{"SHOWDOWN_DATASET_TEACHER": "rollout"}`` extra_env this function always
+    passes to ``run_schedule_seeded`` -- caller keys win (so an explicit
+    ``SHOWDOWN_DATASET_TEACHER`` override is honored), but an ABSENT caller key never drops the
+    teacher default. ``extra_env=None`` (the default) is byte-identical to the pre-passthrough
+    behavior: only the teacher key is passed.
+
+    NOT unit-tested via a real run -- like ``run_schedule_seeded``, it starts subprocesses
+    (server + gauntlet CLI) and only ever runs on Kaggle (Task 6). Only
+    ``validate_datagen_output`` (the pure validation half) is exercised locally; the extra_env
+    merge itself IS unit-tested by monkeypatching ``run_schedule_seeded`` to capture its
+    ``extra_env`` kwarg (see ``test_kernel_payload.py``).
 
     Runs a MEMTRACE sampler (``start_memtrace``, 30s interval) for the duration of the schedule
     run -- see the module docstring for why.
@@ -704,12 +715,16 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     dataset_export = out_dir / "dataset.jsonl"
     results_path = out_dir / "results.jsonl"
 
+    combined_extra_env = {"SHOWDOWN_DATASET_TEACHER": "rollout"}
+    if extra_env:
+        combined_extra_env.update(extra_env)
+
     stop_memtrace = start_memtrace(str(results_path), interval_s=30.0)
     try:
         paths = run_schedule_seeded(
             str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
             dataset_export=str(dataset_export),
-            extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
+            extra_env=combined_extra_env,
         )
     finally:
         stop_memtrace()
