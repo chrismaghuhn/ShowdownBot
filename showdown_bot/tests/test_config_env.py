@@ -97,6 +97,29 @@ def test_config_hash_changes_when_gauntlet_battle_timeout_toggled():
     assert h_off != h_on
 
 
+# --- schedule hero-agent selector (2b-4 Task 3) -----------------------------------------
+
+def test_hero_agent_is_behavior_affecting_and_classified():
+    # Read in showdown_bot.cli (cli.run_schedule) -> Python source, not the server-side set.
+    assert "SHOWDOWN_HERO_AGENT" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_HERO_AGENT" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_HERO_AGENT")
+
+
+def test_behavior_env_includes_hero_agent():
+    env = {"SHOWDOWN_HERO_AGENT": "heuristic_reranker", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_HERO_AGENT": "heuristic_reranker",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_hero_agent_toggled():
+    h_heuristic = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_HERO_AGENT": "heuristic"})))
+    h_override = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_HERO_AGENT": "heuristic_reranker"})))
+    assert h_heuristic != h_override
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):

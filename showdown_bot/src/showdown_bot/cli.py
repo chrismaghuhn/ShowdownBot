@@ -66,7 +66,16 @@ def run_schedule(args) -> None:
 
     sched = load_schedule(args.schedule)
     base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE")
+    # 2b-4 Task 3: hero-agent selector for schedule runs (Kaggle kernel wiring for the
+    # heuristic_reranker override agent -- see tools/kaggle/kernel_payload.py's
+    # run_gated_override_determinism/_strength). Absent -> "heuristic", byte-identical to
+    # every prior run_schedule behavior. This is the ONLY way to pick a non-default hero
+    # agent for a schedule run: ScheduleRow has no per-row hero-agent field (rows only vary
+    # opp_policy/opp_team_path/seed_index -- the opponent side; see eval/schedule.py).
+    hero_agent = os.environ.get("SHOWDOWN_HERO_AGENT", "heuristic")
     print(f"schedule {args.schedule}: {len(sched.rows)} rows, schedule_hash={sched.schedule_hash}")
+    if hero_agent != "heuristic":
+        print(f"  hero agent: {hero_agent} (SHOWDOWN_HERO_AGENT)")
     if base:
         print("  seed mode: per-battle (SHOWDOWN_BATTLE_SEED_BASE) — REQUIRES a fresh server (Channel A)")
 
@@ -145,7 +154,7 @@ def run_schedule(args) -> None:
         # start_ts is captured ONCE here (so run_id is constant across rows, new per run);
         # the run-level config_hash uses the schedule's representative (agent, format).
         _start_ts = datetime.now(timezone.utc).isoformat()
-        _run_config_hash = _config_hash_for("heuristic", sched.rows[0].format_id)
+        _run_config_hash = _config_hash_for(hero_agent, sched.rows[0].format_id)
         run_id = make_run_id(base, sched.schedule_hash, _run_config_hash, _start_ts)
         manifest = build_run_manifest(
             run_id=run_id, seed_base=base, schedule_hash=sched.schedule_hash,
@@ -163,7 +172,7 @@ def run_schedule(args) -> None:
             if writer is not None:
                 def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
                     seed = derive_battle_seed(base, _row.seed_index)
-                    config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
+                    config_id, format_id = hero_agent, _row.format_id  # bot version vs format (Fix 1)
                     writer.write({
                         "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
                         "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
@@ -186,7 +195,7 @@ def run_schedule(args) -> None:
             stats = asyncio.run(
                 run_local_gauntlet(
                     games=1,
-                    hero_agent="heuristic",
+                    hero_agent=hero_agent,
                     villain_agent=row.opp_policy,
                     format_id=row.format_id,
                     team_path=row.hero_team_path,

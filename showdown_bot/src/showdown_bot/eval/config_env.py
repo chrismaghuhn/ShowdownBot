@@ -46,6 +46,10 @@ BEHAVIOR_AFFECTING = frozenset({
     # Python source (showdown_bot.client.gauntlet), so it belongs in this set, NOT
     # SERVER_SIDE_BEHAVIOR_AFFECTING.
     "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S",
+    # [2b-4 Task 3] Selects the hero agent for a schedule run (cli.run_schedule) -- "heuristic"
+    # (default) vs "heuristic_reranker" (the gated override agent, Task 2). Directly changes
+    # which move is played -> config_hash, same rationale as SHOWDOWN_RERANKER_OVERRIDE above.
+    "SHOWDOWN_HERO_AGENT",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the

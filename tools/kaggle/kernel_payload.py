@@ -56,8 +56,9 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from showdown_bot.eval import datagen_2b25a
+from showdown_bot.eval import datagen_2b25a, schedule_2b4
 from showdown_bot.eval.baseline import WinnerSequenceError, verify_winner_sequence
+from showdown_bot.eval.identity import compare_identity
 from showdown_bot.eval.room_dump import GAUNTLET_NAME_SUBS, normalize_battle_log
 from showdown_bot.eval.run_manifest import load_showdown_commit
 from showdown_bot.eval.schedule import ScheduleError, load_schedule, verify_schedule_alignment
@@ -83,6 +84,17 @@ _FLAT_OUTPUT_NAMES = (
     "client.log",
     "verdict.txt",
 )
+
+# 2b-4 Task 3: the gated reranker override agent's committed model (the ONLY model this slice
+# uses -- see spec "Non-goals: training a NEW model"). Same env var names client/gauntlet.py's
+# _load_reranker_override_from_env reads.
+_2B4_MODEL_PATH = "models/reranker/2026-07-11-2b25a-attack-lgbm.txt"
+_2B4_MANIFEST_PATH = "models/reranker/2026-07-11-2b25a-attack-manifest.json"
+# SAME seed_base within a pair of runs (Channel A: seed_i depends only on (seed_base,
+# seed_index)) -- the determinism gate's two runs, and the dev-strength gate's heuristic/
+# override runs, must each use ONE constant seed_base for their pair.
+_2B4_DETERMINISM_SEED_BASE = "2b4-determinism-v001"
+_2B4_DEVSTRENGTH_SEED_BASE = "2b4-devstrength-v001"
 
 
 # ---------------------------------------------------------------------------
@@ -710,6 +722,105 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
         line = print_verdict("DATAGEN", False, detail)
 
     return {**paths, "hero_key": hero_key, "ok": ok, "detail": detail, "verdict": line}
+
+
+# ---------------------------------------------------------------------------
+# 2b-4 Task 3: gated reranker override -- determinism gate + dev-strength runs
+# ---------------------------------------------------------------------------
+
+def _2b4_override_env(repo_root) -> dict:
+    """Client-env overlay that selects + activates the ``heuristic_reranker`` override agent
+    for a schedule run: ``SHOWDOWN_HERO_AGENT`` (cli.run_schedule's hero-agent selector, Task 3)
+    plus the shadow-mirroring gate vars ``_load_reranker_override_from_env`` reads
+    (``client/gauntlet.py``). Model/manifest paths are resolved absolute against
+    ``repo_root`` so this is correct regardless of the gauntlet CLI subprocess's cwd
+    (``run_schedule_seeded`` always runs it with ``cwd=<repo_root>/showdown_bot``)."""
+    repo_root = Path(repo_root)
+    return {
+        "SHOWDOWN_HERO_AGENT": "heuristic_reranker",
+        "SHOWDOWN_RERANKER_OVERRIDE": "1",
+        "SHOWDOWN_RERANKER_MODEL_PATH": str(repo_root / _2B4_MODEL_PATH),
+        "SHOWDOWN_RERANKER_MANIFEST_PATH": str(repo_root / _2B4_MANIFEST_PATH),
+    }
+
+
+def run_gated_override_determinism(repo_root, showdown_dir, out_dir) -> dict:
+    """2b-4 Task 3: the Channel-A double-run identity gate for the ``heuristic_reranker``
+    override agent (spec: "Identity before strength — non-negotiable"). Runs
+    ``config/eval/schedules/2b4_determinism_v001.yaml`` TWICE, each its own fresh server (a
+    fresh ``run_schedule_seeded`` call -- Channel A's counter-from-0 contract) with the SAME
+    seed_base and the override env active both times (``_2b4_override_env``), into
+    ``<out_dir>/run1`` and ``<out_dir>/run2``. Compares the two runs' result rows with
+    ``eval.identity.compare_identity`` (winner/turns/normalized_room_log_sha256 per battle) and
+    prints the ``2B4-DETERMINISM: PASS/FAIL`` verdict line itself via ``print_verdict`` (mirrors
+    ``run_datagen``'s self-printing convention; wire format matches
+    ``kaggle_driver.parse_verdict``'s expectations).
+
+    NOT unit-tested directly -- starts real subprocesses (server + gauntlet CLI) via
+    ``run_schedule_seeded``, exactly like ``run_datagen``/``run_schedule_seeded`` themselves;
+    only ever runs on Kaggle. The pure comparison it delegates to
+    (``eval.identity.compare_identity``) is unit-tested locally against fabricated fixtures.
+    """
+    repo_root = Path(repo_root)
+    out_dir = Path(out_dir)
+    override_env = _2b4_override_env(repo_root)
+
+    paths_1 = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_2b4.schedule_relpath("determinism"),
+        _2B4_DETERMINISM_SEED_BASE, str(out_dir / "run1"), extra_env=override_env,
+    )
+    paths_2 = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_2b4.schedule_relpath("determinism"),
+        _2B4_DETERMINISM_SEED_BASE, str(out_dir / "run2"), extra_env=override_env,
+    )
+
+    rows_1 = _load_jsonl(paths_1["results"])
+    rows_2 = _load_jsonl(paths_2["results"])
+    report = compare_identity(rows_1, rows_2)
+    detail = f"{report.n_compared} battles compared, {len(report.diffs)} diff(s)"
+    line = print_verdict("2B4-DETERMINISM", report.identical, detail)
+
+    return {
+        "run1": paths_1, "run2": paths_2, "report": report,
+        "ok": report.identical, "detail": detail, "verdict": line,
+    }
+
+
+def run_gated_override_strength(repo_root, showdown_dir, out_dir) -> dict:
+    """2b-4 Task 3: dev-panel paired strength runs for the ``heuristic_reranker`` override
+    agent (only meaningful after ``run_gated_override_determinism`` PASSes -- enforced by the
+    CONTROLLER, Task 4, not by this function). Runs
+    ``config/eval/schedules/2b4_devstrength_v001.yaml`` TWICE with the SAME seed_base against
+    the SAME baseline villain: once ``hero_agent="heuristic"`` (into ``<out_dir>/heuristic``),
+    once with the override env active (``<out_dir>/override``). Same schedule + same seeds +
+    same opponent on both runs is exactly what T5's ``eval.pairing.pair_runs`` needs for a valid
+    pair (schedule_hash/seed_base/panel_hash/format_id equal, config_hash differing because
+    ``SHOWDOWN_RERANKER_OVERRIDE`` only appears in the override run's behavior_env -- see
+    ``eval.config_env``/``eval.schedule_2b4``'s module docstring).
+
+    Prints ``2B4-STRENGTH: DONE`` -- no PASS/FAIL here: the GO/NO-GO/UNDERPOWERED verdict is
+    produced LOCALLY (``cli eval-report --mode paired`` against the two copied-out result
+    JSONLs), not decided in-kernel. NOT unit-tested directly, same rationale as
+    ``run_gated_override_determinism``.
+    """
+    repo_root = Path(repo_root)
+    out_dir = Path(out_dir)
+    override_env = _2b4_override_env(repo_root)
+
+    heuristic_paths = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_2b4.schedule_relpath("devstrength"),
+        _2B4_DEVSTRENGTH_SEED_BASE, str(out_dir / "heuristic"),
+    )
+    override_paths = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_2b4.schedule_relpath("devstrength"),
+        _2B4_DEVSTRENGTH_SEED_BASE, str(out_dir / "override"), extra_env=override_env,
+    )
+
+    detail = f"heuristic={heuristic_paths['results']} override={override_paths['results']}"
+    line = f"2B4-STRENGTH: DONE ({detail})"
+    print(line)
+
+    return {"heuristic": heuristic_paths, "override": override_paths, "verdict": line}
 
 
 # ---------------------------------------------------------------------------

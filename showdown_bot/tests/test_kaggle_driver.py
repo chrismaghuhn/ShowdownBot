@@ -194,6 +194,38 @@ def test_parse_verdict_bracket_leading_plain_text_still_works():
 
 
 # ---------------------------------------------------------------------------
+# 2b-4 Task 3: gated_override_kernel.py's 2B4-DETERMINISM:/2B4-STRENGTH: verdict lines
+# ---------------------------------------------------------------------------
+
+def test_parse_verdict_2b4_determinism_pass():
+    log = "2B4-DETERMINISM: PASS (24 battles compared, 0 diff(s))\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "PASS"
+    assert line == "2B4-DETERMINISM: PASS (24 battles compared, 0 diff(s))"
+
+
+def test_parse_verdict_2b4_determinism_fail():
+    log = "2B4-DETERMINISM: FAIL (24 battles compared, 3 diff(s))\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "FAIL"
+    assert "3 diff(s)" in line
+
+
+def test_parse_verdict_2b4_strength_done():
+    log = "2B4-STRENGTH: DONE (heuristic=/tmp/sb_out/heuristic/results.jsonl override=/tmp/sb_out/override/results.jsonl)\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "DONE"
+    assert line.startswith("2B4-STRENGTH: DONE")
+
+
+def test_parse_verdict_2b4_last_line_wins_mixed_with_other_prefixes():
+    log = "DATAGEN: DONE hero=fixed rows=1 games=1\n2B4-DETERMINISM: PASS (24 battles compared, 0 diff(s))\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "PASS"
+    assert line.startswith("2B4-DETERMINISM:")
+
+
+# ---------------------------------------------------------------------------
 # _is_stale_terminal (2b-2.5a Task 5: stale previous-run-status guard for `wait`)
 # ---------------------------------------------------------------------------
 
