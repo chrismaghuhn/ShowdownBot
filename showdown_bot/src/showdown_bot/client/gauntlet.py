@@ -7,6 +7,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
 from showdown_bot.battle.decision_trace import DecisionTrace
@@ -24,6 +25,7 @@ from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.eval.room_dump import normalized_room_log_sha256 as _compute_normalized_room_log_sha256
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
+from showdown_bot.learning.reranker_override import RerankerOverride
 from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming
@@ -64,6 +66,7 @@ def agent_choose(
     oracle=None,
     speed_oracle=None,
     dex=None,
+    override=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -79,6 +82,18 @@ def agent_choose(
     ``node calc.mjs --server`` per live decision, ~70/battle, never closed).
     ``None`` (the request-only eval policies + random never pass them) preserves
     the prior default-construction behavior for callers that don't own a calc.
+
+    ``heuristic_reranker`` (2b-4 Task 2): runs the SAME heuristic fallback chain
+    exactly once -- reusing ``trace`` if the caller already built one, else a
+    fresh ``DecisionTrace()`` -- to get BOTH the heuristic's own ``choose``
+    string AND its populated candidate trace (no second heuristic run). When
+    ``override`` (a ``RerankerOverride``, built once per client from env -- see
+    ``_Client._reranker_override``) is available, that SAME trace + choose are
+    handed to ``override.override_choice(...)``, whose own fail-safe contract
+    means it never raises and returns ``heuristic_choose`` unchanged on any
+    failure. ``override=None`` (the default; also what a disabled/unavailable
+    override resolves to) makes this branch return the heuristic's choose
+    string UNCHANGED -- byte-identical to plain ``"heuristic"``.
     """
     # Eval-only opponent policies (T3c): request-only + deterministic, no state/book needed.
     # Local imports keep eval/opponents off the default/import path (live-path guard).
@@ -113,6 +128,23 @@ def agent_choose(
             )
         except Exception:  # noqa: BLE001
             return f"/choose default|{req.rqid}"
+    if agent == "heuristic_reranker":
+        # Run the heuristic core EXACTLY ONCE -- reuse a caller-supplied trace
+        # (mirrors the heuristic branch below) or build a fresh one, so the same
+        # populated trace + choose string are available to the override with no
+        # second heuristic invocation.
+        local_trace = trace if trace is not None else DecisionTrace()
+        heuristic_choose = choose_with_fallback(
+            req, state=state, book=book, our_side=our_side, priors=priors, report=report,
+            our_spreads=our_spreads, opp_sets=opp_sets, trace=local_trace,
+            calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
+        )
+        if override is None:
+            return heuristic_choose
+        return override.override_choice(
+            trace=local_trace, state=state, request=req,
+            heuristic_choose=heuristic_choose, our_side=our_side,
+        )
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
@@ -177,6 +209,41 @@ class GauntletStats:
 
     def latency_p95(self) -> float:
         return _latency_p95(self.latencies)
+
+
+def _load_reranker_override_from_env(*, format_id: str, dex=None, move_meta=None) -> RerankerOverride | None:
+    """Build a ``RerankerOverride`` from env (2b-4 Task 2), mirroring
+    ``RerankerShadowRuntime.from_env``'s gating pattern: returns ``None``
+    (override disabled) when ``SHOWDOWN_RERANKER_OVERRIDE`` is unset, or on ANY
+    load/schema failure (bad path, unreadable manifest, booster load error) --
+    one warning, never raises. ``heuristic_reranker`` then behaves exactly like
+    ``heuristic`` (fail-safe -- see ``agent_choose``'s ``heuristic_reranker``
+    branch).
+
+    lightgbm is imported ONLY here, ONLY when the env flag is on (rule 5,
+    mirroring the shadow's own import-time discipline -- the disabled path
+    stays lightgbm-free; see ``test_gauntlet_shadow.py``'s import guard).
+
+    A thin module-level function (not a ``RerankerOverride`` classmethod --
+    2b-4 Task 2 is scoped to ``client/gauntlet.py`` only) so ``_Client`` --
+    and tests -- can monkeypatch/stub it directly without constructing a real
+    booster.
+    """
+    if not os.environ.get("SHOWDOWN_RERANKER_OVERRIDE"):
+        return None  # rule 5: no lightgbm import when off
+    try:
+        import lightgbm as lgb  # imported ONLY here, ONLY when enabled
+
+        model_path = os.environ["SHOWDOWN_RERANKER_MODEL_PATH"]
+        manifest_path = os.environ["SHOWDOWN_RERANKER_MANIFEST_PATH"]
+        manifest = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        booster = lgb.Booster(model_file=model_path)
+        return RerankerOverride(
+            booster=booster, manifest=manifest, format_id=format_id, dex=dex, move_meta=move_meta,
+        )
+    except Exception as exc:  # noqa: BLE001 - override is best-effort; disable on ANY failure
+        logger.warning("reranker override disabled: %s", exc)
+        return None
 
 
 class _Client:
@@ -270,6 +337,14 @@ class _Client:
                      "run_seed": self._export.run_seed}
         self._shadow = RerankerShadowRuntime.from_env(
             format_id=format_id, packed_team=packed_team, provenance=_prov)
+        # Reranker Override seam (2b-4 Task 2) — lazily built ONCE per client
+        # (mirrors _decision_deps' build-once bundle) by `_reranker_override()`,
+        # only for agent == "heuristic_reranker" (no env lookup, no construction
+        # attempt, for any other agent). Starts None/not-attempted here; the
+        # first heuristic_reranker decision builds it (needs THIS client's
+        # decision-deps dex, itself built lazily on the first decision).
+        self._override = None
+        self._override_built = False
 
     def _species_type_resolver(self):
         """Eval-only species->types resolver for simple_heuristic (T3e P2a). Built lazily and
@@ -298,10 +373,12 @@ class _Client:
         ``node calc.mjs --server`` per live decision (~70/battle, MEMTRACE v3),
         never closed.
 
-        Only agents that actually use calc build the bundle: ``heuristic`` and
-        ``max_damage``. The request-only eval policies (greedy_protect /
-        simple_heuristic / scripted_vgc) and ``random`` return all-None and never
-        construct a CalcClient (live-path/OOM guard). Built lazily + cached; the
+        Only agents that actually use calc build the bundle: ``heuristic``,
+        ``max_damage``, and ``heuristic_reranker`` (2b-4 Task 2 -- it runs the
+        SAME heuristic fallback chain, so it needs the SAME deps). The
+        request-only eval policies (greedy_protect / simple_heuristic /
+        scripted_vgc) and ``random`` return all-None and never construct a
+        CalcClient (live-path/OOM guard). Built lazily + cached; the
         speed_oracle/dex fall back to ``None`` if the calc backend can't be built,
         mirroring decision.py so a decision still degrades gracefully.
 
@@ -311,7 +388,7 @@ class _Client:
         of Node round trips. Per-battle scope (a fresh client per battle) keeps the
         bit-identical contract with prior recorded runs; never shared across battles.
         """
-        if self.agent not in ("heuristic", "max_damage"):
+        if self.agent not in ("heuristic", "max_damage", "heuristic_reranker"):
             return (None, None, None, None)
         if not self._decision_deps_built:
             self._decision_deps_built = True
@@ -345,6 +422,32 @@ class _Client:
             self._decision_dex,
         )
 
+    def _reranker_override(self):
+        """Client-owned ``RerankerOverride`` (2b-4 Task 2): built ONCE per
+        client -- lazily, on the first ``heuristic_reranker`` decision --
+        mirroring ``_decision_deps``'s build-once bundle. ``None`` for every
+        other agent (no env lookup, no construction attempt at all -- the
+        ``SHOWDOWN_RERANKER_OVERRIDE`` gate is only even consulted for
+        ``heuristic_reranker``, mirroring ``_decision_deps``'s own agent
+        guard) and ``None`` when the override is disabled or unavailable
+        (fail-safe: ``agent_choose("heuristic_reranker", ...)`` then returns
+        the heuristic's own choose string unchanged, byte-identical to plain
+        ``"heuristic"``).
+
+        Reuses THIS client's decision-deps dex (built by ``_decision_deps()``,
+        which ``handle_request`` calls just before this) and the run-invariant
+        ``_move_table()`` move_meta, so the override's feature context matches
+        the shadow's real-dex/move_meta context mode exactly.
+        """
+        if self.agent != "heuristic_reranker":
+            return None
+        if not self._override_built:
+            self._override_built = True
+            self._override = _load_reranker_override_from_env(
+                format_id=self.format_id, dex=self._decision_dex, move_meta=_move_table(),
+            )
+        return self._override
+
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
             return None
@@ -374,9 +477,15 @@ class _Client:
             (self._export is not None or self._shadow is not None)
             and self.agent == "heuristic" and state is not None) else None
         # Client-owned decision deps (2b-2.5a Kaggle-OOM root-cause fix): built once
-        # per battle (heuristic/max_damage only) and threaded into every decision so
-        # the core reuses ONE calc instead of spawning a fresh Node server per decision.
+        # per battle (heuristic/max_damage/heuristic_reranker only) and threaded into
+        # every decision so the core reuses ONE calc instead of spawning a fresh Node
+        # server per decision.
         calc, oracle, speed_oracle, dex = self._decision_deps()
+        # Client-owned reranker override (2b-4 Task 2): built once per client from env,
+        # reusing THIS client's decision-deps dex (just built above) + move_meta. `None`
+        # for every agent other than "heuristic_reranker" and when disabled/unavailable
+        # (fail-safe -- see agent_choose's heuristic_reranker branch).
+        override = self._reranker_override()
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -385,6 +494,7 @@ class _Client:
                 our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
                 species_resolver=self._species_type_resolver(),
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
+                override=override,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)

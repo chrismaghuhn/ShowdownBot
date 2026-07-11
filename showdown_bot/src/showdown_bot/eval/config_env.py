@@ -33,6 +33,10 @@ BEHAVIOR_AFFECTING = frozenset({
     "SHOWDOWN_RERANKER_MODEL_PATH",
     "SHOWDOWN_RERANKER_MANIFEST_PATH",
     "SHOWDOWN_RERANKER_SHADOW_TIMEOUT_MS",
+    # [2b-4 Task 2] Gates the heuristic_reranker override agent (client.gauntlet); when
+    # on, live decisions can be RE-PICKED by the committed reranker model instead of the
+    # heuristic's own choice -> directly changes which move is played -> config_hash.
+    "SHOWDOWN_RERANKER_OVERRIDE",
     # A calc timeout can trigger fallback behavior under load -> behavior-affecting.
     "SHOWDOWN_CALC_TIMEOUT_MS",
     # [2b-2.5a, 2026-07-11] Per-battle gauntlet wall-clock timeout override (datagen: 900s).
