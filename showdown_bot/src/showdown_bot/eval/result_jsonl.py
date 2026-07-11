@@ -23,6 +23,10 @@ REQUIRED_FIELDS = frozenset({
 NULLABLE_FIELDS = frozenset({
     "end_hp_diff", "timeouts", "room_raw_path", "panel_hash", "hero_team_hash", "opp_team_hash",
     "panel_split",  # T3f Task 4: "dev"/"heldout" from the schedule row; null for legacy schedules
+    # T4c R1: sha256 over the normalized room log, binding the row to its log. Null when
+    # hashing failed (never fails the battle record) or absent for legacy rows written
+    # before this field existed -- every consumer must tolerate both.
+    "normalized_room_log_sha256",
 })
 _WINNERS = frozenset({"hero", "villain", "tie"})
 # T3f Task 5: how the battle ended. "normal" = ordinary |win|/|tie|; the others are
