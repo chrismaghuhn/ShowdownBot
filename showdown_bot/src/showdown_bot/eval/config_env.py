@@ -50,6 +50,11 @@ BEHAVIOR_AFFECTING = frozenset({
     # (default) vs "heuristic_reranker" (the gated override agent, Task 2). Directly changes
     # which move is played -> config_hash, same rationale as SHOWDOWN_RERANKER_OVERRIDE above.
     "SHOWDOWN_HERO_AGENT",
+    # [2026-07-11, fast-board Protect discipline] Sets EvalWeights.fast_board_protect
+    # (default 0.0 = OFF, byte-identical). Independently gated from
+    # SHOWDOWN_PROTECT_PENALTY -- when non-zero it changes the score of a wasted Protect
+    # on a both-Tailwind board, which can flip which candidate is chosen -> config_hash.
+    "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the

@@ -76,6 +76,10 @@ class EvalWeights:
     protect_stall: float = -1.0  # our Protect blocked nothing -> wasted tempo
     endgame_protect: float = -3.0  # Protecting with our last mon just defers the loss
     partner_abandon: float = -2.0  # we Protected while a teammate fainted this turn
+    # [2026-07-11] Atlas-aimed: a wasted Protect (blocked nothing) on a fast board
+    # (both sides Tailwind) is extra costly -- tempo is scarcer when everyone acts
+    # sooner. Default 0.0 = OFF (env-gated via SHOWDOWN_FAST_BOARD_PROTECT_PENALTY).
+    fast_board_protect: float = 0.0
 
 
 @dataclass
@@ -88,10 +92,16 @@ class OutcomeBreakdown:
     protect_stall_penalty: float = 0.0
     endgame_protect_penalty: float = 0.0
     partner_abandon_penalty: float = 0.0
+    fast_board_protect_penalty: float = 0.0
 
 
 def score_outcome_with_breakdown(
-    outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None, *, endgame: bool = False
+    outcome: TurnOutcome,
+    our_side: str,
+    weights: EvalWeights | None = None,
+    *,
+    endgame: bool = False,
+    fast_board: bool = False,
 ) -> tuple[float, OutcomeBreakdown]:
     w = weights or EvalWeights()
     bd = OutcomeBreakdown(my_kos=outcome.my_kos, my_faints=outcome.my_faints)
@@ -143,6 +153,9 @@ def score_outcome_with_breakdown(
         if not blocked:
             s += w.protect_stall
             bd.protect_stall_penalty = w.protect_stall
+            if fast_board:
+                s += w.fast_board_protect
+                bd.fast_board_protect_penalty = w.fast_board_protect
         if endgame:
             s += w.endgame_protect
             bd.endgame_protect_penalty = w.endgame_protect
@@ -155,9 +168,16 @@ def score_outcome_with_breakdown(
 
 
 def score_outcome(
-    outcome: TurnOutcome, our_side: str, weights: EvalWeights | None = None, *, endgame: bool = False
+    outcome: TurnOutcome,
+    our_side: str,
+    weights: EvalWeights | None = None,
+    *,
+    endgame: bool = False,
+    fast_board: bool = False,
 ) -> float:
-    return score_outcome_with_breakdown(outcome, our_side, weights, endgame=endgame)[0]
+    return score_outcome_with_breakdown(
+        outcome, our_side, weights, endgame=endgame, fast_board=fast_board
+    )[0]
 
 
 class DamageModel:
@@ -352,6 +372,7 @@ def evaluate_line(
     rollout_horizon: int = 0,
     rollout_gamma: float = 0.7,
     endgame: bool = False,
+    fast_board: bool = False,
     _force_tie_break: str | None = None,
 ) -> tuple[float, TurnOutcome]:
     field = field or state.field
@@ -359,7 +380,7 @@ def evaluate_line(
 
     def _one(tb: str) -> tuple[float, TurnOutcome]:
         out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
-        sc = score_outcome(out, our_side, weights, endgame=endgame)
+        sc = score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
         if rollout_horizon > 0:
             sc += _rollout_value(
                 state, all_actions, out, our_side, weights or EvalWeights(),

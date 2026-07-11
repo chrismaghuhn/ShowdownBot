@@ -39,6 +39,17 @@ def _default_rollout_horizon() -> int:
         return 2
 
 
+def _fast_board_protect_weight() -> float:
+    """``SHOWDOWN_FAST_BOARD_PROTECT_PENALTY`` -> ``EvalWeights.fast_board_protect``
+    (float; default ``0.0`` keeps it OFF -> byte-identical scores). Independently
+    gated from ``SHOWDOWN_PROTECT_PENALTY``: this atlas-aimed penalty is a separate
+    lever and stays off even when the historic Protect-stall penalty is on."""
+    try:
+        return float(os.environ.get("SHOWDOWN_FAST_BOARD_PROTECT_PENALTY", "0.0"))
+    except ValueError:
+        return 0.0
+
+
 def choose_for_request(req: BattleRequest) -> str:
     """Legacy random agent (kept for smoke tests / hard fallback)."""
     if req.team_preview:
@@ -55,6 +66,14 @@ def choose_for_request_json(payload: str) -> str:
 
 def _opp_side(our_side: str) -> str:
     return "p2" if our_side == "p1" else "p1"
+
+
+def _is_fast_board(field) -> bool:
+    """True iff BOTH sides have Tailwind up (a "fast board" -- everyone acts
+    sooner, so a wasted Protect turn is extra costly). Side-agnostic: reads both
+    the ``p1`` and ``p2`` keys of ``field.tailwind`` directly, truthy on both."""
+    tw = getattr(field, "tailwind", None) or {}
+    return bool(tw.get("p1", False)) and bool(tw.get("p2", False))
 
 
 def _active_pokemon(req: BattleRequest):
@@ -222,11 +241,20 @@ def _choose_best(
     our_remaining = sum(1 for p in req.side.pokemon if "fnt" not in (p.condition or ""))
     endgame = our_remaining <= 1
 
+    # Fast board = both sides have Tailwind up (everyone acts sooner -> a wasted
+    # Protect turn is extra costly). Computed once here, alongside endgame, and
+    # threaded into the same evaluation calls (see evaluate.py::score_outcome).
+    fast_board = _is_fast_board(state.field)
+
     # A/B knob for the Protect stall penalties (Fix 2). Default on.
     if weights is None:
-        weights = EvalWeights()
+        fast_board_protect = _fast_board_protect_weight()
+        weights = EvalWeights(fast_board_protect=fast_board_protect)
         if os.environ.get("SHOWDOWN_PROTECT_PENALTY", "1") == "0":
-            weights = EvalWeights(protect_stall=0.0, endgame_protect=0.0, partner_abandon=0.0)
+            weights = EvalWeights(
+                protect_stall=0.0, endgame_protect=0.0, partner_abandon=0.0,
+                fast_board_protect=fast_board_protect,
+            )
 
     my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
@@ -266,7 +294,7 @@ def _choose_best(
                 evaluate_line(
                     state, my_plan, r.actions, model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
-                    rollout_horizon=rollout_horizon, endgame=endgame,
+                    rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
                 )[0]
                 for r in opp_resps
             ]
@@ -274,7 +302,7 @@ def _choose_best(
             evaluate_line(
                 state, my_plan, [], model.damage_fn,
                 our_side=our_side, weights=weights, field=state.field,
-                rollout_horizon=rollout_horizon, endgame=endgame,
+                rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
             )[0]
         ]
 
@@ -286,7 +314,7 @@ def _choose_best(
     best_ja = _maybe_tera(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
-        endgame=endgame,
+        endgame=endgame, fast_board=fast_board,
     )
 
     if report is not None:
@@ -350,9 +378,14 @@ def _choose_best(
             for ra in rep_resps:
                 _, oc = evaluate_line(
                     state, plan, ra, model.damage_fn, our_side=our_side,
-                    weights=weights, field=state.field, rollout_horizon=0, endgame=endgame,
+                    weights=weights, field=state.field, rollout_horizon=0,
+                    endgame=endgame, fast_board=fast_board,
                 )
-                out.append(score_outcome_with_breakdown(oc, our_side, weights, endgame=endgame)[1])
+                out.append(
+                    score_outcome_with_breakdown(
+                        oc, our_side, weights, endgame=endgame, fast_board=fast_board
+                    )[1]
+                )
             return out
 
         def _weighted_mean_breakdown(bds):
@@ -361,7 +394,8 @@ def _choose_best(
             agg = OutcomeBreakdown()
             for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
                       "my_kos", "my_faints", "protect_stall_penalty",
-                      "endgame_protect_penalty", "partner_abandon_penalty"):
+                      "endgame_protect_penalty", "partner_abandon_penalty",
+                      "fast_board_protect_penalty"):
                 setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
             return agg
 
@@ -544,7 +578,7 @@ def heuristic_choose_for_request(
 def _maybe_tera(
     req, best_ja, best_val, mode, state, our_side, opp_side,
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
-    *, endgame: bool = False,
+    *, endgame: bool = False, fast_board: bool = False,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
@@ -565,14 +599,14 @@ def _maybe_tera(
             scores = [
                 evaluate_line(state, plan, r.actions, model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame)[0]
+                              endgame=endgame, fast_board=fast_board)[0]
                 for r in opp_resps
             ]
         else:
             scores = [
                 evaluate_line(state, plan, [], model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame)[0]
+                              endgame=endgame, fast_board=fast_board)[0]
             ]
         val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
         if val > best_overlay_val and tera_decision(best_val, val, margin=tera_margin):
