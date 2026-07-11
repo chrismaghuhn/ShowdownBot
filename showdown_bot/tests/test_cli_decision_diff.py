@@ -20,9 +20,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import types
 from pathlib import Path
 
 import pytest
+
+from showdown_bot.cli import run_decision_diff
+from showdown_bot.eval import decision_capture, decision_diff, panel, report
 
 _SCHEDULE_YAML = """\
 version: "1"
@@ -238,3 +242,71 @@ def test_schedule_with_trace_out_omits_binding_when_no_battle_ran(_sched_path, t
     )
     with pytest.raises(SystemExit, match="T2: wrote 0 rows"):
         cli.run_schedule(args)
+
+
+# ---------------------------------------------------------------------------
+# Task 9: `decision-diff` CLI subcommand + explicit outcome-only mode.
+#
+# All three tests below drive `run_decision_diff` directly with a hand-built
+# `argparse.Namespace` (same convention as test_cli_eval_report.py -- no
+# subprocess, no live server). `RunBundle.load`, `load_panel`,
+# `analyze_decision_diff` (and, for full mode, `load_decision_trace` /
+# `validate_trace_run`) are monkeypatched at the module seams
+# `cli._run_decision_diff_impl` locally imports from, so this exercises only
+# the CLI wiring: arg validation, the outcome-only/full branch, and the
+# report.md/report.json write-out.
+# ---------------------------------------------------------------------------
+
+
+def _args(tmp_path, *, outcome_only=False):
+    return argparse.Namespace(
+        baseline_run="baseline.jsonl", baseline_seedlog="baseline-seeds.jsonl",
+        baseline_trace="", baseline_repeat_trace="", baseline_room_raw="",
+        candidate_run="candidate.jsonl", candidate_seedlog="candidate-seeds.jsonl",
+        candidate_trace="", candidate_repeat_trace="", candidate_room_raw="",
+        schedule="schedule.yaml", panel="panel.yaml", teams_root=".",
+        out=str(tmp_path), outcome_only=outcome_only,
+    )
+
+
+def _minimal_analysis(mode):
+    return {
+        "capability_mode": mode, "provenance": {},
+        "integrity": {"paired_battles": 1}, "strength": {}, "outcomes": {},
+        "decision_differences": None if mode == "outcome_only" else {},
+        "matchup_buckets": [], "stability": {}, "regressions": {},
+        "top_positive_associations": [], "top_negative_associations": [],
+    }
+
+
+def test_full_mode_requires_both_traces(tmp_path):
+    with pytest.raises(SystemExit, match="full mode requires --baseline-trace and --candidate-trace"):
+        run_decision_diff(_args(tmp_path))
+
+
+def test_outcome_only_refuses_trace_claims(monkeypatch, tmp_path):
+    monkeypatch.setattr(report.RunBundle, "load", classmethod(
+        lambda cls, *a, **kw: types.SimpleNamespace(rows=[])))
+    monkeypatch.setattr(panel, "load_panel", lambda *a, **kw: object())
+    monkeypatch.setattr(decision_diff, "analyze_decision_diff",
+                        lambda *a, **kw: _minimal_analysis("outcome_only"))
+    run_decision_diff(_args(tmp_path, outcome_only=True))
+    obj = json.loads((tmp_path / "report.json").read_text())
+    assert obj["capability_mode"] == "outcome_only"
+    assert obj["decision_differences"] is None
+
+
+def test_full_mode_writes_deterministic_outputs(monkeypatch, tmp_path):
+    args = _args(tmp_path)
+    args.baseline_trace = "baseline-trace.jsonl"
+    args.candidate_trace = "candidate-trace.jsonl"
+    monkeypatch.setattr(report.RunBundle, "load", classmethod(
+        lambda cls, *a, **kw: types.SimpleNamespace(rows=[])))
+    monkeypatch.setattr(panel, "load_panel", lambda *a, **kw: object())
+    monkeypatch.setattr(decision_capture, "load_decision_trace", lambda path: [])
+    monkeypatch.setattr(decision_diff, "validate_trace_run", lambda rows, trace: object())
+    monkeypatch.setattr(decision_diff, "analyze_decision_diff",
+                        lambda *a, **kw: _minimal_analysis("full"))
+    run_decision_diff(args)
+    assert (tmp_path / "report.md").exists()
+    assert (tmp_path / "report.json").exists()

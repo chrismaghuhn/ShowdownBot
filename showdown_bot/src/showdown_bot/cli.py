@@ -356,6 +356,80 @@ def run_eval_report(args) -> None:
         raise SystemExit(1)
 
 
+def _run_decision_diff_impl(args) -> None:
+    """Task 9: offline candidate-vs-baseline decision-diff report.
+
+    Loads the baseline/candidate result JSONLs via the existing ``RunBundle.load`` (same
+    input-audit/tamper checks as ``eval-report``), optionally validates their decision-trace
+    sidecars (full mode), pairs+analyzes via ``analyze_decision_diff`` (which itself calls
+    ``pair_runs`` -- see decision_diff.py), and writes ``report.md``/``report.json`` via
+    ``build_report_object``/``render_markdown``. ``--outcome-only`` skips sidecar loading
+    entirely and asks ``analyze_decision_diff`` for the outcome-only-flagged report (no
+    decision-claim); full mode (the default) hard-requires both trace paths so a caller can
+    never silently fall back to a weaker claim.
+    """
+    import json
+
+    from showdown_bot.eval.decision_capture import load_decision_trace
+    from showdown_bot.eval.decision_diff import analyze_decision_diff, validate_trace_run
+    from showdown_bot.eval.decision_diff_report import build_report_object, render_markdown
+    from showdown_bot.eval.panel import load_panel
+    from showdown_bot.eval.report import RunBundle
+
+    required = ("baseline_run", "baseline_seedlog", "candidate_run", "candidate_seedlog",
+                "schedule", "panel", "out")
+    missing = [name for name in required if not getattr(args, name, "")]
+    if missing:
+        raise SystemExit(f"decision-diff missing required inputs: {missing}")
+    if not args.outcome_only and (not args.baseline_trace or not args.candidate_trace):
+        raise SystemExit("full mode requires --baseline-trace and --candidate-trace")
+
+    baseline = RunBundle.load(
+        args.baseline_run, args.baseline_seedlog, args.schedule, args.panel,
+        teams_root=args.teams_root, room_raw_dir=args.baseline_room_raw or None,
+    )
+    candidate = RunBundle.load(
+        args.candidate_run, args.candidate_seedlog, args.schedule, args.panel,
+        teams_root=args.teams_root, room_raw_dir=args.candidate_room_raw or None,
+    )
+    baseline_trace = candidate_trace = None
+    if not args.outcome_only:
+        baseline_trace = validate_trace_run(baseline.rows, load_decision_trace(args.baseline_trace))
+        candidate_trace = validate_trace_run(candidate.rows, load_decision_trace(args.candidate_trace))
+    panel = load_panel(args.panel, teams_root=args.teams_root)
+    analysis = analyze_decision_diff(
+        baseline, candidate, panel=panel,
+        baseline_trace=baseline_trace, candidate_trace=candidate_trace,
+        outcome_only=args.outcome_only,
+        baseline_repeat=load_decision_trace(args.baseline_repeat_trace) if args.baseline_repeat_trace else None,
+        candidate_repeat=load_decision_trace(args.candidate_repeat_trace) if args.candidate_repeat_trace else None,
+    )
+    obj = build_report_object(analysis)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text(render_markdown(obj), encoding="utf-8", newline="\n")
+    (out / "report.json").write_text(
+        json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8", newline="\n",
+    )
+    print(f"decision-diff: wrote {out / 'report.md'} and {out / 'report.json'} "
+          f"(capability_mode={obj['capability_mode']})")
+
+
+def run_decision_diff(args) -> None:
+    from showdown_bot.eval.decision_capture import DecisionCaptureError
+    from showdown_bot.eval.decision_diff import DecisionDiffError
+    from showdown_bot.eval.pairing import PairingError
+    from showdown_bot.eval.report import LogIntegrityError, ReportInputError
+
+    try:
+        _run_decision_diff_impl(args)
+    except (PairingError, ReportInputError, LogIntegrityError,
+            DecisionCaptureError, DecisionDiffError) as exc:
+        print(f"decision-diff: input/integrity failure: {exc}")
+        raise SystemExit(1) from exc
+
+
 def run_gauntlet(args) -> None:
     import os
 
@@ -406,8 +480,9 @@ def main() -> None:
     parser.add_argument(
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
-                 "eval-report"],
-        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report",
+                 "eval-report", "decision-diff"],
+        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
+        "decision-diff",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -562,6 +637,81 @@ def main() -> None:
         "raises LogIntegrityError (fail-closed, no partial verdict). Omit for the original "
         "behavior: byte-identical reports, no room_raw access.",
     )
+    parser.add_argument(
+        "--baseline-run",
+        dest="baseline_run",
+        default="",
+        help="Path to the baseline run's per-battle result JSONL (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--baseline-seedlog",
+        dest="baseline_seedlog",
+        default="",
+        help="Path to the baseline run's seed log (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--baseline-trace",
+        dest="baseline_trace",
+        default="",
+        help="Path to the baseline run's decision-trace sidecar (decision-diff full mode; "
+        "required unless --outcome-only).",
+    )
+    parser.add_argument(
+        "--baseline-repeat-trace",
+        dest="baseline_repeat_trace",
+        default="",
+        help="Optional second decision-trace sidecar for the baseline run, for the "
+        "determinism/stability block (decision-diff).",
+    )
+    parser.add_argument(
+        "--baseline-room-raw",
+        dest="baseline_room_raw",
+        default="",
+        help="Optional room_raw log directory for the baseline run (decision-diff; see "
+        "eval-report's --room-raw).",
+    )
+    parser.add_argument(
+        "--candidate-run",
+        dest="candidate_run",
+        default="",
+        help="Path to the candidate run's per-battle result JSONL (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--candidate-seedlog",
+        dest="candidate_seedlog",
+        default="",
+        help="Path to the candidate run's seed log (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--candidate-trace",
+        dest="candidate_trace",
+        default="",
+        help="Path to the candidate run's decision-trace sidecar (decision-diff full mode; "
+        "required unless --outcome-only).",
+    )
+    parser.add_argument(
+        "--candidate-repeat-trace",
+        dest="candidate_repeat_trace",
+        default="",
+        help="Optional second decision-trace sidecar for the candidate run, for the "
+        "determinism/stability block (decision-diff).",
+    )
+    parser.add_argument(
+        "--candidate-room-raw",
+        dest="candidate_room_raw",
+        default="",
+        help="Optional room_raw log directory for the candidate run (decision-diff; see "
+        "eval-report's --room-raw).",
+    )
+    parser.add_argument(
+        "--outcome-only",
+        dest="outcome_only",
+        action="store_true",
+        help="decision-diff: run outcome-only mode from result rows alone (no decision-trace "
+        "sidecars required); the report is flagged capability_mode=outcome_only and carries "
+        "no decision-level claim. Default off (full mode), which requires --baseline-trace "
+        "and --candidate-trace.",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
@@ -579,6 +729,10 @@ def main() -> None:
 
     if args.command == "eval-report":
         run_eval_report(args)
+        return
+
+    if args.command == "decision-diff":
+        run_decision_diff(args)
         return
 
     settings = Settings.from_env()
