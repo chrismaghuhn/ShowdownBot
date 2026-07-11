@@ -60,6 +60,39 @@ def test_structural_label_failures(decision, code):
     assert any(f.code == code and f.severity == Severity.FAIL for f in findings)
 
 
+def test_ordinal_tiebroken_ranks_are_accepted_not_competition():
+    # teacher.py produces unique ordinal ranks with an arbitrary tiebreak among equal values;
+    # the audit must accept them and must NOT demand competition/shared ranks.
+    decision = _label_decision(
+        raw_values=[2.0, 2.0, 2.0], teacher_best=[False, True, False],
+        chosen=[True, False, False], teacher_rank=[2, 0, 1],
+    )
+    findings, _metrics = audit_labels([decision])
+    assert not [f for f in findings
+                if f.code in {"TEACHER_RANK_MISMATCH", "COUNTERFACTUAL_RANK_MISMATCH"}]
+
+
+def test_single_best_among_tied_max_is_accepted():
+    # teacher.py marks exactly one best among tied-max candidates; not a violation.
+    decision = _label_decision(
+        raw_values=[5.0, 5.0, 3.0], teacher_best=[True, False, False],
+        chosen=[True, False, False], teacher_rank=[0, 1, 2],
+    )
+    findings, _metrics = audit_labels([decision])
+    assert not [f for f in findings if f.code == "TEACHER_BEST_RAW_MISMATCH"]
+
+
+def test_rank_inconsistent_with_values_still_fails():
+    # a rank that puts a lower-value candidate ahead of a higher-value one must still FAIL.
+    decision = _label_decision(
+        raw_values=[3.0, 1.0], teacher_best=[True, False],
+        chosen=[True, False], teacher_rank=[1, 0],
+    )
+    findings, _metrics = audit_labels([decision])
+    assert any(f.code == "TEACHER_RANK_MISMATCH" and f.severity == Severity.FAIL
+               for f in findings)
+
+
 def test_nonfinite_and_trainable_mismatch_fail():
     nonfinite = _label_decision()
     nonfinite.rows[0]["label"]["counterfactual_value_raw"] = float("nan")

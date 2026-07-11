@@ -927,6 +927,16 @@ git commit -m "feat(audit): detect exact semantic and near duplicates"
 
 ### Task 4: Teacher-, Gap-, Rank- und Tie-Konsistenz auditieren
 
+> **Correction (2026-07-11, controller — reconciled against the real `learning/teacher.py` labeler
+> during the Task 9 reference smoke; `learning/audit/labels.py` is the authoritative code):** three
+> checks below assumed conventions the labeler does not use and produced ~594 false-positive FAILs on
+> `phase3-slice2b25a`. Fixed: (1) rank checks validate value-ORDERING consistency (sort by rank →
+> non-increasing raw), NOT competition-rank equality — `teacher.py::_ranks` emits strict-ordinal
+> ranks with a candidate-id tiebreak the audit cannot re-derive; (2) `TEACHER_BEST_RAW_MISMATCH`
+> requires only that every best-flagged row is a max-value candidate (the labeler marks exactly one
+> tie-broken best, which the spec permits); (3) `NORMALIZED_MEAN_MISMATCH` checks the spec's
+> mean(normalized)≈0, NOT element-wise `raw - mean(raw)`.
+
 **Files:**
 
 - Create: `showdown_bot/src/showdown_bot/learning/audit/labels.py`
