@@ -15,28 +15,39 @@ would gain the most. The rollout teacher already labels every candidate with `te
 — and how large the value gap is — ranks the decision types with the most exploitable regret. This
 is aimed measurement, not a gate.
 
-## Approach (ported + re-aimed)
+## Approach (ported from the clone's REFINED live `rollout_metrics.py` — TOPSET model)
+
+**Important:** port the clone's LIVE `tools/analysis/rollout_metrics.py::analyze_rollout_decisions`
+(the topset model), NOT the older plan-doc Task 5 snapshot. The snapshot's single-best model
+compares one chosen row vs one teacher_best row and does `if value_gap_to_best < 0: raise` — but
+OUR labels store `value_gap_to_best = v - best ≤ 0` (teacher.py), so the snapshot would raise on
+nearly every real row. The topset model handles this correctly and treats ties on both sides.
 
 Load the committed 2b-2.5a dataset (`data/datasets/phase3-slice2b25a/dataset.jsonl.gz`, 17458 rows
-/ 299 games) via `learning.dataset.load_rows`, group rows by `metadata.decision_id`, and classify
-each decision deterministically:
+/ 299 games) via `learning.dataset.load_rows`, group by `metadata.decision_id`, and per decision:
 
-- **forced** — a single candidate (nothing to choose). Excluded from the rate denominator.
-- **teacher-tie** — multiple `teacher_best` rows (the teacher is indifferent). Excluded.
-- **genuine choice** — >1 candidate, exactly one `teacher_best`. The denominator.
-- **disagreement** — a genuine choice where the heuristic's chosen candidate
-  (`label.chosen_by_current_heuristic`) is NOT the `teacher_best`.
+- **heuristic topset** = the set of `candidate_index` where `label.chosen_by_current_heuristic`.
+  **teacher topset** = the set where `label.teacher_best`.
+- **forced** — `len(rows) == 1`. **multi_candidate** — the rest (the topset-rate denominator).
+- **heuristic_ties** / **teacher_ties** — counted when the respective topset has >1 member.
+- **topset disagreement** — the two topsets are DISJOINT (no shared candidate_index). Rate over
+  multi_candidate.
+- **strict-unique choice** — a multi_candidate decision with exactly ONE heuristic row AND exactly
+  ONE teacher row (the clean subset used for the bucket breakdowns). **strict disagreement** = its
+  topsets disjoint. `disagreement_rate` = strict_disagreements / strict_unique_choices.
+- **regret_gap = max(0.0, -raw_value_gap)** (flip the ≤0 sign to a ≥0 regret magnitude). Bucketing
+  keys from the chosen row's features: turn bucket, game_mode, action signature, speed_control_state,
+  threat bucket, candidate_count, response_entropy bucket, heuristic-confidence bucket
+  (score_gap_to_second — must be ≥0 on a strict-unique heuristic row else raise). Per bucket:
+  decisions / agreements / disagreements / disagreement_rate / mean_disagreement_regret. Rank the
+  **high-value opportunities**: regret_gap > 0 AND ≥ the 90th nearest-rank percentile of
+  disagreement regret_gaps.
 
-For each genuine choice, record `value_gap_to_best` (the chosen candidate's regret vs the teacher's
-best) and bucketing keys derived from the chosen candidate's features: turn bucket, game_mode,
-action signature (slot1+slot2 action types + protect count), speed_control_state, threat bucket
-(ko_threatened_count), candidate_count, opponent_response_entropy bucket, heuristic-confidence
-bucket (score_gap_to_second). Per bucket, report decisions / disagreements / disagreement_rate /
-mean disagreement gap. Rank the **high-value disagreement opportunities** (value_gap ≥ the 90th
-nearest-rank percentile of positive disagreement gaps).
-
-Fail-closed invariants (ported from the clone): exactly one chosen row per decision (else raise);
-≥1 teacher_best per decision (else raise); finite non-negative gaps (else raise).
+Corpus block (ported field names): decisions, forced, multi_candidate, heuristic_ties, teacher_ties,
+strict_unique_choices, topset_agreements, topset_disagreements, strict_agreements,
+strict_disagreements. Plus topset_disagreement_rate, strict_disagreement_rate, high_value_threshold,
+breakdown_scope="strict_unique_choices". Fail-closed: `_validate_decisions`/`_validate_row` (typed
+field checks), score_gap ≥0 on strict-unique, `_validate_output_numbers` (finite outputs).
 
 ## Output
 
