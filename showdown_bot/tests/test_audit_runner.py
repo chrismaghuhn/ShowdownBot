@@ -1,7 +1,12 @@
 import json
+from pathlib import Path
+
+import pytest
 
 from showdown_bot.learning.audit.runner import AuditRunConfig, run_audit
 from showdown_bot.learning.schema import FEATURE_COLUMNS, LABEL_KEYS, METADATA_KEYS, Row, to_jsonl_line
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _runner_row(game, decision, index):
@@ -55,3 +60,19 @@ def test_fatal_input_writes_minimal_report(tmp_path):
     assert obj["status"] == "AUDIT FAIL"
     assert obj["findings"][0]["code"] == "FATAL_INPUT"
     assert obj["metrics"] == {"not_run": True}
+
+
+@pytest.mark.integration
+def test_phase3_slice2b25a_audit_smoke(tmp_path):
+    # Reference smoke: runs the full dataset-side audit on the committed 2b-2.5a corpus and checks
+    # only structure + internal metric consistency (NO golden counts, NO required PASS/FAIL).
+    dataset = REPO_ROOT / "data" / "datasets" / "phase3-slice2b25a" / "dataset.jsonl.gz"
+    code = run_audit(AuditRunConfig(dataset=dataset, out_dir=tmp_path))
+    obj = json.loads((tmp_path / "audit.json").read_text(encoding="utf-8"))
+    assert code in (0, 1)
+    assert obj["provenance"]["dataset_sha256"]
+    assert obj["metrics"]["features"]
+    assert obj["metrics"]["labels"]
+    assert obj["metrics"]["duplicates"]
+    assert obj["metrics"]["distribution"]
+    assert len(obj["provenance"]["split_manifest"]["assignments"]) > 0

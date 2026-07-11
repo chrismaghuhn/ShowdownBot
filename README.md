@@ -90,6 +90,22 @@ python -m showdown_bot.cli ladder -v
 python -m showdown_bot.cli challenge --opponent TheirUsername -v
 ```
 
+### Dataset / reranker audit (offline)
+
+Deterministic, fail-closed audit of any schema-compatible reranker dataset — integrity, cross-split
+leakage (exact/semantic/near-duplicate), label invariants, feature health/drift/OOD, and (with a
+model + manifest) calibration:
+
+```powershell
+python -m showdown_bot.learning.audit `
+  ../data/datasets/phase3-slice2b25a/dataset.jsonl.gz `
+  --out ../reports/audit-2b25a
+```
+
+Writes `audit.json` / `audit.md` / `split-manifest.json`; exit 0 on `AUDIT PASS`, 1 on `AUDIT FAIL`.
+It proves **dataset/model trust, not play strength** — it never mutates rows, trains, runs battles,
+or touches held-out data, and no live/battle/teacher/inference path imports the audit package.
+
 ## Repo map
 
 | Path | What |
