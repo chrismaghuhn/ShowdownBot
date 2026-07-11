@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from showdown_bot.client.gauntlet import GauntletStats, agent_choose
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.format_config import load_format_config
@@ -521,3 +523,150 @@ def test_capture_on_writes_bound_row_without_changing_dispatch(monkeypatch, deci
     assert row["actual_choose_string"] == f"/choose default|{req.rqid}"
     assert row["decision_latency_ms"] >= 0
     assert client._decision_capture_index == 1
+
+
+# ---------------------------------------------------------------------------
+# 2c-Slice-0b Task 3: full-fidelity aggregation-trace sidecar wired into
+# handle_request. A SECOND, INDEPENDENT optional writer/context from decision
+# capture above (Task 4) -- same off-by-default discipline and the same
+# byte-identical-when-off golden, but its own writer/context/counter, gated
+# by its own predicate (agg_wants_trace) that never widens capture's or
+# export/shadow's own trace_obj conditions.
+# ---------------------------------------------------------------------------
+
+
+def test_agg_trace_off_is_byte_identical(monkeypatch, decision_fixture):
+    """THE gate for Task 3 (mirrors test_capture_off_does_not_construct_decision_trace exactly,
+    for the SECOND, independent aggregation-trace sidecar): with agg_trace_writer unset (the
+    default -- the same plain `_client()` every other capture-off test uses), no DecisionTrace
+    is built for this trigger, an AggTraceWriter is never even constructed, and the dispatched
+    /choose message is byte-identical."""
+    import showdown_bot.client.gauntlet as gauntlet
+    import showdown_bot.research.aggregation_trace as agg_trace_mod
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    client = _client(conn=conn, agent="heuristic", book=kw["book"])
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+    monkeypatch.setattr(
+        gauntlet, "DecisionTrace",
+        lambda: (_ for _ in ()).throw(AssertionError("agg-trace-off path built a DecisionTrace")),
+    )
+    monkeypatch.setattr(
+        agg_trace_mod, "AggTraceWriter",
+        lambda *a, **kw: (_ for _ in ()).throw(AssertionError("agg-trace-off path constructed an AggTraceWriter")),
+    )
+    assert client.agg_trace_writer is None  # default _client() never sets it
+    assert client.decision_trace_writer is None  # decision capture independently off too
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]
+
+
+def test_agg_trace_off_default_client_has_no_writer_or_context():
+    """Constructing a `_Client` the plain way (no agg kwargs, matching every caller that
+    predates Task 3) leaves the agg-trace seam fully disabled -- mirrors
+    test_capture_off_default_client_has_no_writer_or_context."""
+    client = _client(agent="heuristic")
+    assert client.agg_trace_writer is None
+    assert client.agg_trace_context is None
+    assert client._agg_trace_index == 0
+
+
+class _FakeAggTraceWriter:
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def write(self, row):
+        self.rows.append(row)
+
+
+def test_agg_trace_on_writes_bound_row_without_changing_dispatch(monkeypatch, decision_fixture):
+    """Agg trace ON: a row is written AFTER the send, bound to the given context, and the
+    dispatched /choose message is exactly the same as the off golden above -- INDEPENDENT of
+    decision capture (decision_trace_writer stays unset/None here)."""
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.research.aggregation_trace import AggTraceContext
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    context = AggTraceContext(
+        battle_id="battle-x", seed_index=0, our_side="p1", config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    writer = _FakeAggTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        agg_trace_writer=writer, agg_trace_context=context,
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch unchanged
+    assert len(writer.rows) == 1
+    row = writer.rows[0]
+    assert row["battle_id"] == "battle-x"
+    assert row["decision_index"] == 0
+    assert row["config_id"] == "heuristic"
+    assert row["selected_action_key"] is not None
+    assert client._agg_trace_index == 1
+    assert client.decision_trace_writer is None  # decision capture untouched/independent
+
+
+def test_agg_trace_independent_of_decision_capture_when_both_on(monkeypatch, decision_fixture):
+    """Both seams ON simultaneously: each writes to its OWN sidecar with its OWN counter, off
+    a single shared trace_obj/decision -- proves neither seam's presence is required for the
+    other to fire, and dispatch is still unchanged."""
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.eval.decision_capture import BattleTraceContext
+    from showdown_bot.research.aggregation_trace import AggTraceContext
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    decision_context = BattleTraceContext(
+        battle_id="battle-x", seed_index=0, config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    agg_context = AggTraceContext(
+        battle_id="battle-x", seed_index=0, our_side="p1", config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    decision_writer = _FakeCaptureWriter()
+    agg_writer = _FakeAggTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        decision_trace_writer=decision_writer, decision_trace_context=decision_context,
+        agg_trace_writer=agg_writer, agg_trace_context=agg_context,
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch STILL unchanged
+    assert len(decision_writer.rows) == 1
+    assert len(agg_writer.rows) == 1
+    assert client._decision_capture_index == 1
+    assert client._agg_trace_index == 1
+
+
+def test_run_local_gauntlet_requires_agg_writer_and_context_together():
+    """Mirrors run_local_gauntlet's existing decision_trace_writer/context pairing contract (a
+    writer with no battle context, or vice versa, can't produce a valid, bound row). Raises
+    before any connection/battle setup -- no live server needed."""
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    with pytest.raises(ValueError, match="agg_trace_writer and agg_trace_context must be given together"):
+        asyncio.run(run_local_gauntlet(
+            games=1, format_id="gen9vgc2025regi", team_path="teams/fixed_team.txt",
+            agg_trace_writer=object(),
+        ))

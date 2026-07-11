@@ -251,7 +251,8 @@ class _Client:
 
     def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
                  export_runtime=None, allow_own_export=True, is_mirror=True,
-                 decision_trace_writer=None, decision_trace_context=None):
+                 decision_trace_writer=None, decision_trace_context=None,
+                 agg_trace_writer=None, agg_trace_context=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -268,6 +269,18 @@ class _Client:
         self.decision_trace_writer = decision_trace_writer
         self.decision_trace_context = decision_trace_context
         self._decision_capture_index = 0
+        # Aggregation-trace capture seam (2c-Slice-0b Task 3) — off by default, and INDEPENDENT
+        # of decision capture above (a SEPARATE writer/context/counter, mirroring its shape
+        # exactly). A caller (cli.run_schedule, HERO client only) can supply an AggTraceWriter +
+        # a per-battle AggTraceContext (research/aggregation_trace.py) to bind every decision
+        # this client makes to a SECOND, independent sidecar file (the full-fidelity per-
+        # candidate x per-opponent-response score matrix). `None` (both, the default) is a
+        # NO-OP: `handle_request` never builds a DecisionTrace for THIS trigger, never calls
+        # build_agg_row, and the dispatched /choose messages are byte-identical to before this
+        # seam existed.
+        self.agg_trace_writer = agg_trace_writer
+        self.agg_trace_context = agg_trace_context
+        self._agg_trace_index = 0
         # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
@@ -502,7 +515,19 @@ class _Client:
             and self.agent in ("heuristic", "heuristic_reranker")
             and state is not None
         )
-        if capture_wants_trace and trace_obj is None:
+        # Aggregation trace (2c-Slice-0b Task 3, off by default): a SECOND, INDEPENDENT trigger
+        # for the SAME trace_obj, mirroring capture_wants_trace's own shape exactly (same agent/
+        # state gate) so the agg-trace sidecar sees real populated candidates for both
+        # "heuristic" and "heuristic_reranker". `self.agg_trace_writer is None` (the default)
+        # makes agg_wants_trace False, so trace_obj is left EXACTLY as computed by the export/
+        # shadow condition above and by capture_wants_trace -- this NEVER widens either of
+        # those; it only adds one more independent OR-branch below.
+        agg_wants_trace = (
+            self.agg_trace_writer is not None
+            and self.agent in ("heuristic", "heuristic_reranker")
+            and state is not None
+        )
+        if (capture_wants_trace or agg_wants_trace) and trace_obj is None:
             trace_obj = DecisionTrace()
         prepared_capture = None
         if self.decision_trace_writer is not None:
@@ -564,6 +589,25 @@ class _Client:
             )
             self.decision_trace_writer.write(row)
             self._decision_capture_index += 1
+        # Aggregation trace (2c-Slice-0b Task 3): write ONLY after a successful send, mirroring
+        # decision capture's own placement/discipline exactly -- but a SECOND, INDEPENDENT
+        # writer/context/counter, never mutating or reusing decision capture's. Off
+        # (self.agg_trace_writer is None, the default) -> no-op: zero new objects, zero
+        # behavior change. Reuses trace_obj (built above by EITHER capture_wants_trace OR
+        # agg_wants_trace, whichever fired) so a decision that ONLY the agg-trace seam wants
+        # still gets a real, populated trace instead of a degenerate None one.
+        if self.agg_trace_writer is not None:
+            from showdown_bot.research.aggregation_trace import build_agg_row
+
+            agg_row = build_agg_row(
+                context=self.agg_trace_context,
+                trace=trace_obj,
+                request=req,
+                choose=choose,
+                decision_index=self._agg_trace_index,
+            )
+            self.agg_trace_writer.write(agg_row)
+            self._agg_trace_index += 1
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
         # trace_obj is then non-None only for "heuristic" already) keeps this fully decoupled
@@ -935,6 +979,8 @@ async def run_local_gauntlet(
     battle_timeout_s: float | None = None,
     decision_trace_writer=None,
     decision_trace_context=None,
+    agg_trace_writer=None,
+    agg_trace_context=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -973,6 +1019,16 @@ async def run_local_gauntlet(
     ``_Client.handle_request`` never builds a capture ``DecisionTrace``, never calls
     ``prepare_capture``/``build_trace_row``, and the dispatched ``/choose`` messages are
     unchanged.
+
+    ``agg_trace_writer``/``agg_trace_context`` (2c-Slice-0b Task 3, off by default): a SECOND,
+    INDEPENDENT optional per-decision full-fidelity aggregation-trace sidecar (see
+    ``research/aggregation_trace.py``) — same hero-only contract and the same pairing/``games
+    == 1`` validation as ``decision_trace_writer``/``decision_trace_context`` above, but fully
+    independent of it: either, both, or neither may be given, and each writes to its own file
+    with its own per-decision counter. Both ``None`` (the default) is likewise byte-identical:
+    the hero client never sees a non-None agg writer/context, so ``_Client.handle_request``
+    never builds a ``DecisionTrace`` for THIS trigger, never calls ``build_agg_row``, and the
+    dispatched ``/choose`` messages are unchanged.
     """
     if (decision_trace_writer is None) != (decision_trace_context is None):
         raise ValueError(
@@ -980,6 +1036,12 @@ async def run_local_gauntlet(
         )
     if decision_trace_context is not None and games != 1:
         raise ValueError("decision_trace_context requires games == 1")
+    if (agg_trace_writer is None) != (agg_trace_context is None):
+        raise ValueError(
+            "agg_trace_writer and agg_trace_context must be given together"
+        )
+    if agg_trace_context is not None and games != 1:
+        raise ValueError("agg_trace_context requires games == 1")
     book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
     is_mirror = _is_mirror_battle(team_path, opp_team_path)
@@ -1004,7 +1066,9 @@ async def run_local_gauntlet(
                    packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
                    export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror,
                    decision_trace_writer=decision_trace_writer,
-                   decision_trace_context=decision_trace_context)
+                   decision_trace_context=decision_trace_context,
+                   agg_trace_writer=agg_trace_writer,
+                   agg_trace_context=agg_trace_context)
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)

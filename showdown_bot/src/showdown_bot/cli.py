@@ -179,11 +179,27 @@ def run_schedule(args) -> None:
         trace_writer = DecisionTraceWriter(trace_out)
         print(f"  decision trace -> {trace_out}")
 
+    # 2c-Slice-0b Task 3: optional per-battle full-fidelity aggregation-trace sidecar. Off by
+    # default (agg_trace_out unset -> agg_writer stays None, byte-identical to every prior
+    # run_schedule call). Requires --result-out (mirrors --decision-trace-out's own gate) --
+    # transitively also requires SHOWDOWN_BATTLE_SEED_BASE, since --result-out already does.
+    # INDEPENDENT of --decision-trace-out: either, both, or neither may be given.
+    agg_trace_out = getattr(args, "agg_trace_out", "")
+    agg_writer = None
+    if agg_trace_out:
+        if not result_out:
+            raise SystemExit("--agg-trace-out requires --result-out")
+        from showdown_bot.research.aggregation_trace import AggTraceContext, AggTraceWriter
+
+        agg_writer = AggTraceWriter(agg_trace_out)
+        print(f"  agg trace -> {agg_trace_out}")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
             on_br = None
             trace_context = None
+            agg_context = None
             if writer is not None:
                 # Seed/battle_id/config_id/config_hash computed ONCE per battle, BEFORE the
                 # battle runs (Task 4 needs battle_id up front to build trace_context) and
@@ -198,6 +214,17 @@ def run_schedule(args) -> None:
                         config_hash=config_hash, schedule_hash=sched.schedule_hash,
                         format_id=row_format_id, git_sha=git_sha,
                     )
+                if agg_writer is not None:
+                    # 2c-Slice-0b Task 3: INDEPENDENT of trace_context above -- built whenever
+                    # agg_writer is on, regardless of whether --decision-trace-out is also given.
+                    # our_side="p1" matches BattleTraceContext's own implicit default (never
+                    # overridden above either); AggTraceContext has no default for it.
+                    agg_context = AggTraceContext(
+                        battle_id=battle_id, seed_index=row.seed_index, our_side="p1",
+                        config_id=config_id, config_hash=config_hash,
+                        schedule_hash=sched.schedule_hash, format_id=row_format_id,
+                        git_sha=git_sha,
+                    )
 
                 def on_br(record, _row=row, _battle_id=battle_id, _seed=seed,
                           _config_id=config_id, _format_id=row_format_id,
@@ -205,6 +232,17 @@ def run_schedule(args) -> None:
                     # Task 4: bind the sidecar's count/sha256 into this row. {} (both None) when
                     # capture is off -- decision_trace_count/_sha256 are nullable fields.
                     trace_binding = trace_writer.finish_battle(_battle_id) if trace_writer is not None else {}
+                    # 2c-Slice-0b Task 3: validate the agg-trace sidecar for this battle the same
+                    # way -- finish_battle raises on a capture error or on zero rows for this
+                    # battle (fail-fast, no partial/corrupt sidecar), keeping the same "no silent
+                    # corruption" discipline as decision-trace above. Deliberate scope boundary:
+                    # unlike decision-trace, this binding is NOT merged into the --result-out row
+                    # -- eval/result_jsonl.py's closed field allowlist is untouched by this slice
+                    # (Task 3 is scoped to client/gauntlet.py + cli.py only). The sidecar file
+                    # itself (research.aggregation_trace.load_agg_trace) is the source of truth
+                    # for the Task 4/5 probe, not this row.
+                    if agg_writer is not None:
+                        agg_writer.finish_battle(_battle_id)
                     writer.write({
                         "battle_id": _battle_id,
                         "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
@@ -239,6 +277,8 @@ def run_schedule(args) -> None:
                     export_runtime=export_runtime,  # 2b-2.5a: SAME runtime for every row
                     decision_trace_writer=trace_writer,  # Task 4: None unless --decision-trace-out
                     decision_trace_context=trace_context,
+                    agg_trace_writer=agg_writer,  # 2c-Slice-0b Task 3: None unless --agg-trace-out
+                    agg_trace_context=agg_context,
                 )
             )
             totals["games"] += stats.games
@@ -568,6 +608,14 @@ def main() -> None:
         dest="decision_trace_out",
         default="",
         help="Optional hero decision sidecar for gauntlet --schedule; requires --result-out.",
+    )
+    parser.add_argument(
+        "--agg-trace-out",
+        dest="agg_trace_out",
+        default="",
+        help="Optional hero full-fidelity aggregation-trace sidecar for gauntlet --schedule "
+        "(2c-Slice-0b); requires --result-out. Independent of --decision-trace-out -- either, "
+        "both, or neither may be given.",
     )
     parser.add_argument(
         "--run-a",
