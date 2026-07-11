@@ -82,6 +82,12 @@ SERVER_SIDE_BEHAVIOR_AFFECTING = frozenset({
 NON_BEHAVIORAL = frozenset({
     "SHOWDOWN_TURN_TRACE",
     "SHOWDOWN_DECISION_DIFF",
+    # [2c-Slice-0b Task 3] Research-only full-fidelity aggregation sidecar PATH (env alias for
+    # --agg-trace-out; the Kaggle datagen kernel injects it via EXTRA_ENV). IO/telemetry-only,
+    # no /choose effect -> excluded from config_hash. MUST stay non-behavioral so a per-shard
+    # export path never perturbs config_hash / breaks datagen pairing (same species as
+    # SHOWDOWN_DECISION_DIFF above and the SHOWDOWN_DATASET_ prefix family).
+    "SHOWDOWN_AGG_TRACE_OUT",
     "SHOWDOWN_ROOM_RAW_DUMP",
     "SHOWDOWN_EVAL_SEED_LOG",
     "SHOWDOWN_EVAL_POLICY_TELEMETRY",   # T3e P2 activation telemetry: log-only, no /choose effect

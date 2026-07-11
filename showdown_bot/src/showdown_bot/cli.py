@@ -180,11 +180,18 @@ def run_schedule(args) -> None:
         print(f"  decision trace -> {trace_out}")
 
     # 2c-Slice-0b Task 3: optional per-battle full-fidelity aggregation-trace sidecar. Off by
-    # default (agg_trace_out unset -> agg_writer stays None, byte-identical to every prior
-    # run_schedule call). Requires --result-out (mirrors --decision-trace-out's own gate) --
-    # transitively also requires SHOWDOWN_BATTLE_SEED_BASE, since --result-out already does.
-    # INDEPENDENT of --decision-trace-out: either, both, or neither may be given.
-    agg_trace_out = getattr(args, "agg_trace_out", "")
+    # default (neither the flag nor the env alias set -> agg_writer stays None, byte-identical
+    # to every prior run_schedule call). Requires --result-out (mirrors --decision-trace-out's
+    # own gate) -- transitively also requires SHOWDOWN_BATTLE_SEED_BASE, since --result-out
+    # already does. INDEPENDENT of --decision-trace-out: either, both, or neither may be given.
+    #
+    # SHOWDOWN_AGG_TRACE_OUT env alias (Task 5 Kaggle reachability): the datagen kernel builds a
+    # HARDCODED argv (--schedule + --result-out only) and can inject per-run config ONLY via its
+    # EXTRA_ENV passthrough (tools/kaggle/kernel_payload.py), so a CLI-only flag would silently
+    # no-op in the datagen run that Task 5 needs. The flag WINS when both are set (an explicit
+    # CLI override of the ambient env). config_env classifies SHOWDOWN_AGG_TRACE_OUT
+    # NON_BEHAVIORAL (research-only IO path), so setting it never perturbs config_hash.
+    agg_trace_out = getattr(args, "agg_trace_out", "") or os.environ.get("SHOWDOWN_AGG_TRACE_OUT", "")
     agg_writer = None
     if agg_trace_out:
         if not result_out:
@@ -615,7 +622,9 @@ def main() -> None:
         default="",
         help="Optional hero full-fidelity aggregation-trace sidecar for gauntlet --schedule "
         "(2c-Slice-0b); requires --result-out. Independent of --decision-trace-out -- either, "
-        "both, or neither may be given.",
+        "both, or neither may be given. The SHOWDOWN_AGG_TRACE_OUT env var is an alias for this "
+        "flag (the flag wins if both are set) and is what the Kaggle datagen kernel uses, since "
+        "it injects config only via EXTRA_ENV, not extra CLI flags.",
     )
     parser.add_argument(
         "--run-a",

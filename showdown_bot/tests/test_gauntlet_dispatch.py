@@ -544,6 +544,13 @@ def test_agg_trace_off_is_byte_identical(monkeypatch, decision_fixture):
     import showdown_bot.client.gauntlet as gauntlet
     import showdown_bot.research.aggregation_trace as agg_trace_mod
 
+    # "off" must be deterministic regardless of ambient env. (At the _Client level the agg seam
+    # is gated purely on the instance attr `agg_trace_writer`, which the plain `_client()` never
+    # sets -- no env is consulted here -- so this delenv is belt-and-braces at THIS layer; the
+    # env alias only actually drives the writer in cli.run_schedule. Cleared anyway so the
+    # byte-identity-off gate can never be accidentally green.)
+    monkeypatch.delenv("SHOWDOWN_AGG_TRACE_OUT", raising=False)
+
     req, kw = decision_fixture
     conn = _RecordingConn()
     client = _client(conn=conn, agent="heuristic", book=kw["book"])
