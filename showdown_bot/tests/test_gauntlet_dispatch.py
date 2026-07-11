@@ -677,3 +677,47 @@ def test_run_local_gauntlet_requires_agg_writer_and_context_together():
             games=1, format_id="gen9vgc2025regi", team_path="teams/fixed_team.txt",
             agg_trace_writer=object(),
         ))
+
+
+# ---------------------------------------------------------------------------
+# 2c-Slice-0b bugfix: the agg-trace write must be fail-safe/independent, mirroring the
+# export-observe try/except immediately below it in handle_request. Before this fix, a
+# raising build_agg_row/writer.write (e.g. validate_agg_row rejecting a legitimate
+# duplicate candidate action_key from `_label_ja`) propagated OUT of handle_request,
+# skipping the dataset-export observe block and stalling/erroring the decision.
+# ---------------------------------------------------------------------------
+
+
+class _RaisingAggTraceWriter:
+    def write(self, row):
+        raise RuntimeError("boom: simulated agg-trace write failure")
+
+
+def test_agg_trace_write_failure_is_best_effort_and_does_not_block_dispatch(monkeypatch, decision_fixture):
+    """A raising agg_trace_writer.write must NOT propagate out of handle_request, must NOT
+    block the dispatched /choose, and must NOT increment `_agg_trace_index` (the counter then
+    reflects only successfully written rows)."""
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.research.aggregation_trace import AggTraceContext
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    context = AggTraceContext(
+        battle_id="battle-x", seed_index=0, our_side="p1", config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    writer = _RaisingAggTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        agg_trace_writer=writer, agg_trace_context=context,
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+
+    # Must not raise -- the whole point of the fix.
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch still went out
+    assert client._agg_trace_index == 0  # NOT incremented on a failed write

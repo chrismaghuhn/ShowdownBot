@@ -101,7 +101,7 @@ class AggTraceContext:
 
 
 def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | None,
-                   decision_index: int) -> dict:
+                   decision_index: int, turn_number: int | None = None) -> dict:
     """Build one full-fidelity aggregation-trace row.
 
     ``trace`` is a ``battle.decision_trace.DecisionTrace`` (or ``None`` for a
@@ -109,6 +109,12 @@ def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | Non
     ran, such as team preview). ``request``/``choose`` are the same
     ``BattleRequest``/``/choose ...`` string used by ``eval.decision_capture``;
     ``choose`` may be ``None`` (-> ``selected_action_key`` is ``None``).
+
+    ``turn_number`` (optional, default ``None``) is the in-battle turn number
+    at decision time -- carried so an offline probe can join dataset teacher
+    labels onto agg-trace rows via ``(seed_index, turn_number)``. It is
+    ``None`` for team-preview/degenerate rows (no ``state``) and is otherwise
+    a non-negative int; see ``validate_agg_row``.
     """
     response_actions = [] if trace is None else list(trace.opponent_responses)
     response_weights = [] if trace is None else list(trace.opponent_response_weights)
@@ -123,6 +129,7 @@ def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | Non
         "battle_id": context.battle_id,
         "seed_index": context.seed_index,
         "decision_index": decision_index,
+        "turn_number": turn_number,
         "our_side": context.our_side,
         "config_id": context.config_id,
         "config_hash": context.config_hash,
@@ -157,6 +164,7 @@ _REQUIRED_AGG_FIELDS = frozenset({
 })
 _NULLABLE_AGG_FIELDS = frozenset({
     "game_mode", "aggregation_mode", "risk_lambda", "must_react_lambda", "selected_action_key",
+    "turn_number",
 })
 _CANDIDATE_FIELDS = frozenset({"action_key", "exported_aggregate_score", "response_scores"})
 
@@ -183,6 +191,16 @@ def validate_agg_row(row: dict) -> None:
     for key in ("seed_index", "decision_index"):
         if not isinstance(row[key], int) or isinstance(row[key], bool) or row[key] < 0:
             raise AggTraceError(f"{key} must be a non-negative int")
+
+    # turn_number is ADDITIVE (2c-Slice-0b bugfix) -- unlike the other nullable fields above,
+    # an OLD row may be missing the key entirely (not even `null`); `.get()` treats that the
+    # same as an explicit `null`. When present and non-null it must be a non-negative int,
+    # mirroring the seed_index/decision_index check.
+    turn_number = row.get("turn_number")
+    if turn_number is not None and (
+        not isinstance(turn_number, int) or isinstance(turn_number, bool) or turn_number < 0
+    ):
+        raise AggTraceError("turn_number must be a non-negative int or null")
 
     for key in ("risk_lambda", "must_react_lambda"):
         val = row[key]

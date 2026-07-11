@@ -599,15 +599,21 @@ class _Client:
         if self.agg_trace_writer is not None:
             from showdown_bot.research.aggregation_trace import build_agg_row
 
-            agg_row = build_agg_row(
-                context=self.agg_trace_context,
-                trace=trace_obj,
-                request=req,
-                choose=choose,
-                decision_index=self._agg_trace_index,
-            )
-            self.agg_trace_writer.write(agg_row)
-            self._agg_trace_index += 1
+            try:
+                agg_row = build_agg_row(
+                    context=self.agg_trace_context,
+                    trace=trace_obj,
+                    request=req,
+                    choose=choose,
+                    decision_index=self._agg_trace_index,
+                    turn_number=getattr(state, "turn", None),
+                )
+                self.agg_trace_writer.write(agg_row)
+                self._agg_trace_index += 1
+            except Exception as exc:  # noqa: BLE001 - agg-trace is best-effort; never stall the battle
+                logger.debug(
+                    "[%s] agg-trace write failed (decision dropped from sidecar): %s", self.name, exc
+                )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
         # trace_obj is then non-None only for "heuristic" already) keeps this fully decoupled

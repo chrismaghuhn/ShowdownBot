@@ -184,6 +184,32 @@ def test_build_agg_row_handles_trace_none(agg_context, decision_fixture):
 
 
 # ---------------------------------------------------------------------------
+# turn_number (2c-Slice-0b bugfix): additive nullable field carrying the
+# offline teacher-join key `(seed_index, turn_number)`. Backward compatible --
+# defaults to None, an omitted-at-call-site value stays None, and OLD rows
+# written before this field existed (no key at all) must still load/validate.
+# ---------------------------------------------------------------------------
+
+def test_build_agg_row_turn_number_is_recorded(agg_context, decision_fixture):
+    req, _kw = decision_fixture
+    trace = _fake_trace()
+    row = build_agg_row(
+        context=agg_context, trace=trace, request=req, choose=CHOOSE, decision_index=0,
+        turn_number=7,
+    )
+    assert row["turn_number"] == 7
+    validate_agg_row(row)  # must still be a valid row
+
+
+def test_build_agg_row_turn_number_defaults_to_none(agg_context, decision_fixture):
+    req, _kw = decision_fixture
+    trace = _fake_trace()
+    row = build_agg_row(context=agg_context, trace=trace, request=req, choose=CHOOSE, decision_index=0)
+    assert row["turn_number"] is None
+    validate_agg_row(row)  # must still be a valid row
+
+
+# ---------------------------------------------------------------------------
 # response_weights: real-world "unweighted" (empty list) is valid; a present
 # but mismatched-length weights list is rejected. Confirmed against the real
 # trace population (battle/decision.py: `trace.opponent_response_weights =
@@ -287,6 +313,18 @@ def test_validate_agg_row_rejects_non_finite_lambda(agg_context, decision_fixtur
     trace = _fake_trace()
     row = build_agg_row(context=agg_context, trace=trace, request=req, choose=CHOOSE, decision_index=0)
     row["risk_lambda"] = float("nan")
+    with pytest.raises(AggTraceError):
+        validate_agg_row(row)
+
+
+def test_validate_agg_row_rejects_negative_turn_number(agg_context, decision_fixture):
+    req, _kw = decision_fixture
+    trace = _fake_trace()
+    row = build_agg_row(
+        context=agg_context, trace=trace, request=req, choose=CHOOSE, decision_index=0,
+        turn_number=3,
+    )
+    row["turn_number"] = -1
     with pytest.raises(AggTraceError):
         validate_agg_row(row)
 
@@ -400,3 +438,20 @@ def test_load_agg_trace_rejects_invalid_row(tmp_path):
     path.write_text('{"not": "a valid row"}\n', encoding="utf-8")
     with pytest.raises(AggTraceError):
         load_agg_trace(path)
+
+
+def test_load_agg_trace_accepts_old_row_without_turn_number_key(tmp_path, agg_context, decision_fixture):
+    """Backward compat: turn_number is an ADDITIVE nullable field -- an OLD row written
+    before this field existed (no `turn_number` key at all, not even `null`) must still
+    load and validate cleanly."""
+    req, _kw = decision_fixture
+    trace = _fake_trace()
+    row = build_agg_row(context=agg_context, trace=trace, request=req, choose=CHOOSE, decision_index=0)
+    row.pop("turn_number", None)  # simulate a pre-existing row from before this field existed
+    assert "turn_number" not in row
+
+    path = tmp_path / "agg_trace.jsonl"
+    path.write_text(_row_json(row) + "\n", encoding="utf-8")
+    loaded = load_agg_trace(path)
+    assert len(loaded) == 1
+    assert "turn_number" not in loaded[0]
