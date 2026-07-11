@@ -116,7 +116,10 @@ def audit_features(corpus: AuditCorpus, config: AuditConfig) -> tuple[list[Findi
     train_rows = feature_rows(corpus.decisions_by_split["train"])
     features = sorted({name for row in corpus.rows for name in row["features"]})
     findings, metrics = [], {"train": {}, "correlations": [], "drift": {}}
-    denied = sorted(set(features) & (LABEL_DENYLIST | METADATA_DENYLIST))
+    # format_id is intentionally in BOTH FEATURE_COLUMNS and METADATA_KEYS (schema: the only
+    # allowed feature/metadata overlap); a canonical feature column is never a denylist leak.
+    effective_denylist = (LABEL_DENYLIST | METADATA_DENYLIST) - set(FEATURE_COLUMNS)
+    denied = sorted(set(features) & effective_denylist)
     if denied or not set(features) <= set(FEATURE_COLUMNS):
         findings.append(make_finding(
             code="FEATURE_ALLOWLIST_VIOLATION", severity=Severity.FAIL, scope="feature",

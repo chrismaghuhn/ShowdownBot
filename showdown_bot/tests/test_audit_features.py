@@ -54,3 +54,21 @@ def test_spearman_ties_and_quantile_edges_are_deterministic():
     assert spearman([1, 1, 2, 2], [4, 4, 8, 8]) == pytest.approx(1.0)
     values = list(range(100))
     assert train_quantile_edges(values) == train_quantile_edges(list(reversed(values)))
+
+
+def test_format_id_feature_metadata_overlap_is_not_a_denylist_violation():
+    # format_id intentionally appears in BOTH FEATURE_COLUMNS and METADATA_KEYS (schema: the only
+    # allowed overlap). A real dataset carrying it as a feature must NOT trip the allowlist FAIL.
+    corpus = _feature_corpus(
+        [{"format_id": "gen9vgc2025regi", "mirror_flag": 0} for _ in range(20)]
+    )
+    findings, _metrics = audit_features(corpus, AuditConfig())
+    assert not any(f.code == "FEATURE_ALLOWLIST_VIOLATION" for f in findings)
+
+
+def test_denylisted_non_feature_column_still_flags_violation():
+    # A genuine leak (a denylisted metadata/label key that is NOT a canonical feature column)
+    # must still FAIL — the fix only exempts the documented format_id overlap, not real leaks.
+    corpus = _feature_corpus([{"game_outcome": "win"} for _ in range(20)])
+    findings, _metrics = audit_features(corpus, AuditConfig())
+    assert any(f.code == "FEATURE_ALLOWLIST_VIOLATION" for f in findings)
