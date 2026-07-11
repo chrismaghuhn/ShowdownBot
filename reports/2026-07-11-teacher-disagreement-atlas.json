@@ -1,0 +1,702 @@
+{
+  "breakdown_denominator": 2735,
+  "breakdown_scope": "strict_unique_choices",
+  "breakdowns": {
+    "action_signature": [
+      {
+        "agreements": 543,
+        "decisions": 1257,
+        "disagreement_rate": 0.568019093078759,
+        "disagreements": 714,
+        "mean_disagreement_regret": 4.8320048809688645,
+        "value": "move+move|protects=0"
+      },
+      {
+        "agreements": 162,
+        "decisions": 417,
+        "disagreement_rate": 0.6115107913669064,
+        "disagreements": 255,
+        "mean_disagreement_regret": 7.362523894576472,
+        "value": "move+move|protects=1"
+      },
+      {
+        "agreements": 394,
+        "decisions": 566,
+        "disagreement_rate": 0.303886925795053,
+        "disagreements": 172,
+        "mean_disagreement_regret": 5.973521119717056,
+        "value": "move+move|protects=2"
+      },
+      {
+        "agreements": 58,
+        "decisions": 183,
+        "disagreement_rate": 0.6830601092896175,
+        "disagreements": 125,
+        "mean_disagreement_regret": 0.0,
+        "value": "move+pass|protects=0"
+      },
+      {
+        "agreements": 0,
+        "decisions": 30,
+        "disagreement_rate": 1.0,
+        "disagreements": 30,
+        "mean_disagreement_regret": 0.0,
+        "value": "move+pass|protects=1"
+      },
+      {
+        "agreements": 28,
+        "decisions": 66,
+        "disagreement_rate": 0.5757575757575758,
+        "disagreements": 38,
+        "mean_disagreement_regret": 2.2268569399222162,
+        "value": "move+switch|protects=0"
+      },
+      {
+        "agreements": 6,
+        "decisions": 13,
+        "disagreement_rate": 0.5384615384615384,
+        "disagreements": 7,
+        "mean_disagreement_regret": 5.1799602362763295,
+        "value": "move+switch|protects=1"
+      },
+      {
+        "agreements": 23,
+        "decisions": 99,
+        "disagreement_rate": 0.7676767676767676,
+        "disagreements": 76,
+        "mean_disagreement_regret": 0.0,
+        "value": "pass+move|protects=0"
+      },
+      {
+        "agreements": 0,
+        "decisions": 24,
+        "disagreement_rate": 1.0,
+        "disagreements": 24,
+        "mean_disagreement_regret": 0.0,
+        "value": "pass+move|protects=1"
+      },
+      {
+        "agreements": 34,
+        "decisions": 71,
+        "disagreement_rate": 0.5211267605633803,
+        "disagreements": 37,
+        "mean_disagreement_regret": 3.5468583533640174,
+        "value": "switch+move|protects=0"
+      },
+      {
+        "agreements": 2,
+        "decisions": 9,
+        "disagreement_rate": 0.7777777777777778,
+        "disagreements": 7,
+        "mean_disagreement_regret": 0.07159879011599177,
+        "value": "switch+pass|protects=0"
+      }
+    ],
+    "candidate_count": [
+      {
+        "agreements": 32,
+        "decisions": 62,
+        "disagreement_rate": 0.4838709677419355,
+        "disagreements": 30,
+        "mean_disagreement_regret": 0.016706384360398077,
+        "value": 2
+      },
+      {
+        "agreements": 0,
+        "decisions": 1,
+        "disagreement_rate": 1.0,
+        "disagreements": 1,
+        "mean_disagreement_regret": 0.0,
+        "value": 4
+      },
+      {
+        "agreements": 49,
+        "decisions": 247,
+        "disagreement_rate": 0.8016194331983806,
+        "disagreements": 198,
+        "mean_disagreement_regret": 0.0,
+        "value": 5
+      },
+      {
+        "agreements": 1169,
+        "decisions": 2425,
+        "disagreement_rate": 0.5179381443298969,
+        "disagreements": 1256,
+        "mean_disagreement_regret": 5.260393913348368,
+        "value": 6
+      }
+    ],
+    "game_mode": [
+      {
+        "agreements": 599,
+        "decisions": 1095,
+        "disagreement_rate": 0.4529680365296804,
+        "disagreements": 496,
+        "mean_disagreement_regret": 4.318275900730947,
+        "value": "AHEAD"
+      },
+      {
+        "agreements": 114,
+        "decisions": 539,
+        "disagreement_rate": 0.7884972170686456,
+        "disagreements": 425,
+        "mean_disagreement_regret": 3.365609820460848,
+        "value": "MUST_REACT"
+      },
+      {
+        "agreements": 537,
+        "decisions": 1101,
+        "disagreement_rate": 0.5122615803814714,
+        "disagreements": 564,
+        "mean_disagreement_regret": 5.381749869216228,
+        "value": "NEUTRAL"
+      }
+    ],
+    "heuristic_confidence_bucket": [
+      {
+        "agreements": 355,
+        "decisions": 731,
+        "disagreement_rate": 0.5143638850889193,
+        "disagreements": 376,
+        "mean_disagreement_regret": 4.890700755445112,
+        "value": "high"
+      },
+      {
+        "agreements": 271,
+        "decisions": 765,
+        "disagreement_rate": 0.6457516339869281,
+        "disagreements": 494,
+        "mean_disagreement_regret": 4.677154247300846,
+        "value": "low"
+      },
+      {
+        "agreements": 218,
+        "decisions": 594,
+        "disagreement_rate": 0.632996632996633,
+        "disagreements": 376,
+        "mean_disagreement_regret": 5.570913512553923,
+        "value": "medium"
+      },
+      {
+        "agreements": 406,
+        "decisions": 645,
+        "disagreement_rate": 0.3705426356589147,
+        "disagreements": 239,
+        "mean_disagreement_regret": 1.520814994820533,
+        "value": "tie_or_zero"
+      }
+    ],
+    "response_entropy_bucket": [
+      {
+        "agreements": 209,
+        "decisions": 595,
+        "disagreement_rate": 0.6487394957983194,
+        "disagreements": 386,
+        "mean_disagreement_regret": 6.198398169986896,
+        "value": "high"
+      },
+      {
+        "agreements": 32,
+        "decisions": 74,
+        "disagreement_rate": 0.5675675675675675,
+        "disagreements": 42,
+        "mean_disagreement_regret": 0.0,
+        "value": "low"
+      },
+      {
+        "agreements": 1009,
+        "decisions": 2066,
+        "disagreement_rate": 0.5116166505324298,
+        "disagreements": 1057,
+        "mean_disagreement_regret": 3.9876766821962355,
+        "value": "medium"
+      }
+    ],
+    "speed_control_state": [
+      {
+        "agreements": 2,
+        "decisions": 7,
+        "disagreement_rate": 0.7142857142857143,
+        "disagreements": 5,
+        "mean_disagreement_regret": 1.8632104743393278,
+        "value": "mixed"
+      },
+      {
+        "agreements": 815,
+        "decisions": 1764,
+        "disagreement_rate": 0.5379818594104309,
+        "disagreements": 949,
+        "mean_disagreement_regret": 3.586661389531474,
+        "value": "none"
+      },
+      {
+        "agreements": 11,
+        "decisions": 137,
+        "disagreement_rate": 0.9197080291970803,
+        "disagreements": 126,
+        "mean_disagreement_regret": 9.188357762662728,
+        "value": "tailwind_both"
+      },
+      {
+        "agreements": 34,
+        "decisions": 57,
+        "disagreement_rate": 0.40350877192982454,
+        "disagreements": 23,
+        "mean_disagreement_regret": 2.2582278233946655,
+        "value": "tailwind_opp"
+      },
+      {
+        "agreements": 279,
+        "decisions": 606,
+        "disagreement_rate": 0.5396039603960396,
+        "disagreements": 327,
+        "mean_disagreement_regret": 5.56765223066768,
+        "value": "tailwind_ours"
+      },
+      {
+        "agreements": 109,
+        "decisions": 164,
+        "disagreement_rate": 0.3353658536585366,
+        "disagreements": 55,
+        "mean_disagreement_regret": 2.985520694497897,
+        "value": "trick_room"
+      }
+    ],
+    "threat_bucket": [
+      {
+        "agreements": 1216,
+        "decisions": 2639,
+        "disagreement_rate": 0.5392194012883668,
+        "disagreements": 1423,
+        "mean_disagreement_regret": 4.488647422744128,
+        "value": "0"
+      },
+      {
+        "agreements": 34,
+        "decisions": 95,
+        "disagreement_rate": 0.6421052631578947,
+        "disagreements": 61,
+        "mean_disagreement_regret": 3.609978677026951,
+        "value": "1"
+      },
+      {
+        "agreements": 0,
+        "decisions": 1,
+        "disagreement_rate": 1.0,
+        "disagreements": 1,
+        "mean_disagreement_regret": 0.001964832823252216,
+        "value": "2"
+      }
+    ],
+    "turn_bucket": [
+      {
+        "agreements": 266,
+        "decisions": 491,
+        "disagreement_rate": 0.45824847250509165,
+        "disagreements": 225,
+        "mean_disagreement_regret": 5.422079431891796,
+        "value": "1-3"
+      },
+      {
+        "agreements": 239,
+        "decisions": 485,
+        "disagreement_rate": 0.5072164948453608,
+        "disagreements": 246,
+        "mean_disagreement_regret": 5.879365638348153,
+        "value": "4-6"
+      },
+      {
+        "agreements": 745,
+        "decisions": 1759,
+        "disagreement_rate": 0.5764638999431495,
+        "disagreements": 1014,
+        "mean_disagreement_regret": 3.886848251959628,
+        "value": "7+"
+      }
+    ]
+  },
+  "corpus": {
+    "decisions": 3302,
+    "forced": 169,
+    "heuristic_ties": 253,
+    "multi_candidate": 3133,
+    "strict_agreements": 1250,
+    "strict_disagreements": 1485,
+    "strict_unique_choices": 2735,
+    "teacher_ties": 398,
+    "topset_agreements": 1503,
+    "topset_disagreements": 1630
+  },
+  "dataset": {
+    "decisions": 3302,
+    "games": 299,
+    "path": "../data/datasets/phase3-slice2b25a/dataset.jsonl.gz",
+    "rows": 17458
+  },
+  "disagreement_rate": 0.5429616087751371,
+  "high_value_threshold": 11.589575351005216,
+  "strict_disagreement_rate": 0.5429616087751371,
+  "top_opportunities": [
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "96e47d88f2654a88",
+      "disagreement": true,
+      "game_id": "463f8e23c3f191c0",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815534006,
+      "high_value": true,
+      "raw_value_gap": -31.857323135775502,
+      "regret_gap": 31.857323135775502,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "f2eecc9c65d7a0b9",
+      "disagreement": true,
+      "game_id": "463f8e23c3f191c0",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.14353464822963613,
+      "high_value": true,
+      "raw_value_gap": -29.445961568625894,
+      "regret_gap": 29.445961568625894,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "a40de5d71c336924",
+      "disagreement": true,
+      "game_id": "d5f17da160b81a16",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "medium",
+      "heuristic_score_gap": 0.6925714285714282,
+      "high_value": true,
+      "raw_value_gap": -27.914428291324747,
+      "regret_gap": 27.914428291324747,
+      "response_entropy": 1.5829349237863382,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "3f9d72c5ba2512c6",
+      "disagreement": true,
+      "game_id": "de6a3ac2f0e4c2e1",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815533984,
+      "high_value": true,
+      "raw_value_gap": -26.07737414684315,
+      "regret_gap": 26.07737414684315,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "635026dc0957a9f0",
+      "disagreement": true,
+      "game_id": "e96ee83faf7c6a1e",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815533984,
+      "high_value": true,
+      "raw_value_gap": -26.060666226051072,
+      "regret_gap": 26.060666226051072,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "a503948cb51d1264",
+      "disagreement": true,
+      "game_id": "e151f18ac3b299cf",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815533984,
+      "high_value": true,
+      "raw_value_gap": -26.047299889417413,
+      "regret_gap": 26.047299889417413,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "507b42c58ee7f9d3",
+      "disagreement": true,
+      "game_id": "dcbc0ae36bea9a5d",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.016949152542372836,
+      "high_value": true,
+      "raw_value_gap": -25.975661555047758,
+      "regret_gap": 25.975661555047758,
+      "response_entropy": 1.9656780552463373,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "4e0e72f10762d335",
+      "disagreement": true,
+      "game_id": "463f8e23c3f191c0",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "medium",
+      "heuristic_score_gap": 0.426923076923077,
+      "high_value": true,
+      "raw_value_gap": -25.266045704974054,
+      "regret_gap": 25.266045704974054,
+      "response_entropy": 2.314309554640566,
+      "response_entropy_bucket": "high",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "9d5b2403a59c8953",
+      "disagreement": true,
+      "game_id": "369feaaaa7c5359a",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815533993,
+      "high_value": true,
+      "raw_value_gap": -24.859118995204742,
+      "regret_gap": 24.859118995204742,
+      "response_entropy": 1.5829349237863382,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=0",
+      "candidate_count": 6,
+      "decision_id": "4957e242cd0ccf70",
+      "disagreement": true,
+      "game_id": "6585e4d20cfc6a70",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.16747572815533993,
+      "high_value": true,
+      "raw_value_gap": -24.857505780537032,
+      "regret_gap": 24.857505780537032,
+      "response_entropy": 1.5829349237863382,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "1f3656b156651e5a",
+      "disagreement": true,
+      "game_id": "36935ff2290e2261",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -24.003339140374752,
+      "regret_gap": 24.003339140374752,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "7784398b69e38777",
+      "disagreement": true,
+      "game_id": "0924cf62ad7cf8b9",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -24.003339140374752,
+      "regret_gap": 24.003339140374752,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "0cf7821862833833",
+      "disagreement": true,
+      "game_id": "1222430881637e3d",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.99363574802684,
+      "regret_gap": 23.99363574802684,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "979eeec9e2f2292b",
+      "disagreement": true,
+      "game_id": "5db6c6c67df5987a",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.99363574802684,
+      "regret_gap": 23.99363574802684,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "c0d47ab5369b04eb",
+      "disagreement": true,
+      "game_id": "c8c602d8b18e84af",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.99363574802684,
+      "regret_gap": 23.99363574802684,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "839e9f6ccef6b406",
+      "disagreement": true,
+      "game_id": "23cadda97f6f62b1",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.986464140374753,
+      "regret_gap": 23.986464140374753,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "d8c278f43d1e4b90",
+      "disagreement": true,
+      "game_id": "fa6ede4cebeec8be",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.986464140374753,
+      "regret_gap": 23.986464140374753,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "ff5d6ace62c8e991",
+      "disagreement": true,
+      "game_id": "a6d205973596131c",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.986464140374753,
+      "regret_gap": 23.986464140374753,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=1",
+      "candidate_count": 6,
+      "decision_id": "3af4c55ccfc8e78e",
+      "disagreement": true,
+      "game_id": "14cc1409feaafb17",
+      "game_mode": "AHEAD",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.17079207920792083,
+      "high_value": true,
+      "raw_value_gap": -23.97802664037475,
+      "regret_gap": 23.97802664037475,
+      "response_entropy": 1.5371082179538937,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "tailwind_ours",
+      "threat_bucket": "0",
+      "turn_bucket": "4-6"
+    },
+    {
+      "action_signature": "move+move|protects=2",
+      "candidate_count": 6,
+      "decision_id": "7999aa3e85d6b3a5",
+      "disagreement": true,
+      "game_id": "ccaf9a8f94fab902",
+      "game_mode": "NEUTRAL",
+      "heuristic_confidence_bucket": "low",
+      "heuristic_score_gap": 0.043903352264489826,
+      "high_value": true,
+      "raw_value_gap": -23.099114272003124,
+      "regret_gap": 23.099114272003124,
+      "response_entropy": 1.5829349237863382,
+      "response_entropy_bucket": "medium",
+      "speed_control_state": "none",
+      "threat_bucket": "0",
+      "turn_bucket": "7+"
+    }
+  ],
+  "topset_disagreement_rate": 0.5202681136291095
+}
