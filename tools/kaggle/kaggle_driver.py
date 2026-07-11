@@ -63,7 +63,9 @@ from pathlib import Path
 KAGGLE_USERNAME = "chrismaghuhn"
 
 _ENV_HEADER_PREFIX = "# KAGGLE_ENV: "
-_VERDICT_PREFIXES = ("KAGGLE-REPRO:", "DATAGEN:")
+# 2b-4 Task 3: the gated-override kernel (tools/kaggle/gated_override_kernel.py) prints
+# 2B4-DETERMINISM:/2B4-STRENGTH: verdict lines -- same wire convention as KAGGLE-REPRO:/DATAGEN:.
+_VERDICT_PREFIXES = ("KAGGLE-REPRO:", "DATAGEN:", "2B4-DETERMINISM:", "2B4-STRENGTH:")
 _VERDICT_TOKENS = ("PASS", "FAIL", "DONE")
 
 # Kernel statuses that mean "the run is finished, stop polling" (kagglesdk

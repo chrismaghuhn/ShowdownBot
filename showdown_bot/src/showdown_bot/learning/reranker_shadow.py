@@ -13,6 +13,69 @@ from showdown_bot.learning.reranker_features import feature_schema_hash
 logger = logging.getLogger(__name__)
 
 
+def score_candidates(booster, manifest, *, trace, state, request, our_side, format_id,
+                      dex=None, move_meta=None) -> list[float] | None:
+    """Pure per-candidate scoring pipeline: extract_features -> vectorize ->
+    booster.predict, IN trace.candidates order. Shared by the shadow (which wraps
+    this with its own rich diagnostic row -- candidate_count, feature_vector_hash,
+    parity warnings, etc.) and the 2b-4 ``RerankerOverride`` (which only needs the
+    scores themselves).
+
+    Returns ``None`` on ANY failure -- empty ``trace.candidates``, an
+    ``extract_features``/context-build error, a model feature missing from the
+    live row, a ``booster.predict`` error, or a scores/candidates count mismatch.
+    Callers fail-safe on ``None``. Deterministic: no wall-clock branch, no RNG --
+    ``booster.predict`` is deterministic for a fixed model + input, and every
+    feature/vector build below iterates ordered structures only (manifest
+    ``feature_names`` list, ``trace.candidates`` list). NEVER raises.
+
+    ``format_id``/``dex``/``move_meta`` mirror the shadow's feature-context
+    inputs (the ``2b2a_move_meta_none`` context mode when ``dex``/``move_meta``
+    are ``None``). The synthetic provenance fields below (``git_sha="n/a"`` etc.)
+    only affect the minted ``game_id``/``decision_id`` metadata -- never a
+    feature column -- so they are safe stand-ins when the caller (the override)
+    has no real run provenance to thread through.
+    """
+    try:
+        candidates = trace.candidates
+        if not candidates:
+            return None
+
+        from showdown_bot.learning.features import extract_features
+        from showdown_bot.learning.provenance import build_feature_context
+        from showdown_bot.learning.reranker_features import vectorize
+
+        ctx = build_feature_context(
+            git_sha="n/a", dirty_flag=False, team_hash_="n/a", config_hash_="n/a", run_seed=0,
+            game_index=-1, decision_local_index=0,
+            turn_number=getattr(state, "turn", 0), our_side=our_side, format_id=format_id,
+            mirror_flag=False,
+            teacher_config={"teacher_version": "score_candidates"},
+            sampling_policy="all", dex=dex, move_meta=move_meta,
+        )
+        rows = extract_features(trace, state, request, ctx)
+        if not rows:
+            return None
+
+        X, missing = vectorize(
+            [r.features for r in rows],
+            feature_names=manifest["feature_names"],
+            encodings=manifest.get("categorical_encodings", {}),
+        )
+        if missing:
+            return None
+
+        import numpy as np
+
+        scores = list(booster.predict(np.array(X, dtype=float)))
+        if len(scores) != len(rows):
+            return None
+        return [float(s) for s in scores]
+    except Exception as exc:  # noqa: BLE001 - fail-safe, callers never see an exception
+        logger.debug("score_candidates: failed, returning None: %s", exc)
+        return None
+
+
 class RerankerShadowRuntime:
     def __init__(self, *, booster, manifest, log_path, format_id, timeout_ms, provenance):
         self.booster = booster
