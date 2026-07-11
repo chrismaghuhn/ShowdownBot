@@ -1,5 +1,6 @@
 # tests/test_export_runtime.py
 import io
+from showdown_bot.learning.export import DatasetExporter, SamplingPolicy
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 
 
@@ -49,3 +50,142 @@ def test_runtime_flush_writes(monkeypatch, tmp_path):
     rt = DatasetExportRuntime.from_env(format_id="fmt", packed_team="t", mirror_flag=False)
     rt.flush()                                     # empty exporter -> writes an (empty) file, no crash
     assert p.exists()
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a Kaggle-OOM fix: DatasetExportRuntime.close() must tear down the
+# rollout-mode CalcClient (PersistentCalcBackend -> leaked Node process
+# otherwise, one per battle since the schedule runner builds a fresh runtime
+# per run_local_gauntlet(games=1) call).
+# ---------------------------------------------------------------------------
+
+class _FakeCalcClient:
+    """Minimal CalcClient stand-in: only close() matters for these tests."""
+
+    def __init__(self):
+        self.close_calls = 0
+
+    def close(self):
+        self.close_calls += 1
+
+
+def test_runtime_close_closes_injected_calc_client():
+    fake_calc = _FakeCalcClient()
+    rt = DatasetExportRuntime(
+        DatasetExporter(SamplingPolicy(policy="all", rate=1, seed=0)),
+        "unused.jsonl",
+        git_sha="gs", dirty_flag=False, team_hash_="th", config_hash_="ch",
+        run_seed=0, format_id="fmt", mirror_flag=False, sampling_policy_name="all",
+        calc=fake_calc,
+    )
+    rt.close()
+    assert fake_calc.close_calls == 1
+
+
+def test_runtime_close_is_idempotent():
+    fake_calc = _FakeCalcClient()
+    rt = DatasetExportRuntime(
+        DatasetExporter(SamplingPolicy(policy="all", rate=1, seed=0)),
+        "unused.jsonl",
+        git_sha="gs", dirty_flag=False, team_hash_="th", config_hash_="ch",
+        run_seed=0, format_id="fmt", mirror_flag=False, sampling_policy_name="all",
+        calc=fake_calc,
+    )
+    rt.close()
+    rt.close()  # second call must not close the backend again
+    assert fake_calc.close_calls == 1
+
+
+def test_runtime_close_noop_in_stub_mode(monkeypatch, tmp_path):
+    """Stub mode (the default, no SHOWDOWN_DATASET_TEACHER=rollout) never builds a
+    calc client -> close() is a safe no-op (does not raise, no calc to close)."""
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    monkeypatch.delenv("SHOWDOWN_DATASET_TEACHER", raising=False)
+    rt = DatasetExportRuntime.from_env(format_id="fmt", packed_team="t", mirror_flag=False)
+    assert rt is not None
+    rt.close()  # must not raise
+    rt.close()  # idempotent
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a run-scoped fix: `build_schedule_export_runtime` builds ONE runtime for
+# cli.run_schedule to thread through every row (instead of each row's
+# run_local_gauntlet(games=1) call building+closing its own, which overwrote the
+# export file every battle).
+# ---------------------------------------------------------------------------
+
+
+def test_build_schedule_export_runtime_returns_none_when_env_unset(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_DATASET_EXPORT", raising=False)
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    assert build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt") is None
+
+
+def test_build_schedule_export_runtime_builds_with_hero_team_and_format(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt")
+    assert rt is not None
+    assert rt.format_id == "gen9vgc2025regi"
+    # 2b-2.5a wiring fix: no villain_team_path given -> _is_mirror_battle's "no opp path ->
+    # mirror" convention (matches _resolve_side_teams' own default), NOT the old hardcoded False.
+    assert rt.mirror_flag is True
+    assert len(rt.team_hash_) == 16  # a real (non-empty) packed team was loaded and hashed
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a wiring fix: build_schedule_export_runtime must thread real dex/move_meta (not the
+# pre-fix dex=None, move_meta=None), and a real per-battle mirror_flag derived from
+# hero_team_path vs. an (optional) villain_team_path -- see reports/2026-07-11-2b25a-offline-
+# eval.md root causes (A) and (B).
+# ---------------------------------------------------------------------------
+
+
+def test_build_schedule_export_runtime_threads_real_dex_and_move_meta(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.battle.opponent import SpeciesDex
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt")
+    assert rt is not None
+    assert rt.dex is not None
+    assert isinstance(rt.dex, SpeciesDex)
+    assert rt.move_meta is not None
+    # A real, data-driven move table -- not an empty stand-in -- and it resolves a known move.
+    assert "protect" in rt.move_meta
+    assert rt.move_meta["protect"].category == "status"
+
+
+def test_build_schedule_export_runtime_mirror_true_when_villain_path_matches_hero(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime(
+        "gen9vgc2025regi", "teams/fixed_team.txt", "teams/fixed_team.txt",
+    )
+    assert rt is not None
+    assert rt.mirror_flag is True
+
+
+def test_build_schedule_export_runtime_mirror_false_when_villain_path_differs(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime(
+        "gen9vgc2025regi", "teams/fixed_team.txt", "teams/opp_variant_a.txt",
+    )
+    assert rt is not None
+    assert rt.mirror_flag is False
+
+
+def test_build_schedule_export_runtime_degrades_gracefully_on_bad_team_path(monkeypatch, tmp_path):
+    """A missing/bad hero_team_path must not raise -- mirrors _resolve_side_teams' existing
+    ""-on-load-failure tolerance (the schedule loop itself would fail loudly elsewhere on a
+    bad team path; this seam just must not crash the export-runtime build specifically)."""
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "no/such/team/file.txt")
+    assert rt is not None  # still built -- degrades to an empty packed_team, not a crash

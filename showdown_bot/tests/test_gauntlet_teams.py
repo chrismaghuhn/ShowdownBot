@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from showdown_bot.client.gauntlet import _resolve_side_teams
+from showdown_bot.client.gauntlet import _is_mirror_battle, _resolve_side_teams
 
 _TEAMS = Path(__file__).resolve().parents[1] / "teams"
 _HERO = str(_TEAMS / "fixed_team.txt")
@@ -30,3 +30,28 @@ def test_two_opp_variants_differ():
     _, va = _resolve_side_teams(_HERO, _OPP_A)
     _, vb = _resolve_side_teams(_HERO, _OPP_B)
     assert va and vb and va != vb  # the schedule can drive distinct opp teams per row
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a wiring fix: `_is_mirror_battle` is the real mirror_flag computation threaded into
+# `run_local_gauntlet` -> `_Client` -> `DatasetExportRuntime` (replacing the pre-fix hardcoded
+# `mirror_flag=False` at both construction sites in gauntlet.py). It mirrors
+# `_resolve_side_teams`' own "no opp path -> mirror" convention exactly.
+# ---------------------------------------------------------------------------
+
+
+def test_is_mirror_battle_true_when_no_opp_team_path():
+    assert _is_mirror_battle(_HERO, None) is True
+
+
+def test_is_mirror_battle_true_when_opp_team_path_is_empty_string():
+    assert _is_mirror_battle(_HERO, "") is True
+
+
+def test_is_mirror_battle_true_when_paths_are_identical():
+    assert _is_mirror_battle(_HERO, _HERO) is True
+
+
+def test_is_mirror_battle_false_when_paths_differ():
+    assert _is_mirror_battle(_HERO, _OPP_A) is False
+    assert _is_mirror_battle(_HERO, _OPP_B) is False

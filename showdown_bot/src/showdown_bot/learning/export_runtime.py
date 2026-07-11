@@ -53,6 +53,7 @@ class DatasetExportRuntime:
         dex=None,
         move_meta=None,
         protect_priors_by_opp_slot=None,
+        calc=None,
     ):
         self.exporter = exporter
         self.export_path = export_path
@@ -67,6 +68,11 @@ class DatasetExportRuntime:
         self.dex = dex
         self.move_meta = move_meta
         self.protect_priors_by_opp_slot = protect_priors_by_opp_slot
+        # Rollout-mode CalcClient (2b-2.5a Kaggle-OOM fix): set only when this runtime
+        # (via _build_rollout_provider) built or received one for the RolloutLabelProvider's
+        # deps. None in stub mode -> close() is then a safe no-op.
+        self._calc = calc
+        self._closed = False
 
         # LabelProvider — defaults to StubLabelProvider if not supplied.
         self._provider = provider if provider is not None else StubLabelProvider()
@@ -132,10 +138,15 @@ class DatasetExportRuntime:
         cfg_dict.update({k: os.environ.get(k) for k in _HEURISTIC_KNOBS})
 
         # Determine provider (explicit injection wins over env mode).
+        # _calc tracks whichever CalcClient ends up backing the rollout provider (built
+        # fresh by _build_rollout_provider, or the caller's own `calc` if one was passed
+        # straight through) so close() has something to tear down. Stays None — and
+        # close() a no-op — in stub mode or when a provider is injected directly (test path).
+        _calc = calc
         if provider is None:
             mode = os.environ.get("SHOWDOWN_DATASET_TEACHER", "stub")
             if mode == "rollout":
-                provider = cls._build_rollout_provider(
+                provider, _calc = cls._build_rollout_provider(
                     format_id=format_id,
                     dex=dex,
                     move_meta=move_meta,
@@ -167,6 +178,7 @@ class DatasetExportRuntime:
             dex=dex,
             move_meta=move_meta,
             protect_priors_by_opp_slot=protect_priors_by_opp_slot,
+            calc=_calc,
         )
 
     @staticmethod
@@ -196,6 +208,10 @@ class DatasetExportRuntime:
 
         risk_lambda=0.5 and tera_margin=1.0 mirror decision.py:156-157 defaults exactly.
         rollout_horizon=0 suppresses the inner condition-rollout (see deps comment below).
+
+        Returns ``(RolloutLabelProvider, calc)`` — the caller threads ``calc`` into the
+        runtime's ``close()`` seam (2b-2.5a Kaggle-OOM fix) so the CalcClient built here
+        gets torn down after the battle, not left to a process-lifetime atexit hook.
         """
         from showdown_bot.battle.oracle import DamageOracle
         from showdown_bot.engine.calc.client import CalcClient
@@ -258,13 +274,14 @@ class DatasetExportRuntime:
         cfg_dict["move_priors_hash"] = canonical_hash(move_priors)
         cfg_dict["likely_sets_hash"] = canonical_hash(likely_sets)
 
-        return RolloutLabelProvider(
+        provider = RolloutLabelProvider(
             deps=deps,
             likely_sets=likely_sets,
             move_priors=move_priors,
             cfg=cfg,
             speed_oracle=speed_oracle,
         )
+        return provider, calc
 
     def start_game(self) -> None:
         self._game_index += 1
@@ -342,3 +359,22 @@ class DatasetExportRuntime:
 
     def flush(self) -> None:
         self.exporter.flush_sorted(self.export_path)
+
+    def close(self) -> None:
+        """Idempotent, best-effort: close the rollout-mode CalcClient (if any).
+
+        2b-2.5a Kaggle-OOM fix: the schedule runner builds a fresh runtime per
+        battle (games=1 per call), so an un-closed rollout CalcClient leaks a
+        PersistentCalcBackend Node process every battle. Stub mode (the default)
+        never builds a calc client -> ``self._calc`` is None -> no-op. Call after
+        the battle result is recorded (teardown-only; never touches an in-flight
+        decision).
+        """
+        if self._closed:
+            return
+        self._closed = True
+        if self._calc is not None:
+            try:
+                self._calc.close()
+            except Exception as exc:  # noqa: BLE001 - teardown must not mask the battle outcome
+                logger.debug("export runtime: calc close failed: %s", exc)

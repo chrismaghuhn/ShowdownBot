@@ -10,12 +10,17 @@ from dataclasses import dataclass, field
 
 from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
 from showdown_bot.battle.decision_trace import DecisionTrace
+from showdown_bot.battle.opponent import SpeciesDex
+from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.client.connection import (
     ShowdownConnection,
     authenticate_local,
 )
+from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.moves import _move_table
+from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
@@ -54,12 +59,25 @@ def agent_choose(
     opp_sets: dict | None = None,
     trace=None,
     species_resolver=None,
+    calc=None,
+    oracle=None,
+    speed_oracle=None,
+    dex=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
     ``heuristic`` uses the full fallback chain; ``max_damage`` uses the baseline
     via the fallback chain; ``random`` uses the legacy random agent. ``report``
     (heuristic only) collects a readable decision block for the turn trace.
+
+    ``calc``/``oracle``/``speed_oracle``/``dex`` (2b-2.5a Kaggle-OOM root-cause
+    fix) are the CLIENT-OWNED decision deps, threaded into the heuristic
+    (``choose_with_fallback``) and max_damage (``max_damage_choice``) branches so
+    the decision core reuses ONE calc for the whole battle instead of the buggy
+    per-decision ``calc = calc or CalcClient()`` (which spawned a fresh
+    ``node calc.mjs --server`` per live decision, ~70/battle, never closed).
+    ``None`` (the request-only eval policies + random never pass them) preserves
+    the prior default-construction behavior for callers that don't own a calc.
     """
     # Eval-only opponent policies (T3c): request-only + deterministic, no state/book needed.
     # Local imports keep eval/opponents off the default/import path (live-path guard).
@@ -89,6 +107,7 @@ def agent_choose(
         try:
             return max_damage_choice(
                 req, state=state, book=book, our_side=our_side,
+                calc=calc, oracle=oracle, speed_oracle=speed_oracle,
                 fallback=lambda r: f"/choose default|{r.rqid}",
             )
         except Exception:  # noqa: BLE001
@@ -96,6 +115,7 @@ def agent_choose(
     return choose_with_fallback(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
+        calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
     )
 
 
@@ -161,7 +181,8 @@ class GauntletStats:
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None):
+    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
+                 export_runtime=None, allow_own_export=True, is_mirror=True):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -179,28 +200,64 @@ class _Client:
         # cached so the type-aware path can activate when the live state has only species.
         self._eval_species_dex = None
         self._eval_species_dex_tried = False
+        # Client-owned live-decision deps (2b-2.5a Kaggle-OOM root-cause fix): ONE
+        # calc/oracle/speed_oracle/dex bundle per battle, built lazily on the first
+        # decision that needs it (heuristic/max_damage only) and threaded into every
+        # decision so the core never default-builds a fresh CalcClient per decision.
+        self._decision_deps_built = False
+        self._decision_calc = None
+        self._decision_oracle = None
+        self._decision_speed_oracle = None
+        self._decision_dex = None
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
         self.last_request: dict[str, str] = {}
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
-        # Dataset export seam — None when SHOWDOWN_DATASET_EXPORT is unset (bit-identical path).
-        # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
-        # the gauntlet's already-built deps (avoids a second CalcClient).
-        # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
-        # in stub mode (default) they are ignored.
-        self._export = DatasetExportRuntime.from_env(
-            format_id=self.format_id,
-            packed_team=self.packed_team,
-            mirror_flag=False,
-            dex=None,
-            move_meta=None,
-            book=self.book,
-            our_spreads=self.our_spreads,
-            opp_sets=self.opp_sets,
-            priors=self.priors,
-        )
+        # Dataset export seam (2b-2.5a run-scoped fix): a caller (cli.run_schedule) can BORROW
+        # a runtime that spans multiple sequential run_local_gauntlet() calls/battles -- this
+        # client must then never build its own AND close() must never close a runtime it does
+        # not own (the runtime outlives this client). `allow_own_export=False` (villain, always)
+        # means this client never touches the export path at all: an explicit hero-only
+        # contract (a "heuristic" villain would otherwise build a SECOND runtime pointed at the
+        # same SHOWDOWN_DATASET_EXPORT path and clobber the hero's flushes) that also removes a
+        # per-battle wasted runtime/CalcClient build for every non-exporting villain.
+        self.owns_export = False
+        if export_runtime is not None:
+            self._export = export_runtime  # borrowed — never built or closed by this client
+            # 2b-2.5a wiring fix: a borrowed (run-scoped) runtime spans MANY battles across a
+            # schedule, and the villain can differ per row -- mirror_flag is battle-specific, so
+            # it must be refreshed here for the battle THIS client is about to play (the
+            # smallest correct seam: a fresh `_Client` is built per `run_local_gauntlet` call =
+            # per battle, so this fires exactly once per battle, before `start_game()`/
+            # `observe()`). dex/move_meta on a borrowed runtime are RUN-scoped (built once by
+            # `build_schedule_export_runtime`) and are intentionally left untouched here.
+            self._export.mirror_flag = is_mirror
+        elif allow_own_export:
+            # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
+            # the gauntlet's already-built deps (avoids a second CalcClient).
+            # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
+            # in stub mode (default) they are ignored.
+            # 2b-2.5a wiring fix: move_meta is a pure, run-invariant lookup table (data-driven,
+            # memoized via functools.lru_cache) so it is safe to pass directly here. dex is
+            # per-battle/client-scoped -- built lazily off the live-decision calc backend in
+            # `_decision_deps()` (which only runs once the first decision is made, AFTER this
+            # constructor returns) -- so it starts None and gets threaded in from there instead.
+            self._export = DatasetExportRuntime.from_env(
+                format_id=self.format_id,
+                packed_team=self.packed_team,
+                mirror_flag=is_mirror,
+                dex=None,
+                move_meta=_move_table(),
+                book=self.book,
+                our_spreads=self.our_spreads,
+                opp_sets=self.opp_sets,
+                priors=self.priors,
+            )
+            self.owns_export = self._export is not None
+        else:
+            self._export = None  # hero-only contract: this client never exports
         # Reranker Shadow Mode seam (slice 2b-3a) — None when SHOWDOWN_RERANKER_SHADOW is unset
         # (bit-identical path). Pass the export's provenance so shadow IDs join the export dataset.
         # RerankerShadowRuntime does NOT import lightgbm at module scope; only from_env does, when
@@ -231,6 +288,62 @@ class _Client:
                 self._eval_species_dex = None
         return self._eval_species_dex
 
+    def _decision_deps(self):
+        """Client-owned ``(calc, oracle, speed_oracle, dex)`` bundle for the live
+        decision path (2b-2.5a Kaggle-OOM ROOT-CAUSE fix). Built ONCE per client
+        (= per battle; the schedule runner plays games=1 per battle) and threaded
+        into every decision so the core reuses one calc instead of the buggy
+        per-decision ``calc = calc or CalcClient()`` that spawned a fresh
+        ``node calc.mjs --server`` per live decision (~70/battle, MEMTRACE v3),
+        never closed.
+
+        Only agents that actually use calc build the bundle: ``heuristic`` and
+        ``max_damage``. The request-only eval policies (greedy_protect /
+        simple_heuristic / scripted_vgc) and ``random`` return all-None and never
+        construct a CalcClient (live-path/OOM guard). Built lazily + cached; the
+        speed_oracle/dex fall back to ``None`` if the calc backend can't be built,
+        mirroring decision.py so a decision still degrades gracefully.
+
+        Determinism: DamageOracle/SpeedOracle/SpeciesDex are memoized PURE lookups
+        (damage/speed/typing keyed by full semantic payload), so sharing them
+        across a battle's decisions changes no decision output -- only the number
+        of Node round trips. Per-battle scope (a fresh client per battle) keeps the
+        bit-identical contract with prior recorded runs; never shared across battles.
+        """
+        if self.agent not in ("heuristic", "max_damage"):
+            return (None, None, None, None)
+        if not self._decision_deps_built:
+            self._decision_deps_built = True
+            self._decision_calc = CalcClient()
+            self._decision_oracle = DamageOracle(self._decision_calc)
+            try:
+                self._decision_speed_oracle = SpeedOracle(stats_backend=self._decision_calc.backend)
+            except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
+                logger.debug("[%s] decision speed oracle unavailable: %s", self.name, exc)
+                self._decision_speed_oracle = None
+            try:
+                self._decision_dex = SpeciesDex(self._decision_calc.backend)
+            except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
+                logger.debug("[%s] decision species dex unavailable: %s", self.name, exc)
+                self._decision_dex = None
+            # 2b-2.5a wiring fix: thread this SAME client-scoped dex into an OWNED export
+            # runtime (never a borrowed/run-scoped one -- that one keeps its own independent,
+            # run-invariant SpeciesDex built once by `build_schedule_export_runtime`, which
+            # must NOT be swapped out per-battle). `observe()` reads `self._export.dex` fresh
+            # on every call, and this runs before the first `observe()` of the battle
+            # (`handle_request` calls `_decision_deps()` before `agent_choose()`/`observe()`),
+            # so even the very first decision's exported row gets a real dex. `None` here
+            # (backend build failed above) degrades gracefully -- `from_env`/`features.py`
+            # already tolerate `dex=None`.
+            if self._export is not None and self.owns_export:
+                self._export.dex = self._decision_dex
+        return (
+            self._decision_calc,
+            self._decision_oracle,
+            self._decision_speed_oracle,
+            self._decision_dex,
+        )
+
     def _state_for(self, room: str, req: BattleRequest) -> BattleState | None:
         if self.book is None or req.team_preview:
             return None
@@ -259,6 +372,10 @@ class _Client:
         trace_obj = DecisionTrace() if (
             (self._export is not None or self._shadow is not None)
             and self.agent == "heuristic" and state is not None) else None
+        # Client-owned decision deps (2b-2.5a Kaggle-OOM root-cause fix): built once
+        # per battle (heuristic/max_damage only) and threaded into every decision so
+        # the core reuses ONE calc instead of spawning a fresh Node server per decision.
+        calc, oracle, speed_oracle, dex = self._decision_deps()
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -266,6 +383,7 @@ class _Client:
                 our_side=req.side.id, priors=self.priors, report=report,
                 our_spreads=self.our_spreads, opp_sets=self.opp_sets, trace=trace_obj,
                 species_resolver=self._species_type_resolver(),
+                calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -318,6 +436,41 @@ class _Client:
                 )
             except Exception as exc:  # noqa: BLE001 - diagnostics are best-effort
                 logger.debug("[%s] trace failed: %s", self.name, exc)
+
+    def close(self) -> None:
+        """Idempotent, best-effort: close every calc-owning resource this client
+        created and OWNS (2b-2.5a Kaggle-OOM fix — the schedule runner builds a
+        fresh hero and villain _Client per battle; each one's live-decision calc /
+        export runtime / eval species dex can hold a PersistentCalcBackend Node
+        process that otherwise only dies at process exit). The live-decision calc
+        (``_decision_calc``) is THE root-cause resource: before this it was never
+        even threaded into the decision path, so the core spawned a fresh Node
+        server per decision. Called once per run_local_gauntlet invocation, on both
+        the success and failure paths (see the caller's try/finally), after the
+        battle result is recorded. Never raises -- one resource's close failure
+        must not skip the others'.
+
+        2b-2.5a run-scoped fix: a BORROWED export runtime (``owns_export`` False)
+        must NOT be closed here — it spans multiple battles and the caller
+        (cli.run_schedule) owns its lifecycle, closing it once after the whole
+        schedule finishes."""
+        if self._export is not None and self.owns_export:
+            try:
+                self._export.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] export close failed: %s", self.name, exc)
+        if self._eval_species_dex is not None:
+            try:
+                self._eval_species_dex.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] eval species dex close failed: %s", self.name, exc)
+        # 2b-2.5a root-cause fix: tear down the client-owned live-decision calc
+        # (one Node server per battle now, instead of ~70). Idempotent, best-effort.
+        if self._decision_calc is not None:
+            try:
+                self._decision_calc.close()
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[%s] decision calc close failed: %s", self.name, exc)
 
 
 async def _run_client(
@@ -391,6 +544,93 @@ async def _run_client(
         logger.warning("[%s] client loop error: %s", client.name, exc)
 
 
+def _load_belief_deps(format_id: str):
+    """Load ``(book, priors, opp_sets)`` for ``format_id`` (best-effort for book/priors,
+    mirrors run_local_gauntlet's original inline setup). Factored out so a schedule-scoped
+    export runtime (``build_schedule_export_runtime``, 2b-2.5a) can be built with the SAME
+    deps a battle-scoped one would have gotten from inside ``_Client.__init__`` — otherwise a
+    rollout-mode (``SHOWDOWN_DATASET_TEACHER=rollout``) runtime built without them would
+    silently degrade label quality relative to the per-battle path it replaces."""
+    book = None
+    priors = None
+    try:
+        cfg = load_format_config(format_id)
+        book = load_spread_book(cfg.meta_path("default_spreads"))
+        from showdown_bot.engine.belief.protect_priors import load_protect_priors
+
+        priors = load_protect_priors(cfg.meta_path("protect_priors"))
+    except Exception:  # noqa: BLE001
+        pass
+    opp_sets = load_opp_sets_for_format(format_id)
+    return book, priors, opp_sets
+
+
+def _is_mirror_battle(team_path: str, opp_team_path: str | None) -> bool:
+    """True when the villain fields the SAME team as the hero.
+
+    Matches ``_resolve_side_teams``'s own definition of "mirror": a missing/empty
+    ``opp_team_path`` means the villain reuses the hero's packed team (mirror); an explicit but
+    IDENTICAL path is also a mirror. A distinct path is non-mirror. Pure string comparison —
+    2b-2.5a wiring fix: the real per-battle ``mirror_flag``, replacing the pre-fix hardcoded
+    ``False`` at both ``DatasetExportRuntime`` construction sites in this module.
+    """
+    return not opp_team_path or opp_team_path == team_path
+
+
+def build_schedule_export_runtime(format_id: str, hero_team_path: str, villain_team_path: str | None = None):
+    """Build ONE run-scoped ``DatasetExportRuntime`` for a whole ``cli.run_schedule`` call
+    (2b-2.5a fix: ``run_schedule`` plays each row as a separate ``run_local_gauntlet(games=1)``
+    call; before this, each call's hero built+closed its OWN runtime pointed at the same
+    ``SHOWDOWN_DATASET_EXPORT`` path, so every battle's flush overwrote the previous battle's
+    rows — only the last battle in a schedule ever survived to disk).
+
+    Returns ``None`` when ``SHOWDOWN_DATASET_EXPORT`` is unset (``from_env``'s own gate) — the
+    caller passes that straight through as ``run_local_gauntlet(export_runtime=None)``, which
+    then means "export disabled" for every row in the schedule (no per-row build attempt).
+
+    Mirrors the deps a hero ``_Client`` would build for itself inside a single
+    ``run_local_gauntlet`` call (book/priors/opp_sets via ``_load_belief_deps``, our_spreads via
+    ``our_spreads_from_packed`` gated by ``SHOWDOWN_REAL_SPREADS``) so passing this ONE runtime
+    through N sequential calls produces the same per-decision rollout labels the old (broken)
+    per-battle runtime would have — just accumulated into a single file instead of N
+    overwriting ones. ``hero_team_path`` is resolved via ``_resolve_side_teams`` (mirror lookup
+    with no opponent path) so a bad/missing team degrades to ``""`` the same way the per-battle
+    path already tolerates.
+
+    ``villain_team_path`` (2b-2.5a wiring fix, optional): the representative row's villain team
+    path, used to seed this shared runtime's INITIAL ``mirror_flag`` via ``_is_mirror_battle``.
+    Schedule rows can each field a DIFFERENT villain, so this initial value only covers the
+    window before the first battle starts — ``_Client.__init__`` refreshes ``mirror_flag`` on
+    this SAME shared runtime for every subsequent battle via its own ``is_mirror`` param (the
+    per-battle update seam; see the comment at that assignment). ``None`` (the pre-existing
+    2-arg call shape) matches ``_resolve_side_teams``'s own "no opp path -> mirror" convention.
+
+    Also builds a RUN-scoped ``move_meta`` (``_move_table()`` — data-driven, memoized via
+    ``functools.lru_cache``, cheap to call repeatedly) and a RUN-scoped ``SpeciesDex()`` (its own
+    default ``SubprocessCalcBackend`` — one-shot ``node`` per lookup batch, memoized cache, no
+    persistent process to leak) so the move/species feature columns that were unconditionally
+    sentinel (``dex=None``, ``move_meta=None`` hardcoded here) get populated. This dex is
+    intentionally independent of any per-battle calc client: those are built + closed once PER
+    BATTLE (``_Client._decision_deps`` / ``close()``), but this runtime — and its dex — persist
+    across the WHOLE schedule.
+    """
+    book, priors, opp_sets = _load_belief_deps(format_id)
+    hero_packed, _ = _resolve_side_teams(hero_team_path)
+    _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
+    our_spreads = our_spreads_from_packed(hero_packed) if (hero_packed and _real) else None
+    return DatasetExportRuntime.from_env(
+        format_id=format_id,
+        packed_team=hero_packed,
+        mirror_flag=_is_mirror_battle(hero_team_path, villain_team_path),
+        dex=SpeciesDex(),
+        move_meta=_move_table(),
+        book=book,
+        our_spreads=our_spreads,
+        opp_sets=opp_sets,
+        priors=priors,
+    )
+
+
 def _resolve_side_teams(team_path, opp_team_path=None):
     """Return ``(hero_packed, villain_packed)`` for the gauntlet.
 
@@ -455,6 +695,31 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
     }
 
 
+def _effective_battle_timeout(games: int, battle_timeout_s: float | None, env) -> float:
+    """Resolve the per-battle gauntlet timeout in seconds (2b-2.5a, 2026-07-11).
+
+    Precedence: the explicit ``battle_timeout_s`` param (if not ``None``) > the
+    ``SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`` env var (if set to a float > 0) > the pre-existing
+    formula ``max(180.0, games * 150.0)``. The formula is always the final fallback -- a guard
+    against truly endless games -- so this function never returns "unlimited".
+
+    Pure + injectable: ``env`` is a plain mapping (production passes a dict sourced from
+    ``os.environ``), so the precedence logic is unit-testable without mutating real process env
+    vars.
+    """
+    if battle_timeout_s is not None:
+        return float(battle_timeout_s)
+    raw = env.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S", "") if env else ""
+    if raw:
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            parsed = 0.0
+        if parsed > 0:
+            return parsed
+    return max(180.0, games * 150.0)
+
+
 async def run_local_gauntlet(
     *,
     games: int,
@@ -467,28 +732,38 @@ async def run_local_gauntlet(
     hero_name: str = "HeuristicBot",
     villain_name: str = "BaselineBot",
     on_battle_result=None,
+    export_runtime=None,
+    battle_timeout_s: float | None = None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
     ``opp_team_path`` (T1c): when given, the villain fields a **different** packed team
     (non-mirror); default ``None`` keeps the mirror behavior. ``on_battle_result`` (T2):
     when given, a callback is fired once per battle with the assembled battle record
-    (default ``None`` -> no behavior change). Requires a local
+    (default ``None`` -> no behavior change). ``export_runtime`` (2b-2.5a run-scoped fix):
+    when given, the HERO client BORROWS it (does not build or close its own runtime) — the
+    caller (cli.run_schedule) owns its lifecycle across multiple sequential calls so a
+    schedule's battles all land in one file instead of each call's flush overwriting the
+    last. Default ``None`` preserves the plain ``--games N`` path unchanged: the hero builds
+    and owns (and closes) its own runtime spanning this call's games, gated on
+    ``SHOWDOWN_DATASET_EXPORT`` as before. The VILLAIN client NEVER builds or borrows an
+    export runtime, in either mode — an explicit hero-only contract (a "heuristic" villain
+    is a valid opponent policy and would otherwise independently export its own decisions to
+    the same path, racing the hero's flushes). ``battle_timeout_s`` (2b-2.5a, 2026-07-11): see
+    ``_effective_battle_timeout`` for the full precedence rule (param > env > formula) — this
+    knob exists because rollout-teacher datagen makes some legitimate long stall games exceed
+    the flat 180s budget. Requires a local
     ``node pokemon-showdown start --no-security`` server.
-    """
-    book = None
-    priors = None
-    opp_sets = {}
-    try:
-        cfg = load_format_config(format_id)
-        book = load_spread_book(cfg.meta_path("default_spreads"))
-        from showdown_bot.engine.belief.protect_priors import load_protect_priors
 
-        priors = load_protect_priors(cfg.meta_path("protect_priors"))
-    except Exception:  # noqa: BLE001
-        pass
-    opp_sets = load_opp_sets_for_format(format_id)
+    2b-2.5a wiring fix: this function already knows both ``team_path`` and ``opp_team_path``, so
+    the real ``mirror_flag`` (``_is_mirror_battle``) is derived here and threaded into the hero
+    ``_Client`` as ``is_mirror`` -- it reaches the export runtime either at construction (owned
+    runtime) or via a per-battle refresh (borrowed/run-scoped runtime; see the
+    ``self._export.mirror_flag = is_mirror`` assignment in ``_Client.__init__``).
+    """
+    book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
+    is_mirror = _is_mirror_battle(team_path, opp_team_path)
 
     # Unique names per run so a killed run's lingering battles aren't rejoined
     # (with --no-security, /trn re-attaches to the same user and its open games).
@@ -506,8 +781,12 @@ async def run_local_gauntlet(
     await authenticate_local(villain_conn, villain_name)
 
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
-    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id, packed_team=hero_packed, trace=trace, opp_sets=opp_sets)
-    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id, packed_team=villain_packed, opp_sets=opp_sets)
+    hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id,
+                   packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
+                   export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror)
+    villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
+                       packed_team=villain_packed, opp_sets=opp_sets,
+                       export_runtime=None, allow_own_export=False)
 
     stats = GauntletStats()
     # Per-battle counter deltas (T3e-P0): the row for battle N must carry battle N's
@@ -578,9 +857,18 @@ async def run_local_gauntlet(
     chal_task = asyncio.create_task(challenger())
 
     try:
-        # VGC games run ~15-25 turns and each decision can take a couple seconds
-        # (Node calc per turn), so budget generously per game.
-        await asyncio.wait_for(stop.wait(), timeout=max(180.0, games * 150.0))
+        # VGC games run ~15-25 turns and each decision can take a couple seconds (Node calc per
+        # turn), so budget generously per game via the formula below. SHOWDOWN_GAUNTLET_BATTLE_
+        # TIMEOUT_S (2026-07-11) overrides it: rollout-teacher datagen labels every decision
+        # (~3-4s each), so legitimate 50+-turn stall wars (e.g. sun_dev vs rain_dev tail cells)
+        # can exceed the flat 180s budget even on a healthy VM (the leak fix alone wasn't
+        # enough) -- datagen kernels set it to 900s. A timeout is still always applied (never
+        # unlimited) as a guard against truly endless games.
+        battle_timeout = _effective_battle_timeout(
+            games, battle_timeout_s,
+            {"SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": os.environ.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S", "")},
+        )
+        await asyncio.wait_for(stop.wait(), timeout=battle_timeout)
     except asyncio.TimeoutError:
         logger.warning("gauntlet timed out")
         stop.set()
@@ -589,6 +877,12 @@ async def run_local_gauntlet(
             t.cancel()
         await hero_conn.close()
         await villain_conn.close()
+        # 2b-2.5a Kaggle-OOM fix: release calc-owning resources (export runtime's
+        # rollout CalcClient, eval species dex) per battle -- success AND failure
+        # paths -- so the schedule runner's 75 sequential run_local_gauntlet(games=1)
+        # calls don't leak a Node process per hero/villain client per battle.
+        hero.close()
+        villain.close()
 
     stats.latencies = hero.latencies
     stats.invalid_choices = hero.invalid + villain.invalid

@@ -18,19 +18,43 @@ Two families of functions live here, exactly like ``kaggle_driver.py``'s split:
    particular only ever READS committed artifacts (the T4b prefix-reproduction fixture under
    ``data/eval/t4/rerun/``) plus a synthetic ``out_dir`` the test builds by copying that same
    fixture -- it never runs a battle.
+
+MEMTRACE (added 2026-07-10): datagen kernels were dying at a deterministic battle count with a
+VM-level OOM -- a Showdown child process got OOM-killed, the server crashed (write EPIPE), the
+run failed, with no visibility into which process was actually growing. ``start_memtrace``
+samples free memory + the top-8 RSS processes + battles-done every 30s to stdout during
+``run_datagen``'s schedule run, so the next Kaggle run yields a per-process memory growth curve
+instead of a single crash line.
+
+COVERAGE THRESHOLD (relaxed 2026-07-11): ``validate_datagen_output``'s game-coverage check
+originally required EXACT equality between the dataset's distinct ``metadata.game_id`` count and
+the schedule's game count. The trickroom hero's final run showed this is too strict: under
+sampling policy "all", a legitimate short (6-7 turn) blowout game can have every one of its
+decisions skipped as unlabelable (``RolloutLabelError`` -- force-switch-only turns, all-switch
+response sets), so that ONE game contributes zero dataset rows even though the battle itself
+ran cleanly -- 74/75 distinct games, a false FAIL. Battles are never retried (Channel A: seeded
+reruns are byte-identical anyway, so a re-run cannot recover the missing game's rows either), so
+the check is now a threshold: FAIL iff ``distinct_games < max(1, ceil(0.9 * schedule_games))``.
+90% coverage still hard-fails the historic corruption signatures this check exists to catch (the
+Task-6 attempt-1 per-battle-overwrite bug, which collapses to a single game_id, and any export
+missing more than one in ten scheduled games), while tolerating the occasional legitimate
+zero-row blowout game.
 """
 from __future__ import annotations
 
 import gzip
 import json
+import math
 import os
 import re
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 from showdown_bot.eval import datagen_2b25a
 from showdown_bot.eval.baseline import WinnerSequenceError, verify_winner_sequence
@@ -218,6 +242,17 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
     server_env = dict(os.environ)
     server_env["SHOWDOWN_BATTLE_SEED_BASE"] = seed_base
     server_env["SHOWDOWN_EVAL_SEED_LOG"] = str(seed_log)
+    # [2b-2.5a OOM fix] Immediate room dealloc (server patch v2): a headless schedule run plays
+    # 75+ sequential battles; stock deallocation waits up to 40min, so finished rooms + their
+    # sim-child Battle objects accumulate -> VM OOM. This env-gated flag expires an ended battle
+    # room the moment its last user leaves (strictly post-battle -> zero effect on RNG/log bytes).
+    server_env["SHOWDOWN_EVAL_ROOM_DEALLOC"] = "immediate"
+    # [2b-2.5a, 2026-07-11] Per-battle gauntlet timeout override: rollout-teacher datagen labels
+    # every decision (~3-4s each), so legitimate 50+-turn stall wars (sun_dev vs rain_dev tail
+    # cells) exceed the client's flat 180s budget -> the battle yields no result row and the
+    # schedule run fails. The client (not the server) reads this flag, but it is harmless -- and
+    # kept consistent -- to also set it here on server_env.
+    server_env["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] = "900"
 
     server_proc = subprocess.Popen(
         ["node", "pokemon-showdown", "start", str(_SERVER_PORT), "--no-security"],
@@ -233,6 +268,17 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
             "SHOWDOWN_BATTLE_SEED_BASE": seed_base,
             "SHOWDOWN_EVAL_SEED_LOG": str(seed_log),
             "SHOWDOWN_ROOM_RAW_DUMP": str(room_raw_dir),
+            # [2b-2.5a] Mirror the server-side OOM-fix flag into the gauntlet (client) env too,
+            # exactly like the seed vars above: it is config-hash-relevant (config_env classifies
+            # it server-side-behavior-affecting -> fail-closed included in behavior_env), so the
+            # run manifest's config_hash records that this run played under immediate-dealloc.
+            "SHOWDOWN_EVAL_ROOM_DEALLOC": "immediate",
+            # [2b-2.5a, 2026-07-11] Raise the per-battle gauntlet timeout for datagen: rollout-
+            # teacher labeling makes some legitimate long stall games exceed the 180s formula
+            # default (see server_env comment above). config_env classifies this
+            # BEHAVIOR_AFFECTING (read directly in showdown_bot.client.gauntlet) -> fail-closed
+            # included in behavior_env, so the run manifest's config_hash records the override.
+            "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S": "900",
         })
         if dataset_export is not None:
             client_env["SHOWDOWN_DATASET_EXPORT"] = str(dataset_export)
@@ -286,15 +332,31 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
         schema-validating loader the 2b-1 training pipeline uses (``learning/dataset.py``
         delegates to ``learning/schema.py``'s ``validate_row``), so a broken export is caught
         here instead of at train time;
-    (c) zero ``falling back`` / ``frame error`` lines in ``<out_dir>/client.log`` (heuristic
+    (c) GAME COVERAGE (threshold, relaxed 2026-07-11): the dataset contains at least
+        ``max(1, ceil(0.9 * schedule_games))`` distinct ``metadata.game_id`` values. Originally
+        an exact-equality check, added after the Task-6 trickroom attempt-1 finding
+        (2026-07-10): a battle-scoped export runtime under the schedule runner overwrote
+        ``dataset.jsonl`` with only the LAST battle's rows (21 schema-valid rows, 1 game_id,
+        after 50 clean battles) -- per-row schema validation alone cannot catch that corruption
+        class, so an export must still hard-fail HERE, in-kernel, not an hour later at local
+        merge. Relaxed to a 90% threshold after the trickroom hero's FINAL run legitimately hit
+        74/75: under sampling policy "all", a short blowout game can have every decision
+        skipped as unlabelable (``RolloutLabelError``), contributing zero rows even though the
+        battle itself ran cleanly. Battles are never retried (Channel A), so this is not
+        recoverable by re-running -- the threshold still catches the single-game overwrite
+        signature and any export missing more than one in ten scheduled games;
+    (d) zero ``falling back`` / ``frame error`` lines in ``<out_dir>/client.log`` (heuristic
         timeout/exception fallback and gauntlet frame-parse warnings both indicate a degraded
         run whose labels should not be trusted);
-    (d) ``<out_dir>/results.jsonl`` has exactly one row per schedule row (T2-CC-4's contract --
+    (e) ``<out_dir>/results.jsonl`` has exactly one row per schedule row (T2-CC-4's contract --
         a retry/extra/missing battle would silently desync Channel-A seeding).
 
     Returns ``(ok, detail)``, never raises. On success ``detail`` is ``"rows=<n> games=<m>"``
-    (embedded verbatim in ``run_datagen``'s ``DATAGEN: DONE ...`` line); on failure ``detail``
-    is a human-readable reason (embedded in ``DATAGEN: FAIL (<reason>)`` via ``print_verdict``).
+    when every scheduled game is covered, or ``"rows=<n> games=<d>/<m> (<k> game(s) with zero
+    sampled rows -- below-threshold OK)"`` when coverage is partial but at/above the 90%
+    threshold (embedded verbatim in ``run_datagen``'s ``DATAGEN: DONE ...`` line); on failure
+    ``detail`` is a human-readable reason (embedded in ``DATAGEN: FAIL (<reason>)`` via
+    ``print_verdict``).
     """
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
@@ -314,6 +376,17 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
         rows = load_rows(str(out_dir / "dataset.jsonl"), validate=True)
     except (OSError, ValueError) as exc:
         return False, f"dataset validation failed: {exc}"
+
+    game_ids = {row["metadata"]["game_id"] for row in rows}
+    distinct_games = len(game_ids)
+    schedule_games = len(schedule.rows)
+    min_games = max(1, math.ceil(0.9 * schedule_games))
+    if distinct_games < min_games:
+        return False, (
+            f"game coverage: {distinct_games} distinct game_id(s) in dataset.jsonl, "
+            f"schedule has {schedule_games} games -- below the {min_games}/{schedule_games} "
+            f"(90%) coverage threshold"
+        )
 
     try:
         client_log_text = (out_dir / "client.log").read_text(encoding="utf-8", errors="replace")
@@ -337,7 +410,261 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
             f"schedule has {len(schedule.rows)}"
         )
 
-    return True, f"rows={len(rows)} games={len(schedule.rows)}"
+    missing_games = schedule_games - distinct_games
+    if missing_games == 0:
+        return True, f"rows={len(rows)} games={schedule_games}"
+    return True, (
+        f"rows={len(rows)} games={distinct_games}/{schedule_games} "
+        f"({missing_games} game(s) with zero sampled rows — below-threshold OK)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# MEMTRACE: memory telemetry sampler (added 2026-07-10, see module docstring)
+# ---------------------------------------------------------------------------
+
+def format_memtrace(elapsed_s: float, battles_done: int, meminfo: dict[str, int],
+                     total_proc_count: int, total_rss_mb: int,
+                     aggregates: dict[str, tuple[int, int]],
+                     parents: dict[str, tuple[str, int]],
+                     top_procs: list[tuple[str, int, int, int]]) -> str:
+    """Format one MEMTRACE line (v3). ``meminfo`` is the dict returned by ``_parse_meminfo``
+    (``avail_mb``/``total_mb``/``shmem_mb``/``slab_mb``/``cached_mb``/``buffers_mb``).
+    ``aggregates`` is ``sig -> (count, sum_rss_mb)`` across ALL processes (not just the top-8);
+    the top 4 signatures by ``sum_rss_mb`` desc are emitted (ties broken by signature name for a
+    deterministic line). ``parents`` is ``sig -> (parent_sig, count)`` (see
+    ``_parse_ps_parent_attribution``); the SAME top-4-by-sum-RSS signatures are emitted, in the
+    same order, so ``agg=[...]`` and ``parents=[...]`` line up entry-for-entry. ``top_procs`` is
+    ``(sig, pid, ppid, rss_mb)`` tuples, already sorted desc by rss. Pure formatting -- no I/O."""
+    top_agg = sorted(aggregates.items(), key=lambda item: (-item[1][1], item[0]))[:4]
+    agg_str = " ".join(
+        f"{sig}:n={count}:{sum_rss_mb}MB" for sig, (count, sum_rss_mb) in top_agg
+    )
+    parents_str = " ".join(
+        f"{sig}<-{parents.get(sig, ('?', 0))[0]}:{parents.get(sig, ('?', 0))[1]}"
+        for sig, _agg in top_agg
+    )
+    top_str = " ".join(f"{sig}:{pid}:{ppid}:{rss_mb}MB" for sig, pid, ppid, rss_mb in top_procs)
+    return (
+        f"MEMTRACE t={int(elapsed_s)} done={battles_done} "
+        f"availMB={meminfo['avail_mb']}/{meminfo['total_mb']} "
+        f"shmem={meminfo['shmem_mb']} slab={meminfo['slab_mb']} "
+        f"cached={meminfo['cached_mb']} buffers={meminfo['buffers_mb']} "
+        f"procs={total_proc_count}:{total_rss_mb}MB "
+        f"agg=[{agg_str}] parents=[{parents_str}] top=[{top_str}]"
+    )
+
+
+def _default_read_meminfo() -> str:
+    with open("/proc/meminfo", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _default_run_ps() -> str:
+    result = subprocess.run(
+        ["ps", "-eo", "pid,ppid,rss,args", "--sort=-rss"], capture_output=True, text=True,
+    )
+    return result.stdout
+
+
+def _count_nonempty_lines(path) -> int:
+    p = Path(path)
+    if not p.exists():
+        return 0
+    with open(p, encoding="utf-8") as fh:
+        return sum(1 for line in fh if line.strip())
+
+
+def _parse_meminfo(text: str) -> dict[str, int]:
+    """Parse ``/proc/meminfo`` text into a dict of MB ints. A missing field yields 0. ``Cached``
+    is matched at line-start (``re.MULTILINE``) so it does not also match ``SwapCached``."""
+    def _field_mb(name: str) -> int:
+        match = re.search(rf"^{name}:\s+(\d+)", text, re.MULTILINE)
+        return (int(match.group(1)) // 1024) if match else 0
+
+    return {
+        "avail_mb": _field_mb("MemAvailable"),
+        "total_mb": _field_mb("MemTotal"),
+        "shmem_mb": _field_mb("Shmem"),
+        "slab_mb": _field_mb("Slab"),
+        "cached_mb": _field_mb("Cached"),
+        "buffers_mb": _field_mb("Buffers"),
+    }
+
+
+def _parse_ps_rows(text: str) -> list[tuple[int, int, int, str]]:
+    """Parse ``ps -eo pid,ppid,rss,args`` output (skipping the header row) into ``(pid, ppid,
+    rss_kb, args)`` tuples for ALL processes, unsorted, RSS still in kB -- the shared basis for
+    the top-N list, the per-signature aggregates, and parent attribution below. ``args`` is the
+    full command line and may itself contain spaces, so it is always the LAST ps column and each
+    row is split with ``maxsplit=3`` (at most 4 parts) rather than on whitespace generally."""
+    rows: list[tuple[int, int, int, str]] = []
+    for line in text.splitlines()[1:]:  # skip the `ps` header row
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid_str, ppid_str, rss_str, args = parts
+        try:
+            pid = int(pid_str)
+            ppid = int(ppid_str)
+            rss_kb = int(rss_str)
+        except ValueError:
+            continue
+        rows.append((pid, ppid, rss_kb, args))
+    return rows
+
+
+def _proc_signature(args: str) -> str:
+    """Classify a process's full command line (``args``, as parsed by ``_parse_ps_rows``) into a
+    short, stable signature label -- v2's ``comm`` column collapsed every leaked process to the
+    single string ``"node"`` regardless of what script it was actually running, which is exactly
+    what made the v2-era OOM unattributable. Rules, checked in order:
+
+    - command line contains ``calc.mjs`` -> ``"calc.mjs"`` (the @smogon/calc bridge process).
+    - command line contains ``pokemon-showdown`` -> ``"pokemon-showdown"`` (the sim server).
+    - otherwise, if the first token is a ``node`` interpreter (bare ``node`` or a path ending in
+      ``node``) -> ``"node:" + <last path component of the second token>``, or ``"node:?"`` if
+      there is no second token (e.g. a bare ``node`` REPL with no script argument).
+    - otherwise -> the last path component of the first token (e.g. ``python3``, ``sh``, ``ps``).
+
+    An empty/whitespace-only ``args`` yields ``"?"``."""
+    if "calc.mjs" in args:
+        return "calc.mjs"
+    if "pokemon-showdown" in args:
+        return "pokemon-showdown"
+    tokens = args.split()
+    if not tokens:
+        return "?"
+    if Path(tokens[0]).name == "node":
+        if len(tokens) > 1:
+            return f"node:{Path(tokens[1]).name}"
+        return "node:?"
+    return Path(tokens[0]).name
+
+
+def _parse_ps_top(rows: list[tuple[int, int, int, str]], limit: int = 8) -> list[tuple[str, int, int, int]]:
+    """Top-``limit`` individual processes by RSS desc: ``(sig, pid, ppid, rss_mb)``, RSS
+    converted kB -> MB."""
+    sorted_rows = sorted(rows, key=lambda row: row[2], reverse=True)
+    return [
+        (_proc_signature(args), pid, ppid, rss_kb // 1024)
+        for pid, ppid, rss_kb, args in sorted_rows[:limit]
+    ]
+
+
+def _parse_ps_aggregates(rows: list[tuple[int, int, int, str]]) -> dict[str, tuple[int, int]]:
+    """Per-signature aggregates across ALL processes (not just the top-N): ``sig -> (count,
+    sum_rss_mb)``. Sums RSS in kB before the final MB conversion, so small per-process rounding
+    error does not compound across many processes of the same signature -- the whole point of
+    this aggregate is to surface a memory hog made of MANY small processes that each fall below
+    the top-8 individual cutoff."""
+    agg_kb: dict[str, list[int]] = {}
+    for _pid, _ppid, rss_kb, args in rows:
+        sig = _proc_signature(args)
+        entry = agg_kb.setdefault(sig, [0, 0])
+        entry[0] += 1
+        entry[1] += rss_kb
+    return {sig: (count, total_kb // 1024) for sig, (count, total_kb) in agg_kb.items()}
+
+
+def _parse_ps_parent_attribution(rows: list[tuple[int, int, int, str]]) -> dict[str, tuple[str, int]]:
+    """For each signature, WHO spawns it: ``sig -> (parent_sig, count)`` where ``count`` is how
+    many of that signature's processes share the most common PPID, and ``parent_sig`` is that
+    PPID's OWN signature, resolved via the pid -> args map built from this SAME ps snapshot (a
+    parent that has already exited, or is outside the snapshot, resolves to ``"?"``). Ties in the
+    "most common PPID" count are broken by lowest PPID, for a deterministic result."""
+    pid_to_args: dict[int, str] = {pid: args for pid, _ppid, _rss_kb, args in rows}
+
+    sig_ppid_counts: dict[str, dict[int, int]] = {}
+    for pid, ppid, _rss_kb, args in rows:
+        sig = _proc_signature(args)
+        counts = sig_ppid_counts.setdefault(sig, {})
+        counts[ppid] = counts.get(ppid, 0) + 1
+
+    result: dict[str, tuple[str, int]] = {}
+    for sig, ppid_counts in sig_ppid_counts.items():
+        mode_ppid, count = max(ppid_counts.items(), key=lambda item: (item[1], -item[0]))
+        parent_args = pid_to_args.get(mode_ppid)
+        parent_sig = _proc_signature(parent_args) if parent_args is not None else "?"
+        result[sig] = (parent_sig, count)
+    return result
+
+
+def collect_memtrace_sample(results_path, *, read_meminfo=None, run_ps=None) -> dict:
+    """Collect one MEMTRACE sample (v3): battles-done (non-empty lines in ``results_path``, 0 if
+    the file does not exist yet), the full ``_parse_meminfo`` dict, the top-8 RSS processes (MB),
+    per-signature aggregates across ALL processes (count + sum_rss_mb), per-signature parent
+    attribution, and totals across ALL processes (``total_proc_count``, ``total_rss_mb``).
+    ``read_meminfo``/``run_ps`` are injectable zero-arg callables (default to reading
+    ``/proc/meminfo`` and running ``ps -eo pid,ppid,rss,args --sort=-rss``) so this is testable
+    off Linux and without spawning a real ``ps``.
+
+    Returns a dict: ``{"battles_done", "meminfo", "top_procs", "aggregates", "parents",
+    "total_proc_count", "total_rss_mb"}``.
+    """
+    read_meminfo = read_meminfo or _default_read_meminfo
+    run_ps = run_ps or _default_run_ps
+
+    battles_done = _count_nonempty_lines(results_path)
+    meminfo = _parse_meminfo(read_meminfo())
+    rows = _parse_ps_rows(run_ps())
+    top_procs = _parse_ps_top(rows)
+    aggregates = _parse_ps_aggregates(rows)
+    parents = _parse_ps_parent_attribution(rows)
+    total_proc_count = len(rows)
+    total_rss_mb = sum(rss_kb for _pid, _ppid, rss_kb, _args in rows) // 1024
+
+    return {
+        "battles_done": battles_done,
+        "meminfo": meminfo,
+        "top_procs": top_procs,
+        "aggregates": aggregates,
+        "parents": parents,
+        "total_proc_count": total_proc_count,
+        "total_rss_mb": total_rss_mb,
+    }
+
+
+def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
+                    run_ps=None) -> Callable[[], None]:
+    """Start a daemon background thread that samples memory (``collect_memtrace_sample``) and
+    prints a ``MEMTRACE`` line to stdout every ``interval_s`` seconds, starting immediately.
+    Printing to stdout is intentional: Kaggle captures stdout with timestamps, and
+    ``kaggle_driver``'s log parser tolerates arbitrary extra lines. A single tick's failure
+    (e.g. ``/proc/meminfo`` or ``ps`` unavailable) is swallowed so the sampler never crashes or
+    spams the log -- it just skips that tick. Returns a ``stop()`` callable that signals the
+    thread to exit and joins it (5s timeout); waiting is done on a ``threading.Event`` so
+    ``stop()`` does not block for a full ``interval_s``."""
+    stop_event = threading.Event()
+    start_time = time.monotonic()
+
+    def _loop() -> None:
+        while not stop_event.is_set():
+            try:
+                sample = collect_memtrace_sample(
+                    results_path, read_meminfo=read_meminfo, run_ps=run_ps,
+                )
+                elapsed_s = time.monotonic() - start_time
+                print(format_memtrace(
+                    elapsed_s, sample["battles_done"], sample["meminfo"],
+                    sample["total_proc_count"], sample["total_rss_mb"],
+                    sample["aggregates"], sample["parents"], sample["top_procs"],
+                ), flush=True)
+            except Exception:
+                pass
+            stop_event.wait(interval_s)
+
+    thread = threading.Thread(target=_loop, daemon=True)
+    thread.start()
+
+    def stop() -> None:
+        stop_event.set()
+        thread.join(timeout=5)
+
+    return stop
 
 
 def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
@@ -354,18 +681,26 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     NOT unit-tested directly -- like ``run_schedule_seeded``, it starts subprocesses (server +
     gauntlet CLI) and only ever runs on Kaggle (Task 6). Only ``validate_datagen_output`` (the
     pure validation half) is exercised locally.
+
+    Runs a MEMTRACE sampler (``start_memtrace``, 30s interval) for the duration of the schedule
+    run -- see the module docstring for why.
     """
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
     schedule_rel = datagen_2b25a.schedule_relpath(hero_key)
     seed_base = datagen_2b25a.SEED_BASES[hero_key]
     dataset_export = out_dir / "dataset.jsonl"
+    results_path = out_dir / "results.jsonl"
 
-    paths = run_schedule_seeded(
-        str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
-        dataset_export=str(dataset_export),
-        extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
-    )
+    stop_memtrace = start_memtrace(str(results_path), interval_s=30.0)
+    try:
+        paths = run_schedule_seeded(
+            str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
+            dataset_export=str(dataset_export),
+            extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
+        )
+    finally:
+        stop_memtrace()
 
     ok, detail = validate_datagen_output(str(repo_root), str(out_dir), hero_key)
     if ok:

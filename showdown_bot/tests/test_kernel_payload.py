@@ -24,6 +24,7 @@ import gzip
 import importlib.util
 import json
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -102,16 +103,22 @@ def _valid_dataset_row_line(*, game_id="g0", decision_id="d0", candidate_index=0
 
 def _build_datagen_out_dir(tmp_path, *, n_results=None) -> Path:
     """A synthetic out_dir that PASSES validate_datagen_output for hero='fixed': a seed log
-    matching the committed 75-row schedule + SEED_BASES['fixed'], one valid dataset row, a
-    clean client.log, and one results.jsonl row per schedule row. Reads the committed schedule
-    YAML only -- runs no battle."""
+    matching the committed 75-row schedule + SEED_BASES['fixed'], one valid dataset row PER
+    scheduled game (distinct game_ids g0..g74 -- the full-game-coverage check added after the
+    Task-6 attempt-1 overwrite finding requires exactly one distinct game_id per schedule
+    row), a clean client.log, and one results.jsonl row per schedule row. Reads the committed
+    schedule YAML only -- runs no battle."""
     schedule = _datagen_schedule()
     n = len(schedule.rows) if n_results is None else n_results
 
     out_dir = tmp_path / "out"
     out_dir.mkdir()
     _write_seed_log(out_dir / "seeds.jsonl", SEED_BASES[_DATAGEN_HERO], len(schedule.rows))
-    (out_dir / "dataset.jsonl").write_text(_valid_dataset_row_line() + "\n", encoding="utf-8")
+    dataset_lines = [
+        _valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}")
+        for i in range(len(schedule.rows))
+    ]
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
     (out_dir / "client.log").write_text("battle started\nturn 1\nbattle ended\n", encoding="utf-8")
     with open(out_dir / "results.jsonl", "w", encoding="utf-8", newline="\n") as fh:
         for i in range(n):
@@ -138,6 +145,49 @@ def test_parse_node_major_double_digit():
 def test_parse_node_major_unparseable_raises():
     with pytest.raises(ValueError):
         kernel_payload._parse_node_major("not a version string")
+
+
+# ---------------------------------------------------------------------------
+# run_schedule_seeded env assembly (2b-2.5a, 2026-07-11): SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S
+# ---------------------------------------------------------------------------
+#
+# run_schedule_seeded itself starts real subprocesses (server + gauntlet CLI) and is NOT
+# unit-tested elsewhere in this module (see the module docstring / this file's docstring) --
+# HARD CONSTRAINT: no local battle runs or Showdown servers. This test stays inside that
+# constraint by monkeypatching subprocess.Popen/subprocess.run and _wait_for_port to fakes
+# that never spawn anything and only record the env dicts the function builds, mirroring how
+# SHOWDOWN_EVAL_ROOM_DEALLOC was added to both server_env and client_env at 3b8f1fc.
+
+class _FakeServerProc:
+    def terminate(self):
+        pass
+
+    def wait(self, timeout=None):
+        pass
+
+
+def test_run_schedule_seeded_sets_gauntlet_battle_timeout_env(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_popen(cmd, cwd=None, env=None):
+        captured["server_env"] = env
+        return _FakeServerProc()
+
+    def fake_run(cmd, cwd=None, env=None, stdout=None, stderr=None, timeout=None, check=None):
+        captured["client_env"] = env
+
+    monkeypatch.setattr(kernel_payload.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(kernel_payload.subprocess, "run", fake_run)
+    monkeypatch.setattr(kernel_payload, "_wait_for_port", lambda *a, **k: None)
+
+    out_dir = tmp_path / "out"
+    kernel_payload.run_schedule_seeded(
+        str(_REPO_ROOT), str(tmp_path / "showdown_dir_fake"),
+        "config/eval/schedules/datagen_2b25a_hero_fixed.yaml", "seedbase-x", str(out_dir),
+    )
+
+    assert captured["server_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
+    assert captured["client_env"]["SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S"] == "900"
 
 
 # ---------------------------------------------------------------------------
@@ -224,7 +274,7 @@ def test_validate_datagen_output_matching_synthetic_out_dir_passes(tmp_path):
     ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
 
     assert ok is True
-    assert detail == "rows=1 games=75"
+    assert detail == "rows=75 games=75"
 
 
 def test_validate_datagen_output_seed_log_wrong_base_fails(tmp_path):
@@ -292,6 +342,70 @@ def test_validate_datagen_output_frame_error_warning_fails(tmp_path):
     assert ok is False
     assert "warning line" in detail
     assert "frame error" in detail
+
+
+def _dataset_lines_for_n_games(n: int) -> list[str]:
+    return [_valid_dataset_row_line(game_id=f"g{i}", decision_id=f"d{i}") for i in range(n)]
+
+
+def test_validate_datagen_output_missing_game_coverage_fails(tmp_path):
+    """67/75 distinct game_ids -- one below ceil(0.9 * 75) == 68 -- must FAIL: below the 90%
+    coverage threshold (2026-07-11: the coverage check is now a threshold, not exact equality,
+    see the module docstring's COVERAGE THRESHOLD note)."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = _dataset_lines_for_n_games(67)
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is False
+    assert "game coverage" in detail
+    assert "67" in detail and "75" in detail and "68" in detail
+
+
+def test_validate_datagen_output_below_threshold_game_coverage_passes_with_detail(tmp_path):
+    """74/75 distinct game_ids (one legitimate zero-row blowout game, e.g. trickroom's final
+    run) is AT/ABOVE the 90% threshold (ceil(0.9*75) == 68) -> PASS, with the shortfall
+    surfaced in the detail string rather than silently swallowed."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = _dataset_lines_for_n_games(74)
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is True
+    assert detail == "rows=74 games=74/75 (1 game(s) with zero sampled rows — below-threshold OK)"
+
+
+def test_validate_datagen_output_exactly_at_threshold_passes(tmp_path):
+    """68/75 distinct game_ids == ceil(0.9 * 75) exactly -> PASS (the boundary case)."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = _dataset_lines_for_n_games(68)
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is True
+    assert detail == "rows=68 games=68/75 (7 game(s) with zero sampled rows — below-threshold OK)"
+
+
+def test_validate_datagen_output_single_game_overwrite_signature_fails(tmp_path):
+    """The Task-6 trickroom attempt-1 corruption signature: many schema-valid rows that ALL
+    share one game_id (a battle-scoped export runtime overwrote dataset.jsonl each battle,
+    leaving only the last battle's rows). Schema validation passes; coverage must still FAIL --
+    1 distinct game is far below the 90% threshold, not just below exact equality."""
+    out_dir = _build_datagen_out_dir(tmp_path)
+    dataset_lines = [
+        _valid_dataset_row_line(game_id="g_last", decision_id=f"d{i}")
+        for i in range(21)  # same row count as the real attempt-1 salvage
+    ]
+    (out_dir / "dataset.jsonl").write_text("\n".join(dataset_lines) + "\n", encoding="utf-8")
+
+    ok, detail = kernel_payload.validate_datagen_output(str(_REPO_ROOT), str(out_dir), _DATAGEN_HERO)
+
+    assert ok is False
+    assert "game coverage" in detail
+    assert "1 distinct game_id" in detail
 
 
 def test_validate_datagen_output_result_row_count_mismatch_fails(tmp_path):
@@ -377,3 +491,345 @@ def test_module_has_no_kaggle_path_at_import_time():
     assert not str(_MODULE_PATH.parent).startswith("/kaggle")
     # Importing the module (already done at collection time, above) must not have raised.
     assert hasattr(kernel_payload, "validate_prefix_reproduction")
+
+
+# ---------------------------------------------------------------------------
+# MEMTRACE (2b-2.5a, added 2026-07-10, extended to v2 same day, v3 2026-07-11): memory telemetry
+# sampler, added after datagen VMs OOM'd at deterministic battle counts while the top-8 RSS view
+# stayed flat (see kernel_payload.py's run_datagen / module docstring for the incident). v2 added
+# per-comm RSS aggregates across ALL processes (not just the top-8) plus kernel-level meminfo
+# fields (Shmem/Slab/Cached/Buffers); v2 proved the leak was ~70 NEW "node" processes per battle,
+# but ``comm`` is always just "node" -- it cannot say WHAT script or WHO spawned it. v3 switches
+# the ps invocation to include the full command line (``args``) and PPID, classifies each process
+# into a short signature (``_proc_signature``: calc.mjs / pokemon-showdown / node:<script> /
+# <program>) instead of the useless "node" comm, and adds per-signature parent attribution
+# (``_parse_ps_parent_attribution``) so a swarm of leaked processes can be traced to WHO spawns
+# them. format_memtrace/_parse_meminfo/_parse_ps_rows/_proc_signature/_parse_ps_top/
+# _parse_ps_aggregates/_parse_ps_parent_attribution/collect_memtrace_sample are pure/injectable
+# and fully unit-tested here; start_memtrace is exercised with injected fakes + a short interval
+# (no real /proc/meminfo or ps dependency).
+# ---------------------------------------------------------------------------
+
+def test_format_memtrace_golden_line():
+    meminfo = {
+        "avail_mb": 4096, "total_mb": 16384,
+        "shmem_mb": 1, "slab_mb": 2048, "cached_mb": 3000, "buffers_mb": 128,
+    }
+    aggregates = {
+        "calc.mjs": (3, 900),
+        "python3": (4, 700),
+        "pokemon-showdown": (2, 500),
+        "sh": (5, 100),
+    }
+    parents = {
+        "calc.mjs": ("python3", 3),
+        "python3": ("?", 4),
+        "pokemon-showdown": ("node:launcher.js", 2),
+        "sh": ("python3", 5),
+    }
+    top_procs = [("calc.mjs", 1234, 50, 512), ("python3", 5678, 1, 256)]
+
+    line = kernel_payload.format_memtrace(12.7, 3, meminfo, 20, 2300, aggregates, parents, top_procs)
+
+    assert line == (
+        "MEMTRACE t=12 done=3 availMB=4096/16384 shmem=1 slab=2048 cached=3000 buffers=128 "
+        "procs=20:2300MB "
+        "agg=[calc.mjs:n=3:900MB python3:n=4:700MB pokemon-showdown:n=2:500MB sh:n=5:100MB] "
+        "parents=[calc.mjs<-python3:3 python3<-?:4 pokemon-showdown<-node:launcher.js:2 sh<-python3:5] "
+        "top=[calc.mjs:1234:50:512MB python3:5678:1:256MB]"
+    )
+
+
+def test_format_memtrace_agg_keeps_only_top_4_by_sum_rss_desc():
+    meminfo = {
+        "avail_mb": 0, "total_mb": 0, "shmem_mb": 0, "slab_mb": 0, "cached_mb": 0, "buffers_mb": 0,
+    }
+    # 5 signatures -- only the top 4 by sum_rss_mb desc should appear, "z" (lowest sum) dropped
+    # from BOTH agg=[...] and parents=[...].
+    aggregates = {
+        "a": (1, 100),
+        "b": (1, 500),
+        "c": (1, 300),
+        "d": (1, 400),
+        "z": (1, 10),
+    }
+    parents = {
+        "a": ("x", 1), "b": ("x", 1), "c": ("x", 1), "d": ("x", 1), "z": ("x", 1),
+    }
+
+    line = kernel_payload.format_memtrace(0.0, 0, meminfo, 5, 1310, aggregates, parents, [])
+
+    assert line.endswith(
+        "agg=[b:n=1:500MB d:n=1:400MB c:n=1:300MB a:n=1:100MB] "
+        "parents=[b<-x:1 d<-x:1 c<-x:1 a<-x:1] top=[]"
+    )
+    assert "z:" not in line
+    assert "z<-" not in line
+
+
+def test_parse_meminfo_reads_all_fields_kb_to_mb():
+    text = (
+        "MemTotal:       16777216 kB\n"
+        "MemFree:         1000000 kB\n"
+        "MemAvailable:    4194304 kB\n"
+        "Buffers:           51200 kB\n"
+        "Cached:           102400 kB\n"
+        "SwapCached:            0 kB\n"
+        "Shmem:               2048 kB\n"
+        "Slab:             204800 kB\n"
+    )
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo == {
+        "avail_mb": 4194304 // 1024,
+        "total_mb": 16777216 // 1024,
+        "shmem_mb": 2048 // 1024,
+        "slab_mb": 204800 // 1024,
+        "cached_mb": 102400 // 1024,
+        "buffers_mb": 51200 // 1024,
+    }
+
+
+def test_parse_meminfo_missing_fields_default_to_zero():
+    text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo == {
+        "avail_mb": 4194304 // 1024,
+        "total_mb": 16777216 // 1024,
+        "shmem_mb": 0,
+        "slab_mb": 0,
+        "cached_mb": 0,
+        "buffers_mb": 0,
+    }
+
+
+def test_parse_meminfo_cached_does_not_match_swapcached():
+    # SwapCached only, no bare Cached: line -- must not false-match and must default to 0.
+    text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\nSwapCached:    999999 kB\n"
+
+    meminfo = kernel_payload._parse_meminfo(text)
+
+    assert meminfo["cached_mb"] == 0
+
+
+def _build_ps_text(procs):
+    # header row first, like real `ps -eo pid,ppid,rss,args` output. `procs` entries are
+    # (pid, ppid, rss_kb, args) -- args is LAST and may itself contain spaces.
+    lines = ["  PID  PPID   RSS COMMAND"]
+    for pid, ppid, rss, args in procs:
+        lines.append(f"{pid:5d} {ppid:5d} {rss:6d} {args}")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# _parse_ps_rows (v3: pid,ppid,rss,args -- args is last and may contain spaces)
+# ---------------------------------------------------------------------------
+
+def test_parse_ps_rows_splits_args_with_spaces_correctly():
+    text = (
+        "  PID  PPID   RSS COMMAND\n"
+        "  100     1  2048 node /repo/showdown_bot/tools/calc/calc.mjs --port 9001 --verbose\n"
+        "  200     1  4096 python3 -m showdown_bot.cli gauntlet --schedule x.yaml\n"
+    )
+
+    rows = kernel_payload._parse_ps_rows(text)
+
+    assert rows == [
+        (100, 1, 2048, "node /repo/showdown_bot/tools/calc/calc.mjs --port 9001 --verbose"),
+        (200, 1, 4096, "python3 -m showdown_bot.cli gauntlet --schedule x.yaml"),
+    ]
+
+
+# ---------------------------------------------------------------------------
+# _proc_signature (v3: process identity classifier)
+# ---------------------------------------------------------------------------
+
+def test_proc_signature_calc_mjs_server_line():
+    args = "node /kaggle/working/repo/showdown_bot/tools/calc/calc.mjs --port 9001"
+    assert kernel_payload._proc_signature(args) == "calc.mjs"
+
+
+def test_proc_signature_pokemon_showdown_start_line():
+    args = "node pokemon-showdown start 8000 --no-security"
+    assert kernel_payload._proc_signature(args) == "pokemon-showdown"
+
+
+def test_proc_signature_bare_node_script():
+    args = "node /kaggle/working/repo/some/leaked-script.js --flag value"
+    assert kernel_payload._proc_signature(args) == "node:leaked-script.js"
+
+
+def test_proc_signature_bare_node_no_script_argument():
+    assert kernel_payload._proc_signature("node") == "node:?"
+
+
+def test_proc_signature_python3():
+    args = "python3 -m showdown_bot.cli gauntlet --schedule x.yaml"
+    assert kernel_payload._proc_signature(args) == "python3"
+
+
+def test_proc_signature_ps():
+    args = "ps -eo pid,ppid,rss,args --sort=-rss"
+    assert kernel_payload._proc_signature(args) == "ps"
+
+
+# ---------------------------------------------------------------------------
+# _parse_ps_parent_attribution (v3: who spawns each signature)
+# ---------------------------------------------------------------------------
+
+def test_parse_ps_parent_attribution_resolves_shared_parents():
+    # 5 calc.mjs children of one python3 parent (pid 50), 2 pokemon-showdown children of one
+    # node parent (pid 60) -- the exact shape MEMTRACE v3 exists to surface: many leaked
+    # processes of ONE kind, all spawned by the SAME parent.
+    procs = [
+        (50, 1, 20000, "python3 -m showdown_bot.cli gauntlet"),
+        (60, 1, 30000, "node /kaggle/working/launcher.js"),
+        (100, 50, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 1"),
+        (101, 50, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 2"),
+        (102, 50, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 3"),
+        (103, 50, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 4"),
+        (104, 50, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 5"),
+        (200, 60, 9000, "node pokemon-showdown start 8000 --no-security"),
+        (201, 60, 9000, "node pokemon-showdown start 8000 --no-security"),
+    ]
+    ps_text = _build_ps_text(procs)
+    rows = kernel_payload._parse_ps_rows(ps_text)
+
+    parents = kernel_payload._parse_ps_parent_attribution(rows)
+
+    assert parents["calc.mjs"] == ("python3", 5)
+    assert parents["pokemon-showdown"] == ("node:launcher.js", 2)
+    # pid 1 (the parents' own parent) is not in this snapshot -> unresolvable, "?".
+    assert parents["python3"] == ("?", 1)
+    assert parents["node:launcher.js"] == ("?", 1)
+
+
+# ---------------------------------------------------------------------------
+# collect_memtrace_sample / start_memtrace
+# ---------------------------------------------------------------------------
+
+def test_collect_memtrace_sample_with_injected_fakes(tmp_path):
+    meminfo_text = (
+        "MemTotal:       16777216 kB\n"
+        "MemFree:         1000000 kB\n"
+        "MemAvailable:    4194304 kB\n"
+        "Buffers:           50000 kB\n"
+    )
+    # 10 rows, already sorted desc by rss (kB); header row first, like real `ps` output.
+    procs = [
+        (1, 0, 2000000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 1"),
+        (2, 1, 1500000, "python3 -m showdown_bot.cli gauntlet"),
+        (3, 1, 900000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 2"),
+        (4, 1, 800000, "python3 -m showdown_bot.cli gauntlet"),
+        (5, 1, 700000, "chrome --type=renderer"),
+        (6, 1, 600000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 3"),
+        (7, 1, 500000, "python3 -m showdown_bot.cli gauntlet"),
+        (8, 1, 400000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 4"),
+        (9, 1, 300000, "python3 -m showdown_bot.cli gauntlet"),
+        (10, 1, 200000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 5"),
+    ]
+    ps_text = _build_ps_text(procs)
+
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text('{"a": 1}\n{"a": 2}\n{"a": 3}\n', encoding="utf-8")
+
+    sample = kernel_payload.collect_memtrace_sample(
+        str(results_path),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert sample["battles_done"] == 3
+    assert sample["meminfo"]["avail_mb"] == 4194304 // 1024
+    assert sample["meminfo"]["total_mb"] == 16777216 // 1024
+    top = sample["top_procs"]
+    assert len(top) == 8
+    assert top[0] == ("calc.mjs", 1, 0, 2000000 // 1024)
+    assert top[1] == ("python3", 2, 1, 1500000 // 1024)
+    assert top[-1] == ("calc.mjs", 8, 1, 400000 // 1024)
+    assert sample["total_proc_count"] == 10
+    assert sample["total_rss_mb"] == sum(rss for _pid, _ppid, rss, _args in procs) // 1024
+
+
+def test_collect_memtrace_sample_missing_results_file_done_zero(tmp_path):
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+    ps_text = _build_ps_text([(1, 0, 1000, "node /repo/showdown_bot/tools/calc/calc.mjs")])
+    missing_path = tmp_path / "does_not_exist.jsonl"
+
+    sample = kernel_payload.collect_memtrace_sample(
+        str(missing_path),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert sample["battles_done"] == 0
+
+
+def test_collect_memtrace_sample_aggregates_cover_all_rows_not_just_top8():
+    # 12 rows across 3 signatures -- deliberately more than the top-8 cutoff, so this proves the
+    # aggregate covers ALL processes, not just the individually-listed top-8 (the whole point of
+    # the per-signature aggregate: surface a hog made of MANY small processes each below the
+    # top-8 cutoff).
+    procs = [
+        (1, 1, 100, "sh -c true"), (2, 1, 100, "sh -c true"), (3, 1, 100, "sh -c true"),
+        (4, 1, 100, "sh -c true"), (5, 1, 100, "sh -c true"), (6, 1, 100, "sh -c true"),
+        (7, 1, 100, "sh -c true"), (8, 1, 100, "sh -c true"), (9, 1, 100, "sh -c true"),
+        (10, 1, 100, "sh -c true"),
+        (11, 1, 5000, "node /repo/showdown_bot/tools/calc/calc.mjs --port 1"),
+        (12, 1, 3000, "python3 -m showdown_bot.cli gauntlet"),
+    ]
+    ps_text = _build_ps_text(procs)
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+
+    sample = kernel_payload.collect_memtrace_sample(
+        str(Path("does_not_exist_results.jsonl")),
+        read_meminfo=lambda: meminfo_text,
+        run_ps=lambda: ps_text,
+    )
+
+    assert sample["total_proc_count"] == 12
+    assert sample["total_rss_mb"] == (10 * 100 + 5000 + 3000) // 1024
+
+    agg = sample["aggregates"]
+    assert agg["sh"] == (10, 1000 // 1024)
+    assert agg["calc.mjs"] == (1, 5000 // 1024)
+    assert agg["python3"] == (1, 3000 // 1024)
+
+    # top-8 individual list is still just the 8 highest-RSS individual processes (calc.mjs,
+    # python3, then 6 of the 10 "sh" rows) -- "sh" as a GROUP outweighs calc.mjs/python3, which
+    # only the aggregate reveals.
+    assert len(sample["top_procs"]) == 8
+    top_sigs = [sig for sig, _pid, _ppid, _rss in sample["top_procs"]]
+    assert top_sigs[0] == "calc.mjs"
+    assert top_sigs[1] == "python3"
+
+    # parent attribution: every process here has ppid=1, and pid 1 itself is one of the "sh"
+    # rows -- so every signature (including "sh" itself) resolves its parent to "sh".
+    parents = sample["parents"]
+    assert parents["sh"] == ("sh", 10)
+    assert parents["calc.mjs"] == ("sh", 1)
+    assert parents["python3"] == ("sh", 1)
+
+
+def test_start_memtrace_smoke(tmp_path, capsys):
+    meminfo_text = "MemTotal:       16777216 kB\nMemAvailable:    4194304 kB\n"
+    ps_text = _build_ps_text([(1, 0, 1000, "node /repo/showdown_bot/tools/calc/calc.mjs")])
+    results_path = tmp_path / "results.jsonl"
+    results_path.write_text("", encoding="utf-8")
+
+    stop = kernel_payload.start_memtrace(
+        str(results_path), interval_s=0.01,
+        read_meminfo=lambda: meminfo_text, run_ps=lambda: ps_text,
+    )
+    time.sleep(0.05)  # let ~a few ticks happen
+    stop()
+
+    out_after_stop = capsys.readouterr().out
+    assert out_after_stop.count("MEMTRACE") >= 1
+
+    time.sleep(0.05)  # stop() must actually stop the thread -- no further output
+    out_after_wait = capsys.readouterr().out
+    assert "MEMTRACE" not in out_after_wait

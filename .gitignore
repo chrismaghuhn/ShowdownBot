@@ -12,3 +12,6 @@ showdown_bot/logs/
 
 # Datasets: raw JSONL is large + deterministically regenerable; keep the .gz + manifest.
 data/datasets/**/*.jsonl
+# 2b-2.5a evidence: small per-quarter result rows + seed logs are provenance (byte-pinned by
+# sha256.txt), not the large regenerable merged dataset — keep them despite the rule above.
+!data/datasets/phase3-slice2b25a/evidence/**/*.jsonl

@@ -434,6 +434,66 @@ def test_g2_actor_species_id(g2_features_fixture):
     assert f["slot2_actor_species_id"] == "rillaboom"
 
 
+# ---------------------------------------------------------------------------
+# 2b-2.5a wiring-gap regression (reports/2026-07-11-2b25a-offline-eval.md root cause (A)):
+# client/gauntlet.py hardcoded dex=None, move_meta=None at BOTH DatasetExportRuntime
+# construction sites, so _slot_action_features always took its "no meta"/"no dex" sentinel
+# branch regardless of how many distinct moves/species actually appeared across a dataset --
+# 16 feature columns were constant sentinels in every exported row. The extractor itself
+# (this file) was always correct; these tests pin the exact non-sentinel values it produces
+# once real deps are present, contrasted against the sentinel it produces without them, so a
+# future regression at either the extractor OR the gauntlet wiring seam is caught here.
+# ---------------------------------------------------------------------------
+
+def test_g2_regression_protect_move_type_category_priority_match_move_table(g2_features_fixture):
+    """With move_meta present (as gauntlet.py now always threads via engine.moves._move_table()),
+    slot1_move_type/category/priority for a known move ('protect') resolve to REAL values that
+    agree exactly with _move_table()['protect'] -- the same table object gauntlet.py passes into
+    DatasetExportRuntime.from_env(move_meta=...). Before the fix this was unconditionally
+    '__none__'/0 (SENTINEL_CAT_NONE / SENTINEL_NUM) for every row in every exported dataset."""
+    from showdown_bot.engine.moves import _move_table
+    from showdown_bot.learning.features import SENTINEL_CAT_NONE
+
+    trace, state, req, ctx = g2_features_fixture
+    rows = extract_features(trace, state, req, ctx)
+    protect_row = next((r for r in rows if r.features.get("slot1_move_id") == "protect"), None)
+    assert protect_row is not None, "Expected a candidate with protect at slot1"
+    f = protect_row.features
+
+    protect_meta = _move_table()["protect"]
+    assert f["slot1_move_type"] == protect_meta.move_type
+    assert f["slot1_move_category"] == protect_meta.category
+    assert f["slot1_priority"] == protect_meta.priority
+    assert f["slot1_is_damaging"] == protect_meta.is_damaging
+    # Pin the concrete real value too (not just "matches the table"), and prove it is NOT the
+    # sentinel a dead/None move_meta would have produced.
+    assert f["slot1_move_type"] != SENTINEL_CAT_NONE
+    assert f["slot1_priority"] == 4  # Protect is priority +4
+
+
+def test_g2_regression_move_slot_sentinels_when_move_meta_is_none(features_fixture):
+    """Contrast case: features_fixture's ctx has move_meta=None (the plain/no-deps fixture,
+    mirroring the pre-fix gauntlet.py wiring) -- move_type/category/priority/is_damaging/
+    is_protect fall back to their sentinels EVEN THOUGH slot1_move_id resolves a real move id
+    (move id resolution reads the request directly, not ctx.move_meta -- exactly the asymmetry
+    the offline-eval report used to prove this was a wiring gap, not a data-diversity problem)."""
+    from showdown_bot.learning.features import SENTINEL_BOOL, SENTINEL_CAT_NONE
+
+    trace, state, req, ctx = features_fixture
+    assert ctx.move_meta is None and ctx.dex is None
+    rows = extract_features(trace, state, req, ctx)
+    move_row = next((r for r in rows if r.features.get("slot1_action_type") == "move"), None)
+    assert move_row is not None
+    f = move_row.features
+    assert f["slot1_move_id"] != SENTINEL_CAT_NONE  # resolved straight from the request
+    assert f["slot1_move_type"] == SENTINEL_CAT_NONE
+    assert f["slot1_move_category"] == SENTINEL_CAT_NONE
+    assert f["slot1_priority"] == 0
+    assert f["slot1_is_damaging"] == SENTINEL_BOOL
+    assert f["slot1_is_protect"] == SENTINEL_BOOL
+    assert f["slot1_actor_species_id"] == SENTINEL_CAT_NONE  # dex=None -> sentinel too
+
+
 def test_g2_target_species_unknown_for_unrevealed_opp(g2_features_fixture):
     """Opponent species not revealed -> target_species_id_if_known = __unknown__."""
     from showdown_bot.learning.features import SENTINEL_CAT_UNKNOWN

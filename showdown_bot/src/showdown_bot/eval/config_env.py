@@ -8,6 +8,8 @@ Every ``SHOWDOWN_*`` read in the source must fall into exactly one class (enforc
 drift test in ``tests/test_config_env.py``):
 
 - ``BEHAVIOR_AFFECTING`` — changes how the bot plays → part of ``config_hash`` (via env).
+- ``SERVER_SIDE_BEHAVIOR_AFFECTING`` — changes pokemon-showdown SERVER behavior; also part of
+  ``config_hash`` (via env), but read in the versioned TS server patch, NOT the Python package.
 - ``NON_BEHAVIORAL`` (exact names + ``NON_BEHAVIORAL_PREFIXES`` families) — diagnostics,
   auth, IO paths, seed plumbing → excluded from the env dict.
 - ``EXCLUDED_BY_REASON`` — behavior-relevant, but captured by an explicit manifest field
@@ -33,6 +35,28 @@ BEHAVIOR_AFFECTING = frozenset({
     "SHOWDOWN_RERANKER_SHADOW_TIMEOUT_MS",
     # A calc timeout can trigger fallback behavior under load -> behavior-affecting.
     "SHOWDOWN_CALC_TIMEOUT_MS",
+    # [2b-2.5a, 2026-07-11] Per-battle gauntlet wall-clock timeout override (datagen: 900s).
+    # It changes which battles produce a result row at all (a battle that times out yields NO
+    # row -> a lower-effort/lower-timeout run silently drops legitimate long stall games), so
+    # two runs that differ on it must not be paired -> part of config_hash. Read directly in
+    # Python source (showdown_bot.client.gauntlet), so it belongs in this set, NOT
+    # SERVER_SIDE_BEHAVIOR_AFFECTING.
+    "SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S",
+})
+
+# Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the
+# effective config_hash (fail-closed inclusion by behavior_env, exactly like any non-excluded
+# SHOWDOWN_* var). They are read in the versioned TS server patch
+# (tools/eval/patches/pokemon-showdown-seeded-battle.patch), NOT the Python package, so they are
+# kept OUT of BEHAVIOR_AFFECTING: the "read in Python source" hardening test guards that set, and
+# the Python-only drift scan never sees a server-side flag (so it needs no Python read to be
+# valid). is_classified() still recognizes them so a future Python read would classify cleanly.
+SERVER_SIDE_BEHAVIOR_AFFECTING = frozenset({
+    # [2b-2.5a] Expire an ENDED headless-eval battle room the moment its last user leaves; stock
+    # deallocation waits up to 40min (TIMEOUT_INACTIVE_DEALLOCATE) -> VM OOM after ~50-75
+    # sequential battles. Strictly post-battle: zero effect on RNG/log bytes, but it DOES change
+    # server behavior, so two runs that differ on it must not be paired -> part of config_hash.
+    "SHOWDOWN_EVAL_ROOM_DEALLOC",
 })
 
 # Non-behavioral: diagnostics, auth, IO paths, seed plumbing — no effect on how the bot
@@ -84,6 +108,7 @@ def is_classified(name: str) -> bool:
     classified, so a new unclassified read fails fast."""
     return (
         name in BEHAVIOR_AFFECTING
+        or name in SERVER_SIDE_BEHAVIOR_AFFECTING
         or name in NON_BEHAVIORAL
         or name in EXCLUDED_BY_REASON
         or _matches_prefix(name)

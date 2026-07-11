@@ -1,0 +1,21 @@
+{
+  "cli_invocation": [
+    "/tmp/sb_repo/showdown_bot/src/showdown_bot/cli.py",
+    "gauntlet",
+    "--schedule",
+    "/tmp/sb_repo/config/eval/schedules/datagen_2b25a_hero_sun.yaml",
+    "--result-out",
+    "/tmp/sb_out/results.jsonl"
+  ],
+  "config_hash": "23351717487f69e5",
+  "dirty": true,
+  "git_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+  "panel_hash": "760c1e5935fe0474",
+  "pythonhashseed": "0",
+  "run_id": "5da9b07c9eae4e98",
+  "schedule_hash": "e86c9421e2473daf",
+  "seed_base": "dg25a-sun",
+  "server_patch_hash": "86e31891547e87da",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-11T03:26:47.180927+00:00"
+}

@@ -5,7 +5,7 @@ index 5d64866..8e2732c 100644
 @@ -15,6 +15,12 @@ const LadderStore: typeof import('./ladders-remote').LadderStore = (
  const SECONDS = 1000;
  const PERIODIC_MATCH_INTERVAL = 60 * SECONDS;
-
+ 
 +// [ShowdownBot eval-harness patch — 2b-3.5 T1b] Process-local per-battle seed counter.
 +// Resets to 0 at server start; incremented once per battle created via Ladder.match when
 +// SHOWDOWN_BATTLE_SEED_BASE is set. Channel A: seed_i = derive(base, i) aligns across two
@@ -14,7 +14,7 @@ index 5d64866..8e2732c 100644
 +
  import type { ChallengeType } from './room-battle';
  import { BattleReady, BattleChallenge, GameChallenge, BattleInvite, challenges } from './ladders-challenges';
-
+ 
 @@ -470,12 +476,35 @@ class Ladder extends LadderStore {
  		}
  		const format = Dex.formats.get(formatid);
@@ -51,3 +51,26 @@ index 5d64866..8e2732c 100644
  		});
  	}
  }
+diff --git a/server/rooms.ts b/server/rooms.ts
+index 3c38659..1b919f3 100644
+--- a/server/rooms.ts
++++ b/server/rooms.ts
+@@ -1073,6 +1073,18 @@ export abstract class BasicRoom {
+ 		this.game?.onLeave?.(user);
+ 		this.runAutoModchat();
+ 
++		// [ShowdownBot eval-harness patch — 2b-2.5a OOM fix] Headless eval servers run
++		// 75+ sequential battles; stock deallocation waits up to 40min (TIMEOUT_INACTIVE_DEALLOCATE,
++		// armed from Room.update while players were present; onLeave never re-arms), so every
++		// finished room + its sim-child Battle object accumulates -> VM OOM at ~50-75 battles.
++		// When SHOWDOWN_EVAL_ROOM_DEALLOC is set: an ENDED battle room whose last user just left
++		// is expired immediately (strictly post-battle -> zero effect on battle RNG/log bytes).
++		if (process.env.SHOWDOWN_EVAL_ROOM_DEALLOC && this.game?.ended && this.userCount === 0) {
++			// Defer via setImmediate (mimic the timer path, which always fires outside user-event
++			// handling) rather than destroying synchronously inside the leave call stack.
++			setImmediate(() => this.expire());
++		}
++
+ 		return true;
+ 	}
+ 

@@ -1,0 +1,110 @@
+{
+  "created_from": "4 Kaggle kernel runs",
+  "format_id": "gen9vgc2025regi",
+  "games_with_rows": 299,
+  "local_archive": "C:/tmp/kaggle25a/datagen/",
+  "merge_order": [
+    "fixed",
+    "trickroom",
+    "sun",
+    "rain"
+  ],
+  "notes": {
+    "kernel_clone_dirty": "Each kernel's results.jsonl.manifest.json reports dirty:true. The Kaggle clone runs npm ci, which mutates partially-committed tools/calc node_modules; battle content is unaffected (server_patch_hash + showdown_commit are pinned).",
+    "trickroom_zero_sample_game": "trickroom ran 75 games but only 74 produced training rows; one game was a legitimate blowout that sampled zero decisions. The coverage gate threshold is ceil(0.9*games) = 68, so 74/75 passes."
+  },
+  "per_hero": [
+    {
+      "config_hash": "23351717487f69e5",
+      "dataset_sha256": "b5e6334ee12cded41b17821b9cc669dff4807f9c6295b908d71a88b69e96840a",
+      "distinct_games": 75,
+      "hero": "fixed",
+      "hero_wins": 30,
+      "kernel_slug": "sb-datagen-fixed",
+      "kernel_version": 4,
+      "repo_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+      "results_sha256": "f045efe64c1b871951e38820d5a6e2e87a2936bb641c073a18aee8e2a4d6d94a",
+      "rows": 4374,
+      "run_id": "1bb5bcb67f74adff",
+      "schedule_hash": "4734492289cdac56",
+      "schedule_path": "config/eval/schedules/datagen_2b25a_hero_fixed.yaml",
+      "seed_base": "dg25a-fixed",
+      "seeds_sha256": "3ef9c7fd5f7baa89fd4868fd2f91b4dc7241c2078641ced34748d9028c1d99aa",
+      "server_patch_hash": "86e31891547e87da",
+      "villain_wins": 45
+    },
+    {
+      "config_hash": "23351717487f69e5",
+      "dataset_sha256": "85ee8066f5752f752869f0813a23c04604935ba67c3ace6556cc2dfa7dcea70e",
+      "distinct_games": 74,
+      "hero": "trickroom",
+      "hero_wins": 11,
+      "kernel_slug": "sb-datagen-trickroom",
+      "kernel_version": 8,
+      "repo_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+      "results_sha256": "1ed3d65fdb69578bea87dc449524dfcf7e29811e9e584b060a6fffcbf8b83df1",
+      "rows": 1922,
+      "run_id": "6c7ab8a2ad570c34",
+      "schedule_hash": "539d4ac6a88ef5d2",
+      "schedule_path": "config/eval/schedules/datagen_2b25a_hero_trickroom.yaml",
+      "seed_base": "dg25a-trickroom",
+      "seeds_sha256": "0bc0fa34798cbb6958c7188a9849dc82bccba7bf67f2597b3e4a06c39751395c",
+      "server_patch_hash": "86e31891547e87da",
+      "villain_wins": 64
+    },
+    {
+      "config_hash": "23351717487f69e5",
+      "dataset_sha256": "45517881eaf22e7fb5f5536ae9621292994a653ad6debf23073ebebaa5b3ad2f",
+      "distinct_games": 75,
+      "hero": "sun",
+      "hero_wins": 59,
+      "kernel_slug": "sb-datagen-sun",
+      "kernel_version": 5,
+      "repo_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+      "results_sha256": "8658084bbead15f471e70e4f8c8303500c93d067290a8aef7e87eea1d0e216ee",
+      "rows": 3581,
+      "run_id": "5da9b07c9eae4e98",
+      "schedule_hash": "e86c9421e2473daf",
+      "schedule_path": "config/eval/schedules/datagen_2b25a_hero_sun.yaml",
+      "seed_base": "dg25a-sun",
+      "seeds_sha256": "b841f9e0933d5abbce44959a0be467a44bb0fac8aa4ffdeefeab5c3df11c36ec",
+      "server_patch_hash": "86e31891547e87da",
+      "villain_wins": 16
+    },
+    {
+      "config_hash": "23351717487f69e5",
+      "dataset_sha256": "35f726e51d35aefd71ac9b8ff609138a5772cce4c9777749f485e63e75438137",
+      "distinct_games": 75,
+      "hero": "rain",
+      "hero_wins": 32,
+      "kernel_slug": "sb-datagen-rain",
+      "kernel_version": 5,
+      "repo_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+      "results_sha256": "0edc441c17d3259f74a44f1bd1be6773b2a6655de7ed6fb091ba84bc20e941a9",
+      "rows": 7581,
+      "run_id": "8a42608cce22bc81",
+      "schedule_hash": "025e51efaad76a87",
+      "schedule_path": "config/eval/schedules/datagen_2b25a_hero_rain.yaml",
+      "seed_base": "dg25a-rain",
+      "seeds_sha256": "992872a9f276c6c777217b1046648dd800002322065f1b0d917eaa3757a51333",
+      "server_patch_hash": "86e31891547e87da",
+      "villain_wins": 43
+    }
+  ],
+  "regeneration": {
+    "battle_identity_check": "winner/turns sequences identical to v1 quarters (0 diffs x 4 x 75). The seeded battles and their labels are byte-identical to v1; only the previously-sentinel feature columns were completed by the extractor wiring fix.",
+    "features_completed": "16 sentinel columns (slot{1,2}_move_type/move_category/priority/is_damaging/is_protect, slot{1,2}_actor_species_id/switch_target_species_id/target_species_id_if_known) plus mirror_flag are now live (non-constant) in the merged dataset.",
+    "kernel_versions": {
+      "fixed": "v4",
+      "rain": "v5",
+      "sun": "v5",
+      "trickroom": "v8"
+    },
+    "repo_sha": "583e0a032e699492a70cdeade556f769acc8caba",
+    "uniform_repo_sha_note": "All four quarters now share repo sha 583e0a0 (previously fixed/trickroom/sun/rain were exported on four different shas). config_hash and server_patch_hash are now uniform across all quarters as well.",
+    "why": "All four quarters were re-exported on repo sha 583e0a0 (fix(2b-2.5a): wire dex/move_meta/mirror_flag into dataset export). The v1 dataset (commit 6b46d42) had an extractor wiring bug: DatasetExportRuntime was built with dex=None/move_meta=None and mirror_flag hardcoded False, so 16 move/species-derived columns were 100% sentinel and mirror_flag was constant. The fix wires engine.moves._move_table() (move_meta) and battle.opponent.SpeciesDex (dex) plus real mirror detection into both gauntlet.py export call sites."
+  },
+  "teacher": "rollout",
+  "total_games_played": 300,
+  "total_rows": 17458
+}

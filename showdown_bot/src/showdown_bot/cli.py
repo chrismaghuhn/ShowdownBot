@@ -61,7 +61,7 @@ def run_schedule(args) -> None:
     """
     import os
 
-    from showdown_bot.client.gauntlet import run_local_gauntlet
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime, run_local_gauntlet
     from showdown_bot.eval.schedule import load_schedule, verify_schedule_alignment
 
     sched = load_schedule(args.schedule)
@@ -69,6 +69,21 @@ def run_schedule(args) -> None:
     print(f"schedule {args.schedule}: {len(sched.rows)} rows, schedule_hash={sched.schedule_hash}")
     if base:
         print("  seed mode: per-battle (SHOWDOWN_BATTLE_SEED_BASE) — REQUIRES a fresh server (Channel A)")
+
+    # 2b-2.5a fix: dataset export is RUN-scoped, not battle-scoped. Each row below plays as
+    # its own run_local_gauntlet(games=1) call; building a fresh export runtime per call (the
+    # old behavior) meant every battle's flush overwrote the file, so only the LAST battle in
+    # the whole schedule ever survived to disk. Build ONE runtime here (representative row 0 —
+    # datagen schedules are one hero team/format per file) and thread the SAME instance through
+    # every row so their rows accumulate into one file; close it once after the loop.
+    export_runtime = None
+    if os.environ.get("SHOWDOWN_DATASET_EXPORT"):
+        export_runtime = build_schedule_export_runtime(
+            sched.rows[0].format_id, sched.rows[0].hero_team_path, sched.rows[0].opp_team_path,
+        )
+        if export_runtime is not None:
+            print(f"  dataset export -> {os.environ['SHOWDOWN_DATASET_EXPORT']} "
+                  f"(run-scoped across all {len(sched.rows)} rows)")
 
     # T2 per-battle result JSONL (Fix 3: --result-out must be missing or empty at start).
     result_out = getattr(args, "result_out", "")
@@ -137,53 +152,61 @@ def run_schedule(args) -> None:
         print(f"  run manifest -> {manifest_out} (run_id={run_id})")
 
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
-    for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
-        on_br = None
-        if writer is not None:
-            def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
-                seed = derive_battle_seed(base, _row.seed_index)
-                config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
-                writer.write({
-                    "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
-                    "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
-                    "config_id": config_id, "format_id": format_id,
-                    "config_hash": _config_hash_for(config_id, format_id),
-                    "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
-                    "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
-                    "opp_team_path": _row.opp_team_path, "seed": seed,
-                    # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
-                    # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
-                    "seed_base": base, "git_sha": git_sha,
-                    "dirty": dirty,  # T3e P4 provenance
-                    # Provenance from the schedule row (legacy schedules -> null).
-                    "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
-                    "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
-                    "timeouts": None, "panel_hash": sched.panel_hash, **record,
-                })
-                written.append(_row.seed_index)
+    try:
+        for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
+            on_br = None
+            if writer is not None:
+                def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
+                    seed = derive_battle_seed(base, _row.seed_index)
+                    config_id, format_id = "heuristic", _row.format_id  # bot version vs format (Fix 1)
+                    writer.write({
+                        "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                        "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
+                        "config_id": config_id, "format_id": format_id,
+                        "config_hash": _config_hash_for(config_id, format_id),
+                        "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
+                        "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
+                        "opp_team_path": _row.opp_team_path, "seed": seed,
+                        # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
+                        # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
+                        "seed_base": base, "git_sha": git_sha,
+                        "dirty": dirty,  # T3e P4 provenance
+                        # Provenance from the schedule row (legacy schedules -> null).
+                        "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
+                        "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
+                        "timeouts": None, "panel_hash": sched.panel_hash, **record,
+                    })
+                    written.append(_row.seed_index)
 
-        stats = asyncio.run(
-            run_local_gauntlet(
-                games=1,
-                hero_agent="heuristic",
-                villain_agent=row.opp_policy,
-                format_id=row.format_id,
-                team_path=row.hero_team_path,
-                opp_team_path=row.opp_team_path,
-                on_battle_result=on_br,
+            stats = asyncio.run(
+                run_local_gauntlet(
+                    games=1,
+                    hero_agent="heuristic",
+                    villain_agent=row.opp_policy,
+                    format_id=row.format_id,
+                    team_path=row.hero_team_path,
+                    opp_team_path=row.opp_team_path,
+                    on_battle_result=on_br,
+                    export_runtime=export_runtime,  # 2b-2.5a: SAME runtime for every row
+                )
             )
-        )
-        totals["games"] += stats.games
-        totals["hero_wins"] += stats.hero_wins
-        totals["villain_wins"] += stats.villain_wins
-        totals["ties"] += stats.ties
-        totals["invalid"] += stats.invalid_choices
-        totals["crashes"] += stats.crashes
-        print(
-            f"  seed_index={row.seed_index}: {row.hero_team_path} vs {row.opp_team_path} "
-            f"[{row.opp_policy}] -> games={stats.games} hero_wins={stats.hero_wins} "
-            f"invalid={stats.invalid_choices} crashes={stats.crashes}"
-        )
+            totals["games"] += stats.games
+            totals["hero_wins"] += stats.hero_wins
+            totals["villain_wins"] += stats.villain_wins
+            totals["ties"] += stats.ties
+            totals["invalid"] += stats.invalid_choices
+            totals["crashes"] += stats.crashes
+            print(
+                f"  seed_index={row.seed_index}: {row.hero_team_path} vs {row.opp_team_path} "
+                f"[{row.opp_policy}] -> games={stats.games} hero_wins={stats.hero_wins} "
+                f"invalid={stats.invalid_choices} crashes={stats.crashes}"
+            )
+    finally:
+        # 2b-2.5a: close the run-scoped runtime (rollout CalcClient teardown, if any) exactly
+        # once, whether the loop finished cleanly or raised mid-schedule. Rows are already on
+        # disk via each battle's own flush() (see _run_client) -- close() is teardown-only.
+        if export_runtime is not None:
+            export_runtime.close()
     print(f"schedule totals: {totals}")
 
     if writer is not None:

@@ -46,6 +46,26 @@ class SpeciesDex:
             self._cache[species] = self.backend.types_batch([species])[0]
         return self._cache[species]
 
+    def to_id(self, species: str) -> str:
+        """Normalize a species name to its id form -- the same Showdown "toID"
+        transform as ``engine.moves.to_id`` / ``engine.state.to_id`` /
+        ``engine.items.to_id`` (pure string normalization, no backend lookup).
+
+        Added (2b-2.5a wiring fix) so ``learning/features.py``'s
+        ``ctx.dex.to_id(...)`` species-id feature columns
+        (``slot{1,2}_actor_species_id`` / ``switch_target_species_id`` /
+        ``target_species_id_if_known``) actually resolve real ids once a real
+        ``SpeciesDex`` is threaded into the export path, instead of silently
+        falling back to their sentinel on ``AttributeError`` (this method did
+        not exist before -- ``SpeciesDex`` only exposed ``.types()``).
+        """
+        return to_id(species)
+
+    def close(self) -> None:
+        """Close the backing calc backend (idempotent). Per-battle teardown seam
+        (2b-2.5a Kaggle-OOM fix) — see PersistentCalcBackend.close."""
+        self.backend.close()
+
 
 @dataclass
 class OppResponse:

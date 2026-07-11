@@ -30,6 +30,8 @@ class CalcBackend(Protocol):
 
     def calc_batch(self, requests: list[DamageRequest]) -> list[DamageResult]: ...
 
+    def close(self) -> None: ...
+
 
 class SubprocessCalcBackend:
     """One-shot ``node calc.mjs`` per batch. Bundles all requests into a single
@@ -127,6 +129,11 @@ class SubprocessCalcBackend:
         ]
         data = self._run(payload)
         return [item.get("types", []) for item in data]
+
+    def close(self) -> None:
+        """No process/handle to release — one-shot ``subprocess.run`` per call.
+        No-op, for symmetry with ``PersistentCalcBackend.close`` so callers can
+        close any ``CalcBackend`` uniformly."""
 
 
 class _TransportError(Exception):
@@ -319,6 +326,11 @@ class CalcClient:
 
     def __init__(self, backend: CalcBackend | None = None) -> None:
         self.backend: CalcBackend = backend or make_calc_backend()
+
+    def close(self) -> None:
+        """Passthrough to the backend's close (idempotent on both backend types).
+        Per-battle teardown seam (2b-2.5a Kaggle-OOM fix) — see PersistentCalcBackend.close."""
+        self.backend.close()
 
     def damage(self, request: DamageRequest) -> DamageResult:
         return self.damage_batch([request])[0]
