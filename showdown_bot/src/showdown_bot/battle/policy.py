@@ -19,6 +19,11 @@ def _must_react_lambda() -> float:
         return 0.6
 
 
+def must_react_lambda() -> float:
+    """Public read of the current MUST_REACT worst-case weight (env-configurable)."""
+    return _must_react_lambda()
+
+
 def aggregate_scores(
     scores: list[float],
     mode: GameMode,

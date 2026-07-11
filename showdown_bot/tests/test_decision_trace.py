@@ -33,6 +33,13 @@ def test_selection_telemetry_defaults_to_none():
     assert trace.fallback_reason is None
 
 
+def test_aggregation_params_default_to_none():
+    t = DecisionTrace()
+    assert t.aggregation_mode is None
+    assert t.risk_lambda is None
+    assert t.must_react_lambda is None
+
+
 # ---------------------------------------------------------------------------
 # Fakes — mirrors of test_decision_replay.py fakes (no live server needed)
 # ---------------------------------------------------------------------------

@@ -64,3 +64,8 @@ class DecisionTrace:
     # reads them offline.
     selection_stage: str | None = None
     fallback_reason: str | None = None
+    # Exact aggregation context used by policy.aggregate_scores at this decision
+    # (research-only; never read to make a decision). Set by decision.py.
+    aggregation_mode: str | None = None
+    risk_lambda: float | None = None
+    must_react_lambda: float | None = None
