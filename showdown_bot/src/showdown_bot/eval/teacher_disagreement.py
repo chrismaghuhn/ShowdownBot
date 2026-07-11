@@ -36,8 +36,8 @@ Topset model, per decision (a group of candidate rows sharing ``metadata.decisio
 
 Fail-closed invariants (ported verbatim via ``_validate_decisions``/``_validate_row``): every
 decision's rows are typed and internally consistent (contiguous 0-based ``candidate_index``, a
-single ``game_id``, at least one heuristic-top and one teacher-top row, rank-zero flags agree with
-the boolean flags, ``value_gap_to_best`` is ``<= 0`` and exactly ``0`` for ``teacher_best`` rows);
+single ``game_id``, at least one heuristic-top and one teacher-top row,
+``value_gap_to_best`` is ``<= 0`` and exactly ``0`` for ``teacher_best`` rows);
 ``score_gap_to_second`` is non-negative on every strict-unique heuristic row; every emitted number
 is finite. All raise ``TeacherDisagreementError``.
 
@@ -196,14 +196,13 @@ def _validate_row(row: object, context: str) -> dict:
             raise TeacherDisagreementError(f"{field} at {label_context} must be a boolean")
     for field in ("heuristic_rank", "teacher_rank"):
         _require_nonnegative_int(label[field], field, label_context)
-    for flag, rank in (
-        ("chosen_by_current_heuristic", "heuristic_rank"),
-        ("teacher_best", "teacher_rank"),
-    ):
-        if label[flag] != (label[rank] == 0):
-            raise TeacherDisagreementError(
-                f"{flag}/{rank} at {label_context} must agree on rank-zero status"
-            )
+    # NOTE: the clone's `_validate_row` coupled the boolean flags to rank-zero
+    # (chosen <=> heuristic_rank==0, teacher_best <=> teacher_rank==0). That does
+    # NOT hold on this repo's data: `chosen_by_current_heuristic` marks the action
+    # actually played (authoritative, post Tera-overlay / tie-break), which can
+    # differ from the score-ranking's rank-0 candidate (~1% of rows), and score
+    # ties give several rows rank 0. The topset model never reads the rank fields,
+    # so the coupling is dropped; the boolean topsets remain the source of truth.
     raw_gap = _require_finite_number(
         label["value_gap_to_best"], "value_gap_to_best", label_context
     )

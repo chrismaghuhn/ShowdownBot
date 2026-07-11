@@ -363,13 +363,6 @@ def test_ko_threatened_count_out_of_vgc_doubles_domain_raises():
         analyze_disagreement({"bad": (row,)})
 
 
-def test_rank_zero_flag_mismatch_raises():
-    row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=0.0, heuristic_rank=1)
-
-    with pytest.raises(TeacherDisagreementError, match="rank-zero status"):
-        analyze_disagreement({"bad": (row,)})
-
-
 def test_teacher_best_row_with_nonzero_gap_raises():
     row = _candidate("bad", 0, chosen=True, teacher_best=True, gap=-0.5)
 
@@ -821,3 +814,20 @@ def test_main_writes_markdown_and_json_reports(tmp_path, monkeypatch):
     # sort_keys=True: top-level keys must come back alphabetically ordered.
     raw_top_level_line = json_text.splitlines()[1].strip()
     assert raw_top_level_line.startswith('"breakdown_denominator"')
+
+
+def test_chosen_action_need_not_be_heuristic_rank_zero() -> None:
+    """Regression: our data stores `chosen_by_current_heuristic` as the action ACTUALLY
+    played (post Tera-overlay / tie-break), which can differ from the score-ranking's
+    rank-0 candidate (~1% of real rows). The clone's chosen<=>rank-0 coupling was dropped;
+    such a decision must be accepted and classified via the boolean topsets."""
+    decisions = {
+        "d": (
+            _candidate("d", 0, chosen=False, teacher_best=True, gap=0.0, heuristic_rank=0, teacher_rank=0),
+            _candidate("d", 1, chosen=True, teacher_best=False, gap=-2.0, heuristic_rank=1, teacher_rank=1),
+        ),
+    }
+    result = analyze_disagreement(decisions)  # must NOT raise
+    assert result["corpus"]["strict_unique_choices"] == 1
+    assert result["corpus"]["strict_disagreements"] == 1  # heuristic topset {1} disjoint from teacher {0}
+    assert result["top_opportunities"][0]["regret_gap"] == 2.0  # max(0, -(-2.0))
