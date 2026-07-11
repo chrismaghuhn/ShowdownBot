@@ -129,8 +129,55 @@ def test_build_schedule_export_runtime_builds_with_hero_team_and_format(monkeypa
     rt = build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt")
     assert rt is not None
     assert rt.format_id == "gen9vgc2025regi"
-    assert rt.mirror_flag is False  # schedules are always non-mirror (distinct opp teams)
+    # 2b-2.5a wiring fix: no villain_team_path given -> _is_mirror_battle's "no opp path ->
+    # mirror" convention (matches _resolve_side_teams' own default), NOT the old hardcoded False.
+    assert rt.mirror_flag is True
     assert len(rt.team_hash_) == 16  # a real (non-empty) packed team was loaded and hashed
+
+
+# ---------------------------------------------------------------------------
+# 2b-2.5a wiring fix: build_schedule_export_runtime must thread real dex/move_meta (not the
+# pre-fix dex=None, move_meta=None), and a real per-battle mirror_flag derived from
+# hero_team_path vs. an (optional) villain_team_path -- see reports/2026-07-11-2b25a-offline-
+# eval.md root causes (A) and (B).
+# ---------------------------------------------------------------------------
+
+
+def test_build_schedule_export_runtime_threads_real_dex_and_move_meta(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.battle.opponent import SpeciesDex
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime("gen9vgc2025regi", "teams/fixed_team.txt")
+    assert rt is not None
+    assert rt.dex is not None
+    assert isinstance(rt.dex, SpeciesDex)
+    assert rt.move_meta is not None
+    # A real, data-driven move table -- not an empty stand-in -- and it resolves a known move.
+    assert "protect" in rt.move_meta
+    assert rt.move_meta["protect"].category == "status"
+
+
+def test_build_schedule_export_runtime_mirror_true_when_villain_path_matches_hero(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime(
+        "gen9vgc2025regi", "teams/fixed_team.txt", "teams/fixed_team.txt",
+    )
+    assert rt is not None
+    assert rt.mirror_flag is True
+
+
+def test_build_schedule_export_runtime_mirror_false_when_villain_path_differs(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+    from showdown_bot.client.gauntlet import build_schedule_export_runtime
+
+    rt = build_schedule_export_runtime(
+        "gen9vgc2025regi", "teams/fixed_team.txt", "teams/opp_variant_a.txt",
+    )
+    assert rt is not None
+    assert rt.mirror_flag is False
 
 
 def test_build_schedule_export_runtime_degrades_gracefully_on_bad_team_path(monkeypatch, tmp_path):

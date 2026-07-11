@@ -36,6 +36,17 @@ def test_species_dex_close_delegates_to_backend():
     assert backend.close_calls == 1
 
 
+def test_species_dex_to_id_normalizes_species_name():
+    """2b-2.5a wiring fix: learning/features.py calls ctx.dex.to_id(...) to resolve species-id
+    feature columns; SpeciesDex previously only exposed .types() (no .to_id()), so any real
+    SpeciesDex threaded in as ctx.dex silently AttributeError'd -> sentinel fallback, even
+    though ctx.dex was non-None. .to_id() is pure normalization (no backend/calc call)."""
+    dex = SpeciesDex(_FakeCalcBackend())
+    assert dex.to_id("Flutter Mane") == "fluttermane"
+    assert dex.to_id("Incineroar") == "incineroar"
+    assert dex.to_id("Iron Valiant") == "ironvaliant"
+
+
 def _state():
     st = BattleState()
     st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)

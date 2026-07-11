@@ -78,7 +78,9 @@ def run_schedule(args) -> None:
     # every row so their rows accumulate into one file; close it once after the loop.
     export_runtime = None
     if os.environ.get("SHOWDOWN_DATASET_EXPORT"):
-        export_runtime = build_schedule_export_runtime(sched.rows[0].format_id, sched.rows[0].hero_team_path)
+        export_runtime = build_schedule_export_runtime(
+            sched.rows[0].format_id, sched.rows[0].hero_team_path, sched.rows[0].opp_team_path,
+        )
         if export_runtime is not None:
             print(f"  dataset export -> {os.environ['SHOWDOWN_DATASET_EXPORT']} "
                   f"(run-scoped across all {len(sched.rows)} rows)")

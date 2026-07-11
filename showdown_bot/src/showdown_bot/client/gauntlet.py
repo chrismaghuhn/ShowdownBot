@@ -19,6 +19,7 @@ from showdown_bot.client.connection import (
 from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.moves import _move_table
 from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
@@ -181,7 +182,7 @@ class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
     def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
-                 export_runtime=None, allow_own_export=True):
+                 export_runtime=None, allow_own_export=True, is_mirror=True):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -225,17 +226,30 @@ class _Client:
         self.owns_export = False
         if export_runtime is not None:
             self._export = export_runtime  # borrowed — never built or closed by this client
+            # 2b-2.5a wiring fix: a borrowed (run-scoped) runtime spans MANY battles across a
+            # schedule, and the villain can differ per row -- mirror_flag is battle-specific, so
+            # it must be refreshed here for the battle THIS client is about to play (the
+            # smallest correct seam: a fresh `_Client` is built per `run_local_gauntlet` call =
+            # per battle, so this fires exactly once per battle, before `start_game()`/
+            # `observe()`). dex/move_meta on a borrowed runtime are RUN-scoped (built once by
+            # `build_schedule_export_runtime`) and are intentionally left untouched here.
+            self._export.mirror_flag = is_mirror
         elif allow_own_export:
             # Thread calc/book/our_spreads/opp_sets/dex/move_meta so rollout mode can reuse
             # the gauntlet's already-built deps (avoids a second CalcClient).
             # In rollout mode from_env builds CalcClient/oracle/speed_oracle from these;
             # in stub mode (default) they are ignored.
+            # 2b-2.5a wiring fix: move_meta is a pure, run-invariant lookup table (data-driven,
+            # memoized via functools.lru_cache) so it is safe to pass directly here. dex is
+            # per-battle/client-scoped -- built lazily off the live-decision calc backend in
+            # `_decision_deps()` (which only runs once the first decision is made, AFTER this
+            # constructor returns) -- so it starts None and gets threaded in from there instead.
             self._export = DatasetExportRuntime.from_env(
                 format_id=self.format_id,
                 packed_team=self.packed_team,
-                mirror_flag=False,
+                mirror_flag=is_mirror,
                 dex=None,
-                move_meta=None,
+                move_meta=_move_table(),
                 book=self.book,
                 our_spreads=self.our_spreads,
                 opp_sets=self.opp_sets,
@@ -312,6 +326,17 @@ class _Client:
             except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
                 logger.debug("[%s] decision species dex unavailable: %s", self.name, exc)
                 self._decision_dex = None
+            # 2b-2.5a wiring fix: thread this SAME client-scoped dex into an OWNED export
+            # runtime (never a borrowed/run-scoped one -- that one keeps its own independent,
+            # run-invariant SpeciesDex built once by `build_schedule_export_runtime`, which
+            # must NOT be swapped out per-battle). `observe()` reads `self._export.dex` fresh
+            # on every call, and this runs before the first `observe()` of the battle
+            # (`handle_request` calls `_decision_deps()` before `agent_choose()`/`observe()`),
+            # so even the very first decision's exported row gets a real dex. `None` here
+            # (backend build failed above) degrades gracefully -- `from_env`/`features.py`
+            # already tolerate `dex=None`.
+            if self._export is not None and self.owns_export:
+                self._export.dex = self._decision_dex
         return (
             self._decision_calc,
             self._decision_oracle,
@@ -540,7 +565,19 @@ def _load_belief_deps(format_id: str):
     return book, priors, opp_sets
 
 
-def build_schedule_export_runtime(format_id: str, hero_team_path: str):
+def _is_mirror_battle(team_path: str, opp_team_path: str | None) -> bool:
+    """True when the villain fields the SAME team as the hero.
+
+    Matches ``_resolve_side_teams``'s own definition of "mirror": a missing/empty
+    ``opp_team_path`` means the villain reuses the hero's packed team (mirror); an explicit but
+    IDENTICAL path is also a mirror. A distinct path is non-mirror. Pure string comparison —
+    2b-2.5a wiring fix: the real per-battle ``mirror_flag``, replacing the pre-fix hardcoded
+    ``False`` at both ``DatasetExportRuntime`` construction sites in this module.
+    """
+    return not opp_team_path or opp_team_path == team_path
+
+
+def build_schedule_export_runtime(format_id: str, hero_team_path: str, villain_team_path: str | None = None):
     """Build ONE run-scoped ``DatasetExportRuntime`` for a whole ``cli.run_schedule`` call
     (2b-2.5a fix: ``run_schedule`` plays each row as a separate ``run_local_gauntlet(games=1)``
     call; before this, each call's hero built+closed its OWN runtime pointed at the same
@@ -559,6 +596,23 @@ def build_schedule_export_runtime(format_id: str, hero_team_path: str):
     overwriting ones. ``hero_team_path`` is resolved via ``_resolve_side_teams`` (mirror lookup
     with no opponent path) so a bad/missing team degrades to ``""`` the same way the per-battle
     path already tolerates.
+
+    ``villain_team_path`` (2b-2.5a wiring fix, optional): the representative row's villain team
+    path, used to seed this shared runtime's INITIAL ``mirror_flag`` via ``_is_mirror_battle``.
+    Schedule rows can each field a DIFFERENT villain, so this initial value only covers the
+    window before the first battle starts — ``_Client.__init__`` refreshes ``mirror_flag`` on
+    this SAME shared runtime for every subsequent battle via its own ``is_mirror`` param (the
+    per-battle update seam; see the comment at that assignment). ``None`` (the pre-existing
+    2-arg call shape) matches ``_resolve_side_teams``'s own "no opp path -> mirror" convention.
+
+    Also builds a RUN-scoped ``move_meta`` (``_move_table()`` — data-driven, memoized via
+    ``functools.lru_cache``, cheap to call repeatedly) and a RUN-scoped ``SpeciesDex()`` (its own
+    default ``SubprocessCalcBackend`` — one-shot ``node`` per lookup batch, memoized cache, no
+    persistent process to leak) so the move/species feature columns that were unconditionally
+    sentinel (``dex=None``, ``move_meta=None`` hardcoded here) get populated. This dex is
+    intentionally independent of any per-battle calc client: those are built + closed once PER
+    BATTLE (``_Client._decision_deps`` / ``close()``), but this runtime — and its dex — persist
+    across the WHOLE schedule.
     """
     book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, _ = _resolve_side_teams(hero_team_path)
@@ -567,9 +621,9 @@ def build_schedule_export_runtime(format_id: str, hero_team_path: str):
     return DatasetExportRuntime.from_env(
         format_id=format_id,
         packed_team=hero_packed,
-        mirror_flag=False,
-        dex=None,
-        move_meta=None,
+        mirror_flag=_is_mirror_battle(hero_team_path, villain_team_path),
+        dex=SpeciesDex(),
+        move_meta=_move_table(),
         book=book,
         our_spreads=our_spreads,
         opp_sets=opp_sets,
@@ -700,9 +754,16 @@ async def run_local_gauntlet(
     knob exists because rollout-teacher datagen makes some legitimate long stall games exceed
     the flat 180s budget. Requires a local
     ``node pokemon-showdown start --no-security`` server.
+
+    2b-2.5a wiring fix: this function already knows both ``team_path`` and ``opp_team_path``, so
+    the real ``mirror_flag`` (``_is_mirror_battle``) is derived here and threaded into the hero
+    ``_Client`` as ``is_mirror`` -- it reaches the export runtime either at construction (owned
+    runtime) or via a per-battle refresh (borrowed/run-scoped runtime; see the
+    ``self._export.mirror_flag = is_mirror`` assignment in ``_Client.__init__``).
     """
     book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
+    is_mirror = _is_mirror_battle(team_path, opp_team_path)
 
     # Unique names per run so a killed run's lingering battles aren't rejoined
     # (with --no-security, /trn re-attaches to the same user and its open games).
@@ -722,7 +783,7 @@ async def run_local_gauntlet(
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
     hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id,
                    packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
-                   export_runtime=export_runtime, allow_own_export=True)
+                   export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror)
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)

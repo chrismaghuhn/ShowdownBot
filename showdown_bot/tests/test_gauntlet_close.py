@@ -198,6 +198,43 @@ def test_export_runtime_param_takes_precedence_over_allow_own_export(monkeypatch
 
 
 # ---------------------------------------------------------------------------
+# 2b-2.5a wiring fix: gauntlet.py hardcoded mirror_flag=False and move_meta=None/dex=None at
+# BOTH DatasetExportRuntime construction sites (reports/2026-07-11-2b25a-offline-eval.md root
+# causes (A)/(B)). These tests pin the real values now threaded through: an OWNED runtime gets
+# the caller's `is_mirror` + a real move_meta table at construction; a BORROWED (run-scoped)
+# runtime gets its mirror_flag REFRESHED per battle (per fresh _Client), since a schedule's
+# villain can differ row to row while sharing one runtime instance across the whole run.
+# ---------------------------------------------------------------------------
+
+
+def test_allow_own_export_threads_real_mirror_flag_and_move_meta(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+
+    c_mirror = _client(allow_own_export=True, is_mirror=True)
+    assert c_mirror._export.mirror_flag is True
+    assert c_mirror._export.move_meta is not None
+    assert "protect" in c_mirror._export.move_meta  # real _move_table(), not None
+
+    c_nonmirror = _client(allow_own_export=True, is_mirror=False)
+    assert c_nonmirror._export.mirror_flag is False
+
+
+def test_borrowed_export_runtime_mirror_flag_refreshed_per_client(tmp_path):
+    fake_export = _FakeCloser()
+    fake_export.mirror_flag = "unset"  # stand-in initial value, overwritten by each client below
+
+    c1 = _client(export_runtime=fake_export, is_mirror=True)
+    assert fake_export.mirror_flag is True
+    assert c1._export is fake_export  # still the SAME borrowed instance, not rebuilt
+
+    # A second client (= the schedule's next battle) borrowing the SAME runtime with a
+    # different villain refreshes mirror_flag to that battle's own value.
+    c2 = _client(export_runtime=fake_export, is_mirror=False)
+    assert fake_export.mirror_flag is False
+    assert c2._export is fake_export
+
+
+# ---------------------------------------------------------------------------
 # 2b-2.5a Kaggle-OOM ROOT CAUSE: the client now owns ONE calc/oracle/speed_oracle/
 # dex bundle per battle (built lazily on the first live decision, threaded into
 # every decision, closed once in the per-battle teardown seam). Before this,
@@ -250,6 +287,38 @@ def test_decision_deps_built_for_max_damage(monkeypatch):
     calc, oracle, speed_oracle, dex = c._decision_deps()
     assert isinstance(calc, _FakeCalcClient)
     assert _FakeCalcClient.instances == 1
+
+
+def test_decision_deps_threads_client_scoped_dex_into_owned_export_runtime(monkeypatch, tmp_path):
+    """2b-2.5a wiring fix: an OWNED export runtime's `.dex` starts None at construction (dex is
+    client/per-battle-scoped, built lazily off the live-decision calc backend -- AFTER the
+    constructor returns) and gets set to the SAME client-scoped SpeciesDex the live decision
+    path uses, the first time `_decision_deps()` builds it -- i.e. before the first
+    `observe()` call of the battle (handle_request calls `_decision_deps()` first)."""
+    _patch_calc(monkeypatch)
+    monkeypatch.setenv("SHOWDOWN_DATASET_EXPORT", str(tmp_path / "o.jsonl"))
+
+    c = _client(agent="heuristic", allow_own_export=True)
+    assert c._export.dex is None  # not yet built -- no decision has been made
+    calc, oracle, speed_oracle, dex = c._decision_deps()
+    assert dex is not None
+    assert c._export.dex is dex  # threaded into the export runtime by _decision_deps()
+    assert c._export.dex is c._decision_dex
+
+
+def test_decision_deps_leaves_borrowed_export_runtime_dex_untouched(monkeypatch):
+    """2b-2.5a wiring fix: a BORROWED (run-scoped) runtime keeps its own independent,
+    run-invariant SpeciesDex (built once by build_schedule_export_runtime, spanning the whole
+    schedule) -- _decision_deps() must NOT overwrite it with the per-battle client-scoped dex."""
+    _patch_calc(monkeypatch)
+    fake_export = _FakeCloser()
+    sentinel_dex = object()
+    fake_export.dex = sentinel_dex
+
+    c = _client(agent="heuristic", export_runtime=fake_export)
+    calc, oracle, speed_oracle, dex = c._decision_deps()
+    assert dex is not None  # the client still built its own per-battle dex...
+    assert c._export.dex is sentinel_dex  # ...but the borrowed runtime's dex is untouched
 
 
 def test_decision_deps_never_built_for_request_only_agent(monkeypatch):

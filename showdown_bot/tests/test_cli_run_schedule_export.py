@@ -69,8 +69,8 @@ def test_run_schedule_builds_export_runtime_once_and_threads_same_instance(
     fake_runtime = _FakeRuntime()
     build_calls = []
 
-    def _fake_build(format_id, hero_team_path):
-        build_calls.append((format_id, hero_team_path))
+    def _fake_build(format_id, hero_team_path, villain_team_path=None):
+        build_calls.append((format_id, hero_team_path, villain_team_path))
         return fake_runtime
 
     received_runtimes = []
@@ -86,7 +86,9 @@ def test_run_schedule_builds_export_runtime_once_and_threads_same_instance(
     cli.run_schedule(args)
 
     assert len(build_calls) == 1  # built exactly ONCE for the whole schedule, not per row
-    assert build_calls[0] == ("gen9vgc2025regi", "teams/fixed_team.txt")  # representative row 0
+    # representative row 0 -- 2b-2.5a wiring fix: villain_team_path is now threaded too, so the
+    # run-scoped runtime's INITIAL mirror_flag reflects row 0's real hero/villain pairing.
+    assert build_calls[0] == ("gen9vgc2025regi", "teams/fixed_team.txt", "teams/fixed_team.txt")
     assert received_runtimes == [fake_runtime, fake_runtime, fake_runtime]  # SAME object, all 3 rows
     assert fake_runtime.closed == 1  # closed exactly once, after the loop
 
