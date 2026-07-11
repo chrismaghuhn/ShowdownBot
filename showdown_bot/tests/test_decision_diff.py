@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from types import SimpleNamespace
 
 import pytest
 
@@ -12,9 +13,14 @@ from showdown_bot.eval.decision_capture import (
     prepare_capture,
 )
 from showdown_bot.eval.decision_diff import (
+    BattleDecisionDiff,
     DecisionDiffError,
+    build_matchup_buckets,
+    build_regressions,
     classify_action_diff,
     compare_battle_decisions,
+    compare_repeat_identity,
+    outcome_category,
     validate_trace_run,
 )
 
@@ -218,3 +224,105 @@ def test_compare_missing_key_before_divergence_is_error():
     candidate = (_decision_row(0, "s0", same),)
     with pytest.raises(DecisionDiffError, match="decision key missing before divergence"):
         compare_battle_decisions("battle-err", baseline, candidate)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: outcomes, matchup buckets, regressions, repeat identity.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("baseline", "candidate", "expected"), [
+    ("hero", "hero", "BOTH_WIN"),
+    ("villain", "villain", "BOTH_LOSS"),
+    ("villain", "hero", "CANDIDATE_FLIP_TO_WIN"),
+    ("hero", "villain", "CANDIDATE_REGRESSION_TO_LOSS"),
+    ("tie", "hero", "NON_BINARY"),
+])
+def test_outcome_category(baseline, candidate, expected):
+    assert outcome_category({"winner": baseline}, {"winner": candidate}) == expected
+
+
+def test_bucket_under_ten_is_underpowered():
+    records = [{
+        "baseline_row": {"winner": "villain", "opp_policy": "max_damage",
+                         "opp_team_hash": "opp-hash", "hero_team_hash": "hero-hash"},
+        "candidate_row": {"winner": "hero", "opp_policy": "max_damage",
+                          "opp_team_hash": "opp-hash", "hero_team_hash": "hero-hash"},
+        "first_divergence": {"primary": "ATTACK_TARGET"},
+        "lead": "Incineroar+Rillaboom",
+    } for _ in range(9)]
+    bucket = build_matchup_buckets(records, archetype_by_hash={
+        "opp-hash": "rain", "hero-hash": "balance",
+    })[0]
+    assert bucket["n"] == 9
+    assert bucket["underpowered"] is True
+    assert 0.0 <= bucket["candidate_wilson_lo"] <= bucket["candidate_wilson_hi"] <= 1.0
+
+
+def test_bucket_unknown_archetype_is_unclassified():
+    # Panel-hash lookup misses (e.g. a legacy schedule row) must degrade to
+    # "unclassified" rather than raising or silently dropping the record.
+    records = [{
+        "baseline_row": {"winner": "hero", "opp_policy": "max_damage",
+                         "opp_team_hash": "unknown-opp", "hero_team_hash": "unknown-hero"},
+        "candidate_row": {"winner": "hero", "opp_policy": "max_damage",
+                          "opp_team_hash": "unknown-opp", "hero_team_hash": "unknown-hero"},
+        "lead": "unavailable",
+    }]
+    bucket = build_matchup_buckets(records, archetype_by_hash={})[0]
+    assert bucket["hero_archetype"] == "unclassified"
+    assert bucket["opponent_archetype"] == "unclassified"
+
+
+def test_build_regressions_counts_each_diagnostic():
+    fallback_diff = BattleDecisionDiff(
+        battle_id="b1", comparable=1, agreements=0,
+        direct_divergences=({
+            "decision_index": 0, "turn_number": 1, "decision_phase": "regular_turn",
+            "primary": "FALLBACK", "markers": ["selection_stage_changed"],
+        },),
+        first_divergence={"primary": "FALLBACK"}, state_divergence_index=None,
+        baseline_suffix_count=0, candidate_suffix_count=0,
+    )
+    records = [
+        {  # candidate regression to loss, with a FALLBACK direct divergence
+            "baseline_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 100},
+            "candidate_row": {"winner": "villain", "crashes": 0, "decision_latency_p95_ms": 100},
+            "decision_diff": fallback_diff,
+        },
+        {  # candidate-only timeout, both sides still win
+            "baseline_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 100,
+                             "timeouts": None},
+            "candidate_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 100,
+                              "timeouts": {"count": 1}},
+            "decision_diff": None,
+        },
+        {  # candidate-only crash, both sides still win
+            "baseline_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 100},
+            "candidate_row": {"winner": "hero", "crashes": 1, "decision_latency_p95_ms": 100},
+            "decision_diff": None,
+        },
+        {  # candidate latency budget regression, baseline within budget
+            "baseline_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 100},
+            "candidate_row": {"winner": "hero", "crashes": 0, "decision_latency_p95_ms": 999},
+            "decision_diff": None,
+        },
+    ]
+    for row in records:
+        row["outcome_category"] = outcome_category(row["baseline_row"], row["candidate_row"])
+    bundle = SimpleNamespace(latency_budget_ms=200)
+    assert build_regressions(records, bundle, bundle) == {
+        "candidate_regression_to_loss": 1,
+        "candidate_only_fallbacks": 1,
+        "candidate_only_timeouts": 1,
+        "candidate_only_crashes": 1,
+        "latency_budget_regressions": 1,
+    }
+
+
+def test_repeat_identity_ignores_only_volatile_latency(bound_trace_fixture):
+    _results, trace_rows = bound_trace_fixture
+    repeat = copy.deepcopy(trace_rows)
+    repeat[0]["decision_latency_ms"] += 99.0
+    assert compare_repeat_identity(trace_rows, repeat)["identical"] is True
+    repeat[0]["normalized_action"]["slots"][0]["target"] = 2
+    assert compare_repeat_identity(trace_rows, repeat)["identical"] is False
