@@ -1,4 +1,5 @@
 # tests/test_reranker_ablation.py
+import json
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,12 @@ from showdown_bot.learning.dataset import (
     group_decisions, load_rows, split_by_game,
 )
 from showdown_bot.learning.reranker_ablation import (
-    FEATURE_CLASSES, MISC, VariantMetrics, _ablate_decisions, _classify,
-    partition_features, run_ablation,
+    FEATURE_CLASSES, INCONCLUSIVE, LOAD_BEARING, MISC, NOT_APPLICABLE, PRUNABLE,
+    SelfCheckError, VariantMetrics, _ablate_decisions, _classify, ablation_result_to_json,
+    classify_verdict, dropped_constant_columns, format_ablation_report, main, partition_features,
+    run_ablation, self_check,
 )
+import showdown_bot.learning.reranker_ablation as reranker_ablation
 from showdown_bot.learning.reranker_features import (
     LABEL_DENYLIST, METADATA_DENYLIST, active_feature_names,
 )
@@ -264,3 +268,187 @@ def test_run_ablation_full_variant_reproduces_committed_2b25a_numbers():
     # partition covers the live set exhaustively + disjointly (Task 1's own check)
     union = sorted(n for members in result.partition.values() for n in members)
     assert union == sorted(result.live_features)
+
+
+# --- Task 2: dropped_constant_columns / self-check ---------------------------
+
+def test_dropped_constant_columns_matches_committed_set():
+    assert _DS.exists(), f"missing committed dataset artifact: {_DS}"
+    result = run_ablation(str(_DS))
+    dropped = dropped_constant_columns(result.live_features)
+    assert len(dropped) == 7
+    # 6 class-B sentinel-capture columns + tera_used (per the 2b-2.5a report's
+    # "still-dead" sections).
+    assert sorted(dropped) == sorted([
+        "action_economy_score", "fakeout_invalid_penalty", "protect_prior_target1",
+        "protect_prior_target2", "screens_opp", "screens_ours", "tera_used",
+    ])
+    assert not (set(dropped) & (LABEL_DENYLIST | METADATA_DENYLIST))
+
+
+def test_self_check_passes_on_committed_full_row():
+    assert _DS.exists(), f"missing committed dataset artifact: {_DS}"
+    result = run_ablation(str(_DS))
+    dropped = dropped_constant_columns(result.live_features)
+    self_check(result, dropped)  # must not raise
+
+
+def test_self_check_raises_on_metric_mismatch():
+    result = _synth_ablation()  # synthetic numbers never match the committed constants
+    dropped = dropped_constant_columns(result.live_features)  # wrong count too (not 7)
+    with pytest.raises(SelfCheckError, match="self-check FAILED"):
+        self_check(result, dropped)
+
+
+def test_self_check_error_message_lists_each_mismatch():
+    result = _synth_ablation()
+    try:
+        self_check(result, dropped=[])
+    except SelfCheckError as exc:
+        msg = str(exc)
+        assert "dropped_constant_columns count" in msg
+        assert "model_regret" in msg
+    else:
+        pytest.fail("expected SelfCheckError")
+
+
+# --- Task 2: verdict classification ------------------------------------------
+
+def _variant(*, model_regret, gate_pass, delta_vs_full):
+    return VariantMetrics(
+        variant="LOCO", class_name="x", feature_names=["a"], n_features=1,
+        model_regret=model_regret, heuristic_regret=2.0, model_wrong_near_equal=1,
+        heuristic_wrong_near_equal=1, gate_pass=gate_pass, delta_vs_full=delta_vs_full,
+    )
+
+
+_FULL = _variant(model_regret=0.6, gate_pass=True, delta_vs_full=0.0)
+
+
+def test_classify_verdict_load_bearing_when_gate_flips():
+    loco = _variant(model_regret=1.0, gate_pass=False, delta_vs_full=0.4)
+    assert classify_verdict(loco, None, _FULL) == LOAD_BEARING
+
+
+def test_classify_verdict_load_bearing_on_material_absolute_delta():
+    loco = _variant(model_regret=0.75, gate_pass=True, delta_vs_full=0.15)  # >= 0.10 abs
+    assert classify_verdict(loco, None, _FULL) == LOAD_BEARING
+
+
+def test_classify_verdict_load_bearing_on_material_relative_delta():
+    # 0.6 * 0.15 = 0.09 relative threshold; use a small FULL regret so a small
+    # absolute delta is still a large relative jump.
+    full = _variant(model_regret=0.1, gate_pass=True, delta_vs_full=0.0)
+    loco = _variant(model_regret=0.13, gate_pass=True, delta_vs_full=0.03)  # 30% relative
+    assert classify_verdict(loco, None, full) == LOAD_BEARING
+
+
+def test_classify_verdict_prunable_on_near_zero_delta_and_weak_sco():
+    loco = _variant(model_regret=0.61, gate_pass=True, delta_vs_full=0.01)
+    sco = _variant(model_regret=1.5, gate_pass=False, delta_vs_full=0.9)  # weak standalone
+    assert classify_verdict(loco, sco, _FULL) == PRUNABLE
+
+
+def test_classify_verdict_prunable_on_empty_class_with_no_sco():
+    loco = _variant(model_regret=0.6, gate_pass=True, delta_vs_full=0.0)
+    assert classify_verdict(loco, None, _FULL) == PRUNABLE
+
+
+def test_classify_verdict_inconclusive_when_near_zero_delta_but_strong_sco():
+    loco = _variant(model_regret=0.61, gate_pass=True, delta_vs_full=0.01)
+    sco = _variant(model_regret=0.62, gate_pass=True, delta_vs_full=0.02)  # near FULL alone too
+    assert classify_verdict(loco, sco, _FULL) == INCONCLUSIVE
+
+
+def test_classify_verdict_inconclusive_on_mid_range_delta():
+    loco = _variant(model_regret=0.65, gate_pass=True, delta_vs_full=0.05)  # between noise & material
+    assert classify_verdict(loco, None, _FULL) == INCONCLUSIVE
+
+
+def test_classify_verdict_not_applicable_when_loco_is_none():
+    assert classify_verdict(None, None, _FULL) == NOT_APPLICABLE
+
+
+# --- Task 2: report + JSON structure (small synthetic fixture run) -----------
+
+def test_format_ablation_report_contains_required_sections():
+    result = _synth_ablation()
+    dropped = dropped_constant_columns(result.live_features)
+    md = format_ablation_report(result, dropped)
+
+    for header in (
+        "# 2b-2b Feature Ablation", "## Self-check", "## Feature-class partition",
+        "## LOCO — leave-one-class-out", "## SCO — single-class-only", "## Verdicts",
+        "## Caveats", "## Reproduction",
+    ):
+        assert header in md, f"missing section: {header}"
+
+    # every partition class (incl. misc) appears in the partition table
+    for cls in result.partition:
+        assert f"| {cls} |" in md
+
+    # LOCO table is sorted by delta descending (most load-bearing first)
+    lines = md.splitlines()
+    loco_start = next(i for i, l in enumerate(lines) if l.startswith("| class | features removed"))
+    table_rows = []
+    for line in lines[loco_start + 2:]:
+        if not line.startswith("|"):
+            break
+        table_rows.append(line)
+    row_deltas = [float(row.split("|")[4].strip()) for row in table_rows]
+    assert row_deltas == sorted(row_deltas, reverse=True)
+
+
+def test_ablation_result_to_json_contains_required_keys():
+    result = _synth_ablation()
+    dropped = dropped_constant_columns(result.live_features)
+    obj = ablation_result_to_json(result, dropped)
+
+    for key in (
+        "dataset_path", "dataset_sha256", "split_seed", "live_feature_count", "live_features",
+        "dropped_constant_columns", "dropped_constant_count", "partition", "full", "loco", "sco",
+        "verdicts", "verdict_thresholds",
+    ):
+        assert key in obj
+
+    assert obj["full"]["variant"] == "FULL"
+    assert set(obj["partition"]) == set(result.partition)
+    assert set(obj["loco"]) == set(result.partition)
+    assert set(obj["sco"]) == set(result.partition)
+    assert set(obj["verdicts"]) == set(result.partition)
+    for v in obj["verdicts"].values():
+        assert v in (LOAD_BEARING, PRUNABLE, INCONCLUSIVE, NOT_APPLICABLE)
+
+    # deterministic, pretty-printed, key-sorted JSON round-trips cleanly
+    dumped = json.dumps(obj, indent=2, sort_keys=True)
+    assert json.loads(dumped) == obj
+    dumped_again = json.dumps(obj, indent=2, sort_keys=True)
+    assert dumped == dumped_again
+
+
+def test_main_writes_report_and_json_from_small_fixture(tmp_path, monkeypatch):
+    # CLI wiring test: monkeypatch run_ablation to the cheap synthetic loop (the
+    # real 30-60s full run is executed once, separately, to produce the
+    # committed artifacts -- this test only proves main()'s plumbing).
+    monkeypatch.setattr(
+        reranker_ablation, "run_ablation",
+        lambda dataset_path, *, split_seed=42: _synth_ablation(),
+    )
+    monkeypatch.setattr(reranker_ablation, "self_check", lambda result, dropped: None)
+
+    out_report = tmp_path / "report.md"
+    out_json = tmp_path / "report.json"
+    main([
+        "unused-dataset-path.jsonl.gz",
+        "--out-report", str(out_report),
+        "--out-json", str(out_json),
+    ])
+
+    assert out_report.exists()
+    assert out_json.exists()
+    md = out_report.read_text(encoding="utf-8")
+    assert "# 2b-2b Feature Ablation" in md
+    raw = out_json.read_text(encoding="utf-8")
+    assert raw.endswith("\n")
+    obj = json.loads(raw)
+    assert "verdicts" in obj and "full" in obj
