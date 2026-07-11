@@ -145,3 +145,23 @@ def test_run_schedule_closes_export_runtime_even_if_a_battle_raises(_sched_path,
         cli.run_schedule(args)
 
     assert fake_runtime.closed == 1  # still closed despite the mid-loop exception
+
+
+# ---------------------------------------------------------------------------
+# candidate-vs-baseline-diff Task 4: `--decision-trace-out` requires `--result-out`
+# (the trace sidecar binds into the per-battle result row, so a result row must
+# exist to bind into). This must raise BEFORE any battle is played.
+# ---------------------------------------------------------------------------
+
+
+def test_schedule_trace_requires_result_out(_sched_path, monkeypatch):
+    from showdown_bot import cli
+
+    _clean_seed_env(monkeypatch)
+    monkeypatch.delenv("SHOWDOWN_DATASET_EXPORT", raising=False)
+
+    args = argparse.Namespace(
+        schedule=str(_sched_path), result_out="", decision_trace_out="trace.jsonl",
+    )
+    with pytest.raises(SystemExit, match="--decision-trace-out requires --result-out"):
+        cli.run_schedule(args)

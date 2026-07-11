@@ -165,22 +165,54 @@ def run_schedule(args) -> None:
         manifest_out = write_run_manifest(result_out, manifest)
         print(f"  run manifest -> {manifest_out} (run_id={run_id})")
 
+    # Task 4 (candidate-vs-baseline-diff): optional per-battle hero decision sidecar. Off by
+    # default (decision_trace_out unset -> trace_writer stays None, byte-identical to every
+    # prior run_schedule call). Requires --result-out (the trace binds into that row) --
+    # transitively also requires SHOWDOWN_BATTLE_SEED_BASE, since --result-out already does.
+    trace_out = getattr(args, "decision_trace_out", "")
+    trace_writer = None
+    if trace_out:
+        if not result_out:
+            raise SystemExit("--decision-trace-out requires --result-out")
+        from showdown_bot.eval.decision_capture import BattleTraceContext, DecisionTraceWriter
+
+        trace_writer = DecisionTraceWriter(trace_out)
+        print(f"  decision trace -> {trace_out}")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
             on_br = None
+            trace_context = None
             if writer is not None:
-                def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
-                    seed = derive_battle_seed(base, _row.seed_index)
-                    config_id, format_id = hero_agent, _row.format_id  # bot version vs format (Fix 1)
+                # Seed/battle_id/config_id/config_hash computed ONCE per battle, BEFORE the
+                # battle runs (Task 4 needs battle_id up front to build trace_context) and
+                # reused by on_br below instead of being recomputed at battle-end.
+                seed = derive_battle_seed(base, row.seed_index)
+                battle_id = make_battle_id(sched.schedule_hash, row.seed_index, seed)
+                config_id, row_format_id = hero_agent, row.format_id  # bot version vs format (Fix 1)
+                config_hash = _config_hash_for(config_id, row_format_id)
+                if trace_writer is not None:
+                    trace_context = BattleTraceContext(
+                        battle_id=battle_id, seed_index=row.seed_index, config_id=config_id,
+                        config_hash=config_hash, schedule_hash=sched.schedule_hash,
+                        format_id=row_format_id, git_sha=git_sha,
+                    )
+
+                def on_br(record, _row=row, _battle_id=battle_id, _seed=seed,
+                          _config_id=config_id, _format_id=row_format_id,
+                          _config_hash=config_hash):  # noqa: B023 - defaults capture this iteration
+                    # Task 4: bind the sidecar's count/sha256 into this row. {} (both None) when
+                    # capture is off -- decision_trace_count/_sha256 are nullable fields.
+                    trace_binding = trace_writer.finish_battle(_battle_id) if trace_writer is not None else {}
                     writer.write({
-                        "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                        "battle_id": _battle_id,
                         "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
-                        "config_id": config_id, "format_id": format_id,
-                        "config_hash": _config_hash_for(config_id, format_id),
+                        "config_id": _config_id, "format_id": _format_id,
+                        "config_hash": _config_hash,
                         "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                         "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
-                        "opp_team_path": _row.opp_team_path, "seed": seed,
+                        "opp_team_path": _row.opp_team_path, "seed": _seed,
                         # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
                         # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
                         "seed_base": base, "git_sha": git_sha,
@@ -188,7 +220,10 @@ def run_schedule(args) -> None:
                         # Provenance from the schedule row (legacy schedules -> null).
                         "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
                         "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
-                        "timeouts": None, "panel_hash": sched.panel_hash, **record,
+                        "timeouts": None, "panel_hash": sched.panel_hash,
+                        "decision_trace_count": trace_binding.get("decision_trace_count"),
+                        "decision_trace_sha256": trace_binding.get("decision_trace_sha256"),
+                        **record,
                     })
                     written.append(_row.seed_index)
 
@@ -202,6 +237,8 @@ def run_schedule(args) -> None:
                     opp_team_path=row.opp_team_path,
                     on_battle_result=on_br,
                     export_runtime=export_runtime,  # 2b-2.5a: SAME runtime for every row
+                    decision_trace_writer=trace_writer,  # Task 4: None unless --decision-trace-out
+                    decision_trace_context=trace_context,
                 )
             )
             totals["games"] += stats.games
@@ -450,6 +487,12 @@ def main() -> None:
         default="",
         help="Path for the T2 per-battle result JSONL (gauntlet --schedule). Must be "
         "non-existing or empty; requires SHOWDOWN_BATTLE_SEED_BASE.",
+    )
+    parser.add_argument(
+        "--decision-trace-out",
+        dest="decision_trace_out",
+        default="",
+        help="Optional hero decision sidecar for gauntlet --schedule; requires --result-out.",
     )
     parser.add_argument(
         "--run-a",
