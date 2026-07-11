@@ -75,6 +75,65 @@ def test_protect_blocking_a_hit_midgame_not_penalized():
     assert abs(s - w.protect_block) < 1e-9
 
 
+def test_fast_board_protect_penalty_wasted_protect_scores_lower():
+    """[2026-07-11] A wasted Protect (blocks nothing) on a fast board (both sides
+    Tailwind) is scored strictly lower with fast_board_protect set than with the
+    weight left at 0.0 -- additive to the existing protect_stall penalty."""
+    out = TurnOutcome(flags={"protect:p1a"})
+    w_off = EvalWeights()  # fast_board_protect defaults to 0.0
+    w_on = EvalWeights(fast_board_protect=-2.0)
+    s_off = score_outcome(out, "p1", w_off, fast_board=True)
+    s_on = score_outcome(out, "p1", w_on, fast_board=True)
+    assert s_on < s_off
+    assert abs(s_on - (w_on.protect_stall + w_on.fast_board_protect)) < 1e-9
+
+
+def test_fast_board_protect_penalty_recorded_in_breakdown():
+    out = TurnOutcome(flags={"protect:p1a"})
+    w = EvalWeights(fast_board_protect=-2.0)
+    from showdown_bot.battle.evaluate import score_outcome_with_breakdown
+
+    _, bd = score_outcome_with_breakdown(out, "p1", w, fast_board=True)
+    assert bd.fast_board_protect_penalty == w.fast_board_protect
+
+
+def test_fast_board_protect_not_applied_when_protect_blocks_a_hit():
+    """A Protect that BLOCKS a hit on a fast board is NOT extra-penalized -- only
+    wasted Protects (blocked nothing) take the fast_board_protect hit."""
+    out = TurnOutcome(
+        flags={"protect:p1a"},
+        protected_hits=[ProtectedHit(("p2", "a"), ("p1", "a"), "flareblitz")],
+    )
+    w = EvalWeights(fast_board_protect=-2.0)
+    s = score_outcome(out, "p1", w, fast_board=True)
+    assert abs(s - w.protect_block) < 1e-9  # unchanged from the non-fast-board case
+    from showdown_bot.battle.evaluate import score_outcome_with_breakdown
+
+    _, bd = score_outcome_with_breakdown(out, "p1", w, fast_board=True)
+    assert bd.fast_board_protect_penalty == 0.0
+
+
+def test_fast_board_protect_unchanged_when_not_fast_board():
+    """Single-Tailwind / no-Tailwind boards (fast_board=False) are unchanged
+    regardless of the weight."""
+    out = TurnOutcome(flags={"protect:p1a"})
+    w = EvalWeights(fast_board_protect=-2.0)
+    s_fast_off = score_outcome(out, "p1", w, fast_board=False)
+    s_default = score_outcome(out, "p1", w)  # fast_board defaults False
+    assert s_fast_off == s_default
+    assert abs(s_fast_off - w.protect_stall) < 1e-9  # no fast_board_protect applied
+
+
+def test_fast_board_protect_byte_identical_when_weight_zero():
+    """Env-unset default: fast_board_protect == 0.0 -> adding it changes nothing,
+    so fast_board=True and fast_board=False score identically."""
+    out = TurnOutcome(flags={"protect:p1a"})
+    w = EvalWeights()  # fast_board_protect default 0.0
+    s_true = score_outcome(out, "p1", w, fast_board=True)
+    s_false = score_outcome(out, "p1", w, fast_board=False)
+    assert s_true == s_false
+
+
 def test_partner_abandon_penalty():
     """Protecting our own mon while a teammate faints the same turn is bad action
     economy (Turn 8: Incineroar protects, Flutter Mane dies)."""
@@ -160,6 +219,37 @@ def test_evaluate_line_integration_with_fake_dmg():
     score, out = evaluate_line(st, [mine], [theirs], dmg, our_side="p1")
     assert out.my_kos == 1
     assert score > 0
+
+
+def test_evaluate_line_threads_fast_board_to_score():
+    """evaluate_line threads fast_board through to score_outcome, like endgame."""
+    st = _model_state()
+    protect = PlannedAction("p1", "a", "protect", speed=100, is_ours=True)
+    w = EvalWeights(fast_board_protect=-2.0)
+
+    def dmg(action, target):
+        return 0.0
+
+    score_fast, out = evaluate_line(st, [protect], [], dmg, our_side="p1", weights=w, fast_board=True)
+    score_slow, _ = evaluate_line(st, [protect], [], dmg, our_side="p1", weights=w, fast_board=False)
+    assert "protect:p1a" in out.flags
+    assert score_fast < score_slow  # extra penalty only when fast_board=True
+
+
+def test_evaluate_line_fast_board_default_false_byte_identical():
+    """fast_board defaults False everywhere -> omitting it is identical to False."""
+    st = _model_state()
+    protect = PlannedAction("p1", "a", "protect", speed=100, is_ours=True)
+    w = EvalWeights(fast_board_protect=-2.0)
+
+    def dmg(action, target):
+        return 0.0
+
+    score_default, _ = evaluate_line(st, [protect], [], dmg, our_side="p1", weights=w)
+    score_explicit_false, _ = evaluate_line(
+        st, [protect], [], dmg, our_side="p1", weights=w, fast_board=False
+    )
+    assert score_default == score_explicit_false
 
 
 def test_evaluate_line_rollout_additive_at_horizon_zero():
