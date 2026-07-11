@@ -25,6 +25,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from showdown_bot.eval.battle_parse import parse_battle_result
 from showdown_bot.eval.gates import load_latency_budget_ms
 from showdown_bot.eval.panel import PanelError, load_panel
 from showdown_bot.eval.policies import is_reproducible
@@ -34,6 +35,11 @@ from showdown_bot.eval.result_jsonl import (
     validate_battle_row,
 )
 from showdown_bot.eval.pairing import pair_runs
+from showdown_bot.eval.room_dump import (
+    GAUNTLET_NAME_SUBS,
+    normalized_room_log_sha256,
+    read_room_log_frames,
+)
 from showdown_bot.eval.run_manifest import manifest_path_for
 from showdown_bot.eval.schedule import ScheduleError, load_schedule, verify_schedule_alignment
 from showdown_bot.eval.seeding import SeedLogError, derive_battle_seed
@@ -105,6 +111,133 @@ class ReportInputError(ValueError):
     safety checks surface as gate FAILs (SAFETY-FAIL) instead of raising here."""
 
 
+class LogIntegrityError(Exception):
+    """T4c R2: ``--room-raw`` was given and one or more rows fail fail-closed re-derivation
+    against their room logs — a missing log file, a re-parsed winner/turns/end_reason/
+    end_hp_diff that disagrees with the row, or (when the row carries a non-null
+    ``normalized_room_log_sha256``) a recomputed sha that disagrees. This is a hard refusal,
+    never a soft warning: corrupted or forged evidence must never produce a partial or
+    downgraded verdict, only a full stop. The message lists every offending row (not just the
+    first) so a human can see the full scope of the corruption in one pass.
+    """
+
+
+# --- T4c R2: report-side re-derivation from room_raw (fail-closed; only runs when the caller
+# passes room_raw_dir to RunBundle.load, e.g. from the --room-raw CLI flag). --------------
+
+# Hero/villain identity in a report re-derivation has to come from the room log itself: unlike
+# the gauntlet write site (client/gauntlet.py), the report never has the live connection's
+# hero_name/villain_name (the row only carries team paths/hashes, not display names). Every
+# run_local_gauntlet() battle names its two clients "HeuristicBot<N>" / "BaselineBot<N>" for
+# hero/villain respectively (the same fixed convention room_dump.GAUNTLET_NAME_SUBS
+# canonicalizes for cross-run comparison), so that convention is reused here as the only
+# available name source.
+_NAME_PATTERN_BY_ROLE = {repl: pattern for pattern, repl in GAUNTLET_NAME_SUBS}
+_HERO_NAME_PATTERN = _NAME_PATTERN_BY_ROLE["HeuristicBot"]
+_VILLAIN_NAME_PATTERN = _NAME_PATTERN_BY_ROLE["BaselineBot"]
+
+
+def _resolve_room_log_path(room_raw_dir, room_raw_path):
+    """Resolve a row's ``room_raw_path`` to a real file under ``room_raw_dir``, by basename.
+
+    ``room_raw_path`` is an absolute path from whatever machine ran the battle (T3f), so only
+    its basename is portable. Tries the basename verbatim, then a ``.gz`` suffix (committed
+    room_raw fixtures are gzip-compressed for storage — see ``room_dump.read_room_log_frames``
+    / ``dump_room_raw``). Returns ``None`` if neither is found (or ``room_raw_path`` is falsy).
+    """
+    if not room_raw_path:
+        return None
+    base = str(room_raw_path).replace("\\", "/").rsplit("/", 1)[-1]
+    for candidate in (base, base + ".gz"):
+        candidate_path = Path(room_raw_dir) / candidate
+        if candidate_path.is_file():
+            return candidate_path
+    return None
+
+
+def _recompute_outcome_from_log(path) -> dict:
+    """Re-derive ``winner``/``turns``/``end_reason``/``end_hp_diff``/sha from a room log file.
+
+    ``end_hp_diff`` mirrors ``client.gauntlet._end_hp_diff`` (hero-side HP sum minus
+    villain-side HP sum via the ``|player|`` slot map, ``None`` if that mapping is unreliable)
+    but resolves hero/villain identity from the log's own player names (see the module-level
+    comment above) instead of externally-supplied ``hero_name``/``villain_name`` — the report
+    has no other source for those names. ``winner`` is resolved the same way as
+    ``client.gauntlet._battle_result_record``: tie beats a name match; an unresolvable name
+    (neither pattern matches, or the winner name matches neither role) leaves ``winner`` as
+    ``None``, which then reads as a mismatch against any row value (never guessed).
+    """
+    frames = read_room_log_frames(path)
+    parsed = parse_battle_result(frames)
+    players = parsed.get("players") or {}
+    hero_name = next((n for n in players.values() if _HERO_NAME_PATTERN.fullmatch(n)), None)
+    villain_name = next((n for n in players.values() if _VILLAIN_NAME_PATTERN.fullmatch(n)), None)
+
+    if parsed["is_tie"]:
+        winner = "tie"
+    elif hero_name is not None and parsed["winner_name"] == hero_name:
+        winner = "hero"
+    elif villain_name is not None and parsed["winner_name"] == villain_name:
+        winner = "villain"
+    else:
+        winner = None
+
+    end_hp_diff = None
+    hp = parsed.get("hp_by_slot")
+    if hp and hero_name is not None and villain_name is not None:
+        slot_of = {name: slot for slot, name in players.items()}
+        hs, vs = slot_of.get(hero_name), slot_of.get(villain_name)
+        if hs in ("p1", "p2") and vs in ("p1", "p2") and hs != vs:
+            end_hp_diff = round(hp[hs] - hp[vs], 6)
+
+    return {
+        "winner": winner, "turns": parsed["turns"], "end_reason": parsed["end_reason"],
+        "end_hp_diff": end_hp_diff, "sha256": normalized_room_log_sha256(frames),
+    }
+
+
+def _check_log_integrity(rows, room_raw_dir) -> None:
+    """R2 fail-closed re-derivation: for EVERY row, resolve its room log, re-parse it, and
+    compare winner/turns/end_reason/end_hp_diff against the row, plus the normalized sha when
+    the row carries one (legacy rows are null/absent — R1 — and only skip the sha compare, the
+    parse cross-check still runs). Every offending row is collected and raised together in one
+    ``LogIntegrityError`` so a human sees the full scope of any corruption in a single pass,
+    rather than fixing (and re-running) one row at a time."""
+    offenses: list = []
+    for r in rows:
+        label = f"seed_index={r.get('seed_index')} battle_id={r.get('battle_id')!r}"
+        room_raw_path = r.get("room_raw_path")
+        log_path = _resolve_room_log_path(room_raw_dir, room_raw_path)
+        if log_path is None:
+            offenses.append(
+                f"{label}: room log not found under {room_raw_dir!r} "
+                f"(row room_raw_path={room_raw_path!r})"
+            )
+            continue
+        try:
+            recomputed = _recompute_outcome_from_log(log_path)
+        except Exception as exc:  # noqa: BLE001 - an unreadable/unparsable log IS an integrity failure
+            offenses.append(f"{label}: could not re-derive outcome from {log_path}: {exc}")
+            continue
+        for field in ("winner", "turns", "end_reason", "end_hp_diff"):
+            if recomputed[field] != r.get(field):
+                offenses.append(
+                    f"{label}: {field} mismatch: row={r.get(field)!r} "
+                    f"recomputed={recomputed[field]!r}"
+                )
+        row_sha = r.get("normalized_room_log_sha256")
+        if row_sha is not None and recomputed["sha256"] != row_sha:
+            offenses.append(
+                f"{label}: normalized_room_log_sha256 mismatch: row={row_sha!r} "
+                f"recomputed={recomputed['sha256']!r}"
+            )
+    if offenses:
+        raise LogIntegrityError(
+            f"{len(offenses)} row(s) failed room-log integrity re-derivation against "
+            f"{room_raw_dir!r}:\n" + "\n".join(offenses)
+        )
+
+
 @dataclass(frozen=True)
 class SafetyGate:
     gate: str
@@ -134,7 +267,11 @@ class RunBundle:
 
     @classmethod
     def load(cls, results_path, seedlog_path, schedule_path, panel_path, *, teams_root,
-             manifest_path=None) -> "RunBundle":
+             manifest_path=None, room_raw_dir=None) -> "RunBundle":
+        """``room_raw_dir`` (T4c R2, optional, keyword-only): when given (e.g. from the
+        ``--room-raw`` CLI flag), every row is re-derived from its room log and cross-checked
+        (``LogIntegrityError`` on any mismatch or missing log) — see ``_check_log_integrity``.
+        Default ``None`` leaves this code path untouched: byte-identical to before T4c."""
         rows = _read_rows(results_path)
         for r in rows:
             try:
@@ -155,6 +292,9 @@ class RunBundle:
                     f"seed derivation mismatch at seed_index {r['seed_index']}: row "
                     f"{r['seed']!r} != derive_battle_seed {expect_seed!r} (result row tampered?)"
                 )
+
+        if room_raw_dir is not None:
+            _check_log_integrity(rows, room_raw_dir)
 
         mpath = manifest_path if manifest_path is not None else manifest_path_for(results_path)
         try:
@@ -467,7 +607,7 @@ def _build_reproduction_paired(bundle_a: RunBundle, bundle_b: RunBundle) -> dict
 
 def _provenance(bundle) -> dict:
     row0, m = bundle.rows[0], bundle.manifest
-    return {
+    provenance = {
         "run_id": m.get("run_id"), "config_id": row0.get("config_id"),
         "config_hash": m.get("config_hash"), "format_id": row0.get("format_id"),
         "schedule_hash": m.get("schedule_hash"), "seed_base": m.get("seed_base"),
@@ -477,6 +617,14 @@ def _provenance(bundle) -> dict:
         "server_patch_hash": m.get("server_patch_hash"), "pythonhashseed": m.get("pythonhashseed"),
         "input_sha256": dict(bundle.input_sha256),
     }
+    # T4c R4: environment is informational-only and rendered ONLY when the manifest actually
+    # carries it. Legacy manifests (every committed golden fixture predates this key) simply
+    # lack "environment", so ``m.get`` returns None and this key is omitted entirely -- the
+    # JSON provenance dict for those runs is byte-identical to before T4c.
+    env = m.get("environment")
+    if env is not None:
+        provenance["environment"] = env
+    return provenance
 
 
 def _build_data(bundle, mode, verdict, safety_pass, gates, cells, aggregates, warnings, heldout):
@@ -523,6 +671,22 @@ def _f(x) -> str:
     return f"{x:.4f}"
 
 
+def _render_environment_block(out, env) -> None:
+    """T4c R4: informational-only environment sub-table, appended to a Provenance section ONLY
+    when the manifest actually carries an ``environment`` block. Absent (every legacy manifest,
+    including the committed golden fixtures) -> no lines emitted at all, so pre-T4c renders —
+    both markdown and JSON (via ``_provenance`` omitting the key) — stay byte-identical."""
+    if not env:
+        return
+    out.append("| environment field | value |")
+    out.append("|---|---|")
+    for k in ("python", "node", "platform"):
+        out.append(f"| {k} | {env.get(k)} |")
+    for dep, ver in (env.get("deps") or {}).items():
+        out.append(f"| dep:{dep} | {ver} |")
+    out.append("")
+
+
 def _render_md(data) -> str:
     p = data["provenance"]
     agg = data["aggregates"]
@@ -547,6 +711,7 @@ def _render_md(data) -> str:
     for role in ["results", "seedlog", "schedule", "panel", "manifest"]:
         out.append(f"| {role} | {p['input_sha256'].get(role)} |")
     out.append("")
+    _render_environment_block(out, p.get("environment"))
 
     out.append("## Safety Gates")
     out.append("")
@@ -836,6 +1001,7 @@ def _render_provenance_table(out, p, label):
     for role in ["results", "seedlog", "schedule", "panel", "manifest"]:
         out.append(f"| {role} | {p['input_sha256'].get(role)} |")
     out.append("")
+    _render_environment_block(out, p.get("environment"))
 
 
 def _render_gate_table(out, gates, label):

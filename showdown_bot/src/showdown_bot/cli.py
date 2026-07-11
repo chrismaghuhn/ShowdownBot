@@ -95,7 +95,12 @@ def run_schedule(args) -> None:
 
         from showdown_bot.eval.config_env import behavior_env, build_config_manifest
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
-        from showdown_bot.eval.run_manifest import build_run_manifest, make_run_id, write_run_manifest
+        from showdown_bot.eval.run_manifest import (
+            build_run_manifest,
+            collect_environment,
+            make_run_id,
+            write_run_manifest,
+        )
         from showdown_bot.eval.seeding import derive_battle_seed
         from showdown_bot.learning.provenance import git_sha_and_dirty
 
@@ -146,7 +151,7 @@ def run_schedule(args) -> None:
             run_id=run_id, seed_base=base, schedule_hash=sched.schedule_hash,
             panel_hash=sched.panel_hash, config_hash=_run_config_hash, start_ts=_start_ts,
             pythonhashseed=os.environ.get("PYTHONHASHSEED"), cli_invocation=list(sys.argv),
-            git_sha=git_sha, dirty=dirty,
+            git_sha=git_sha, dirty=dirty, environment=collect_environment(),
         )
         manifest_out = write_run_manifest(result_out, manifest)
         print(f"  run manifest -> {manifest_out} (run_id={run_id})")
@@ -232,12 +237,18 @@ def run_eval_report(args) -> None:
     UNDERPOWERED, 1 (SystemExit) iff the verdict is a SAFETY-FAIL (single- or paired-mode).
     A load-time ``ReportInputError`` (unreadable/tampered/missing-sidecar input) also becomes
     a clean SystemExit(1) rather than an uncaught traceback.
+
+    T4c R2: ``--room-raw`` (``args.room_raw``, optional) enables fail-closed row<->log
+    re-derivation (``RunBundle.load(..., room_raw_dir=...)``); a ``LogIntegrityError`` there is
+    likewise a clean SystemExit(1), not a traceback. Absent (the default, ``""``/unset), this
+    function's behavior is byte-identical to before T4c.
     """
     import json as _json
 
     from showdown_bot.eval.report import (
         VERDICT_SAFETY_FAIL,
         VERDICT_SINGLE_FAIL,
+        LogIntegrityError,
         ReportInputError,
         RunBundle,
         generate_report,
@@ -257,20 +268,29 @@ def run_eval_report(args) -> None:
             "(paired mode needs both, single-run mode needs neither)"
         )
 
+    room_raw_dir = getattr(args, "room_raw", "") or None
+
     try:
         bundle_a = RunBundle.load(
             args.run_a, args.seedlog_a, args.schedule, args.panel, teams_root=args.teams_root,
+            room_raw_dir=room_raw_dir,
         )
         bundle_b = None
         if args.run_b:
             bundle_b = RunBundle.load(
                 args.run_b, args.seedlog_b, args.schedule, args.panel, teams_root=args.teams_root,
+                room_raw_dir=room_raw_dir,
             )
     except ReportInputError as exc:
         # Load-time input audit failure (unreadable/tampered/missing-sidecar input): a bare
         # SystemExit(1) so the numeric exit code matches the SAFETY-FAIL contract below exactly
         # (not just "truthy" via the string-to-1 coercion Python applies at process shutdown).
         print(f"eval-report: input audit failed: {exc}")
+        raise SystemExit(1) from exc
+    except LogIntegrityError as exc:
+        # T4c R2: corrupted/forged evidence against --room-raw is a hard refusal, same exit
+        # code contract as ReportInputError -- no report is written on a failed integrity audit.
+        print(f"eval-report: room-log integrity check failed: {exc}")
         raise SystemExit(1) from exc
 
     md, obj = generate_report(bundle_a, bundle_b, mode=args.mode)
@@ -478,6 +498,17 @@ def main() -> None:
         "config/eval/panels/*.yaml are written relative to the gauntlet working directory, so "
         "this defaults to '.' -- run eval-report from inside showdown_bot/ (as gauntlet runs "
         "already are), or pass the absolute path to showdown_bot/ explicitly.",
+    )
+    parser.add_argument(
+        "--room-raw",
+        dest="room_raw",
+        default="",
+        help="Directory of committed room_raw logs (eval-report, optional; T4c R2). When "
+        "given, every row's winner/turns/end_reason/end_hp_diff (and normalized-log sha, for "
+        "rows that carry one) are re-derived from the row's room log -- resolved by basename "
+        "under this directory -- and compared against the row; any mismatch or missing log "
+        "raises LogIntegrityError (fail-closed, no partial verdict). Omit for the original "
+        "behavior: byte-identical reports, no room_raw access.",
     )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)

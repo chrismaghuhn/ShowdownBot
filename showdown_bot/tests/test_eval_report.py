@@ -12,6 +12,11 @@ unsatisfiable as written. This slice instead recomputes ``battle_id`` and the de
 per-row ``seed`` derivation as a hard audit, and exercises the "edited result row" tamper
 case via a SEED edit (which IS detectable). The controller should amend the spec's winner-flip
 wording; see the report-back.
+
+UPDATE (T4c R3, ``docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md``): the
+deviation above holds only on the no-logs path. ``test_winner_flip_is_detected_with_room_raw_logs``
+is the inverted twin — same flip, but with ``room_raw_dir`` supplied — and IS caught via
+``LogIntegrityError``. See also ``test_eval_report_log_integrity.py`` (T4c Task 2).
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ from showdown_bot.eval.report import (
     HELDOUT_BANNER,
     SCHEMA_VERSION,
     UNDERPOWERED_TEXT,
+    LogIntegrityError,
     ReportInputError,
     RunBundle,
     SafetyGate,
@@ -41,6 +47,7 @@ _SEEDLOG = _RERUN / "t4rerun-run1-seedlog.jsonl"
 _MANIFEST = _RERUN / "t4rerun-run1.jsonl.manifest.json"
 _SCHEDULE = _REPO_ROOT / "config" / "eval" / "schedules" / "t4_smoke_v001.yaml"
 _PANEL = _REPO_ROOT / "config" / "eval" / "panels" / "panel_v001.yaml"
+_ROOM_RAW_RUN1 = _RERUN / "room_raw" / "run1"
 
 # Team content hashes (pinned by the fixture / task brief).
 _TRICKROOM = "e622869d6c68307e"
@@ -231,13 +238,17 @@ def test_tamper_swapped_panel_fails_safety(tmp_path):
 
 
 def test_winner_flip_is_undetectable_documents_deviation(tmp_path):
-    """DOCUMENTED DEVIATION (R6 winner-flip line is unsatisfiable as written).
+    """DOCUMENTED DEVIATION (R6 winner-flip line is unsatisfiable as written) -- WITHOUT LOGS.
 
     A pure winner flip changes no field that any input-hash cross-check covers: the manifest
     has no per-row integrity hash and the audit does not re-parse room_raw. So the bundle
     still loads clean and the report still says SAFETY-PASS. This test PINS that limitation so
     a future room_raw-parsing audit (which would flip this) forces a spec amendment rather than
-    silently changing behaviour. The seed-edit test above is the real 'edited row' guard."""
+    silently changing behaviour. The seed-edit test above is the real 'edited row' guard.
+
+    Without logs: undetectable — see ``test_winner_flip_is_detected_with_room_raw_logs``
+    immediately below for the logs-present inversion (T4c R3, same tamper, real fixture
+    room_raw supplied via ``room_raw_dir``)."""
     results, seedlog = _copy_bundle(tmp_path)
     lines = results.read_text(encoding="utf-8").splitlines()
     row = json.loads(lines[0])
@@ -248,6 +259,36 @@ def test_winner_flip_is_undetectable_documents_deviation(tmp_path):
     b = RunBundle.load(str(results), str(seedlog), str(_SCHEDULE), str(_PANEL), teams_root=str(_SB))
     _, obj = generate_report(b, mode="gate")
     assert obj["verdict"] == "SINGLE-RUN SAFETY-PASS"   # NOT caught — documented gap
+
+
+def test_winner_flip_is_detected_with_room_raw_logs(tmp_path):
+    """INVERSION of the pin above (T4c R3): the identical winner-flip tamper, but with
+    ``room_raw_dir`` supplied at load time, IS caught -- via ``LogIntegrityError`` naming the
+    exact offending row. This is the "future room_raw-parsing audit" the pin above anticipated;
+    now that it exists (T4c Task 2: ``RunBundle.load(..., room_raw_dir=...)``), the no-logs
+    limitation documented above is scoped precisely to the absence of ``--room-raw``.
+
+    See docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md R3 and
+    test_eval_report_log_integrity.py::test_log_integrity_tampered_winner_raises (the Task 2
+    preview of this same check)."""
+    results, seedlog = _copy_bundle(tmp_path)
+    room_raw = tmp_path / "room_raw"
+    shutil.copytree(_ROOM_RAW_RUN1, room_raw)
+    lines = results.read_text(encoding="utf-8").splitlines()
+    row = json.loads(lines[0])
+    assert row["winner"] == "hero"
+    row["winner"] = "villain"                        # same flip, nothing else touched
+    lines[0] = json.dumps(row, sort_keys=True, separators=(",", ":"))
+    results.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(LogIntegrityError) as excinfo:
+        RunBundle.load(str(results), str(seedlog), str(_SCHEDULE), str(_PANEL),
+                       teams_root=str(_SB), room_raw_dir=str(room_raw))
+    msg = str(excinfo.value)
+    assert f"seed_index={row['seed_index']}" in msg
+    assert row["battle_id"] in msg
+    assert "winner mismatch" in msg
+    assert "row='villain'" in msg
+    assert "recomputed='hero'" in msg
 
 
 # --- 6. mode="dev" vs "gate": latency + dirty split -------------------------------------
@@ -266,13 +307,15 @@ def _synthetic_row(seed_index, *, winner="hero", dirty=False, latency=100, crash
     }
 
 
-def _synthetic_bundle(rows, *, budget=200):
+def _synthetic_bundle(rows, *, budget=200, environment=None):
     manifest = {
         "run_id": "runS", "config_hash": "cfgS", "schedule_hash": "schS",
         "seed_base": "baseS", "panel_hash": "panS", "git_sha": "gitS", "dirty": rows[0]["dirty"],
         "start_ts": "2026-07-10T00:00:00+00:00", "cli_invocation": ["cli.py", "gauntlet"],
         "pythonhashseed": "0",
     }
+    if environment is not None:      # T4c Task 4: opt-in, mirrors a "legacy" manifest by default
+        manifest["environment"] = environment
     return RunBundle(
         rows=rows, manifest=manifest, recomputed_panel_hash="panS",
         panel_dev_hashes=frozenset({"dev1"}), panel_held_hashes=frozenset({"held1"}),
@@ -322,3 +365,53 @@ def test_verbatim_constants_present():
     assert "must not be cited to unblock 2b-4" in UNDERPOWERED_TEXT
     assert "HELD-OUT RUN" in HELDOUT_BANNER
     assert "must never inform tuning decisions" in HELDOUT_BANNER
+
+
+# --- environment block rendering (T4c Task 4, R4) ---------------------------------------
+# Unit-tested on a synthetic bundle (per the plan: "New-manifest rendering covered by a unit
+# test, not by regenerating goldens"). The real committed golden fixture's manifest has no
+# "environment" key at all -- test_eval_report_golden.py proves that path stays byte-identical.
+
+_ENV_BLOCK = {
+    "python": "3.11.5", "node": "v20.11.0", "platform": "Windows-11-10.0.26200",
+    "deps": {"pydantic": "2.13.4", "websockets": "16.0", "lightgbm": None},
+}
+
+
+def test_environment_absent_from_legacy_manifest_renders_nothing():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows)   # no "environment" key in the manifest -> legacy
+    assert "environment" not in b.manifest
+    md, obj = generate_report(b, mode="gate")
+    assert "environment" not in obj["provenance"]
+    assert "environment field" not in md
+    assert "platform" not in md.lower()
+
+
+def test_environment_rendered_when_manifest_carries_it():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows, environment=_ENV_BLOCK)
+    md, obj = generate_report(b, mode="gate")
+    # JSON: informational sub-dict carried through verbatim in provenance.
+    assert obj["provenance"]["environment"] == _ENV_BLOCK
+    # Markdown: rendered as a sub-table inside "## Provenance", after the input-file table.
+    assert "| environment field | value |" in md
+    assert "| python | 3.11.5 |" in md
+    assert "| node | v20.11.0 |" in md
+    assert "| platform | Windows-11-10.0.26200 |" in md
+    assert "| dep:pydantic | 2.13.4 |" in md
+    assert "| dep:websockets | 16.0 |" in md
+    assert "| dep:lightgbm | None |" in md
+    prov_idx = md.index("## Provenance")
+    env_idx = md.index("| environment field | value |")
+    gates_idx = md.index("## Safety Gates")
+    assert prov_idx < env_idx < gates_idx
+
+
+def test_environment_rendering_is_deterministic():
+    rows = [_synthetic_row(i) for i in range(2)]
+    b = _synthetic_bundle(rows, environment=_ENV_BLOCK)
+    md1, obj1 = generate_report(b, mode="gate")
+    md2, obj2 = generate_report(b, mode="gate")
+    assert md1 == md2
+    assert json.dumps(obj1, sort_keys=True) == json.dumps(obj2, sort_keys=True)

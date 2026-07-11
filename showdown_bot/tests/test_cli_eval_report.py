@@ -31,12 +31,13 @@ _SEEDLOG = _RERUN / "t4rerun-run1-seedlog.jsonl"
 _MANIFEST = _RERUN / "t4rerun-run1.jsonl.manifest.json"
 _SCHEDULE = _REPO_ROOT / "config" / "eval" / "schedules" / "t4_smoke_v001.yaml"
 _PANEL = _REPO_ROOT / "config" / "eval" / "panels" / "panel_v001.yaml"
+_ROOM_RAW_RUN1 = _RERUN / "room_raw" / "run1"
 
 
 def _args(**overrides):
     defaults = dict(
         run_a="", seedlog_a="", run_b="", seedlog_b="",
-        schedule="", panel="", out="", mode="gate", teams_root=".",
+        schedule="", panel="", out="", mode="gate", teams_root=".", room_raw="",
     )
     defaults.update(overrides)
     return types.SimpleNamespace(**defaults)
@@ -260,7 +261,7 @@ def test_eval_report_paired_cli_wiring_lighter_seam(tmp_path, monkeypatch):
     calls: list = []
 
     def _fake_load(cls, results_path, seedlog_path, schedule_path, panel_path, *,
-                   teams_root, manifest_path=None):
+                   teams_root, manifest_path=None, room_raw_dir=None):
         calls.append(results_path)
         return bundle_a if len(calls) == 1 else bundle_b
 
@@ -280,3 +281,81 @@ def test_eval_report_paired_cli_wiring_lighter_seam(tmp_path, monkeypatch):
     assert obj["paired"]["n_discordant"] == 12
     assert "## Paired McNemar (A vs B)" in md
     assert md.splitlines()[0].startswith("# VERDICT: GO")
+
+
+# --- 6. --room-raw CLI wiring (T4c R2) -------------------------------------------------------
+
+def _copy_bundle_with_room_raw(tmp_path):
+    """Like ``_copy_bundle`` but also copies the committed ``room_raw/run1`` subset."""
+    results, seedlog = _copy_bundle(tmp_path)
+    room_raw = tmp_path / "room_raw"
+    shutil.copytree(_ROOM_RAW_RUN1, room_raw)
+    return results, seedlog, room_raw
+
+
+def test_eval_report_room_raw_flag_clean_pass_exit0(tmp_path):
+    out = tmp_path / "out"
+    args = _args(run_a=str(_RESULTS), seedlog_a=str(_SEEDLOG), schedule=str(_SCHEDULE),
+                 panel=str(_PANEL), out=str(out), teams_root=str(_SB),
+                 room_raw=str(_ROOM_RAW_RUN1))
+    cli.run_eval_report(args)   # must NOT raise -> exit code 0
+    md = (out / "report.md").read_text(encoding="utf-8")
+    assert md.splitlines()[0] == "# VERDICT: SINGLE-RUN SAFETY-PASS"
+
+
+def test_eval_report_room_raw_omitted_still_works(tmp_path):
+    """Default ('' / unset): the CLI's original behavior, untouched by T4c."""
+    out = tmp_path / "out"
+    args = _args(run_a=str(_RESULTS), seedlog_a=str(_SEEDLOG), schedule=str(_SCHEDULE),
+                 panel=str(_PANEL), out=str(out), teams_root=str(_SB))
+    cli.run_eval_report(args)
+    assert (out / "report.md").exists()
+
+
+def test_eval_report_room_raw_tampered_row_raises_exit1(tmp_path):
+    results, seedlog, room_raw = _copy_bundle_with_room_raw(tmp_path)
+    lines = results.read_text(encoding="utf-8").splitlines()
+    row = json.loads(lines[0])
+    row["end_reason"] = "crash"   # a wrong-but-valid enum value, real end_reason is "normal"
+    lines[0] = json.dumps(row, sort_keys=True, separators=(",", ":"))
+    results.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    out = tmp_path / "out"
+    args = _args(run_a=str(results), seedlog_a=str(seedlog), schedule=str(_SCHEDULE),
+                 panel=str(_PANEL), out=str(out), teams_root=str(_SB), room_raw=str(room_raw))
+    with pytest.raises(SystemExit) as excinfo:
+        cli.run_eval_report(args)
+    assert excinfo.value.code == 1
+    # a LogIntegrityError is a load-time failure -- no report is written (unlike a SAFETY-FAIL
+    # verdict, which still writes a report; see test_eval_report_tampered_seedlog_exits_1).
+    assert not (out / "report.md").exists()
+
+
+def test_main_dispatches_room_raw_flag_end_to_end(tmp_path, monkeypatch):
+    """Proves the --room-raw argparse flag is actually wired to RunBundle.load, not just
+    accepted and ignored."""
+    out = tmp_path / "out"
+    argv = ["prog", "eval-report", "--run-a", str(_RESULTS), "--seedlog-a", str(_SEEDLOG),
+            "--schedule", str(_SCHEDULE), "--panel", str(_PANEL), "--out", str(out),
+            "--teams-root", str(_SB), "--room-raw", str(_ROOM_RAW_RUN1)]
+    monkeypatch.setattr(sys, "argv", argv)
+    cli.main()   # must not raise -> exit code 0
+    assert (out / "report.md").exists()
+
+
+def test_main_room_raw_flag_end_to_end_detects_tampering(tmp_path, monkeypatch):
+    results, seedlog, room_raw = _copy_bundle_with_room_raw(tmp_path)
+    lines = results.read_text(encoding="utf-8").splitlines()
+    row = json.loads(lines[0])
+    row["turns"] = row["turns"] + 1
+    lines[0] = json.dumps(row, sort_keys=True, separators=(",", ":"))
+    results.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    out = tmp_path / "out"
+    argv = ["prog", "eval-report", "--run-a", str(results), "--seedlog-a", str(seedlog),
+            "--schedule", str(_SCHEDULE), "--panel", str(_PANEL), "--out", str(out),
+            "--teams-root", str(_SB), "--room-raw", str(room_raw)]
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main()
+    assert excinfo.value.code == 1

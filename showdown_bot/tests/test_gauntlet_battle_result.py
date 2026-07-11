@@ -5,10 +5,13 @@ is hero-side minus villain-side via the |player| slot map, or null if that mappi
 """
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from showdown_bot.client.gauntlet import _battle_result_record
 from showdown_bot.eval.result_jsonl import ResultRowError
+from showdown_bot.eval.room_dump import GAUNTLET_NAME_SUBS, normalize_battle_log
 
 _BASE = [
     "|player|p1|HeroBot|1|",
@@ -78,3 +81,48 @@ def test_record_carries_end_reason_forfeit():
     r = _battle_result_record("HeroBot", "VillBot", frames, invalid_choices=0, crashes=0,
                               decision_latency_p95_ms=0, room_raw_path=None)
     assert r["winner"] == "hero" and r["end_reason"] == "forfeit"
+
+
+def test_normalized_room_log_sha256_matches_canonical_normalization():
+    # T4c R1: the row's sha must equal hashlib.sha256 over normalize_battle_log's output,
+    # using the SAME name_subs convention (GAUNTLET_NAME_SUBS) as the T4 identity check
+    # (validate_prefix_reproduction), joined + encoded the way dump_room_raw writes the
+    # room_raw file itself ("\n".join(...).encode("utf-8")).
+    frames = _frames()
+    r = _battle_result_record("HeroBot", "VillBot", frames, invalid_choices=0, crashes=0,
+                              decision_latency_p95_ms=100, room_raw_path=None)
+    expected = hashlib.sha256(
+        "\n".join(normalize_battle_log(frames, name_subs=GAUNTLET_NAME_SUBS)).encode("utf-8")
+    ).hexdigest()
+    assert r["normalized_room_log_sha256"] == expected
+
+
+def test_normalized_room_log_sha256_differs_on_a_real_divergence():
+    # Sanity: not a constant -- a genuine battle difference changes the sha.
+    r_a = _battle_result_record("HeroBot", "VillBot", _frames(), invalid_choices=0, crashes=0,
+                                decision_latency_p95_ms=0, room_raw_path=None)
+    frames_b = ["\n".join([
+        "|player|p1|HeroBot|1|", "|player|p2|VillBot|1|",
+        "|switch|p1a: Incineroar|Incineroar, L50|100/100",
+        "|switch|p2a: Rillaboom|Rillaboom, L50|10/100",  # different HP roll
+        "|turn|1", "|turn|2", "|win|HeroBot",
+    ])]
+    r_b = _battle_result_record("HeroBot", "VillBot", frames_b, invalid_choices=0, crashes=0,
+                                decision_latency_p95_ms=0, room_raw_path=None)
+    assert r_a["normalized_room_log_sha256"] != r_b["normalized_room_log_sha256"]
+
+
+def test_normalized_room_log_sha256_null_on_hashing_failure(monkeypatch):
+    # T4c: any exception during sha computation -> field None, battle record still assembled.
+    # gauntlet._normalized_room_log_sha256 delegates to the shared
+    # eval.room_dump.normalized_room_log_sha256 recipe (T4c R2) -- patch it there.
+    import showdown_bot.client.gauntlet as gauntlet_mod
+
+    def _boom(frames):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(gauntlet_mod, "_compute_normalized_room_log_sha256", _boom)
+    r = _battle_result_record("HeroBot", "VillBot", _frames(), invalid_choices=0, crashes=0,
+                              decision_latency_p95_ms=0, room_raw_path=None)
+    assert r["normalized_room_log_sha256"] is None
+    assert r["winner"] == "hero"  # the rest of the record is unaffected

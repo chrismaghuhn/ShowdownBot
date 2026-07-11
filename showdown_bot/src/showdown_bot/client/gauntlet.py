@@ -22,6 +22,7 @@ from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.moves import _move_table
 from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
+from showdown_bot.eval.room_dump import normalized_room_log_sha256 as _compute_normalized_room_log_sha256
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
 from showdown_bot.models.request import BattleRequest
@@ -662,6 +663,25 @@ def _end_hp_diff(parsed, hero_name, villain_name):
     return round(hp[hs] - hp[vs], 6)
 
 
+def _normalized_room_log_sha256(frames) -> str | None:
+    """sha256 hex over the normalized room log (T4c R1: binds a result row to its log).
+
+    Delegates to ``eval.room_dump.normalized_room_log_sha256`` -- the single shared recipe
+    both this write site and the ``eval.report`` re-derivation path (T4c R2, which reads the
+    frames back from a dumped log via ``eval.room_dump.read_room_log_frames``) use, so the two
+    can never silently drift apart. See that function's docstring for the exact recipe.
+
+    Computed in-process at the write site (frames are already in hand -- no re-read from
+    disk). Never raises: any exception degrades to ``None`` (never fails the battle
+    record), with a debug log for diagnosis.
+    """
+    try:
+        return _compute_normalized_room_log_sha256(frames)
+    except Exception as exc:  # noqa: BLE001 - a hash failure must never fail the battle record
+        logger.debug("[battle-result] normalized_room_log_sha256 computation failed: %s", exc)
+        return None
+
+
 def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, crashes,
                           decision_latency_p95_ms, room_raw_path):
     """Assemble the battle-derived T2 fields with EXPLICIT hero/villain/tie mapping (Fix 2).
@@ -692,6 +712,9 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
         "crashes": crashes,
         "decision_latency_p95_ms": decision_latency_p95_ms,
         "room_raw_path": room_raw_path,
+        # T4c R1: binds this row to its room log; None on any hashing failure (never
+        # fails the battle record) -- see _normalized_room_log_sha256 for the recipe.
+        "normalized_room_log_sha256": _normalized_room_log_sha256(frames),
     }
 
 

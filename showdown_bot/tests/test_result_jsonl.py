@@ -118,6 +118,18 @@ def test_panel_split_is_nullable():
     validate_battle_row(_row(panel_split="heldout"))
 
 
+def test_normalized_room_log_sha256_is_nullable():
+    # T4c R1: rows WITHOUT the field (legacy, written before it existed) load fine
+    # through validate_battle_row -- the gate every row passes in report.RunBundle.load
+    # (report.py's per-row loader used by report/eval). No KeyError, no ResultRowError.
+    assert "normalized_room_log_sha256" in NULLABLE_FIELDS
+    row = _row()
+    assert "normalized_room_log_sha256" not in row
+    validate_battle_row(row)  # absent (legacy row) -> ok, no KeyError
+    validate_battle_row(_row(normalized_room_log_sha256=None))        # None (hash failed) -> ok
+    validate_battle_row(_row(normalized_room_log_sha256="a" * 64))    # present -> ok
+
+
 def test_end_reason_is_required():
     # T3f Task 5: end_reason distinguishes normal vs timeout/forfeit/crash.
     assert "end_reason" in REQUIRED_FIELDS
