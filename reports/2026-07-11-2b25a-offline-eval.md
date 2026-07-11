@@ -7,15 +7,111 @@ dataset (4 hero teams × 3 panel villains × 5 policies × 5 seeds = 300 games,
 2b-2a were "mirror-data artifacts" — constant only because 2b-2a's dataset was
 a single team mirroring itself.
 
-**Result: the KPI target was not met.** `dropped_constant_columns` fell from
-28 to 24 (target ≤ 12, stretch ~10). Only 3 of the 15 explicitly-named class-A
-features reactivated. Root-cause analysis below shows most of the remainder
-are **not** mirror-data artifacts at all — they are pre-existing feature-
-extractor wiring gaps that panel-diverse data cannot fix by construction. This
-is a genuine, actionable finding, not a data problem.
+**Result (pre-regen, SUPERSEDED — see the "Regeneration + final KPI" section
+immediately below): the KPI target was not met on the first pass.**
+`dropped_constant_columns` fell from 28 to 24 (target ≤ 12, stretch ~10). Only
+3 of the 15 explicitly-named class-A features reactivated. Root-cause analysis
+below shows most of the remainder are **not** mirror-data artifacts at all —
+they are pre-existing feature-extractor wiring gaps that panel-diverse data
+cannot fix by construction. This is a genuine, actionable finding, not a data
+problem. **That wiring gap was then fixed (583e0a0) and the dataset
+regenerated; the KPI now PASSES at 7 — read the next section first; everything
+below it is the pre-regen record that motivated the fix.**
 
 Like 2b-2a, this remains an offline, teacher-labeled experiment — see the
 optimistic-metric caveat below.
+
+## Regeneration + final KPI (2026-07-11)
+
+The single root cause behind 16 of the still-dead columns — `dex=None` /
+`move_meta=None` hardcoded at both `gauntlet.py` `DatasetExportRuntime` call
+sites — plus the hardcoded `mirror_flag=False` (see diagnoses (A) and (B)
+below) were fixed in commit `583e0a0` (*fix(2b-2.5a): wire dex/move_meta/
+mirror_flag into dataset export*). All four hero quarters were then
+**regenerated on Kaggle with the identical seeds** on that one repo sha, and
+the committed dataset was rebuilt in place (`feat(2b-2.5a): regenerate dataset
+with complete feature extraction`).
+
+**Battle identity (labels unchanged).** For every quarter the regenerated
+`winner`+`turns` sequence is byte-identical to the pre-regen (v1) quarter:
+**0 diffs × 4 heroes × 75 games**. The seeded battles and their rollout-teacher
+labels are unchanged; only the previously-sentinel feature columns were
+completed. All four quarters now carry a **uniform** repo sha
+`583e0a0`, config_hash, and server_patch_hash (v1 had four different shas).
+
+**KPI: MET.**
+
+| | 2b-2a | 2b-2.5a (pre-regen, wiring-bugged) | 2b-2.5a (final, regen) | Target |
+|---|---|---|---|---|
+| **dropped constant columns** | 28 | 24 | **7** | ≤ 12 (stretch ~10) |
+| live feature count | 45 | 49 | 66 | — |
+| categorical features | 9 | 10 | 20 | — |
+
+`dropped_constant_columns` = **7 ≤ 12** — KPI passes with margin. The 7 that
+remain dropped are exactly the deferred/known set:
+
+`action_economy_score`, `fakeout_invalid_penalty`, `protect_prior_target1`,
+`protect_prior_target2`, `screens_opp`, `screens_ours` — the **6 class-B
+sentinel-capture features** explicitly deferred to slice **2b-2.5b** (no
+capture code added here) — plus `tera_used`, the **documented open item**
+(candidate-truncation hypothesis, diagnosis (C) below), which stays dead as
+expected.
+
+**All 17 previously-dead rewired columns are now alive** (present in
+`feature_names`, absent from `dropped_constant_columns`, non-constant across
+all 17458 merged rows):
+
+| column group | pre-regen | final |
+|---|---|---|
+| `mirror_flag` | DEAD (hardcoded False) | **ALIVE** (2 distinct: F 12632 / T 4826) |
+| `slot{1,2}_move_type` | DEAD (100% `__none__`) | **ALIVE** (13 distinct each) |
+| `slot{1,2}_move_category` | DEAD | **ALIVE** (4 distinct each) |
+| `slot{1,2}_priority` | DEAD | **ALIVE** (6 distinct each) |
+| `slot{1,2}_is_damaging` | DEAD | **ALIVE** (2 distinct each) |
+| `slot{1,2}_is_protect` | DEAD | **ALIVE** (2 distinct each) |
+| `slot{1,2}_actor_species_id` | DEAD | **ALIVE** (11 distinct each) |
+| `slot{1,2}_switch_target_species_id` | DEAD | **ALIVE** (11 distinct each) |
+| `slot{1,2}_target_species_id_if_known` | DEAD | **ALIVE** (10 distinct each) |
+
+The 3 named class-A features that had already reactivated on diversity alone
+(`field_weather`, `trick_room_active`, `tailwind_opp`) plus `ko_secured_count`
+remain alive. So of the R4 named class-A list, only `tera_used` is still dead
+(open item); of the ~18 original dead columns, 17 are resurrected and the
+6 class-B sentinel columns are the deferred remainder.
+
+### Final offline eval (regenerated, feature-complete dataset)
+
+Same pipeline, same `split_seed=42`. Gate still passes.
+
+| metric | 2b-2a | 2b-2.5a (pre-regen) | 2b-2.5a (final, regen) |
+|---|---|---|---|
+| dropped constant columns | 28 | 24 | **7** |
+| live features / categorical | 45 / 9 | 49 / 10 | 66 / 20 |
+| test split (games / decisions / rows) | 10 / 94 / 462 | 30 / 416 / 2255 | 30 / 337 / 1835 |
+| ATTACK-strict decisions | 63 | 213 | 177 |
+| ATTACK heuristic regret | 1.3067 | 1.7064 | **2.2286** |
+| ATTACK model regret | 0.053 | 0.8877 | **0.6172** |
+| ATTACK wrong-near-equal (heur / model) | 10 / 1 | 19 / 16 | **15 / 8** |
+| all-strict decisions | 74 | 339 | 285 |
+| all-strict heuristic / model regret | 1.1125 / 0.5398 | 1.927 / 1.1402 | **2.0922 / 1.0719** |
+| contestable decisions | 28 | 111 | 99 |
+| contestable heuristic / model regret | 1.3855 / 0.1193 | 1.3639 / 0.9444 | **1.3161 / 0.9586** |
+| Verdict | GO | GO | **GO** |
+
+Model beats heuristic in every bucket and the ATTACK-strict gate passes
+(`model 0.6172 < heuristic 2.2286`, `model wrong-near-equal 8 ≤ heuristic 15`).
+
+**Caveat — the final test split is a *different* 30-game partition, so its
+regret magnitudes are not point-comparable to the pre-regen column.** `game_id`
+is a content hash that includes the export repo sha; changing the sha from four
+per-quarter values to the uniform `583e0a0` changed every `game_id` (0 overlap
+with v1), so the seeded by-game split (`seed=42`) assigned a different subset of
+30 games to test (337 decisions / 1835 rows vs the pre-regen 416 / 2255) — even
+though the underlying 300 battles are byte-identical. What is comparable is the
+**relative** ordering (model < heuristic in every bucket, gate passes) and the
+now-lower near-equal-mistake count (model 8, down from 16). The
+optimistic-metric caveat (offline, teacher-labeled proxy — see below) still
+applies in full; nothing goes live from this slice.
 
 ## KPI: `dropped_constant_columns`
 
@@ -251,8 +347,10 @@ python -m showdown_bot.learning.reranker_train \
   --out-report reports/2026-07-11-2b25a-offline-eval.md
 ```
 
-Dataset sha256 (raw jsonl, as hashed by `reranker_train.sha256_of_file`):
-`948570bb33e2923cdc8357f17dfd8db782a5d71cbc29645ace9c148da28f7572` (differs
+Dataset sha256 (raw jsonl, as hashed by `reranker_train.sha256_of_file`), final
+regenerated dataset:
+`3303351176733fd373eed251a29d7f2bde0f3aa50b4a8fd407eff448f39542d6` (pre-regen
+was `948570bb33e2923cdc8357f17dfd8db782a5d71cbc29645ace9c148da28f7572`; differs
 from the committed `.gz`-file sha256 in `data/datasets/phase3-slice2b25a/sha256.txt`,
 which hashes the compressed bytes, not the decompressed content — expected,
 same convention as 2b-2a). `reranker_train`'s built-in sha check only warns
