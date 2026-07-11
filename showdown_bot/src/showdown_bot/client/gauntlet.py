@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import hashlib
 import json
 import logging
 import os
@@ -23,7 +22,7 @@ from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.moves import _move_table
 from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, merge_request
-from showdown_bot.eval.room_dump import GAUNTLET_NAME_SUBS, normalize_battle_log
+from showdown_bot.eval.room_dump import normalized_room_log_sha256 as _compute_normalized_room_log_sha256
 from showdown_bot.learning.export_runtime import DatasetExportRuntime
 from showdown_bot.learning.reranker_shadow import RerankerShadowRuntime
 from showdown_bot.models.request import BattleRequest
@@ -667,34 +666,17 @@ def _end_hp_diff(parsed, hero_name, villain_name):
 def _normalized_room_log_sha256(frames) -> str | None:
     """sha256 hex over the normalized room log (T4c R1: binds a result row to its log).
 
-    Recomputation recipe (a third party can reproduce this from the dumped ``room_raw``
-    file alone -- no other row fields needed):
-
-      1. Read the dumped room_raw file's text (utf-8) back as a single-element frames
-         list -- this is exactly what ``_read_room_log_frames`` in
-         ``tools/kaggle/kernel_payload.py`` does, and it round-trips byte-for-byte with
-         ``dump_room_raw``'s ``"\\n".join(frames)`` write convention because
-         ``normalize_battle_log`` re-splits every frame on ``"\\n"`` internally regardless
-         of list-element boundaries.
-      2. ``normalize_battle_log(frames, name_subs=GAUNTLET_NAME_SUBS)`` -- the SAME
-         normalization + name-canonicalization convention the T4 identity check uses
-         (``validate_prefix_reproduction`` in ``tools/kaggle/kernel_payload.py``, the
-         Kaggle-side mirror of this repo's prefix-reproduction proof): strips
-         server-session metadata (room id, timestamps, chat/join/leave, UI html) and
-         canonicalizes the per-run ``HeuristicBot<N>``/``BaselineBot<N>`` numeric suffix.
-         ``GAUNTLET_NAME_SUBS`` is a fixed regex list, not derived from this row's
-         hero/villain names, so no extra per-row input is required to repeat this step.
-      3. ``"\\n".join(normalized_lines).encode("utf-8")`` -- the same join + encoding
-         ``dump_room_raw``/``_read_room_log_frames`` already use for the room_raw file
-         itself, then ``hashlib.sha256(...).hexdigest()``.
+    Delegates to ``eval.room_dump.normalized_room_log_sha256`` -- the single shared recipe
+    both this write site and the ``eval.report`` re-derivation path (T4c R2, which reads the
+    frames back from a dumped log via ``eval.room_dump.read_room_log_frames``) use, so the two
+    can never silently drift apart. See that function's docstring for the exact recipe.
 
     Computed in-process at the write site (frames are already in hand -- no re-read from
     disk). Never raises: any exception degrades to ``None`` (never fails the battle
     record), with a debug log for diagnosis.
     """
     try:
-        normalized = normalize_battle_log(frames, name_subs=GAUNTLET_NAME_SUBS)
-        return hashlib.sha256("\n".join(normalized).encode("utf-8")).hexdigest()
+        return _compute_normalized_room_log_sha256(frames)
     except Exception as exc:  # noqa: BLE001 - a hash failure must never fail the battle record
         logger.debug("[battle-result] normalized_room_log_sha256 computation failed: %s", exc)
         return None

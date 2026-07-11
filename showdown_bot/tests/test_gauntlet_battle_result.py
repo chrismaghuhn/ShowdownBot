@@ -114,12 +114,14 @@ def test_normalized_room_log_sha256_differs_on_a_real_divergence():
 
 def test_normalized_room_log_sha256_null_on_hashing_failure(monkeypatch):
     # T4c: any exception during sha computation -> field None, battle record still assembled.
+    # gauntlet._normalized_room_log_sha256 delegates to the shared
+    # eval.room_dump.normalized_room_log_sha256 recipe (T4c R2) -- patch it there.
     import showdown_bot.client.gauntlet as gauntlet_mod
 
-    def _boom(frames, *, name_subs=None):
+    def _boom(frames):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(gauntlet_mod, "normalize_battle_log", _boom)
+    monkeypatch.setattr(gauntlet_mod, "_compute_normalized_room_log_sha256", _boom)
     r = _battle_result_record("HeroBot", "VillBot", _frames(), invalid_choices=0, crashes=0,
                               decision_latency_p95_ms=0, room_raw_path=None)
     assert r["normalized_room_log_sha256"] is None

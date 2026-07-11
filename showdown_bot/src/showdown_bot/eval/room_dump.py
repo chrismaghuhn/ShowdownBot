@@ -13,6 +13,8 @@ comparison proves the *battle* is bit-identical without being fooled by session 
 from __future__ import annotations
 
 import difflib
+import gzip
+import hashlib
 import os
 import re
 
@@ -100,3 +102,44 @@ def dump_room_raw(dump_dir, name, room, frames):
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(frames))
     return path
+
+
+def read_room_log_frames(path) -> list:
+    """Read a dumped room_raw log (plain ``.log`` or gzipped ``.log.gz``) back into the
+    ``frames`` shape ``normalize_battle_log`` expects (T4c R2: shared by
+    ``eval/report.py``'s row<->log re-derivation; mirrors the convention
+    ``tools/kaggle/kernel_payload.py``'s ``_read_room_log_frames`` already established for the
+    Kaggle-side identity check).
+
+    ``dump_room_raw`` writes a file as ``"\\n".join(frames)``, so reading the whole file back
+    as a single-element list round-trips correctly -- ``normalize_battle_log`` re-splits on
+    ``"\\n"`` internally regardless of the original per-frame boundaries.
+    """
+    path = str(path)
+    if path.endswith(".gz"):
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            return [fh.read()]
+    with open(path, "r", encoding="utf-8") as fh:
+        return [fh.read()]
+
+
+def normalized_room_log_sha256(frames) -> str:
+    """sha256 hex over the normalized room log (T4c R1/R2 shared recipe).
+
+    This is the canonical recipe both the gauntlet write site
+    (``client.gauntlet._normalized_room_log_sha256``, which computes it in-process from
+    frames already in hand and degrades to ``None`` on any exception) and the report
+    re-derivation path (``eval.report``, which reads the frames back from a dumped log via
+    ``read_room_log_frames``) must agree on byte-for-byte:
+
+      1. ``normalize_battle_log(frames, name_subs=GAUNTLET_NAME_SUBS)`` -- strips
+         server-session metadata (room id, timestamps, chat/join/leave, UI html) and
+         canonicalizes the per-run ``HeuristicBot<N>``/``BaselineBot<N>`` numeric suffix.
+      2. ``"\\n".join(normalized_lines).encode("utf-8")`` -- then ``hashlib.sha256(...)
+         .hexdigest()``.
+
+    Raises on failure (unlike the gauntlet write site's ``None``-on-exception wrapper) --
+    callers that need the "never fails the battle record" tolerance wrap this themselves.
+    """
+    normalized = normalize_battle_log(frames, name_subs=GAUNTLET_NAME_SUBS)
+    return hashlib.sha256("\n".join(normalized).encode("utf-8")).hexdigest()
