@@ -52,9 +52,14 @@ generator and safety floor; learned components rerank, never overrule legality/s
 ```bash
 cd showdown_bot
 pip install -e ".[dev]"
+npm ci --prefix tools/calc   # @smogon/calc bridge deps (node_modules is a build artifact, not committed)
 python -m pytest -q          # 850+ tests
 python -m showdown_bot.cli replay-fixture
 ```
+
+The `@smogon/calc` damage bridge runs on Node. `node_modules/` under `tools/calc/` is **not**
+committed (it made cloud clones dirty and fail-closed the eval-harness safety gate) — run
+`npm ci --prefix tools/calc` once after checkout, or the calc-backed tests will fail.
 
 ### Local gauntlet + seeded, reproducible eval
 
