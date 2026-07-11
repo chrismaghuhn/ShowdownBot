@@ -5,6 +5,9 @@ Slice 2b-2b. Leave-one-class-out (LOCO) and single-class-only (SCO) retraining o
 Dataset: `data/datasets/phase3-slice2b25a/dataset.jsonl.gz` (sha256 `3303351176733fd373eed251a29d7f2bde0f3aa50b4a8fd407eff448f39542d6`)
 Live features: 66  |  dropped constant: 7
 
+`tera_used` is one of the 7 `dropped_constant_columns` (never enters the LOCO/SCO partition below).
+Its root cause is diagnosed separately: `reports/2026-07-11-2b2b-tera-used-diagnosis.md`.
+
 ## Self-check
 
 FULL row reproduces the committed 2b-2.5a offline-eval numbers (`reports/2026-07-11-2b25a-offline-eval.md`): model_regret=0.6172, heuristic_regret=2.2286, model_wrong_near_equal=8, gate_pass=True, dropped_constant_columns=7. **PASS** (self-check ran before this report was written -- see `self_check()`; a mismatch aborts with no report written at all).
