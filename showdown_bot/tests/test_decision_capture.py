@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from showdown_bot.eval.decision_capture import (
+    BattleTraceContext,
     DecisionCaptureError,
+    DecisionTraceWriter,
+    build_trace_row,
+    load_decision_trace,
     normalize_choose,
     observable_state_payload,
     prepare_capture,
@@ -140,3 +144,76 @@ def test_normalize_choose_unknown_command_raises(capture_fixture):
     request, _state = capture_fixture
     with pytest.raises(DecisionCaptureError):
         normalize_choose("/forfeit|7", request)
+
+
+# ---------------------------------------------------------------------------
+# Task 3: BattleTraceContext, build_trace_row, DecisionTraceWriter, loader
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def trace_context():
+    return BattleTraceContext(
+        battle_id="battle-a", seed_index=0, config_id="heuristic",
+        config_hash="config-a", schedule_hash="schedule-a",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+
+
+@pytest.fixture
+def prepared(capture_fixture):
+    request, state = capture_fixture
+    return prepare_capture(state, request)
+
+
+def test_writer_binds_count_and_sha(tmp_path, trace_context, prepared, capture_fixture):
+    request, _state = capture_fixture
+    path = tmp_path / "trace.jsonl"
+    writer = DecisionTraceWriter(path)
+    writer.write(build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose="/choose move 1 1, move 2 2|7", trace=None,
+        decision_index=0, decision_latency_ms=12.5,
+    ))
+    binding = writer.finish_battle(trace_context.battle_id)
+    assert binding["decision_trace_count"] == 1
+    assert len(binding["decision_trace_sha256"]) == 64
+    assert load_decision_trace(path)[0]["battle_id"] == trace_context.battle_id
+
+
+def test_writer_refuses_duplicate_decision_key(tmp_path, trace_context, prepared, capture_fixture):
+    request, _state = capture_fixture
+    writer = DecisionTraceWriter(tmp_path / "trace.jsonl.gz")
+    row = build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose="/choose move 1 1, move 2 2|7", trace=None,
+        decision_index=0, decision_latency_ms=1.0,
+    )
+    writer.write(row)
+    with pytest.raises(DecisionCaptureError, match="duplicate decision key"):
+        writer.write(row)
+
+
+def test_load_decision_trace_gzip_roundtrip(tmp_path, trace_context, prepared, capture_fixture):
+    request, _state = capture_fixture
+    path = tmp_path / "trace.jsonl.gz"
+    writer = DecisionTraceWriter(path)
+    writer.write(build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose="/choose move 1 1, move 2 2|7", trace=None,
+        decision_index=0, decision_latency_ms=1.0,
+    ))
+    writer.write(build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose="/choose move 1 1, move 2 2|7", trace=None,
+        decision_index=1, decision_latency_ms=2.0,
+    ))
+    rows = load_decision_trace(path)
+    assert [r["decision_index"] for r in rows] == [0, 1]
+
+
+def test_writer_refuses_nonempty_existing_output(tmp_path, trace_context, prepared, capture_fixture):
+    request, _state = capture_fixture
+    path = tmp_path / "trace.jsonl"
+    path.write_text("not empty\n", encoding="utf-8")
+    with pytest.raises(DecisionCaptureError, match="missing or empty"):
+        DecisionTraceWriter(path)

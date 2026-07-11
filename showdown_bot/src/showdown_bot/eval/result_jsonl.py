@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 REQUIRED_FIELDS = frozenset({
     "battle_id", "run_id", "config_id", "format_id", "config_hash", "schedule_hash", "seed_index",
@@ -27,6 +28,10 @@ NULLABLE_FIELDS = frozenset({
     # hashing failed (never fails the battle record) or absent for legacy rows written
     # before this field existed -- every consumer must tolerate both.
     "normalized_room_log_sha256",
+    # Task 3 (decision sidecar binding): count + sha256 of the per-battle decision trace
+    # sidecar file. Both null/absent when decision capture is off (the default) or for
+    # legacy rows written before this field existed -- every consumer must tolerate both.
+    "decision_trace_count", "decision_trace_sha256",
 })
 _WINNERS = frozenset({"hero", "villain", "tie"})
 # T3f Task 5: how the battle ended. "normal" = ordinary |win|/|tie|; the others are
@@ -79,6 +84,14 @@ def validate_battle_row(row: dict) -> None:
     unknown = set(row) - REQUIRED_FIELDS - NULLABLE_FIELDS
     if unknown:
         raise ResultRowError(f"unknown fields: {sorted(unknown)}")
+    count = row.get("decision_trace_count")
+    digest = row.get("decision_trace_sha256")
+    if (count is None) != (digest is None):
+        raise ResultRowError("decision trace count and sha256 must be present together")
+    if count is not None and (not isinstance(count, int) or count <= 0):
+        raise ResultRowError("decision_trace_count must be a positive int")
+    if digest is not None and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None):
+        raise ResultRowError("decision_trace_sha256 must be lowercase sha256 hex")
 
 
 def to_jsonl_line(row: dict) -> str:
