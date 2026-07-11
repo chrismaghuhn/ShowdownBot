@@ -170,6 +170,48 @@ def test_failsafe_schema_hash_mismatch_returns_heuristic_choose(decision_fixture
     assert result == heuristic_choose
 
 
+# ---------------------------------------------------------------------------
+# candidate-vs-baseline-diff Task 1: selection-stage / fallback-reason
+# telemetry -- pure side effect on the passed trace, choice strings unchanged
+# (see the assertions above, which still pin the same returned choose values).
+# ---------------------------------------------------------------------------
+
+def test_override_marks_selection_stage(decision_fixture):
+    tr, state, req, heuristic_choose, side = _run_decision(decision_fixture)
+    manifest, _rows = _manifest_for(tr, state, req, side)
+    scores = [0.0] * len(tr.candidates)
+    scores[-1] = 100.0
+    override = RerankerOverride(
+        booster=_StubBooster(scores, manifest["feature_names"]),
+        manifest=manifest, format_id=FORMAT_ID,
+    )
+    out = override.override_choice(
+        trace=tr, state=state, request=req,
+        heuristic_choose=heuristic_choose, our_side=side,
+    )
+    assert out != heuristic_choose
+    assert tr.selection_stage == "reranker_override"
+    assert tr.fallback_reason is None
+
+
+def test_schema_failure_marks_heuristic_failsafe(decision_fixture):
+    tr, state, req, heuristic_choose, side = _run_decision(decision_fixture)
+    manifest, _rows = _manifest_for(tr, state, req, side)
+    bad_manifest = dict(manifest)
+    bad_manifest["feature_schema_hash"] = "deadbeef"
+    override = RerankerOverride(
+        booster=_StubBooster([1.0] * len(tr.candidates), manifest["feature_names"]),
+        manifest=bad_manifest, format_id=FORMAT_ID,
+    )
+    out = override.override_choice(
+        trace=tr, state=state, request=req,
+        heuristic_choose=heuristic_choose, our_side=side,
+    )
+    assert out == heuristic_choose
+    assert tr.selection_stage == "heuristic"
+    assert tr.fallback_reason == "reranker_schema_mismatch"
+
+
 def test_failsafe_booster_feature_order_mismatch_returns_heuristic_choose(decision_fixture):
     tr, state, req, heuristic_choose, side = _run_decision(decision_fixture)
     manifest, _rows = _manifest_for(tr, state, req, side)

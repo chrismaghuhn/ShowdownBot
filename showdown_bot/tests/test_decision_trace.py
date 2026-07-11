@@ -27,6 +27,12 @@ def test_dtos_construct_with_defaults():
     assert ct.candidate_id == "x" and ct.rank == 0
 
 
+def test_selection_telemetry_defaults_to_none():
+    trace = DecisionTrace()
+    assert trace.selection_stage is None
+    assert trace.fallback_reason is None
+
+
 # ---------------------------------------------------------------------------
 # Fakes — mirrors of test_decision_replay.py fakes (no live server needed)
 # ---------------------------------------------------------------------------
