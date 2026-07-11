@@ -8,12 +8,18 @@ imported by the live path -- see the package docstring / README invariant).
 from __future__ import annotations
 
 import hashlib
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 import showdown_bot.research.vgc_bench_ingest as vgc_bench_ingest
 from showdown_bot.eval.battle_parse import parse_battle_result
+from showdown_bot.research.vgc_bench_ingest.format_gate import (
+    FormatGateResult,
+    gate_format,
+)
 from showdown_bot.research.vgc_bench_ingest.load_raw import load_raw
 from showdown_bot.research.vgc_bench_ingest.parse_log import parse_battle
 from showdown_bot.research.vgc_bench_ingest.schema import (
@@ -230,10 +236,171 @@ def test_build_sample_manifest_is_pure_same_inputs_same_output():
     assert build_sample_manifest(**kwargs) == build_sample_manifest(**kwargs)
 
 
-# --- package isolation docstring (full guard test lands in Task 2) --------------
+# --- package isolation docstring ----------------------------------------------
 
 
 def test_package_docstring_states_the_live_path_isolation_invariant():
     doc = vgc_bench_ingest.__doc__ or ""
     assert "MUST NOT be imported" in doc
     assert "live" in doc.lower()
+
+
+# --- format_gate: gate_format (2b-5a Part A Task 2) -----------------------------
+
+
+def test_gate_format_reg_i_machine_id_is_target_compatible():
+    result = gate_format("gen9vgc2025regi")
+    assert isinstance(result, FormatGateResult)
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "I"
+    assert result.is_bo3 is False
+    assert result.source_format == "gen9vgc2025regi"
+
+
+def test_gate_format_reg_i_raw_human_tier_string_is_target_compatible():
+    # Both accepted input forms: the raw human tier string parse_log.parse_battle
+    # captures on VgcBenchRawBattle.format_name, and the machine format id.
+    result = gate_format("[Gen 9] VGC 2025 Reg I")
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "I"
+    assert result.is_bo3 is False
+
+
+def test_gate_format_reg_i_2026_is_also_target_compatible():
+    result = gate_format("gen9vgc2026regi")
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "I"
+
+
+def test_gate_format_reg_i_end_to_end_from_the_task1_fixture():
+    # Ties Task 1's parser output directly into the Task 2 gate.
+    epoch, log = _regi_entry()
+    battle = parse_battle("battle-vgcbench-regi-001", epoch, log)
+    result = gate_format(battle.format_name)
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "I"
+
+
+def test_gate_format_reg_i_bo3_is_target_compatible_and_tagged_bo3():
+    result = gate_format("gen9vgc2025regibo3")
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "I"
+    assert result.is_bo3 is True
+
+
+def test_gate_format_reg_i_bo3_raw_human_tier_string_variant():
+    result = gate_format("[Gen 9] VGC 2025 Reg I (Bo3)")
+    assert result.compatibility == "TARGET_COMPATIBLE"
+    assert result.is_bo3 is True
+
+
+def test_gate_format_regma_is_mechanically_similar_never_target_compatible():
+    result = gate_format("gen9vgc2025regma")
+    assert result.compatibility == "MECHANICALLY_SIMILAR_BUT_NOT_TARGET"
+    assert result.compatibility != "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "M-A"
+    # Explicit hard-rule assertion: MA must never be classified as Reg I.
+    assert result.inferred_regulation != "I"
+
+
+def test_gate_format_regmb_is_mechanically_similar_never_target_compatible():
+    result = gate_format("gen9vgc2025regmb")
+    assert result.compatibility == "MECHANICALLY_SIMILAR_BUT_NOT_TARGET"
+    assert result.compatibility != "TARGET_COMPATIBLE"
+    assert result.inferred_regulation == "M-B"
+    assert result.inferred_regulation != "I"
+
+
+def test_gate_format_regma_raw_human_tier_string_end_to_end_from_fixture():
+    # Ties Task 1's MA fixture directly into the Task 2 hard rule: MA/MB has
+    # zero Reg I data and must never be laundered into TARGET_COMPATIBLE.
+    epoch, log = _regma_entry()
+    battle = parse_battle("battle-vgcbench-regma-002", epoch, log)
+    result = gate_format(battle.format_name)
+    assert result.compatibility == "MECHANICALLY_SIMILAR_BUT_NOT_TARGET"
+    assert result.inferred_regulation == "M-A"
+    assert "not" in result.reason.lower()
+
+
+def test_gate_format_other_gen9_vgc_regulation_is_mechanically_similar():
+    result = gate_format("gen9vgc2025regh")
+    assert result.compatibility == "MECHANICALLY_SIMILAR_BUT_NOT_TARGET"
+    assert result.inferred_regulation == "H"
+
+
+def test_gate_format_gen9ou_is_rejected_as_format_mismatch():
+    result = gate_format("gen9ou")
+    assert result.compatibility == "REJECT_FORMAT_MISMATCH"
+    assert result.inferred_regulation is None
+
+
+def test_gate_format_gen8vgc_is_rejected_as_format_mismatch():
+    result = gate_format("[Gen 8] VGC 2023 Reg E")
+    assert result.compatibility == "REJECT_FORMAT_MISMATCH"
+
+
+def test_gate_format_garbage_string_is_rejected_as_unknown():
+    result = gate_format("not a pokemon format at all")
+    assert result.compatibility == "REJECT_UNKNOWN_FORMAT"
+    assert result.inferred_regulation is None
+    assert result.is_bo3 is None
+
+
+def test_gate_format_empty_string_is_rejected_as_unknown():
+    result = gate_format("")
+    assert result.compatibility == "REJECT_UNKNOWN_FORMAT"
+    assert result.is_bo3 is None
+
+
+def test_gate_format_source_format_preserves_original_input_string():
+    original = "[Gen 9] VGC 2025 Reg I"
+    result = gate_format(original)
+    assert result.source_format == original
+
+
+def test_gate_format_reason_is_a_nonempty_human_string():
+    for fmt in ("gen9vgc2025regi", "gen9vgc2025regma", "gen9ou", "garbage"):
+        result = gate_format(fmt)
+        assert isinstance(result.reason, str)
+        assert result.reason
+
+
+# --- format_gate: live-path isolation guard -------------------------------------
+
+
+def test_live_path_modules_do_not_transitively_import_vgc_bench_ingest():
+    """Runtime isolation check (INV-1), run in a fresh subprocess so no other
+    test's import of vgc_bench_ingest can contaminate ``sys.modules`` first.
+    """
+    probe = (
+        "import sys\n"
+        "import showdown_bot.battle.decision\n"
+        "import showdown_bot.client.gauntlet\n"
+        "import showdown_bot.learning.reranker_shadow\n"
+        "import showdown_bot.learning.export_runtime\n"
+        "leaked = [m for m in sys.modules if 'vgc_bench_ingest' in m]\n"
+        "assert not leaked, f'live path leaked vgc_bench_ingest import: {leaked}'\n"
+        "print('ISOLATION_OK')\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ISOLATION_OK" in result.stdout
+
+
+def test_live_path_source_files_do_not_reference_vgc_bench_ingest_by_name():
+    """Belt-and-suspenders static check alongside the runtime probe above:
+    no live-path source file should even mention the package by name.
+    """
+    src_root = Path(vgc_bench_ingest.__file__).parent.parent.parent
+    live_path_dirs = ["battle", "learning", "client"]
+    offenders = []
+    for dir_name in live_path_dirs:
+        for path in (src_root / dir_name).rglob("*.py"):
+            if "vgc_bench_ingest" in path.read_text(encoding="utf-8"):
+                offenders.append(str(path))
+    assert offenders == []
