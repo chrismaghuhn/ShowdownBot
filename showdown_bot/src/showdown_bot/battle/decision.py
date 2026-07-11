@@ -615,6 +615,16 @@ def _maybe_tera(
     return best
 
 
+def _mark_selection(trace, stage: str, reason: str | None = None) -> None:
+    """Pure side-effect telemetry marker: records which stage produced the
+    chosen ``/choose`` string (and, on a fallback, why) on the passed
+    ``DecisionTrace``. No-op when ``trace`` is None -- never influences which
+    branch ``choose_with_fallback`` takes or what it returns."""
+    if trace is not None:
+        trace.selection_stage = stage
+        trace.fallback_reason = reason
+
+
 def choose_with_fallback(
     req: BattleRequest,
     *,
@@ -632,8 +642,10 @@ def choose_with_fallback(
     skipped and the bot never crashes the battle loop.
     """
     if req.team_preview:
+        _mark_selection(trace, "team_preview")
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
+    fallback_reason: str | None = None
     if state is not None and book is not None:
         # NOTE: a ThreadPoolExecutor context manager would block in __exit__
         # waiting for the worker, defeating the timeout. We shut it down with
@@ -646,10 +658,14 @@ def choose_with_fallback(
                 heuristic_choose_for_request,
                 req, state=state, book=book, our_side=our_side, report=report, trace=trace, **deps,
             )
-            return fut.result(timeout=hard_timeout)
+            choice = fut.result(timeout=hard_timeout)
+            _mark_selection(trace, "heuristic")
+            return choice
         except FutureTimeout:
+            fallback_reason = "heuristic_timeout"
             logger.warning("heuristic timed out after %ss, falling back", hard_timeout)
         except Exception as exc:  # noqa: BLE001 - intentional catch-all for robustness
+            fallback_reason = "heuristic_error"
             logger.warning("heuristic failed, falling back: %s", exc)
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -658,13 +674,19 @@ def choose_with_fallback(
         from showdown_bot.battle.baselines import max_damage_choice
 
         if state is not None and book is not None:
-            return max_damage_choice(req, state=state, book=book, our_side=our_side, **deps)
+            choice = max_damage_choice(req, state=state, book=book, our_side=our_side, **deps)
+            _mark_selection(trace, "max_damage_fallback", fallback_reason)
+            return choice
     except Exception as exc:  # noqa: BLE001
+        fallback_reason = "max_damage_error"
         logger.warning("max_damage fallback failed: %s", exc)
 
     try:
-        return encode_choose(pick_default_pair(req), rqid=req.rqid)
+        choice = encode_choose(pick_default_pair(req), rqid=req.rqid)
+        _mark_selection(trace, "deterministic_default_pair", fallback_reason)
+        return choice
     except Exception as exc:  # noqa: BLE001
         logger.warning("random fallback failed: %s", exc)
 
+    _mark_selection(trace, "server_default", "default_pair_error")
     return f"/choose default|{req.rqid}"

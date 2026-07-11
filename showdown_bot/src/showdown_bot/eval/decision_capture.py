@@ -1,0 +1,306 @@
+"""Canonical observable pre-states and `/choose` actions for decision capture.
+
+This is an offline module: it does not touch the live battle path. It exists
+so that a decision sidecar can bind each hero decision to a deterministic
+hash of what was actually visible to the bot at decision time (never
+outcomes, winners, future logs, or un-revealed information).
+"""
+from __future__ import annotations
+
+import gzip
+import hashlib
+import json
+import math
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+from showdown_bot.engine.state import BattleState, PokemonState, to_id
+from showdown_bot.models.request import BattleRequest
+
+TRACE_SCHEMA_VERSION = "decision-trace-v1"
+PROTECT_IDS = frozenset({
+    "protect", "detect", "wideguard", "quickguard", "spikyshield",
+    "kingsshield", "banefulbunker", "silktrap", "burningbulwark", "maxguard",
+})
+
+
+class DecisionCaptureError(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
+class PreparedCapture:
+    observable_state_hash: str
+    request_hash: str
+    state_summary: dict
+    decision_phase: str
+
+
+def _canonical_json(payload: object) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256(payload: object) -> str:
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def _pokemon_payload(mon: PokemonState) -> dict:
+    return {
+        "species": mon.species,
+        "nickname": mon.nickname,
+        "level": mon.level,
+        "gender": mon.gender,
+        "hp": mon.hp,
+        "max_hp": mon.max_hp,
+        "boosts": dict(sorted(mon.boosts.items())),
+        "status": mon.status,
+        "item": mon.item if mon.item_known else None,
+        "item_known": mon.item_known,
+        "ability": mon.ability,
+        "moves": sorted(mon.moves),
+        "tera_type": mon.tera_type,
+        "terastallized": mon.terastallized,
+        "fainted": mon.fainted,
+        "types": list(mon.types),
+        "consecutive_protect": mon.consecutive_protect,
+        "moved_since_switch": mon.moved_since_switch,
+        "item_lost": mon.item_lost,
+    }
+
+
+def observable_state_payload(state: BattleState | None) -> dict | None:
+    if state is None:
+        return None
+    return {
+        "turn": state.turn,
+        "field": {
+            "weather": state.field.weather,
+            "terrain": state.field.terrain,
+            "trick_room": state.field.trick_room,
+            "tailwind": dict(sorted(state.field.tailwind.items())),
+        },
+        "sides": {
+            side: {slot: _pokemon_payload(mon) for slot, mon in sorted(slots.items())}
+            for side, slots in sorted(state.sides.items())
+        },
+    }
+
+
+def request_payload(request: BattleRequest) -> dict:
+    return request.model_dump(mode="json", by_alias=True, exclude_none=False)
+
+
+def prepare_capture(state: BattleState | None, request: BattleRequest) -> PreparedCapture:
+    state_payload = observable_state_payload(state)
+    req_payload = request_payload(request)
+    if request.team_preview:
+        phase = "team_preview"
+    elif request.force_switch is not None and any(request.force_switch):
+        phase = "forced_replacement"
+    else:
+        phase = "regular_turn"
+    return PreparedCapture(
+        observable_state_hash=_sha256({"state": state_payload, "request": req_payload}),
+        request_hash=_sha256(req_payload),
+        state_summary=state_payload or {"turn": 0, "field": {}, "sides": {}},
+        decision_phase=phase,
+    )
+
+
+_MOVE_RE = re.compile(r"^move (?P<index>\d+)(?: (?P<target>-?\d+))?(?: (?P<tera>terastallize))?$")
+
+
+def _slot_action(token: str, request: BattleRequest, slot_index: int) -> dict:
+    token = " ".join(token.strip().lower().split())
+    if token == "pass":
+        return {"kind": "pass"}
+    if token.startswith("switch "):
+        target = token[len("switch "):].strip()
+        if not target:
+            raise DecisionCaptureError("empty switch target")
+        return {"kind": "switch", "switch_target": to_id(target)}
+    match = _MOVE_RE.fullmatch(token)
+    if match is None:
+        raise DecisionCaptureError(f"unsupported slot action: {token!r}")
+    move_index = int(match.group("index"))
+    active = request.active[slot_index] if slot_index < len(request.active) else None
+    if active is None or not 1 <= move_index <= len(active.moves):
+        raise DecisionCaptureError(f"move index {move_index} unavailable for slot {slot_index}")
+    move_id = to_id(active.moves[move_index - 1].id)
+    return {
+        "kind": "move",
+        "move_index": move_index,
+        "move_id": move_id,
+        "target": int(match.group("target")) if match.group("target") is not None else None,
+        "tera": match.group("tera") is not None,
+        "is_protect": move_id in PROTECT_IDS,
+    }
+
+
+def normalize_choose(choose: str, request: BattleRequest) -> dict:
+    if not choose.startswith("/choose "):
+        raise DecisionCaptureError(f"not a /choose command: {choose!r}")
+    body = choose[len("/choose "):].split("|", 1)[0].strip()
+    if body == "default":
+        return {"kind": "default"}
+    if body.startswith("team "):
+        order = body[len("team "):].strip()
+        if not order.isdigit():
+            raise DecisionCaptureError(f"invalid team preview order: {order!r}")
+        return {"kind": "team_preview", "order": [int(ch) for ch in order]}
+    tokens = body.split(", ")
+    if len(tokens) != 2:
+        raise DecisionCaptureError(f"expected two slot actions: {body!r}")
+    slots = [_slot_action(token, request, i) for i, token in enumerate(tokens)]
+    return {"kind": "joint", "slots": slots}
+
+
+# ---------------------------------------------------------------------------
+# Sidecar trace rows: validate, write, load, and bind to battles.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class BattleTraceContext:
+    battle_id: str
+    seed_index: int
+    config_id: str
+    config_hash: str
+    schedule_hash: str
+    format_id: str
+    git_sha: str
+    our_side: str = "p1"
+
+
+def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
+                    request: BattleRequest, choose: str, trace, decision_index: int,
+                    decision_latency_ms: float,
+                    selection_stage_override: str | None = None,
+                    fallback_reason_override: str | None = None) -> dict:
+    candidates = [] if trace is None else [
+        {"candidate_id": c.candidate_id, "rank": c.rank, "aggregate_score": c.aggregate_score}
+        for c in trace.candidates
+    ]
+    row = {
+        "trace_schema_version": TRACE_SCHEMA_VERSION,
+        "battle_id": context.battle_id,
+        "seed_index": context.seed_index,
+        "decision_index": decision_index,
+        "turn_number": prepared.state_summary.get("turn", 0),
+        "our_side": context.our_side,
+        "config_id": context.config_id,
+        "config_hash": context.config_hash,
+        "schedule_hash": context.schedule_hash,
+        "format_id": context.format_id,
+        "git_sha": context.git_sha,
+        "observable_state_hash": prepared.observable_state_hash,
+        "request_hash": prepared.request_hash,
+        "decision_phase": prepared.decision_phase,
+        "state_summary": prepared.state_summary,
+        "actual_choose_string": choose,
+        "normalized_action": normalize_choose(choose, request),
+        "chosen_candidate_id": None if trace is None else trace.chosen_candidate_id,
+        "chosen_rank": next((c.rank for c in trace.candidates
+                             if c.candidate_id == trace.chosen_candidate_id), None)
+                       if trace is not None else None,
+        "candidates": candidates,
+        "selection_stage": selection_stage_override if selection_stage_override is not None else
+                           (None if trace is None else trace.selection_stage),
+        "fallback_reason": fallback_reason_override if fallback_reason_override is not None else
+                           (None if trace is None else trace.fallback_reason),
+        "decision_latency_ms": float(decision_latency_ms),
+    }
+    validate_trace_row(row)
+    return row
+
+
+_REQUIRED_TRACE_FIELDS = frozenset({
+    "trace_schema_version", "battle_id", "seed_index", "decision_index", "turn_number",
+    "our_side", "config_id", "config_hash", "schedule_hash", "format_id", "git_sha",
+    "observable_state_hash", "request_hash", "decision_phase", "state_summary",
+    "actual_choose_string", "normalized_action", "candidates", "decision_latency_ms",
+})
+_NULLABLE_TRACE_FIELDS = frozenset({
+    "chosen_candidate_id", "chosen_rank", "selection_stage", "fallback_reason",
+})
+
+
+def validate_trace_row(row: dict) -> None:
+    missing = _REQUIRED_TRACE_FIELDS - set(row)
+    unknown = set(row) - _REQUIRED_TRACE_FIELDS - _NULLABLE_TRACE_FIELDS
+    if missing or unknown:
+        raise DecisionCaptureError(f"trace fields missing={sorted(missing)} unknown={sorted(unknown)}")
+    if row["trace_schema_version"] != TRACE_SCHEMA_VERSION:
+        raise DecisionCaptureError("unknown trace schema version")
+    if row["decision_phase"] not in {"team_preview", "forced_replacement", "regular_turn"}:
+        raise DecisionCaptureError("unknown decision phase")
+    for key in ("seed_index", "decision_index", "turn_number"):
+        if not isinstance(row[key], int) or row[key] < 0:
+            raise DecisionCaptureError(f"{key} must be a non-negative int")
+    for key in ("observable_state_hash", "request_hash"):
+        if not isinstance(row[key], str) or re.fullmatch(r"[0-9a-f]{64}", row[key]) is None:
+            raise DecisionCaptureError(f"{key} must be lowercase sha256 hex")
+    if not isinstance(row["decision_latency_ms"], (int, float)) or not math.isfinite(row["decision_latency_ms"]):
+        raise DecisionCaptureError("decision_latency_ms must be finite")
+    for candidate in row["candidates"]:
+        score = candidate["aggregate_score"]
+        if not isinstance(score, (int, float)) or not math.isfinite(score):
+            raise DecisionCaptureError("candidate aggregate_score must be finite")
+
+
+def _open_text(path, mode: str):
+    path = Path(path)
+    return gzip.open(path, mode + "t", encoding="utf-8", newline="\n") \
+        if path.suffix == ".gz" else open(path, mode, encoding="utf-8", newline="\n")
+
+
+class DecisionTraceWriter:
+    def __init__(self, path):
+        self.path = Path(path)
+        if self.path.exists() and self.path.stat().st_size:
+            raise DecisionCaptureError(f"trace output must be missing or empty: {self.path}")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._keys = set()
+        self._lines_by_battle = {}
+        self._errors_by_battle = {}
+
+    def write(self, row: dict) -> None:
+        battle_id = str(row.get("battle_id", ""))
+        try:
+            validate_trace_row(row)
+            key = (battle_id, row["decision_index"], row["our_side"])
+            if key in self._keys:
+                raise DecisionCaptureError(f"duplicate decision key: {key!r}")
+            line = _canonical_json(row) + "\n"
+            with _open_text(self.path, "a") as fh:
+                fh.write(line)
+            self._keys.add(key)
+            self._lines_by_battle.setdefault(battle_id, []).append(line.encode("utf-8"))
+        except Exception as exc:
+            self._errors_by_battle.setdefault(battle_id, []).append(str(exc))
+            raise
+
+    def finish_battle(self, battle_id: str) -> dict:
+        errors = self._errors_by_battle.get(battle_id, [])
+        if errors:
+            raise DecisionCaptureError(f"battle {battle_id} capture errors: {errors}")
+        lines = self._lines_by_battle.get(battle_id, [])
+        if not lines:
+            raise DecisionCaptureError(f"battle {battle_id} has no decision rows")
+        return {
+            "decision_trace_count": len(lines),
+            "decision_trace_sha256": hashlib.sha256(b"".join(lines)).hexdigest(),
+        }
+
+
+def load_decision_trace(path) -> list[dict]:
+    rows = []
+    with _open_text(path, "r") as fh:
+        for line_number, line in enumerate(fh, 1):
+            try:
+                row = json.loads(line)
+                validate_trace_row(row)
+            except Exception as exc:
+                raise DecisionCaptureError(f"{path}:{line_number}: {exc}") from exc
+            rows.append(row)
+    return rows

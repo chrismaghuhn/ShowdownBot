@@ -13,9 +13,11 @@ from pathlib import Path
 
 import pytest
 
+from showdown_bot.battle import decision
 from showdown_bot.battle.actions import enumerate_my_actions
 from showdown_bot.battle.baselines import max_damage_choice
 from showdown_bot.battle.decision import choose_with_fallback, heuristic_choose_for_request
+from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.battle.legal_actions import enumerate_slot_pairs
 from showdown_bot.battle.random_agent import pick_default_pair
 from showdown_bot.engine.belief.hypotheses import load_spread_book
@@ -352,3 +354,33 @@ def test_max_damage_default_fallback_is_deterministic(monkeypatch):
     }
     assert len(results) == 1, results
     assert next(iter(results)).startswith("/choose ")
+
+
+# ---------------------------------------------------------------------------
+# candidate-vs-baseline-diff Task 1: selection-stage / fallback-reason
+# telemetry on choose_with_fallback -- pure side effect on the passed trace,
+# the choice strings themselves are unchanged (see test_choose_with_fallback_
+# last_resort_is_deterministic / test_max_damage_default_fallback_is_
+# deterministic above, which still assert on the SAME choice strings).
+# ---------------------------------------------------------------------------
+
+
+def test_choose_with_fallback_marks_heuristic_stage(decision_fixture):
+    req, kw = decision_fixture
+    trace = DecisionTrace()
+    out = choose_with_fallback(req, trace=trace, **kw)
+    assert out.startswith("/choose ")
+    assert trace.selection_stage == "heuristic"
+    assert trace.fallback_reason is None
+
+
+def test_choose_with_fallback_marks_server_default(monkeypatch):
+    req = _f4_request()
+    trace = DecisionTrace()
+    monkeypatch.setattr(
+        decision, "pick_default_pair", lambda req: (_ for _ in ()).throw(RuntimeError("no pair"))
+    )
+    out = choose_with_fallback(req, state=None, book=None, trace=trace)
+    assert out == f"/choose default|{req.rqid}"
+    assert trace.selection_stage == "server_default"
+    assert trace.fallback_reason == "default_pair_error"

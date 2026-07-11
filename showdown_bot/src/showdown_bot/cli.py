@@ -165,22 +165,54 @@ def run_schedule(args) -> None:
         manifest_out = write_run_manifest(result_out, manifest)
         print(f"  run manifest -> {manifest_out} (run_id={run_id})")
 
+    # Task 4 (candidate-vs-baseline-diff): optional per-battle hero decision sidecar. Off by
+    # default (decision_trace_out unset -> trace_writer stays None, byte-identical to every
+    # prior run_schedule call). Requires --result-out (the trace binds into that row) --
+    # transitively also requires SHOWDOWN_BATTLE_SEED_BASE, since --result-out already does.
+    trace_out = getattr(args, "decision_trace_out", "")
+    trace_writer = None
+    if trace_out:
+        if not result_out:
+            raise SystemExit("--decision-trace-out requires --result-out")
+        from showdown_bot.eval.decision_capture import BattleTraceContext, DecisionTraceWriter
+
+        trace_writer = DecisionTraceWriter(trace_out)
+        print(f"  decision trace -> {trace_out}")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
             on_br = None
+            trace_context = None
             if writer is not None:
-                def on_br(record, _row=row):  # noqa: B023 - _row default-arg captures this iteration
-                    seed = derive_battle_seed(base, _row.seed_index)
-                    config_id, format_id = hero_agent, _row.format_id  # bot version vs format (Fix 1)
+                # Seed/battle_id/config_id/config_hash computed ONCE per battle, BEFORE the
+                # battle runs (Task 4 needs battle_id up front to build trace_context) and
+                # reused by on_br below instead of being recomputed at battle-end.
+                seed = derive_battle_seed(base, row.seed_index)
+                battle_id = make_battle_id(sched.schedule_hash, row.seed_index, seed)
+                config_id, row_format_id = hero_agent, row.format_id  # bot version vs format (Fix 1)
+                config_hash = _config_hash_for(config_id, row_format_id)
+                if trace_writer is not None:
+                    trace_context = BattleTraceContext(
+                        battle_id=battle_id, seed_index=row.seed_index, config_id=config_id,
+                        config_hash=config_hash, schedule_hash=sched.schedule_hash,
+                        format_id=row_format_id, git_sha=git_sha,
+                    )
+
+                def on_br(record, _row=row, _battle_id=battle_id, _seed=seed,
+                          _config_id=config_id, _format_id=row_format_id,
+                          _config_hash=config_hash):  # noqa: B023 - defaults capture this iteration
+                    # Task 4: bind the sidecar's count/sha256 into this row. {} (both None) when
+                    # capture is off -- decision_trace_count/_sha256 are nullable fields.
+                    trace_binding = trace_writer.finish_battle(_battle_id) if trace_writer is not None else {}
                     writer.write({
-                        "battle_id": make_battle_id(sched.schedule_hash, _row.seed_index, seed),
+                        "battle_id": _battle_id,
                         "run_id": run_id,  # T3f Task 3: constant across the run; matches manifest.run_id
-                        "config_id": config_id, "format_id": format_id,
-                        "config_hash": _config_hash_for(config_id, format_id),
+                        "config_id": _config_id, "format_id": _format_id,
+                        "config_hash": _config_hash,
                         "schedule_hash": sched.schedule_hash, "seed_index": _row.seed_index,
                         "opp_policy": _row.opp_policy, "hero_team_path": _row.hero_team_path,
-                        "opp_team_path": _row.opp_team_path, "seed": seed,
+                        "opp_team_path": _row.opp_team_path, "seed": _seed,
                         # T3f Task 2: raw base string (SHOWDOWN_BATTLE_SEED_BASE), NOT re-derived
                         # from seed. Lets T5 pair on (schedule_hash, seed_base, seed_index).
                         "seed_base": base, "git_sha": git_sha,
@@ -188,7 +220,10 @@ def run_schedule(args) -> None:
                         # Provenance from the schedule row (legacy schedules -> null).
                         "hero_team_hash": _row.hero_team_hash, "opp_team_hash": _row.opp_team_hash,
                         "panel_split": _row.panel_split,  # T3f Task 4: "dev"/"heldout" or null
-                        "timeouts": None, "panel_hash": sched.panel_hash, **record,
+                        "timeouts": None, "panel_hash": sched.panel_hash,
+                        "decision_trace_count": trace_binding.get("decision_trace_count"),
+                        "decision_trace_sha256": trace_binding.get("decision_trace_sha256"),
+                        **record,
                     })
                     written.append(_row.seed_index)
 
@@ -202,6 +237,8 @@ def run_schedule(args) -> None:
                     opp_team_path=row.opp_team_path,
                     on_battle_result=on_br,
                     export_runtime=export_runtime,  # 2b-2.5a: SAME runtime for every row
+                    decision_trace_writer=trace_writer,  # Task 4: None unless --decision-trace-out
+                    decision_trace_context=trace_context,
                 )
             )
             totals["games"] += stats.games
@@ -319,6 +356,80 @@ def run_eval_report(args) -> None:
         raise SystemExit(1)
 
 
+def _run_decision_diff_impl(args) -> None:
+    """Task 9: offline candidate-vs-baseline decision-diff report.
+
+    Loads the baseline/candidate result JSONLs via the existing ``RunBundle.load`` (same
+    input-audit/tamper checks as ``eval-report``), optionally validates their decision-trace
+    sidecars (full mode), pairs+analyzes via ``analyze_decision_diff`` (which itself calls
+    ``pair_runs`` -- see decision_diff.py), and writes ``report.md``/``report.json`` via
+    ``build_report_object``/``render_markdown``. ``--outcome-only`` skips sidecar loading
+    entirely and asks ``analyze_decision_diff`` for the outcome-only-flagged report (no
+    decision-claim); full mode (the default) hard-requires both trace paths so a caller can
+    never silently fall back to a weaker claim.
+    """
+    import json
+
+    from showdown_bot.eval.decision_capture import load_decision_trace
+    from showdown_bot.eval.decision_diff import analyze_decision_diff, validate_trace_run
+    from showdown_bot.eval.decision_diff_report import build_report_object, render_markdown
+    from showdown_bot.eval.panel import load_panel
+    from showdown_bot.eval.report import RunBundle
+
+    required = ("baseline_run", "baseline_seedlog", "candidate_run", "candidate_seedlog",
+                "schedule", "panel", "out")
+    missing = [name for name in required if not getattr(args, name, "")]
+    if missing:
+        raise SystemExit(f"decision-diff missing required inputs: {missing}")
+    if not args.outcome_only and (not args.baseline_trace or not args.candidate_trace):
+        raise SystemExit("full mode requires --baseline-trace and --candidate-trace")
+
+    baseline = RunBundle.load(
+        args.baseline_run, args.baseline_seedlog, args.schedule, args.panel,
+        teams_root=args.teams_root, room_raw_dir=args.baseline_room_raw or None,
+    )
+    candidate = RunBundle.load(
+        args.candidate_run, args.candidate_seedlog, args.schedule, args.panel,
+        teams_root=args.teams_root, room_raw_dir=args.candidate_room_raw or None,
+    )
+    baseline_trace = candidate_trace = None
+    if not args.outcome_only:
+        baseline_trace = validate_trace_run(baseline.rows, load_decision_trace(args.baseline_trace))
+        candidate_trace = validate_trace_run(candidate.rows, load_decision_trace(args.candidate_trace))
+    panel = load_panel(args.panel, teams_root=args.teams_root)
+    analysis = analyze_decision_diff(
+        baseline, candidate, panel=panel,
+        baseline_trace=baseline_trace, candidate_trace=candidate_trace,
+        outcome_only=args.outcome_only,
+        baseline_repeat=load_decision_trace(args.baseline_repeat_trace) if args.baseline_repeat_trace else None,
+        candidate_repeat=load_decision_trace(args.candidate_repeat_trace) if args.candidate_repeat_trace else None,
+    )
+    obj = build_report_object(analysis)
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.md").write_text(render_markdown(obj), encoding="utf-8", newline="\n")
+    (out / "report.json").write_text(
+        json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8", newline="\n",
+    )
+    print(f"decision-diff: wrote {out / 'report.md'} and {out / 'report.json'} "
+          f"(capability_mode={obj['capability_mode']})")
+
+
+def run_decision_diff(args) -> None:
+    from showdown_bot.eval.decision_capture import DecisionCaptureError
+    from showdown_bot.eval.decision_diff import DecisionDiffError
+    from showdown_bot.eval.pairing import PairingError
+    from showdown_bot.eval.report import LogIntegrityError, ReportInputError
+
+    try:
+        _run_decision_diff_impl(args)
+    except (PairingError, ReportInputError, LogIntegrityError,
+            DecisionCaptureError, DecisionDiffError) as exc:
+        print(f"decision-diff: input/integrity failure: {exc}")
+        raise SystemExit(1) from exc
+
+
 def run_gauntlet(args) -> None:
     import os
 
@@ -369,8 +480,9 @@ def main() -> None:
     parser.add_argument(
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
-                 "eval-report"],
-        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report",
+                 "eval-report", "decision-diff"],
+        help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
+        "decision-diff",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -452,6 +564,12 @@ def main() -> None:
         "non-existing or empty; requires SHOWDOWN_BATTLE_SEED_BASE.",
     )
     parser.add_argument(
+        "--decision-trace-out",
+        dest="decision_trace_out",
+        default="",
+        help="Optional hero decision sidecar for gauntlet --schedule; requires --result-out.",
+    )
+    parser.add_argument(
         "--run-a",
         dest="run_a",
         default="",
@@ -519,6 +637,81 @@ def main() -> None:
         "raises LogIntegrityError (fail-closed, no partial verdict). Omit for the original "
         "behavior: byte-identical reports, no room_raw access.",
     )
+    parser.add_argument(
+        "--baseline-run",
+        dest="baseline_run",
+        default="",
+        help="Path to the baseline run's per-battle result JSONL (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--baseline-seedlog",
+        dest="baseline_seedlog",
+        default="",
+        help="Path to the baseline run's seed log (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--baseline-trace",
+        dest="baseline_trace",
+        default="",
+        help="Path to the baseline run's decision-trace sidecar (decision-diff full mode; "
+        "required unless --outcome-only).",
+    )
+    parser.add_argument(
+        "--baseline-repeat-trace",
+        dest="baseline_repeat_trace",
+        default="",
+        help="Optional second decision-trace sidecar for the baseline run, for the "
+        "determinism/stability block (decision-diff).",
+    )
+    parser.add_argument(
+        "--baseline-room-raw",
+        dest="baseline_room_raw",
+        default="",
+        help="Optional room_raw log directory for the baseline run (decision-diff; see "
+        "eval-report's --room-raw).",
+    )
+    parser.add_argument(
+        "--candidate-run",
+        dest="candidate_run",
+        default="",
+        help="Path to the candidate run's per-battle result JSONL (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--candidate-seedlog",
+        dest="candidate_seedlog",
+        default="",
+        help="Path to the candidate run's seed log (decision-diff, required).",
+    )
+    parser.add_argument(
+        "--candidate-trace",
+        dest="candidate_trace",
+        default="",
+        help="Path to the candidate run's decision-trace sidecar (decision-diff full mode; "
+        "required unless --outcome-only).",
+    )
+    parser.add_argument(
+        "--candidate-repeat-trace",
+        dest="candidate_repeat_trace",
+        default="",
+        help="Optional second decision-trace sidecar for the candidate run, for the "
+        "determinism/stability block (decision-diff).",
+    )
+    parser.add_argument(
+        "--candidate-room-raw",
+        dest="candidate_room_raw",
+        default="",
+        help="Optional room_raw log directory for the candidate run (decision-diff; see "
+        "eval-report's --room-raw).",
+    )
+    parser.add_argument(
+        "--outcome-only",
+        dest="outcome_only",
+        action="store_true",
+        help="decision-diff: run outcome-only mode from result rows alone (no decision-trace "
+        "sidecars required); the report is flagged capability_mode=outcome_only and carries "
+        "no decision-level claim. Default off (full mode), which requires --baseline-trace "
+        "and --candidate-trace.",
+    )
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 
@@ -536,6 +729,10 @@ def main() -> None:
 
     if args.command == "eval-report":
         run_eval_report(args)
+        return
+
+    if args.command == "decision-diff":
+        run_decision_diff(args)
         return
 
     settings = Settings.from_env()

@@ -154,6 +154,46 @@ def test_make_battle_id_deterministic():
     assert make_battle_id("h", 0, "sodium,00") != make_battle_id("h", 1, "sodium,00")
 
 
+def test_decision_trace_binding_fields_are_nullable():
+    # Task 3: decision_trace_count / decision_trace_sha256 bind a result row to its
+    # sidecar trace file. Absent (capture off / legacy row) -> ok, byte-identical to today.
+    assert "decision_trace_count" in NULLABLE_FIELDS
+    assert "decision_trace_sha256" in NULLABLE_FIELDS
+    row = _row()
+    assert "decision_trace_count" not in row and "decision_trace_sha256" not in row
+    validate_battle_row(row)  # absent -> ok, no KeyError
+
+
+def test_decision_trace_binding_fields_present_and_valid():
+    validate_battle_row(_row(decision_trace_count=3, decision_trace_sha256="a" * 64))
+
+
+def test_decision_trace_binding_fields_must_be_present_together():
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=3, decision_trace_sha256=None))
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=None, decision_trace_sha256="a" * 64))
+    validate_battle_row(_row(decision_trace_count=None, decision_trace_sha256=None))  # both null -> ok
+
+
+def test_decision_trace_count_must_be_positive_int():
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=0, decision_trace_sha256="a" * 64))
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=-1, decision_trace_sha256="a" * 64))
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count="3", decision_trace_sha256="a" * 64))
+
+
+def test_decision_trace_sha256_must_be_lowercase_hex():
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=1, decision_trace_sha256="A" * 64))  # uppercase
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=1, decision_trace_sha256="a" * 63))  # too short
+    with pytest.raises(ResultRowError):
+        validate_battle_row(_row(decision_trace_count=1, decision_trace_sha256=12345))  # not a string
+
+
 def test_writer_appends_and_validates(tmp_path):
     p = tmp_path / "results.jsonl"
     w = BattleResultWriter(str(p))

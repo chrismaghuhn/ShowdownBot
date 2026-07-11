@@ -57,3 +57,10 @@ class DecisionTrace:
     opponent_response_weights: list[float] = field(default_factory=list)
     candidates: list[CandidateTrace] = field(default_factory=list)  # ONLY exported top-K, rank-sorted
     tempo_features: DecisionTempoFeatures = field(default_factory=DecisionTempoFeatures)
+    # Optional selection/fallback telemetry (candidate-vs-baseline diff slice,
+    # Task 1). Pure side-effect fields set by decision.py / reranker_override.py
+    # -- they record WHICH stage produced the chosen /choose string and, on a
+    # fallback, WHY. Never read to make a decision; a decision-diff harness
+    # reads them offline.
+    selection_stage: str | None = None
+    fallback_reason: str | None = None

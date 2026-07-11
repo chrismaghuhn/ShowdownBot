@@ -26,6 +26,17 @@ from showdown_bot.protocol.encoder import encode_choose
 logger = logging.getLogger(__name__)
 
 
+def _fallback(trace, choose: str, reason: str) -> str:
+    """Pure side-effect telemetry marker for a failsafe return: records that
+    the FINAL choice is the heuristic's own (unchanged) and WHY the override
+    declined it. No-op when ``trace`` is None. Never influences ``choose`` --
+    it is returned exactly as passed in."""
+    if trace is not None:
+        trace.selection_stage = "heuristic"
+        trace.fallback_reason = reason
+    return choose
+
+
 class RerankerOverride:
     """Constructed from an already-loaded ``booster`` + ``manifest`` (like
     ``RerankerShadowRuntime``, but scores INLINE on the live decision path --
@@ -76,14 +87,14 @@ class RerankerOverride:
         failure. NEVER raises -- this is the whole fail-safe contract."""
         try:
             if not self._schema_ok:
-                return heuristic_choose
+                return _fallback(trace, heuristic_choose, "reranker_schema_mismatch")
             candidates = trace.candidates
             scores = score_candidates(
                 self.booster, self.manifest, trace=trace, state=state, request=request,
                 our_side=our_side, format_id=self.format_id, dex=self.dex, move_meta=self.move_meta,
             )
             if not scores or len(scores) != len(candidates):
-                return heuristic_choose
+                return _fallback(trace, heuristic_choose, "reranker_empty_or_misaligned_scores")
 
             # Explicit stable tie-break: strict '>' only replaces the current
             # best on a STRICTLY higher score, so the FIRST (lowest-index)
@@ -98,9 +109,14 @@ class RerankerOverride:
 
             joint_action = candidates[best_index].joint_action
             if not isinstance(joint_action, JointAction):
-                return heuristic_choose
+                return _fallback(trace, heuristic_choose, "reranker_non_joint_action")
             choose = encode_choose(joint_action.as_pair(), rqid=request.rqid)
-            return choose or heuristic_choose
+            if not choose:
+                return _fallback(trace, heuristic_choose, "reranker_empty_choose")
+            if trace is not None:
+                trace.selection_stage = "reranker_override"
+                trace.fallback_reason = None
+            return choose
         except Exception as exc:  # noqa: BLE001 - fail-safe, NEVER raises to the caller
             logger.debug("reranker override: fail-safe to heuristic choose: %s", exc)
-            return heuristic_choose
+            return _fallback(trace, heuristic_choose, "reranker_exception")

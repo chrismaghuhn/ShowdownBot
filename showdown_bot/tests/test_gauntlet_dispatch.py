@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -433,3 +434,90 @@ def test_load_reranker_override_from_env_failsafe_on_bad_model_path(monkeypatch,
     from showdown_bot.client.gauntlet import _load_reranker_override_from_env
 
     assert _load_reranker_override_from_env(format_id="gen9vgc2025regi") is None
+
+
+# ---------------------------------------------------------------------------
+# candidate-vs-baseline-diff Task 4: decision capture wired into handle_request.
+# THE INVARIANT: capture OFF (decision_trace_writer is None, the default) must be
+# byte-identical dispatch -- no DecisionTrace built for capture, no sidecar
+# write, no change to what the bot sends. These tests pin that golden and its
+# positive counterpart (capture ON writes a bound row, dispatch still unchanged).
+# ---------------------------------------------------------------------------
+
+
+class _RecordingConn:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, message):
+        self.sent.append(message)
+
+
+def test_capture_off_does_not_construct_decision_trace(monkeypatch, decision_fixture):
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    client = _client(conn=conn, agent="heuristic", book=kw["book"])
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+    monkeypatch.setattr(
+        gauntlet, "DecisionTrace",
+        lambda: (_ for _ in ()).throw(AssertionError("capture-off built DecisionTrace")),
+    )
+    client.decision_trace_writer = None
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]
+
+
+def test_capture_off_default_client_has_no_writer_or_context():
+    """Constructing a `_Client` the plain way (no capture kwargs, matching every caller that
+    predates Task 4) leaves capture fully disabled."""
+    client = _client(agent="heuristic")
+    assert client.decision_trace_writer is None
+    assert client.decision_trace_context is None
+    assert client._decision_capture_index == 0
+
+
+class _FakeCaptureWriter:
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def write(self, row):
+        self.rows.append(row)
+
+
+def test_capture_on_writes_bound_row_without_changing_dispatch(monkeypatch, decision_fixture):
+    """Capture ON: a row is written AFTER the send, bound to the given context, and the
+    dispatched /choose message is exactly the same as the capture-off golden above."""
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.eval.decision_capture import BattleTraceContext
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    context = BattleTraceContext(
+        battle_id="battle-x", seed_index=0, config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    writer = _FakeCaptureWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        decision_trace_writer=writer, decision_trace_context=context,
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch unchanged
+    assert len(writer.rows) == 1
+    row = writer.rows[0]
+    assert row["battle_id"] == "battle-x"
+    assert row["decision_index"] == 0
+    assert row["config_id"] == "heuristic"
+    assert row["actual_choose_string"] == f"/choose default|{req.rqid}"
+    assert row["decision_latency_ms"] >= 0
+    assert client._decision_capture_index == 1

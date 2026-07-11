@@ -82,6 +82,28 @@ python -m showdown_bot.cli eval-report --run-a /tmp/results.jsonl --seedlog-a /t
   --panel ../config/eval/panels/panel_v001.yaml --out /tmp/report
 ```
 
+### Candidate-vs-baseline decision differential (offline diagnostic)
+
+Off by default. Captures each hero decision to an optional sidecar during a schedule run, then
+diffs two runs' decisions and outcomes at the battle level (first policy/state divergence,
+matchup buckets, regressions, stability):
+
+```powershell
+python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/t4_smoke_v001.yaml `
+  --result-out /tmp/baseline.jsonl --decision-trace-out /tmp/baseline-trace.jsonl.gz
+
+python -m showdown_bot.cli decision-diff `
+  --baseline-run /tmp/baseline.jsonl --baseline-seedlog /tmp/baseline-seeds.jsonl `
+  --baseline-trace /tmp/baseline-trace.jsonl.gz `
+  --candidate-run /tmp/candidate.jsonl --candidate-seedlog /tmp/candidate-seeds.jsonl `
+  --candidate-trace /tmp/candidate-trace.jsonl.gz `
+  --schedule ../config/eval/schedules/t4_smoke_v001.yaml `
+  --panel ../config/eval/panels/panel_v001.yaml --out /tmp/decision-diff
+```
+
+This is diagnostic only; strength verdict remains `eval-report`; no held-out access is performed
+by this command.
+
 ### Ladder / challenge
 
 ```bash
