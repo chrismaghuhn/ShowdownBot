@@ -71,3 +71,108 @@ def validate_trace_run(result_rows: list[dict], trace_rows: list[dict]) -> Valid
         config_hash=next(iter(config_hashes)), schedule_hash=next(iter(schedule_hashes)),
         rows_by_battle={key: grouped[key] for key in sorted(grouped)},
     )
+
+
+@dataclass(frozen=True)
+class ActionDiff:
+    primary: str
+    markers: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BattleDecisionDiff:
+    battle_id: str
+    comparable: int
+    agreements: int
+    direct_divergences: tuple[dict, ...]
+    first_divergence: dict | None
+    state_divergence_index: int | None
+    baseline_suffix_count: int
+    candidate_suffix_count: int
+
+
+def classify_action_diff(baseline: dict, candidate: dict,
+                         *, baseline_stage: str | None = None,
+                         candidate_stage: str | None = None) -> ActionDiff:
+    markers = []
+    if baseline_stage != candidate_stage and (
+        "fallback" in (baseline_stage or "") or "fallback" in (candidate_stage or "")
+        or "default" in (baseline_stage or "") or "default" in (candidate_stage or "")
+    ):
+        return ActionDiff("FALLBACK", ("selection_stage_changed",))
+    bslots = baseline.get("slots", [])
+    cslots = candidate.get("slots", [])
+    for marker, predicate in (
+        ("tera_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("tera") != c.get("tera")),
+        ("switch_changed", lambda b, c: b.get("switch_target") != c.get("switch_target") or b.get("kind") != c.get("kind")),
+        ("protect_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("is_protect") != c.get("is_protect")),
+        ("move_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("move_id") != c.get("move_id")),
+        ("target_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("target") != c.get("target")),
+    ):
+        if any(predicate(b, c) for b, c in zip(bslots, cslots)):
+            markers.append(marker)
+    for marker, primary in (
+        ("tera_changed", "TERA"),
+        ("switch_changed", "SWITCH"),
+        ("protect_changed", "PROTECT"),
+        ("move_changed", "ATTACK_MOVE"),
+        ("target_changed", "ATTACK_TARGET"),
+    ):
+        if marker in markers:
+            return ActionDiff(primary, tuple(markers))
+    return ActionDiff("OTHER_ACTION", tuple(markers))
+
+
+def compare_battle_decisions(pair: str, baseline_rows: tuple[dict, ...],
+                             candidate_rows: tuple[dict, ...]) -> BattleDecisionDiff:
+    battle_id = pair
+    comparable = 0
+    agreements = 0
+    divergences: list[dict] = []
+    first_direct_divergence: dict | None = None
+    state_divergence_index: int | None = None
+    length = max(len(baseline_rows), len(candidate_rows))
+    for index in range(length):
+        baseline = baseline_rows[index] if index < len(baseline_rows) else None
+        candidate = candidate_rows[index] if index < len(candidate_rows) else None
+        one_side_missing = baseline is None or candidate is None
+        if one_side_missing:
+            if first_direct_divergence is None:
+                raise DecisionDiffError(f"{battle_id}: decision key missing before divergence")
+            return BattleDecisionDiff(
+                battle_id=battle_id, comparable=comparable, agreements=agreements,
+                direct_divergences=tuple(divergences), first_divergence=first_direct_divergence,
+                state_divergence_index=state_divergence_index,
+                baseline_suffix_count=len(baseline_rows) - index,
+                candidate_suffix_count=len(candidate_rows) - index,
+            )
+        if baseline["observable_state_hash"] != candidate["observable_state_hash"]:
+            state_divergence_index = index
+            return BattleDecisionDiff(
+                battle_id=battle_id, comparable=comparable, agreements=agreements,
+                direct_divergences=tuple(divergences), first_divergence=first_direct_divergence,
+                state_divergence_index=state_divergence_index,
+                baseline_suffix_count=len(baseline_rows) - index,
+                candidate_suffix_count=len(candidate_rows) - index,
+            )
+        comparable += 1
+        if baseline["normalized_action"] == candidate["normalized_action"]:
+            markers = ("score_rank_changed",) if baseline.get("chosen_rank") != candidate.get("chosen_rank") else ()
+            agreements += 1
+        else:
+            diff = classify_action_diff(
+                baseline["normalized_action"], candidate["normalized_action"],
+                baseline_stage=baseline.get("selection_stage"),
+                candidate_stage=candidate.get("selection_stage"),
+            )
+            direct = {"decision_index": index, "turn_number": baseline["turn_number"],
+                      "decision_phase": baseline["decision_phase"], "primary": diff.primary,
+                      "markers": list(diff.markers)}
+            divergences.append(direct)
+            first_direct_divergence = first_direct_divergence or direct
+    return BattleDecisionDiff(
+        battle_id=battle_id, comparable=comparable, agreements=agreements,
+        direct_divergences=tuple(divergences), first_divergence=first_direct_divergence,
+        state_divergence_index=state_divergence_index,
+        baseline_suffix_count=0, candidate_suffix_count=0,
+    )

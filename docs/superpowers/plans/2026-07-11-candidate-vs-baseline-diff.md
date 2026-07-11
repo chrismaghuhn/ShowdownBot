@@ -1217,11 +1217,11 @@ def classify_action_diff(baseline: dict, candidate: dict,
     bslots = baseline.get("slots", [])
     cslots = candidate.get("slots", [])
     for marker, predicate in (
-        ("tera_changed", lambda b, c: b.get("tera") != c.get("tera")),
+        ("tera_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("tera") != c.get("tera")),
         ("switch_changed", lambda b, c: b.get("switch_target") != c.get("switch_target") or b.get("kind") != c.get("kind")),
-        ("protect_changed", lambda b, c: b.get("is_protect") != c.get("is_protect")),
-        ("move_changed", lambda b, c: b.get("move_id") != c.get("move_id")),
-        ("target_changed", lambda b, c: b.get("target") != c.get("target")),
+        ("protect_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("is_protect") != c.get("is_protect")),
+        ("move_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("move_id") != c.get("move_id")),
+        ("target_changed", lambda b, c: b.get("kind") == c.get("kind") == "move" and b.get("target") != c.get("target")),
     ):
         if any(predicate(b, c) for b, c in zip(bslots, cslots)):
             markers.append(marker)
