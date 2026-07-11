@@ -24,3 +24,9 @@ data/eval/t4/rerun/room_raw/** binary
 # survive checkout on any platform. The gzipped room logs are binary (never CRLF/diff'd).
 data/eval/t6/** -text
 data/eval/t6/room_raw/** binary
+
+# 2b-2.5a panel-diverse dataset: manifest.json, sha256.txt, and per-quarter evidence
+# (result rows, seed logs, run manifests) are byte-pinned by sha256.txt — keep LF-stable so
+# the checksums survive checkout on any platform. The merged dataset .gz is binary.
+data/datasets/phase3-slice2b25a/** -text
+data/datasets/phase3-slice2b25a/dataset.jsonl.gz binary
