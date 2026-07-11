@@ -42,6 +42,7 @@ zero-row blowout game.
 """
 from __future__ import annotations
 
+import dataclasses
 import gzip
 import json
 import math
@@ -59,9 +60,16 @@ from typing import Callable
 from showdown_bot.eval import datagen_2b25a, schedule_2b4
 from showdown_bot.eval.baseline import WinnerSequenceError, verify_winner_sequence
 from showdown_bot.eval.identity import compare_identity
+from showdown_bot.eval.panel_schedule import write_schedule_yaml
 from showdown_bot.eval.room_dump import GAUNTLET_NAME_SUBS, normalize_battle_log
 from showdown_bot.eval.run_manifest import load_showdown_commit
-from showdown_bot.eval.schedule import ScheduleError, load_schedule, verify_schedule_alignment
+from showdown_bot.eval.schedule import (
+    Schedule,
+    ScheduleError,
+    compute_schedule_hash,
+    load_schedule,
+    verify_schedule_alignment,
+)
 from showdown_bot.eval.seeding import SeedLogError
 from showdown_bot.learning.dataset import load_rows
 
@@ -331,7 +339,46 @@ def run_schedule_seeded(repo_root, showdown_dir, schedule_relpath, seed_base, ou
 # Datagen (Task 5): per-hero seeded export + in-kernel validation
 # ---------------------------------------------------------------------------
 
-def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
+def shard_rows(rows, shard_index: int, shard_count: int) -> tuple[int, int, list]:
+    """Pure index-math split of ``rows`` (any ``len()``+slice-able sequence, e.g. a
+    ``Schedule.rows`` tuple) into ``shard_count`` contiguous, near-equal chunks -- this
+    shard's ``(start, end, rows[start:end])`` (2b-2.5a schedule sharding: split one hero's
+    datagen schedule across N parallel Kaggle kernels for an ~N x speedup, Channel A stays
+    intact because each shard runs its own fresh-server run under a distinct per-shard
+    seed_base -- see ``run_datagen``).
+
+    Chunk size is ``ceil(len(rows) / shard_count)``; every shard except the last has exactly
+    that size, and the last shard absorbs whatever remainder is left (so shards cover
+    ``0..len(rows)`` with no gaps or overlaps, and no shard exceeds the chunk size by more
+    than the fixed remainder). ``shard_count=1`` degenerates to the full range unchanged --
+    ``run_datagen``'s default path never calls this at all, so that byte-identical guarantee
+    does not even depend on this function's math, but it holds here too.
+
+    Raises ``ValueError`` if ``shard_count < 1``, if ``shard_index`` is not in
+    ``[0, shard_count)``, or if this shard would be empty (``start >= len(rows)`` -- only
+    possible when ``shard_count`` exceeds ``len(rows)``)."""
+    if not isinstance(shard_count, int) or isinstance(shard_count, bool) or shard_count < 1:
+        raise ValueError(f"shard_count must be an int >= 1, got {shard_count!r}")
+    if (not isinstance(shard_index, int) or isinstance(shard_index, bool)
+            or not (0 <= shard_index < shard_count)):
+        raise ValueError(
+            f"shard_index must be an int in [0, shard_count={shard_count}), got {shard_index!r}"
+        )
+
+    total = len(rows)
+    size = math.ceil(total / shard_count)
+    start = shard_index * size
+    end = min(total, start + size)
+    if start >= total:
+        raise ValueError(
+            f"shard {shard_index}/{shard_count} starts at row {start} but there are only "
+            f"{total} row(s) -- shard_count is too large for this schedule"
+        )
+    return start, end, rows[start:end]
+
+
+def validate_datagen_output(repo_root, out_dir, hero_key, *, schedule=None,
+                             seed_base=None) -> tuple[bool, str]:
     """Validate one hero's datagen ``out_dir`` against its COMMITTED schedule + seed base
     (``showdown_bot.eval.datagen_2b25a``) -- pure file reads, exactly like
     ``validate_prefix_reproduction``: never runs a battle, so it is unit-testable against a
@@ -369,16 +416,26 @@ def validate_datagen_output(repo_root, out_dir, hero_key) -> tuple[bool, str]:
     threshold (embedded verbatim in ``run_datagen``'s ``DATAGEN: DONE ...`` line); on failure
     ``detail`` is a human-readable reason (embedded in ``DATAGEN: FAIL (<reason>)`` via
     ``print_verdict``).
+
+    ``schedule``/``seed_base`` (2b-2.5a schedule sharding, optional, default ``None``): override
+    the hero's COMMITTED full schedule / base seed_base with an explicit ``Schedule`` object and
+    seed_base string -- how ``run_datagen`` validates a SHARD's output (a sliced schedule with
+    its own row count + a per-shard-suffixed seed_base) instead of the full 75-row schedule.
+    ``hero_key`` is still required (used for the ``DATAGEN: DONE hero=<key> ...`` messaging and,
+    when either override is omitted, to resolve that half from ``datagen_2b25a``). Leaving both
+    ``None`` (the default) is byte-identical to the pre-sharding behavior.
     """
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
 
-    try:
-        schedule = load_schedule(str(repo_root / datagen_2b25a.schedule_relpath(hero_key)))
-    except (ScheduleError, OSError) as exc:
-        return False, f"could not load schedule for hero {hero_key!r}: {exc}"
+    if schedule is None:
+        try:
+            schedule = load_schedule(str(repo_root / datagen_2b25a.schedule_relpath(hero_key)))
+        except (ScheduleError, OSError) as exc:
+            return False, f"could not load schedule for hero {hero_key!r}: {exc}"
 
-    seed_base = datagen_2b25a.SEED_BASES[hero_key]
+    if seed_base is None:
+        seed_base = datagen_2b25a.SEED_BASES[hero_key]
     try:
         verify_schedule_alignment(schedule, str(out_dir / "seeds.jsonl"), seed_base)
     except (ScheduleError, SeedLogError) as exc:
@@ -679,7 +736,8 @@ def start_memtrace(results_path, interval_s: float = 30.0, *, read_meminfo=None,
     return stop
 
 
-def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
+def run_datagen(repo_root, showdown_dir, hero_key, out_dir, *, extra_env=None,
+                 shard_index: int = 0, shard_count: int = 1) -> dict:
     """Kaggle datagen kernel orchestration for ONE hero (Task 5). Resolves the hero's committed
     schedule (``datagen_2b25a.schedule_relpath(hero_key)``) and seed base
     (``datagen_2b25a.SEED_BASES[hero_key]``), runs it via ``run_schedule_seeded`` with a
@@ -690,9 +748,37 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     ``kaggle_driver.parse_verdict``'s expectations exactly). Returns a dict of
     ``run_schedule_seeded``'s output paths plus ``hero_key``/``ok``/``detail``/``verdict``.
 
-    NOT unit-tested directly -- like ``run_schedule_seeded``, it starts subprocesses (server +
-    gauntlet CLI) and only ever runs on Kaggle (Task 6). Only ``validate_datagen_output`` (the
-    pure validation half) is exercised locally.
+    ``extra_env`` (2b-2.5a, EXTRA_ENV passthrough, 2026-07-11): an optional dict of additional
+    ``SHOWDOWN_*`` env vars to inject into the gauntlet subprocess for THIS run only (e.g. a
+    play-quality knob like ``SHOWDOWN_FAST_BOARD_PROTECT_PENALTY`` under measurement). Merged
+    OVER the base ``{"SHOWDOWN_DATASET_TEACHER": "rollout"}`` extra_env this function always
+    passes to ``run_schedule_seeded`` -- caller keys win (so an explicit
+    ``SHOWDOWN_DATASET_TEACHER`` override is honored), but an ABSENT caller key never drops the
+    teacher default. ``extra_env=None`` (the default) is byte-identical to the pre-passthrough
+    behavior: only the teacher key is passed.
+
+    ``shard_index``/``shard_count`` (2b-2.5a schedule sharding, 2026-07-11): split this hero's
+    schedule across ``shard_count`` parallel Kaggle kernels for an ~``shard_count`` x speedup, no
+    server-patch change required. ``shard_count=1`` (the default) is the UNCHANGED, byte-identical
+    path: the full committed schedule, the base seed_base, ``validate_datagen_output`` called
+    exactly as before (both overrides ``None``). ``shard_count>1`` slices this shard's contiguous
+    row range (``shard_rows``) out of the full schedule, renumbers ``seed_index`` to be
+    0-contiguous within the shard (required by ``load_schedule``'s contract AND correct: this
+    shard runs its own fresh Channel-A server, whose battle_index counter also starts at 0),
+    writes the sliced schedule to ``<out_dir>/schedule_shard.yaml`` (``write_schedule_yaml``),
+    and runs it under seed_base ``f"{base_seed_base}-s{shard_index}"`` -- a distinct, deterministic
+    seed_base per shard, so no two shards (or a sharded run vs. the unsharded run) ever collide on
+    battle seeds. ``validate_datagen_output`` is then pointed at the SAME sliced schedule +
+    suffixed seed_base (its ``schedule``/``seed_base`` override kwargs), so game-coverage and
+    result-row-count checks run against the shard's row count, not the full schedule's. On
+    success the verdict line gains a ``shard=<i>/<n> rows=<k>`` segment (``<k>`` = this shard's
+    row count) ahead of ``validate_datagen_output``'s own detail string.
+
+    NOT unit-tested via a real run -- like ``run_schedule_seeded``, it starts subprocesses
+    (server + gauntlet CLI) and only ever runs on Kaggle (Task 6). Only
+    ``validate_datagen_output`` (the pure validation half) is exercised locally; the extra_env
+    merge and the sharding wiring are both unit-tested by monkeypatching ``run_schedule_seeded``
+    and ``validate_datagen_output`` to capture their arguments (see ``test_kernel_payload.py``).
 
     Runs a MEMTRACE sampler (``start_memtrace``, 30s interval) for the duration of the schedule
     run -- see the module docstring for why.
@@ -700,23 +786,62 @@ def run_datagen(repo_root, showdown_dir, hero_key, out_dir) -> dict:
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
     schedule_rel = datagen_2b25a.schedule_relpath(hero_key)
-    seed_base = datagen_2b25a.SEED_BASES[hero_key]
+    base_seed_base = datagen_2b25a.SEED_BASES[hero_key]
     dataset_export = out_dir / "dataset.jsonl"
     results_path = out_dir / "results.jsonl"
+
+    combined_extra_env = {"SHOWDOWN_DATASET_TEACHER": "rollout"}
+    if extra_env:
+        combined_extra_env.update(extra_env)
+
+    shard_start = shard_end = None
+    if shard_count == 1:
+        run_schedule_rel = schedule_rel
+        seed_base = base_seed_base
+        validate_schedule = None
+        validate_seed_base = None
+    else:
+        full_schedule = load_schedule(str(repo_root / schedule_rel))
+        shard_start, shard_end, sliced_rows = shard_rows(full_schedule.rows, shard_index, shard_count)
+        renumbered_rows = tuple(
+            dataclasses.replace(row, seed_index=i) for i, row in enumerate(sliced_rows)
+        )
+        sliced_schedule = Schedule(
+            version=full_schedule.version, rows=renumbered_rows,
+            schedule_hash=compute_schedule_hash(full_schedule.version, renumbered_rows),
+            panel_hash=full_schedule.panel_hash,
+        )
+        out_dir.mkdir(parents=True, exist_ok=True)
+        shard_schedule_path = out_dir / "schedule_shard.yaml"
+        write_schedule_yaml(sliced_schedule, str(shard_schedule_path))
+
+        run_schedule_rel = str(shard_schedule_path)  # absolute -- overrides repo_root on join
+        seed_base = f"{base_seed_base}-s{shard_index}"
+        validate_schedule = sliced_schedule
+        validate_seed_base = seed_base
 
     stop_memtrace = start_memtrace(str(results_path), interval_s=30.0)
     try:
         paths = run_schedule_seeded(
-            str(repo_root), showdown_dir, schedule_rel, seed_base, str(out_dir),
+            str(repo_root), showdown_dir, run_schedule_rel, seed_base, str(out_dir),
             dataset_export=str(dataset_export),
-            extra_env={"SHOWDOWN_DATASET_TEACHER": "rollout"},
+            extra_env=combined_extra_env,
         )
     finally:
         stop_memtrace()
 
-    ok, detail = validate_datagen_output(str(repo_root), str(out_dir), hero_key)
+    ok, detail = validate_datagen_output(
+        str(repo_root), str(out_dir), hero_key,
+        schedule=validate_schedule, seed_base=validate_seed_base,
+    )
     if ok:
-        line = f"DATAGEN: DONE hero={hero_key} {detail}"
+        if shard_count > 1:
+            line = (
+                f"DATAGEN: DONE hero={hero_key} shard={shard_index}/{shard_count} "
+                f"rows={shard_end - shard_start} {detail}"
+            )
+        else:
+            line = f"DATAGEN: DONE hero={hero_key} {detail}"
         print(line)
     else:
         line = print_verdict("DATAGEN", False, detail)

@@ -120,6 +120,29 @@ def test_config_hash_changes_when_hero_agent_toggled():
     assert h_heuristic != h_override
 
 
+# --- fast-board Protect penalty (2026-07-11, fast-board-protect-discipline Task 1) ------
+
+def test_fast_board_protect_penalty_is_behavior_affecting_and_classified():
+    # Read in showdown_bot.battle.decision (_fast_board_protect_weight) -> Python source,
+    # not the server-side set.
+    assert "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_FAST_BOARD_PROTECT_PENALTY")
+
+
+def test_behavior_env_includes_fast_board_protect_penalty():
+    env = {"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-2.0", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-2.0",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_fast_board_protect_penalty_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-2.0"})))
+    assert h_off != h_on
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):
