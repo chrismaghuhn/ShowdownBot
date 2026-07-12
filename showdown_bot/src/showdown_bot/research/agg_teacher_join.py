@@ -122,7 +122,12 @@ def _reconstruct_gid_to_seed_index(
             run_id = make_run_id(git_sha, dirty, team_hash_, config_hash_, run_seed)
             gid_by_index = [make_game_id(run_id, i) for i in range(n)]
             tried.append((dirty, run_seed))
-            if set(gid_by_index) != dataset_game_ids:
+            # Subset, not exact-set: a played battle can sample ZERO decision rows (e.g. the
+            # trickroom zero-sample game), so the dataset may hold N-1 game_ids vs N results.
+            # The per-game turn-check + gid_to_seed below already tolerate the extra
+            # (dataset-absent) game_id (max_turn is None for it). Mirrors the outcome-join
+            # bridge's identical fix (found by its real-data reference smoke).
+            if not (dataset_game_ids <= set(gid_by_index)):
                 continue
 
             for i, gid in enumerate(gid_by_index):
