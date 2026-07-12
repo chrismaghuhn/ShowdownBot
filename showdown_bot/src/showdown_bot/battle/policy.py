@@ -43,6 +43,36 @@ def risk_lambda() -> float:
     return _risk_lambda()
 
 
+def cvar_lower(scores: list[float], weights: list[float] | None, alpha: float) -> float:
+    """Lower-tail CVaR (expected shortfall): probability-weighted mean of the worst
+    ``alpha``-mass of ``scores``. ``alpha`` clamped to (0, 1]; ``alpha >= 1`` -> full
+    weighted mean; ``alpha`` -> 0 approaches ``min(scores)``. ``weights`` None or
+    unusable (length mismatch / non-positive sum) -> uniform. Empty -> 0.0. Pure,
+    deterministic, no RNG. Over the current <=5 opponent responses this is close to
+    ``min``; the same helper takes the tail of many sampled worlds once +Sampling lands."""
+    if not scores:
+        return 0.0
+    alpha = max(1e-9, min(1.0, alpha))
+    n = len(scores)
+    if weights is not None and len(weights) == n and sum(weights) > 0:
+        total = sum(weights)
+        pairs = [(s, w / total) for s, w in zip(scores, weights)]
+    else:
+        pairs = [(s, 1.0 / n) for s in scores]
+    pairs.sort(key=lambda sw: sw[0])  # ascending: worst first
+    acc_w = 0.0
+    acc_sw = 0.0
+    for s, w in pairs:
+        take = min(w, alpha - acc_w)
+        if take <= 0:
+            break
+        acc_sw += take * s
+        acc_w += take
+        if acc_w >= alpha:
+            break
+    return acc_sw / acc_w if acc_w > 0 else pairs[0][0]
+
+
 def aggregate_scores(
     scores: list[float],
     mode: GameMode,
