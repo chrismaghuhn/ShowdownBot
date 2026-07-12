@@ -522,14 +522,40 @@ def run_gauntlet(args) -> None:
         print("gauntlet PASSED strict thresholds")
 
 
+def run_generalisation_analyze(args):
+    from showdown_bot.analysis.generalisation.runner import analyze_runs
+    report = analyze_runs(policy_path=args.analysis_policy, catalog_path=args.team_catalog,
+        exposure_path=args.exposure, taxonomy_path=args.taxonomy,
+        manifest_path=args.generalisation_manifest,
+        panel_path=args.panel, schedule_path=args.schedule, run_a=args.run_a,
+        seedlog_a=args.seedlog_a, room_raw_a=args.room_raw_a, run_manifest_a=args.manifest_a,
+        run_b=args.run_b, seedlog_b=args.seedlog_b, room_raw_b=args.room_raw_b,
+        run_manifest_b=args.manifest_b, teams_root=args.teams_root, out_dir=args.out,
+        overwrite=args.overwrite)
+    if report["status"] in {"INVALID", "INCONCLUSIVE", "REGRESSION"}:
+        raise SystemExit(1)
+
+
+def run_generalisation_plan(args):
+    from showdown_bot.analysis.generalisation.runner import plan_schedule
+    plan_schedule(policy_path=args.analysis_policy, catalog_path=args.team_catalog,
+        exposure_path=args.exposure, manifest_path=args.generalisation_manifest,
+        panel_path=args.panel,
+        out_dir=args.out,
+        teams_root=args.teams_root, mode=args.planner_mode,
+        confirm_heldout=args.confirm_heldout,
+        ledger_path=args.ledger, purpose=args.purpose, git_sha=args.git_sha,
+        justification=args.justification, overwrite=args.overwrite)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
-                 "eval-report", "decision-diff"],
+                 "eval-report", "decision-diff", "generalisation-plan", "generalisation-analyze"],
         help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
-        "decision-diff",
+        "decision-diff/generalisation-plan/generalisation-analyze",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -694,6 +720,23 @@ def main() -> None:
         "raises LogIntegrityError (fail-closed, no partial verdict). Omit for the original "
         "behavior: byte-identical reports, no room_raw access.",
     )
+    parser.add_argument("--analysis-policy", default="")
+    parser.add_argument("--team-catalog", default="")
+    parser.add_argument("--exposure", default="")
+    parser.add_argument("--taxonomy", default="")
+    parser.add_argument("--generalisation-manifest", default="")
+    parser.add_argument("--room-raw-a", default="")
+    parser.add_argument("--room-raw-b", default="")
+    parser.add_argument("--manifest-a", default="")
+    parser.add_argument("--manifest-b", default="")
+    parser.add_argument("--planner-mode",
+                        choices=("fresh", "dev-supplement", "heldout-fresh"), default="fresh")
+    parser.add_argument("--confirm-heldout", action="store_true")
+    parser.add_argument("--ledger", default="")
+    parser.add_argument("--purpose", default="")
+    parser.add_argument("--git-sha", default="")
+    parser.add_argument("--justification", default="")
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument(
         "--baseline-run",
         dest="baseline_run",
@@ -786,6 +829,25 @@ def main() -> None:
 
     if args.command == "eval-report":
         run_eval_report(args)
+        return
+
+    if args.command == "generalisation-plan":
+        required = (args.analysis_policy, args.team_catalog, args.exposure,
+                    args.generalisation_manifest, args.panel, args.out)
+        if not all(required):
+            parser.error("generalisation-plan requires policy, catalog, exposure, manifest, panel and out")
+        run_generalisation_plan(args)
+        return
+
+    if args.command == "generalisation-analyze":
+        required = (args.analysis_policy, args.team_catalog, args.exposure, args.taxonomy,
+                    args.generalisation_manifest, args.panel, args.schedule, args.run_a,
+                    args.seedlog_a, args.room_raw_a, args.out)
+        if not all(required):
+            parser.error("generalisation-analyze is missing a required offline input")
+        if bool(args.run_b) != bool(args.seedlog_b) or bool(args.run_b) != bool(args.room_raw_b):
+            parser.error("run-b, seedlog-b and room-raw-b must be supplied together")
+        run_generalisation_analyze(args)
         return
 
     if args.command == "decision-diff":
