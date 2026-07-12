@@ -119,6 +119,21 @@ def test_parse_verdict_fail():
     assert "winner mismatch" in line
 
 
+def test_parse_verdict_env_ab_strength_done():
+    # 2c-1: tools/kaggle/env_ab_kernel.py's verdict prefix.
+    log = "some log noise\nENV-AB-STRENGTH: DONE (baseline=x candidate=y)\ntrailer\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "DONE"
+    assert line == "ENV-AB-STRENGTH: DONE (baseline=x candidate=y)"
+
+
+def test_parse_verdict_env_ab_strength_fail():
+    log = "ENV-AB-STRENGTH: FAIL (exception: boom)\n"
+    verdict, line = kaggle_driver.parse_verdict(log)
+    assert verdict == "FAIL"
+    assert "boom" in line
+
+
 def test_parse_verdict_done():
     log = "DATAGEN: DONE hero=fixed rows=1234 games=75\n"
     verdict, line = kaggle_driver.parse_verdict(log)

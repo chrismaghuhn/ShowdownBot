@@ -24,6 +24,11 @@ BEHAVIOR_AFFECTING = frozenset({
     "SHOWDOWN_ROLLOUT_HORIZON",
     "SHOWDOWN_PROTECT_PENALTY",
     "SHOWDOWN_MUST_REACT_LAMBDA",
+    # [2c-1] NEUTRAL-mode aggregation risk-aversion knob (mirrors
+    # SHOWDOWN_MUST_REACT_LAMBDA above): changes which candidate wins the variance
+    # penalty in aggregate_scores/pick_best -> directly changes which move is
+    # played -> config_hash.
+    "SHOWDOWN_RISK_LAMBDA",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",
