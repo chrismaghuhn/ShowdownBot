@@ -103,6 +103,15 @@ _2B4_MANIFEST_PATH = "models/reranker/2026-07-11-2b25a-attack-manifest.json"
 # override runs, must each use ONE constant seed_base for their pair.
 _2B4_DETERMINISM_SEED_BASE = "2b4-determinism-v001"
 _2B4_DEVSTRENGTH_SEED_BASE = "2b4-devstrength-v001"
+# 2c-1: generic paired dev-strength env-A/B (e.g. SHOWDOWN_MUST_REACT_LAMBDA candidate vs
+# baseline, see run_devstrength_env_ab below) -- a DISTINCT constant from
+# _2B4_DEVSTRENGTH_SEED_BASE so this comparison's battle seeds never collide with (or get
+# mistaken for) a gated-override strength run's, even though both run the same underlying
+# schedule (config/eval/schedules/2b4_devstrength_v001.yaml). SAME seed_base for BOTH arms of
+# one run_devstrength_env_ab pair is load-bearing (Channel A: seed_i depends only on (seed_base,
+# seed_index); eval.pairing.pair_runs' _CROSS_RUN_MATCH_FIELDS requires equal seed_base across
+# the two runs, else MissingPairError).
+_MUSTREACT_AB_SEED_BASE = "2c1-mustreact-v001"
 
 
 # ---------------------------------------------------------------------------
@@ -946,6 +955,80 @@ def run_gated_override_strength(repo_root, showdown_dir, out_dir) -> dict:
     print(line)
 
     return {"heuristic": heuristic_paths, "override": override_paths, "verdict": line}
+
+
+# ---------------------------------------------------------------------------
+# 2c-1: generic paired dev-strength env-A/B -- mirrors run_gated_override_strength's shape but
+# parameterized by two ARBITRARY caller-supplied env dicts instead of the hardcoded
+# heuristic_reranker override env (_2b4_override_env). Does NOT touch _2b4_override_env,
+# run_gated_override_determinism, run_gated_override_strength, or
+# config/eval/schedules/2b4_determinism_v001.yaml -- entirely separate, additive code path (spec:
+# "Do NOT modify the existing gated-override code").
+# ---------------------------------------------------------------------------
+
+def run_devstrength_env_ab(repo_root, showdown_dir, out_dir, *, baseline_env, candidate_env,
+                            working_dir="/kaggle/working") -> dict:
+    """2c-1: generic paired dev-strength env-A/B run. Runs
+    ``config/eval/schedules/2b4_devstrength_v001.yaml`` TWICE with the SAME seed_base
+    (``_MUSTREACT_AB_SEED_BASE``) against the SAME baseline villain: once with
+    ``extra_env=baseline_env`` (into ``<out_dir>/baseline``), once with
+    ``extra_env=candidate_env`` (into ``<out_dir>/candidate``). Same schedule + same seeds + same
+    opponent on both runs, differing only in ``extra_env``, is exactly what T5's
+    ``eval.pairing.pair_runs`` needs for a valid pair -- the SAME contract
+    ``run_gated_override_strength`` relies on, just with the env dicts supplied by the caller
+    instead of hardcoded to the ``heuristic_reranker`` override. Intended use: A/B a play-quality
+    knob directly (e.g. ``baseline_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.6"}`` vs
+    ``candidate_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.3"}``) without touching the reranker-
+    override gating machinery at all.
+
+    Unlike ``run_gated_override_strength`` (which leaves output archival to the wrapping kernel
+    script's ``main()``), this function copies EACH arm's outputs itself via ``copy_outputs`` --
+    immediately after that arm's ``run_schedule_seeded`` call returns, into
+    ``<working_dir>/baseline`` / ``<working_dir>/candidate`` -- so (a) a candidate-arm failure
+    still leaves the baseline arm's completed output already archived, and (b) the copy step is
+    exercised by the same local unit test that covers the two ``run_schedule_seeded`` calls.
+    ``working_dir`` defaults to ``"/kaggle/working"``, mirroring ``copy_outputs``'s own default,
+    so the Kaggle-side caller (``env_ab_kernel.py``) does not strictly need to pass it, though it
+    does so explicitly for clarity.
+
+    Prints ``ENV-AB-STRENGTH: DONE`` -- no PASS/FAIL/GO-NO-GO judgment in-kernel, same convention
+    as ``run_gated_override_strength``: the McNemar comparison is produced LOCALLY (``cli
+    eval-report`` given BOTH ``--run-a``/``--seedlog-a`` (candidate) and ``--run-b``/
+    ``--seedlog-b`` (baseline) -- paired mode, per ``cli.run_eval_report`` -- against the two
+    copied-out result JSONLs), not decided in-kernel.
+
+    Returns ``{"baseline": <paths>, "candidate": <paths>, "verdict": <line>}`` (each ``<paths>``
+    a ``run_schedule_seeded``-shaped dict) -- mirrors ``run_gated_override_strength``'s return
+    shape (``"heuristic"``/``"override"`` keys there vs ``"baseline"``/``"candidate"`` here).
+
+    NOT unit-tested for the underlying subprocess/filesystem calls themselves (starts a real
+    server + gauntlet CLI via ``run_schedule_seeded``, and does real file I/O via
+    ``copy_outputs``) -- only ever runs for real on Kaggle, exactly like every other ``run_*``
+    orchestration function in this module. Argument-capture tests monkeypatch both
+    ``run_schedule_seeded`` and ``copy_outputs`` (see test_env_ab_kernel.py).
+    """
+    repo_root = Path(repo_root)
+    out_dir = Path(out_dir)
+    working_dir = Path(working_dir)
+    schedule_relpath = schedule_2b4.schedule_relpath("devstrength")
+
+    baseline_paths = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_relpath,
+        _MUSTREACT_AB_SEED_BASE, str(out_dir / "baseline"), extra_env=baseline_env,
+    )
+    copy_outputs(str(out_dir / "baseline"), working_dir=str(working_dir / "baseline"))
+
+    candidate_paths = run_schedule_seeded(
+        str(repo_root), showdown_dir, schedule_relpath,
+        _MUSTREACT_AB_SEED_BASE, str(out_dir / "candidate"), extra_env=candidate_env,
+    )
+    copy_outputs(str(out_dir / "candidate"), working_dir=str(working_dir / "candidate"))
+
+    detail = f"baseline={baseline_paths['results']} candidate={candidate_paths['results']}"
+    line = f"ENV-AB-STRENGTH: DONE ({detail})"
+    print(line)
+
+    return {"baseline": baseline_paths, "candidate": candidate_paths, "verdict": line}
 
 
 # ---------------------------------------------------------------------------

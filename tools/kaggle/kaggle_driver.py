@@ -65,7 +65,9 @@ KAGGLE_USERNAME = "chrismaghuhn"
 _ENV_HEADER_PREFIX = "# KAGGLE_ENV: "
 # 2b-4 Task 3: the gated-override kernel (tools/kaggle/gated_override_kernel.py) prints
 # 2B4-DETERMINISM:/2B4-STRENGTH: verdict lines -- same wire convention as KAGGLE-REPRO:/DATAGEN:.
-_VERDICT_PREFIXES = ("KAGGLE-REPRO:", "DATAGEN:", "2B4-DETERMINISM:", "2B4-STRENGTH:")
+# 2c-1: the generic env-A/B kernel (tools/kaggle/env_ab_kernel.py) prints ENV-AB-STRENGTH: --
+# same convention, a separate prefix so it is never confused with the gated-override kernel's.
+_VERDICT_PREFIXES = ("KAGGLE-REPRO:", "DATAGEN:", "2B4-DETERMINISM:", "2B4-STRENGTH:", "ENV-AB-STRENGTH:")
 _VERDICT_TOKENS = ("PASS", "FAIL", "DONE")
 
 # Kernel statuses that mean "the run is finished, stop polling" (kagglesdk
