@@ -250,10 +250,9 @@ class DamageModel:
             targets.append(action.target)
         return targets
 
-    def prefetch(self, action_groups: Iterable[list[PlannedAction]]) -> None:
-        """Enqueue every damaging calc across all candidate lines (against every
-        plausible target), then flush once -> a single Node round trip per
-        decision regardless of redirect/retarget/spread retargeting."""
+    def enqueue(self, action_groups: Iterable[list[PlannedAction]]) -> None:
+        """Enqueue every damaging calc across all candidate lines into the oracle
+        WITHOUT flushing -- so K models sharing one oracle can be flushed once."""
         for actions in action_groups:
             for a in actions:
                 if a.kind != "move" or not a.move or not a.move.is_damaging:
@@ -263,6 +262,10 @@ class DamageModel:
                 for tgt in self._candidate_targets(a):
                     if tgt in self.hyps:
                         self.oracle.request(self._request(a, tgt))
+
+    def prefetch(self, action_groups: Iterable[list[PlannedAction]]) -> None:
+        """Enqueue then flush -- a single Node round trip per decision (unchanged)."""
+        self.enqueue(action_groups)
         self.oracle.flush()
 
     def damage_fn(self, action: PlannedAction, target_mon) -> float:

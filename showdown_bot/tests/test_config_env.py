@@ -268,3 +268,17 @@ def test_behavior_affecting_flags_are_actually_read_in_source():
     seen = set(_scanned_reads())
     missing = set(BEHAVIOR_AFFECTING) - seen
     assert not missing, f"BEHAVIOR_AFFECTING flags never read in source: {sorted(missing)}"
+
+
+# --- +Sampling world count (2c-sampling) -----------------------------------------------
+
+def test_world_samples_behavior_affecting_and_classified():
+    assert "SHOWDOWN_WORLD_SAMPLES" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_WORLD_SAMPLES" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_WORLD_SAMPLES")
+
+
+def test_config_hash_changes_when_world_samples_set():
+    h_off = make_config_hash(_manifest(behavior_env({})))
+    h_on = make_config_hash(_manifest(behavior_env({"SHOWDOWN_WORLD_SAMPLES": "4"})))
+    assert h_off != h_on

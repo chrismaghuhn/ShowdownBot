@@ -29,6 +29,10 @@ BEHAVIOR_AFFECTING = frozenset({
     # penalty in aggregate_scores/pick_best -> directly changes which move is
     # played -> config_hash.
     "SHOWDOWN_RISK_LAMBDA",
+    # [2c-sampling] K sampled opponent-set worlds in _choose_best -> changes which
+    # candidate wins (aggregation over sampled worlds) -> config_hash. Off/<=1 = 1
+    # world = byte-identical.
+    "SHOWDOWN_WORLD_SAMPLES",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",

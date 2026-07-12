@@ -15,10 +15,13 @@ from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.belief.game_mode import classify_game_mode
 from showdown_bot.engine.belief.hypotheses import SpreadBook
+from showdown_bot.engine.belief.world_sampler import (
+    build_world_dist, sample_worlds, world_samples, world_seed,
+)
 from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.engine.speed import SpeedOracle
-from showdown_bot.engine.state import BattleState
+from showdown_bot.engine.state import BattleState, to_id
 from showdown_bot.models.actions import SlotAction
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
@@ -66,6 +69,16 @@ def choose_for_request_json(payload: str) -> str:
 
 def _opp_side(our_side: str) -> str:
     return "p2" if our_side == "p1" else "p1"
+
+
+def _board_key(state, opp_side: str) -> str:
+    """A stable per-decision string for seeding the world sampler: opponent species
+    + hp buckets + field. Same board -> same worlds (determinism)."""
+    parts = []
+    for slot, mon in sorted(state.side(opp_side).items()):
+        parts.append(f"{slot}:{mon.species}:{int((mon.hp_fraction or 0) * 20)}")
+    field = getattr(state, "field", None)
+    return "|".join(parts) + "#" + str(field)
 
 
 def _is_fast_board(field) -> bool:
@@ -279,40 +292,96 @@ def _choose_best(
         for slot, mon in state.side(opp_side).items()
         if slot in ("a", "b") and 0.0 < mon.hp_fraction <= 0.6
     }
-    opp_resps = predict_responses(
-        state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
-        dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
-        opp_sets=opp_sets,
-    )
-    resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
+    world_dist = None
+    if world_samples() > 1:
+        opp_mons = [(to_id(mon.species), mon.species)
+                    for mon in state.side(opp_side).values()]
+        world_dist = build_world_dist(opp_mons, book, opp_sets or {})
+    if world_dist:
+        # --- K-world opponent-set sampling (2c +Sampling): only when there is actual
+        # opponent-set uncertainty to sample; empty dist -> single-world = byte-identical ---
+        seed = world_seed(os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "world"),
+                          getattr(state, "turn", 0) or 0, _board_key(state, opp_side))
+        worlds = sample_worlds(world_dist, world_samples(), seed=seed)
+        shared_oracle = oracle or DamageOracle()
+        world_ctx = []  # (world_weight, opp_resps_k, model_k)
+        for world_sets, world_w in worlds:
+            merged_sets = {**(opp_sets or {}), **world_sets}
+            resps_k = predict_responses(
+                state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
+                dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+                opp_sets=merged_sets,
+            )
+            model_k = DamageModel(
+                state, our_side, opp_side, book=book, oracle=shared_oracle,
+                field=state.field, our_spreads=our_spreads, opp_sets=merged_sets,
+            )
+            model_k.enqueue(list(plans.values()) + [r.actions for r in resps_k])
+            world_ctx.append((world_w, resps_k, model_k))
+        shared_oracle.flush()
+        # _maybe_tera + report/trace below reference a single opp_resps/model; bind them
+        # to the most-likely world (world_ctx[0], always present). Full K-world Tera/trace
+        # is a follow-up refinement (this machinery slice is off-by-default, no winrate claim).
+        opp_resps = world_ctx[0][1]
+        model = world_ctx[0][2]
 
-    model = DamageModel(
-        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
-        our_spreads=our_spreads, opp_sets=opp_sets,
-    )
-    groups = list(plans.values()) + [r.actions for r in opp_resps]
-    model.prefetch(groups)
+        def score_plan(my_plan: list[PlannedAction]) -> list[float]:
+            out: list[float] = []
+            for _w, resps_k, model_k in world_ctx:
+                targets = [r.actions for r in resps_k] if resps_k else [[]]
+                for opp_actions in targets:
+                    out.append(evaluate_line(
+                        state, my_plan, opp_actions, model_k.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                    )[0])
+            return out
 
-    def score_plan(my_plan: list[PlannedAction]) -> list[float]:
-        if opp_resps:
+        resp_weights = []
+        for world_w, resps_k, _model_k in world_ctx:
+            if resps_k:
+                for r in resps_k:
+                    resp_weights.append(world_w * (r.weight if priors is not None else 1.0))
+            else:
+                resp_weights.append(world_w)
+        items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
+        best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+    else:
+        # --- single-world path (unchanged; byte-identical when world_samples()<=1) ---
+        opp_resps = predict_responses(
+            state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
+            dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+            opp_sets=opp_sets,
+        )
+        resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
+
+        model = DamageModel(
+            state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+            our_spreads=our_spreads, opp_sets=opp_sets,
+        )
+        groups = list(plans.values()) + [r.actions for r in opp_resps]
+        model.prefetch(groups)
+
+        def score_plan(my_plan: list[PlannedAction]) -> list[float]:
+            if opp_resps:
+                return [
+                    evaluate_line(
+                        state, my_plan, r.actions, model.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                    )[0]
+                    for r in opp_resps
+                ]
             return [
                 evaluate_line(
-                    state, my_plan, r.actions, model.damage_fn,
+                    state, my_plan, [], model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
                     rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
                 )[0]
-                for r in opp_resps
             ]
-        return [
-            evaluate_line(
-                state, my_plan, [], model.damage_fn,
-                our_side=our_side, weights=weights, field=state.field,
-                rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
-            )[0]
-        ]
 
-    items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
-    best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+        items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
+        best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
     if trace is not None:
         from showdown_bot.battle.policy import must_react_lambda as _mrl
         trace.aggregation_mode = mode.value if hasattr(mode, "value") else str(mode)
