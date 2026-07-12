@@ -33,6 +33,16 @@ n_discordant 56 (CVaR) / 86 (mean); both safety-gate-clean, byte-repro. The two 
 - **Next: held-out gate on `risk_lambda=0` vs default** (user-authorized). If it holds → ship `risk_lambda=0` (a one-env-var, no-ML strength gain). If not → the variance-drop is `max_damage`-specific, and 2/2 big dev wins failing held-out becomes a load-bearing methodological verdict about the dev panel itself.
 - The CVaR slice stays **default-off** (byte-identical); keep it as available tooling (it is the reusable operator for the future +Sampling axis), do not merge as a default change.
 
+## Held-out result (2026-07-12) — NO-GO, the win does NOT generalize
+
+Held-out gate `SHOWDOWN_RISK_LAMBDA=0` vs default (`sb-heldout-riskzero`, `t6_heldout_v001`, 34 games/arm, 5 varied opponents, balance+tailwind teams): both arms **7/34 = 20.6%**, McNemar n10=4 / n01=4, **delta = 0.0000**, p=1.0, n_discordant=8. UNDERPOWERED, but the point estimate is *exactly* zero (not a hidden positive). Even the held-out `max_damage` games (on balance/tailwind teams) give only 10% — so the +36pp dev win was specific to the **dev team archetypes** (rain/sun/**trickroom**), which the held-out panel does not contain; it is inert on other teams even vs `max_damage`.
+
+**=> NO-GO. Keep the default (`risk_lambda=0.5`).** Two append-only ledger entries logged (`heldout-riskzero-v1`, config_hashes `23351717`/`69daaa70`).
+
+## Methodological verdict (load-bearing)
+
+**2/2 big `max_damage` dev wins → exactly zero held-out effect:** `must_react_lambda=0.8` (+11.3pp dev, sun-specific) and `risk_lambda=0` (+36pp dev, trickroom/rain-specific) both collapse to delta 0 on held-out. The aggregation-scalar wins are **team-archetype-specific** vs `max_damage` and do not generalize to other teams/opponents. **Global aggregation-scalar tuning is exhausted as a source of shippable, general strength.** This re-confirms the strategic thesis: the lever is the **search spine** (per-position adaptation), not global scalar tuning. The CVaR *operator* stays useful — as the reusable risk-aggregation for the future **+Sampling** axis (CVaR over many sampled worlds), not as a global default.
+
 ## Provenance
 
 - Kaggle `sb-cvar-strength` (`{}` vs `SHOWDOWN_NEUTRAL_CVAR=1`) + `sb-cvarmean-strength` (`{}` vs `SHOWDOWN_NEUTRAL_CVAR=1,SHOWDOWN_CVAR_LAMBDA=0`), `REPO_SHA ada75eb`, both fresh arms same kernel/server (clean 1-var delta). Reports: `scratchpad/kaggle_out/cvar-strength/` + `cvar-mean/`.
