@@ -11,7 +11,6 @@ import os
 import random
 
 from showdown_bot.engine.belief.hypotheses import SpreadBook, SpeciesSpreads
-from showdown_bot.engine.state import to_id
 
 _CURATED_WEIGHT = 0.6
 _WORSTCASE_WEIGHT = 0.4
