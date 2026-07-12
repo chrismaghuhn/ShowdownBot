@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from showdown_bot.engine.moves import blocks_move, get_move_meta, move_priority
-from showdown_bot.engine.state import FieldState
+from showdown_bot.engine.moves import MoveMeta, blocks_move, get_move_meta, hit_probability, move_priority
+from showdown_bot.engine.state import FieldState, PokemonState
 
 
 def test_known_move_lookup():
@@ -94,3 +94,84 @@ def test_move_table_raises_on_record_missing_accuracy_key(monkeypatch, tmp_path)
             moves_mod._move_table()
     finally:
         moves_mod._move_table.cache_clear()
+
+
+def _mon(**boosts):
+    m = PokemonState(species="Test", hp=100, max_hp=100)
+    m.boosts.update(boosts)
+    return m
+
+
+def test_hit_probability_always_hit_move_is_none():
+    swift = get_move_meta("Swift")
+    assert hit_probability(swift, _mon(), _mon(), FieldState()) is None
+
+
+def test_hit_probability_base_accuracy_no_stages():
+    thunder = get_move_meta("Thunder")  # accuracy 70
+    p = hit_probability(thunder, _mon(), _mon(), FieldState())
+    assert abs(p - 0.70) < 1e-9
+
+
+def test_hit_probability_positive_accuracy_stage_raises_it():
+    thunder = get_move_meta("Thunder")
+    p = hit_probability(thunder, _mon(accuracy=1), _mon(), FieldState())
+    assert abs(p - 0.93) < 1e-9  # int(70 * 4/3) / 100 = int(93.33)/100 = 0.93
+
+
+def test_hit_probability_negative_evasion_stage_raises_it():
+    # Target evasion DOWN raises the attacker's effective hit chance (stage = acc - evasion,
+    # so evasion=-1 contributes the same +1 as attacker accuracy=+1 would).
+    thunder = get_move_meta("Thunder")
+    p = hit_probability(thunder, _mon(), _mon(evasion=-1), FieldState())
+    assert abs(p - 0.93) < 1e-9  # int(70 * 4/3)/100 == same formula as the accuracy=+1 case
+
+
+def test_hit_probability_stage_clamped_at_plus_six():
+    # A low-accuracy synthetic move so the clamp is provably at the BOOST-STAGE level, not
+    # just masked by the final [0,1] probability clamp: at stage=6 (3x multiplier) 30 accuracy
+    # gives 0.90, well under 1.0 -- an unclamped stage=9 (4x multiplier) would give 1.0, a
+    # different value, so this distinguishes "stage clamped to 6" from "stage never clamped".
+    low_acc = MoveMeta(id="lowacc", name="LowAcc", accuracy=30, base_power=100,
+                        category="physical", target="normal")
+    p_six = hit_probability(low_acc, _mon(accuracy=6), _mon(), FieldState())
+    p_beyond = hit_probability(low_acc, _mon(accuracy=9), _mon(), FieldState())
+    assert abs(p_six - 0.90) < 1e-9
+    assert p_six == p_beyond  # clamp(9) == clamp(6)
+
+
+def test_hit_probability_blizzard_guaranteed_in_snow():
+    blizzard = get_move_meta("Blizzard")
+    assert hit_probability(blizzard, _mon(), _mon(), FieldState(weather="Snow")) is None
+
+
+def test_hit_probability_blizzard_not_guaranteed_outside_snow():
+    blizzard = get_move_meta("Blizzard")
+    p = hit_probability(blizzard, _mon(), _mon(), FieldState(weather="Sandstorm"))
+    assert p is not None
+    assert abs(p - (blizzard.accuracy / 100.0)) < 1e-9
+
+
+def test_hit_probability_thunder_guaranteed_in_rain_stage_independent():
+    thunder = get_move_meta("Thunder")
+    p_no_stage = hit_probability(thunder, _mon(), _mon(), FieldState(weather="RainDance"))
+    p_with_stage = hit_probability(thunder, _mon(), _mon(evasion=4), FieldState(weather="RainDance"))
+    assert p_no_stage is None and p_with_stage is None  # unconditional, stage never applies
+
+
+def test_hit_probability_thunder_sun_reduces_to_50_then_applies_stages():
+    # Pinned against sim/battle-actions.ts:709-722 at the pinned commit
+    # (config/eval/provenance.yaml): sun sets move.accuracy=50, a PLAIN NUMBER that then
+    # goes through the SAME stage-multiplier pipeline as any base accuracy — not a flat 0.5.
+    thunder = get_move_meta("Thunder")
+    p_no_stage = hit_probability(thunder, _mon(), _mon(), FieldState(weather="SunnyDay"))
+    assert abs(p_no_stage - 0.50) < 1e-9
+    p_with_stage = hit_probability(thunder, _mon(accuracy=2), _mon(), FieldState(weather="SunnyDay"))
+    assert abs(p_with_stage - 0.83) < 1e-9  # trunc(50 * 5/3)/100 = trunc(83.33)/100 = 0.83
+    assert p_with_stage != 0.50  # the exact bug the earlier design got wrong
+
+
+def test_hit_probability_clamped_to_one_when_stage_pushes_above_100():
+    tackle_like = get_move_meta("Tackle")  # accuracy 100
+    p = hit_probability(tackle_like, _mon(accuracy=6), _mon(), FieldState())
+    assert p == 1.0
