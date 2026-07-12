@@ -143,6 +143,29 @@ def test_config_hash_changes_when_fast_board_protect_penalty_toggled():
     assert h_off != h_on
 
 
+# --- NEUTRAL-mode risk_lambda (2c-1, mirrors SHOWDOWN_MUST_REACT_LAMBDA) ----------------
+
+def test_risk_lambda_is_behavior_affecting_and_classified():
+    # Read in showdown_bot.battle.policy (_risk_lambda) -> Python source, not the
+    # server-side set.
+    assert "SHOWDOWN_RISK_LAMBDA" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_RISK_LAMBDA" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_RISK_LAMBDA")
+
+
+def test_behavior_env_includes_risk_lambda():
+    env = {"SHOWDOWN_RISK_LAMBDA": "0.2", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_RISK_LAMBDA": "0.2",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_risk_lambda_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_RISK_LAMBDA": "0.2"})))
+    assert h_off != h_on
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):

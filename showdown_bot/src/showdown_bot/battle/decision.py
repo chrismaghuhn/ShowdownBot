@@ -9,7 +9,7 @@ from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
 from showdown_bot.battle.opponent import SpeciesDex, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
-from showdown_bot.battle.policy import pick_best, tera_decision
+from showdown_bot.battle.policy import _risk_lambda, pick_best, tera_decision
 from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.battle.team_preview import pick_team_preview_default
@@ -172,7 +172,7 @@ def _choose_best(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -187,13 +187,18 @@ def _choose_best(
     other inability so the caller's fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
-    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
-    a ``report`` list to collect a readable decision block.
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2).
+    ``risk_lambda`` (NEUTRAL-mode variance penalty passed to pick_best/
+    aggregate_scores) defaults to ``None``, which resolves ``SHOWDOWN_RISK_LAMBDA``
+    via ``policy._risk_lambda()`` (else 0.5); pass an explicit float to override.
+    Pass a ``report`` list to collect a readable decision block.
     """
     if req.team_preview:
         raise ValueError("_choose_best_ja does not handle team preview")
     if rollout_horizon is None:
         rollout_horizon = _default_rollout_horizon()
+    if risk_lambda is None:
+        risk_lambda = _risk_lambda()
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -490,7 +495,7 @@ def _choose_best_ja(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -536,7 +541,7 @@ def heuristic_choose_for_request(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -548,8 +553,10 @@ def heuristic_choose_for_request(
     fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
-    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
-    a ``report`` list to collect a readable decision block.
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2).
+    ``risk_lambda`` defaults to ``None``, which resolves ``SHOWDOWN_RISK_LAMBDA``
+    (else 0.5) inside ``_choose_best``. Pass a ``report`` list to collect a
+    readable decision block.
     """
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)

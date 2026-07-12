@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from statistics import mean
 
-from showdown_bot.battle.policy import aggregate_scores, pick_best, tera_decision
+from showdown_bot.battle.policy import (
+    _risk_lambda,
+    aggregate_scores,
+    pick_best,
+    risk_lambda,
+    tera_decision,
+)
 from showdown_bot.engine.belief.game_mode import GameMode
 
 
@@ -47,3 +53,35 @@ def test_pick_best_ahead_prefers_high_mean():
 def test_tera_decision_margin():
     assert tera_decision(5.0, 5.5, margin=1.0) is False
     assert tera_decision(5.0, 7.0, margin=1.0) is True
+
+
+# --- _risk_lambda: SHOWDOWN_RISK_LAMBDA env tunability (2c-1), mirrors _must_react_lambda -
+
+def test_risk_lambda_defaults_to_half_when_unset(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_RISK_LAMBDA", raising=False)
+    assert _risk_lambda() == 0.5
+
+
+def test_risk_lambda_reads_env_float(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "0.1")
+    assert _risk_lambda() == 0.1
+
+
+def test_risk_lambda_clamps_above_one(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "5")
+    assert _risk_lambda() == 1.0
+
+
+def test_risk_lambda_clamps_below_zero(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "-3")
+    assert _risk_lambda() == 0.0
+
+
+def test_risk_lambda_falls_back_to_half_on_bad_value(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "abc")
+    assert _risk_lambda() == 0.5
+
+
+def test_risk_lambda_public_accessor_mirrors_private(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "0.3")
+    assert risk_lambda() == _risk_lambda() == 0.3
