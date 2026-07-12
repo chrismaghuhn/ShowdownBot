@@ -17,18 +17,29 @@ state (depth-2 slice, value-calibration spec).
 |---|---|---|---|
 | Reranker v1 (dataset/infra, 2b-2.5a) | **Built, in use** | merged `afb9708`; feeds `outcome_join` + value-calibration | keep as foundation, not "parked" |
 | Reranker v1 **live override** | **NO-GO** | 2b-4 report: +13 net vs max_damage, McNemar p=0.105 n.s. | not shipped; don't re-attempt without new evidence |
-| Scalar aggregation (λ tuning) | **NO-GO** | Slice 0b/1 + 2c-aggregation: both dev-GO's = exactly 0 on held-out | stop; no more global-λ experiments |
+| Scalar aggregation (λ tuning) | **NO-GO** | 4 experiments, see detail table below | stop; no more global-λ experiments |
 | +Sampling machinery (K-world) | **Built, off** | latency report: linear-in-K, max K=8 local | hold until calibrated posterior exists (P2/P3) |
 | Depth-2 search | **Stage 1+2 GO, merged local main** | `2026-07-12-2c-depth2-derisk-verdict.md` | Stage 3 blocked on the panel actually being *run* (below) |
 | Generalisation analyzer (05) | **Built (tool only)** | merged `35956df` | materialize the actual archetype×opponent panel — data doesn't exist yet |
 | VGC-Bench ingestion | **Part A done** | `6210e4d` | Part B (player-perspective, OTS-vs-reveal, legality, leakage audit) |
-| Value calibration study | **Spec written**, awaiting user sign-off | `docs/superpowers/specs/2026-07-12-value-calibration-design.md`, commit `5981ccb` | implementation plan once spec approved |
+| Value calibration study | **Spec Revision 2 committed** (T3A arm, disjoint verdict, outcome-encoding, sklearn dep, fold-local categorical encoding all addressed) | `docs/superpowers/specs/2026-07-12-value-calibration-design.md` Rev 2, commit `8e4c47f` | implementation plan once Rev 2 explicitly signed off |
 | Outcome-join (04) | **Built** | merged `725257e`/`fea284b`; 299-game reference smoke | consumed by value-calibration study |
 | Teacher-disagreement atlas | **Built** | `5830e9e` | diagnostic only — not a strength gate |
 | Diagnostics-v0 | **Built** | `849b5c7` | diagnostic only — not a strength gate |
 | Belief (item/spread/move priors) | **Not started** | — | P2, after the panel + data-identity fix |
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
+
+### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
+
+| Experiment | Dev-strength result | Held-out result | Evidence | Merged to main? |
+|---|---|---|---|---|
+| `must_react_lambda` 0.6→0.8 | +11.3pp vs `max_damage`, p=0.0002 (concentrated in the **sun** cell) | **NO-GO**: n_discordant=0, delta=0.0 exactly, both arms 7/34 — does not generalize | `reports/2026-07-12-heldout-mustreact08-verdict.md` | Yes |
+| `risk_lambda` 0.5→0.75 (↑, more variance-penalty) | **−12.67pp regression** — never a dev-GO | not sent to held-out (already dev-NO-GO, nothing to spend held-out on) | 2c-aggregation-investigation memory (0a probe) | Yes |
+| `risk_lambda` 0.5→0 / CVaR-mean-control (↓, drop the variance-penalty) | +36.0pp vs `max_damage`, p<0.0001 (concentrated in **trickroom/rain**) | **NO-GO**: n_discordant=8, delta=0.0000 exactly — does not generalize | `reports/2026-07-12-cvar-neutral-devstrength-3arm.md` | **No — `feat/slice-2c-cvar-neutral`, pushed to origin, NOT merged to local main** (see review-process note below) |
+| Fast-board Protect-penalty | paired rain A/B: `tailwind_both` 91.7%→90.2% (worse), regret 9.26→9.44 (worse) | not sent to held-out (already offline/atlas NO-GO) | `reports/2026-07-11-fast-board-protect-discipline.md` | Yes |
+
+**Net:** the two large `max_damage`-only dev wins (`must_react_lambda=0.8`, `risk_lambda=0`) both collapsed to *exactly* zero on held-out — both were team-archetype-specific and neither generalized. Combined with `risk_lambda=0.75`'s outright dev regression and fast-board's offline NO-GO, **global scalar tuning is exhausted as a strength lever** — this verdict holds independent of the cvar-neutral merge-status housekeeping item below.
 
 ## Corrections to the external review that produced this roadmap
 
@@ -46,6 +57,17 @@ state (depth-2 slice, value-calibration spec).
    and the value-calibration study sit on — it is not dead. What is NO-GO is specifically
    *letting the reranker override the live heuristic's choice* (2b-4). Park the override
    idea; keep the infrastructure.
+3. **Follow-up review-process note (2026-07-12, same day):** a later review pass flagged
+   `docs/ROADMAP.md` as "untracked" and the value-calibration spec as "needs T3A/disjoint-
+   verdict/encoding/sklearn revisions" — both checked against the live repo and found
+   **stale relative to this session's own commits**: `docs/ROADMAP.md` was already committed
+   (`e9ad6fa`) before that pass, and the spec's Revision 2 (`8e4c47f`) already addresses
+   exactly those five items. Likely a timing gap between the review snapshot and this
+   session's commits, not a real defect — noted here so the history stays legible. What
+   *was* a real, new finding from that same pass: the `risk_lambda=0`/CVaR-mean held-out
+   evidence lives on an **unmerged** branch (`feat/slice-2c-cvar-neutral`) — folded into the
+   scalar-aggregation detail table above. Merging that branch (or copying its report into
+   main) is open housekeeping, not done here (touches git state, needs explicit go-ahead).
 
 ## P0 — Integrität und Entscheidungsgrundlage
 
@@ -96,8 +118,10 @@ state (depth-2 slice, value-calibration spec).
 3. Depth-2 × K-sampling composition — deliberately not combined yet; needs its own budget/
    fusion design.
 4. Adaptive risk aggregation from the actual posterior world distribution + position,
-   instead of a global CVaR scalar (global scalars have a 2-for-2 dev-win/held-out-zero
-   track record — see status matrix).
+   instead of a global CVaR scalar (global aggregation scalars are 2-for-2 on large
+   `max_damage`-only dev wins collapsing to exactly zero on held-out — see the
+   scalar-aggregation detail table above; the CVaR *operator* itself stays useful for this
+   axis, only its global-scalar deployment is ruled out).
 
 ## P4 — Lernen aus besserem Teacher-Signal
 
