@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from statistics import mean
+from statistics import mean, pvariance
+
+import pytest
 
 from showdown_bot.battle.policy import (
     _risk_lambda,
     aggregate_scores,
+    cvar_lower,
     pick_best,
     risk_lambda,
     tera_decision,
@@ -85,3 +88,54 @@ def test_risk_lambda_falls_back_to_half_on_bad_value(monkeypatch):
 def test_risk_lambda_public_accessor_mirrors_private(monkeypatch):
     monkeypatch.setenv("SHOWDOWN_RISK_LAMBDA", "0.3")
     assert risk_lambda() == _risk_lambda() == 0.3
+
+
+# --- NEUTRAL CVaR operator toggle (2c-cvar): SHOWDOWN_NEUTRAL_CVAR / _ALPHA / _LAMBDA ---
+
+def test_neutral_off_is_unchanged_variance(monkeypatch):
+    monkeypatch.delenv("SHOWDOWN_NEUTRAL_CVAR", raising=False)
+    scores = [1.0, 2.0, 3.0, 4.0]
+    expected = mean(scores) - 0.5 * pvariance(scores)
+    assert aggregate_scores(scores, GameMode.NEUTRAL, risk_lambda=0.5) == pytest.approx(expected)
+
+
+def test_neutral_on_uses_cvar_unweighted(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
+    monkeypatch.setenv("SHOWDOWN_CVAR_ALPHA", "0.25")
+    monkeypatch.setenv("SHOWDOWN_CVAR_LAMBDA", "0.5")
+    scores = [1.0, 2.0, 3.0, 4.0]
+    m = mean(scores)
+    expected = m - 0.5 * (m - cvar_lower(scores, None, 0.25))
+    assert aggregate_scores(scores, GameMode.NEUTRAL) == pytest.approx(expected)
+
+
+def test_neutral_on_uses_cvar_weighted(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
+    monkeypatch.setenv("SHOWDOWN_CVAR_ALPHA", "0.25")
+    monkeypatch.setenv("SHOWDOWN_CVAR_LAMBDA", "0.5")
+    scores = [1.0, 2.0, 3.0]
+    weights = [0.1, 0.1, 0.8]
+    wmean = sum(s * w for s, w in zip(scores, weights)) / sum(weights)
+    expected = wmean - 0.5 * (wmean - cvar_lower(scores, weights, 0.25))
+    assert aggregate_scores(scores, GameMode.NEUTRAL, weights=weights) == pytest.approx(expected)
+
+
+def test_neutral_on_lambda_zero_is_pure_mean(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
+    monkeypatch.setenv("SHOWDOWN_CVAR_LAMBDA", "0")
+    scores = [1.0, 5.0, 9.0]
+    assert aggregate_scores(scores, GameMode.NEUTRAL) == pytest.approx(mean(scores))
+
+
+def test_must_react_unaffected_by_cvar_env(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
+    monkeypatch.delenv("SHOWDOWN_MUST_REACT_LAMBDA", raising=False)
+    scores = [1.0, 2.0, 3.0, 4.0]
+    expected = mean(scores) - 0.6 * (mean(scores) - min(scores))
+    assert aggregate_scores(scores, GameMode.MUST_REACT) == pytest.approx(expected)
+
+
+def test_ahead_unaffected_by_cvar_env(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
+    scores = [1.0, 2.0, 3.0, 4.0]
+    assert aggregate_scores(scores, GameMode.AHEAD) == pytest.approx(mean(scores))

@@ -43,6 +43,29 @@ def risk_lambda() -> float:
     return _risk_lambda()
 
 
+def _neutral_cvar_enabled() -> bool:
+    """NEUTRAL-mode CVaR downside toggle (SHOWDOWN_NEUTRAL_CVAR). Off by default ->
+    byte-identical variance behavior; '1'/'true'/'yes'/'on' -> CVaR worst-case tail."""
+    return os.environ.get("SHOWDOWN_NEUTRAL_CVAR", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _cvar_alpha() -> float:
+    """CVaR lower-tail mass (SHOWDOWN_CVAR_ALPHA), clamped to (0, 1]. Default 0.25."""
+    try:
+        return max(1e-9, min(1.0, float(os.environ.get("SHOWDOWN_CVAR_ALPHA", "0.25"))))
+    except ValueError:
+        return 0.25
+
+
+def _cvar_lambda() -> float:
+    """CVaR downside weight for NEUTRAL (SHOWDOWN_CVAR_LAMBDA), clamped [0, 1]. Default
+    0.5 (= historic risk_lambda default, so on-with-defaults is a pure operator swap)."""
+    try:
+        return max(0.0, min(1.0, float(os.environ.get("SHOWDOWN_CVAR_LAMBDA", "0.5"))))
+    except ValueError:
+        return 0.5
+
+
 def cvar_lower(scores: list[float], weights: list[float] | None, alpha: float) -> float:
     """Lower-tail CVaR (expected shortfall): probability-weighted mean of the worst
     ``alpha``-mass of ``scores``. ``alpha`` clamped to (0, 1]; ``alpha >= 1`` -> full
@@ -110,6 +133,9 @@ def aggregate_scores(
         wmean = sum(s * w for s, w in zip(scores, weights)) / wsum
         if mode == GameMode.AHEAD:
             return wmean
+        if _neutral_cvar_enabled():
+            tail = cvar_lower(scores, weights, _cvar_alpha())
+            return wmean - _cvar_lambda() * (wmean - tail)
         wvar = sum(w * (s - wmean) ** 2 for s, w in zip(scores, weights)) / wsum
         return wmean - risk_lambda * wvar
 
@@ -117,6 +143,10 @@ def aggregate_scores(
         return mean(scores)
     if len(scores) == 1:
         return scores[0]
+    if _neutral_cvar_enabled():
+        m = mean(scores)
+        tail = cvar_lower(scores, None, _cvar_alpha())
+        return m - _cvar_lambda() * (m - tail)
     return mean(scores) - risk_lambda * pvariance(scores)
 
 
