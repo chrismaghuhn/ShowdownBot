@@ -189,6 +189,27 @@ def test_config_hash_changes_when_risk_lambda_toggled():
     assert h_off != h_on
 
 
+# --- NEUTRAL-mode CVaR knobs (2c-cvar) --------------------------------------------------
+
+def test_neutral_cvar_knobs_behavior_affecting_and_classified():
+    for name in ("SHOWDOWN_NEUTRAL_CVAR", "SHOWDOWN_CVAR_ALPHA", "SHOWDOWN_CVAR_LAMBDA"):
+        assert name in BEHAVIOR_AFFECTING
+        assert name not in SERVER_SIDE_BEHAVIOR_AFFECTING
+        assert is_classified(name)
+
+
+def test_behavior_env_includes_cvar_knobs():
+    env = {"SHOWDOWN_NEUTRAL_CVAR": "1", "SHOWDOWN_CVAR_ALPHA": "0.25",
+           "SHOWDOWN_CVAR_LAMBDA": "0.5"}
+    assert behavior_env(env) == env
+
+
+def test_config_hash_changes_when_neutral_cvar_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({})))
+    h_on = make_config_hash(_manifest(behavior_env({"SHOWDOWN_NEUTRAL_CVAR": "1"})))
+    assert h_off != h_on
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):

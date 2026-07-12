@@ -29,6 +29,13 @@ BEHAVIOR_AFFECTING = frozenset({
     # penalty in aggregate_scores/pick_best -> directly changes which move is
     # played -> config_hash.
     "SHOWDOWN_RISK_LAMBDA",
+    # [2c-cvar] NEUTRAL-mode CVaR aggregation: SHOWDOWN_NEUTRAL_CVAR toggles the NEUTRAL
+    # downside from variance to a worst-case CVaR tail; ALPHA/LAMBDA parameterize it. All
+    # read in showdown_bot.battle.policy (aggregate_scores) -> Python source, changes which
+    # move is played -> config_hash. Off by default = byte-identical.
+    "SHOWDOWN_NEUTRAL_CVAR",
+    "SHOWDOWN_CVAR_ALPHA",
+    "SHOWDOWN_CVAR_LAMBDA",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",
