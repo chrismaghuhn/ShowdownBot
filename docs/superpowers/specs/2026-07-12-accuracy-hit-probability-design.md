@@ -1,6 +1,9 @@
 # Accuracy / Hit-Probability-Weighted Move Evaluation — Design
 
-**Status:** spec-ready (post 5-correction revision)
+**Status:** spec-ready (post 5-correction revision, then a second review pass replacing the
+one-shot discovery/fixed-branch-set design with a recursive expansion, fixing the Thunder/
+Hurricane-in-sun mechanic against the pinned server source, and closing the branch-cap
+provenance gap)
 **Scope:** `resolve_turn`/`apply_hit`/`evaluate_line` only. `rollout.py` (the fixed-policy
 multi-turn condition engine used by `_rollout_value`) is explicitly OUT of scope — it does no
 damage calc and stays pure ratio arithmetic.
@@ -84,10 +87,26 @@ weather-guaranteed hits, nothing else):
   - Blizzard (`meta.id == "blizzard"`) hits 100% when `"snow" in field.weather.lower()`. Gen 9
     renamed Hail → Snow; this project targets Gen 9 only (`gen9vgc2024regg`/`gen9vgc2025regi`), so
     "snow" is the correct and only token checked — "hail" is not tested against for this rule.
-  - Thunder/Hurricane (`meta.id in ("thunder", "hurricane")`): `"rain" in field.weather.lower()` →
-    100% (overrides stage-adjusted value); `"sun" in field.weather.lower()` → exactly 0.5
-    (overrides stage-adjusted value, does **not** compose with it — this matches real Showdown,
-    where the sun penalty is an absolute replacement, not a multiplier on the boosted accuracy).
+  - Thunder/Hurricane (`meta.id in ("thunder", "hurricane")`): verified against the actual pinned
+    server source (`config/eval/provenance.yaml`'s `showdown_commit: f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5`,
+    `data/moves.ts:9037-9048`/`19458-19469`, `sim/battle-actions.ts:685-733`), **not assumed**:
+    `onModifyMove` sets `move.accuracy = true` in rain (`raindance`/`primordialsea`) — this is the
+    real always-hit sentinel, and `hitStepAccuracy` (`battle-actions.ts:708`) skips the entire
+    stage/evasion block when `accuracy === true`, so rain is a genuine unconditional 100%, no stage
+    interaction. In sun (`sunnyday`/`desolateland`) it instead sets `move.accuracy = 50` — a plain
+    **number**, which `hitStepAccuracy` feeds through the *normal* stage-multiplier pipeline
+    exactly like any other numeric base accuracy (`battle-actions.ts:709-722`). The original design
+    claim that sun is a hard override ignoring stages was **wrong** — corrected:
+    `"rain" in field.weather.lower()` → return `None` (unconditional always-hit, matching
+    `move.accuracy = true`'s bypass of the stage block); `"sun" in field.weather.lower()` →
+    substitute `50` for `meta.accuracy` and then apply the **same** stage/evasion multiplier as the
+    base-accuracy path above (`50/100 * multiplier`), not a hard-pinned 0.5.
+  - **Known gap, not new to this slice:** PS's rain/sun weather IDs also include the primal-ability
+    forms `primordialsea`/`desolateland`, which contain neither `"rain"` nor `"sun"` as a
+    lowercase substring, so the token check above would miss them. `_WEATHER_MAP`
+    (`evaluate.py:20-22`) has the same gap already, project-wide, predating this slice. Primal Orbs
+    are not legal held items in any VGC-regulation format this bot targets, so this is accepted as
+    zero real-world materiality rather than fixed here — noted so it isn't a silent repeat.
   - These are the only two field-rule branches in v1, per the accepted answer.
 
 **Explicitly out of v1** (documented limitation, not silently ignored): ability modifiers
@@ -137,8 +156,9 @@ miss check, so it can't be misclassified as a miss.
 Two new `TurnOutcome` fields (mirroring the existing `protected_hits`/`redirected_hits` pattern,
 `resolve.py:80-81`): `attempted_hits: list[AttemptedHit]`, `missed_hits: list[MissedHit]`.
 `AttemptedHit` is recorded **unconditionally** (even when `forced_miss` is empty, i.e. today's
-legacy always-hit call path) — this makes the very first, zero-`forced_miss` `resolve_turn` call
-double as event *discovery* for the branch enumeration in §5, with no extra resolve pass needed.
+legacy always-hit call path). It is consumed by the recursive branch expansion in §5, which calls
+`resolve_turn` repeatedly with a *growing* `forced_miss` set and re-reads `attempted_hits` after
+every call — not by a single one-shot discovery pass (see §5 for why one pass is insufficient).
 
 `resolve_turn` gains `forced_miss: frozenset[tuple[SlotId, SlotId]] = frozenset()` as a new
 keyword-only parameter, threaded through to `apply_hit`'s closure. Default empty set = today's
@@ -156,86 +176,153 @@ exactly what's adding fields to it.
 
 ## 5. Branch enumeration inside `evaluate_line`
 
-**Where hit/miss branching composes with the existing tie-break averaging:** `evaluate_line`'s
-`_one(tb)` closure (`evaluate.py:384-392`) today does exactly one `resolve_turn` → `score_outcome`
-→ optional `_rollout_value`. The genuine-tie wrapper outside it (`evaluate.py:396-400`) averages
-`_one("ours_first")` and `_one("ours_last")` 0.5/0.5. Hit/miss branching is nested **strictly
-inside** `_one(tb)`, not as an outer loop alongside tie-averaging: for a fixed tie-break ordering,
-`_one(tb)` now enumerates its own weighted hit/miss branches, each a full
-`resolve_turn`+`score_outcome`+`_rollout_value` pass, and returns their probability-weighted score.
-The tie-break wrapper is untouched and composes automatically — two independent axes (tie-order,
-hit/miss), each fully resolved before the other combines them, so nothing is double-counted and
-no combinatorial cross-product between the two axes is ever materialized (2 tie-orderings × up to
-`2^B` hit/miss branches stays additive, not multiplicative, because each `_one(tb)` call owns its
-own hit/miss average internally).
+**Why a one-shot discovery pass is wrong.** An earlier revision of this design ran
+`resolve_turn(forced_miss=∅)` once, read `attempted_hits` as a *fixed* event list, and generated
+`2^k` branches as subsets of that one list. This is incorrect whenever a hit/miss outcome changes
+*who gets to act at all*: if fast attacker X's uncertain move KOs slower Y in the all-hit run, Y
+never reaches `apply_hit` (`resolve.py:210-214`, `fainted_before_acting`) and so never appears in
+`attempted_hits` — but in the branch where X's move *misses*, Y survives and takes its own action,
+which may itself be an uncertain-accuracy move against some target. That event is invisible to a
+list built from the all-hit run alone, so the miss-branch's score would silently treat Y's action
+as guaranteed-hit. The same problem applies to redirection: which mon is targeted (and therefore
+which accuracy check applies) can depend on whether an earlier Follow-Me/Rage-Powder user is still
+alive, which is itself hit/miss-dependent. A fixed pre-enumerated event list cannot see this.
 
-**Discovery + branch construction**, inside the new `_one(tb)`:
+**Fix: recursive expansion that re-discovers events after every resolve.** `evaluate.py` gains
+`resolve_turn_branches(state, actions, damage_fn, *, our_side, field, tie_break, branch_cap) ->
+list[tuple[float, TurnOutcome]]` (placed next to `resolve_turn` in `resolve.py`, since it's a
+resolution primitive, not a scoring one). `resolve_turn` itself is untouched beyond §4's
+`forced_miss` parameter — it stays a single deterministic pass for a *given* `forced_miss` set.
+`resolve_turn_branches` is the new orchestrator that calls it repeatedly, forking exactly at the
+point a genuinely new uncertain event is revealed:
 
-1. Call `resolve_turn(..., forced_miss=frozenset())` once — this is both the "all-hit" branch AND
-   the discovery pass, reading `outcome.attempted_hits` for the candidate event list.
-2. For each `AttemptedHit(attacker_key, tgt_key, move_id)`, compute
-   `p = hit_probability(move.meta, attacker_mon, target_mon, field)` (the two `PokemonState`
-   objects resolved from `state.sides` via `attacker_key`/`tgt_key`). Events where `p is None`
-   (always hits) or `p >= 1.0` are dropped — they contribute no uncertainty, so they never enter
-   the combinatorial set. This is what keeps the practical branch count well below the worst-case
-   8/256: status moves, always-hit moves, and any move already fully guaranteed by a weather rule
-   cost nothing.
-3. The remaining "uncertain events" list (size `k`, worst case 8 per §6) generates up to `2^k`
-   branches, each a specific `forced_miss` subset with probability
-   `∏(uncertain, missed) (1 - p) × ∏(uncertain, hit) p`.
-4. Every branch beyond the first (`forced_miss=∅`, already computed in step 1) requires its own
-   `resolve_turn`+`score_outcome`(+`_rollout_value`) call. `_one(tb)` returns
-   `(Σ branch_prob × branch_score, representative_outcome)` — the representative `TurnOutcome` is
-   the all-hit (`forced_miss=∅`) branch's outcome, mirroring how the tie-average case already
-   picks one representative outcome (`out_last`) for diagnostics rather than trying to merge two
-   `TurnOutcome`s.
+```python
+def resolve_turn_branches(state, actions, damage_fn, *, our_side, field, tie_break, branch_cap):
+    calls = 0
+    fallback_leaves = 0
+
+    def expand(miss_set, decided_hit, weight):
+        nonlocal calls, fallback_leaves
+        calls += 1
+        out = resolve_turn(state, actions, damage_fn, our_side=our_side, field=field,
+                            tie_break=tie_break, forced_miss=miss_set)
+        decided = miss_set | decided_hit
+        pending = []
+        for ah in out.attempted_hits:
+            pair = (ah.attacker, ah.target)
+            if pair in decided:
+                continue
+            attacker_mon = state.sides[ah.attacker[0]][ah.attacker[1]]
+            target_mon = state.sides[ah.target[0]][ah.target[1]]
+            move = _move_for(actions, ah.attacker, ah.move_id)  # PlannedAction.move lookup
+            p = hit_probability(move, attacker_mon, target_mon, field)
+            if p is not None and 0.0 < p < 1.0:
+                pending.append((pair, p))
+        if not pending:
+            return [(weight, out)]
+        if calls >= branch_cap:
+            fallback_leaves += 1
+            return [(weight, out)]  # remaining `pending` events stay implicitly hit in `out`
+        pair, p = pending[0]  # deterministic: first attempted-hit order
+        return (
+            expand(miss_set, decided_hit | {pair}, weight * p)
+            + expand(miss_set | {pair}, decided_hit, weight * (1 - p))
+        )
+
+    leaves = expand(frozenset(), frozenset(), 1.0)
+    return leaves, fallback_leaves
+```
+
+`decided_hit` tracks pairs whose "hits" side has already been explored by an ancestor fork, so a
+pair already forked on is never re-forked when it resurfaces in a descendant's `attempted_hits`
+(it necessarily will, since `out` always reflects *some* concrete resolution). Because
+`hit_leaves` (weight × `p`) is always computed before `miss_leaves` (weight × `1-p`) and recursion
+is depth-first, `leaves[0]` is always the fully-resolved "everything hits" leaf — the same
+representative-outcome property the original design relied on. Leaf weights sum to 1.0 by
+induction regardless of where the cap triggers (a capped leaf just stops subdividing further; it
+keeps its accumulated weight and treats its own still-`pending` events as hit, i.e. exactly
+today's legacy resolution for whatever wasn't explored — see §6 for why this is now a *per-branch*
+fallback, not a whole-line one).
+
+**Composition with tie-averaging.** `evaluate_line`'s `_one(tb)` (`evaluate.py:384-392`) becomes:
+when `SHOWDOWN_ACCURACY_MODE` is off, call `resolve_turn` exactly as today (byte-identical, zero
+overhead). When on, call `resolve_turn_branches(..., tie_break=tb)`, then
+`score = Σ weight_i × (score_outcome(out_i, ...) + rollout(out_i) if horizon>0 else 0)`, returning
+`(score, leaves[0][1])` as the representative outcome — same external `(float, TurnOutcome)`
+contract `_one(tb)` had before, so the outer tie-break wrapper (`evaluate.py:396-400`, averaging
+`_one("ours_first")`/`_one("ours_last")` 0.5/0.5) needs **no change** and composes correctly:
+it calls `_one(tb)` twice, and each call now internally does its own full accuracy expansion.
+
+**This means the real worst-case cost is the *product*, not a sum** — up to `2 ×
+2^branch_cap` total `resolve_turn` calls per `evaluate_line` invocation in the tie+accuracy case
+(one full `resolve_turn_branches` expansion per tie-break ordering). There is no merged
+`2 × 2^branch_cap`-cell data structure to build (each `_one(tb)` reduces its own expansion to a
+single scalar before the outer average touches it), but the *call count* is multiplicative and
+must be measured as such — §6's latency gate is written against this real number, not the smaller
+`2^branch_cap` figure alone.
 
 `damage_fn` calls across branches for the same `(attacker, target, move)` triple are identical in
 every branch that doesn't force-miss that specific pair — the existing oracle/damage cache (the
 same one `_has_genuine_tie`'s docstring references: *"Same prefetched oracle cache -> no new
-calcs"*) absorbs the repetition, so the added cost of branching is dominated by branch **count**
-(cheap, pure-Python `score_outcome`/rollout work), not by re-hitting `@smogon/calc`.
+calcs"*) absorbs the repetition, so the added cost is dominated by `resolve_turn` call **count**
+and its own pure-Python work, not by re-hitting `@smogon/calc`.
 
 ## 6. Branch budget: cap, fallback, telemetry
 
 Worst case (verified arithmetic): 2 actors per side, both sides using a 2-target spread move
 against an opponent with 2 alive targets → 4 attacker×target pairs per side × 2 sides = 8
-independent uncertain-accuracy events → `2^8 = 256` combinations before tie-averaging/rollout.
+independent uncertain-accuracy events → `2^8 = 256` leaves in the deepest single `expand()` tree,
+× 2 tie-break orderings (§5) before rollout.
 
 **Mechanism defined now, magnitude tuned empirically at implementation time** (same pattern used
 for Depth-2's `SHOWDOWN_SEARCH_TOPN`/`TOPM`: define the knob and fallback behavior in the spec,
 measure the affordable value during the implementation's own latency-gate stage rather than
 guessing a number here):
 
-- A named config knob, `SHOWDOWN_ACCURACY_BRANCH_CAP` (int, suggested starting default `4` — i.e.
-  up to `2^4 = 16` exact branches per `_one(tb)` call — to be confirmed or revised by a local
-  micro-benchmark before shipping, exactly as Depth-2's N/M were).
-- **Deterministic fallback, no partial/priority-ranked branching in v1:** if the uncertain-event
-  count for a line exceeds the cap, that **one line** falls back entirely to the legacy always-hit
-  behavior (`forced_miss=∅` only, i.e. step 1's branch alone, weight 1.0). No other line is
-  affected. This is simpler and fully deterministic to verify versus a risk-priority partial
-  scheme; a partial scheme (branch the `B` riskiest events by `1-p`, collapse the rest to their
-  own expectation) is a documented, named v1.1 candidate if the fallback-rate telemetry below
-  shows it matters in practice.
-- **Telemetry, not silent truncation:** every fallback increments a counter exposed on the trace
-  (e.g. `trace.accuracy_branch_cap_hits`), visible in existing report aggregation. A line that hit
-  the cap is fully auditable after the fact — this is what "keine stillschweigende
+- A named config knob, `SHOWDOWN_ACCURACY_BRANCH_CAP` (int, suggested starting default `4` —
+  bounding `resolve_turn_branches`'s own `expand()` to at most 4 `resolve_turn` calls before any
+  further fork gets capped — to be confirmed or revised by a local micro-benchmark before
+  shipping, exactly as Depth-2's N/M were).
+- **Per-branch fallback, not whole-line.** Correction from an earlier revision: because forking
+  now happens recursively at the point an event is actually revealed (§5), the cap is enforced
+  per `expand()` call via its own `calls` counter — when a specific recursion path reaches the cap,
+  *that path alone* stops subdividing and treats its own still-`pending` events as hit (the exact
+  legacy behavior), while sibling paths that never approached the cap continue exploring normally.
+  This is strictly more accurate than an earlier whole-line-reverts design (only the excess tail of
+  the *specific* deep branch is approximated, not the entire turn) and falls out of the recursive
+  structure for free — no risk-priority partial scheme is needed to get this improvement.
+- **Telemetry, not silent truncation:** `resolve_turn_branches` returns `fallback_leaves` (count of
+  `expand()` calls that hit the cap) alongside the leaf list; `_one(tb)` accumulates this onto the
+  trace (e.g. `trace.accuracy_branch_cap_hits`), visible in existing report aggregation. A branch
+  that hit the cap is fully auditable after the fact — this is what "keine stillschweigende
   Zweig-Trunkierung" requires, and what makes the cap number itself a decision the telemetry can
   later challenge.
+- **Provenance:** `SHOWDOWN_ACCURACY_BRANCH_CAP` is behavior-affecting — a different cap value can
+  change which lines hit the fallback and therefore which candidate scores highest, exactly the
+  same class of effect `SHOWDOWN_SEARCH_DEPTH` has. It is added to `BEHAVIOR_AFFECTING`
+  **unconditionally** (§9) rather than excluded-when-mode-is-off, deliberately avoiding the
+  conditional-exclusion pattern that produced the `SHOWDOWN_SEARCH_TOPN`/`TOPM` bug the audit
+  found. §10 requires a test proving two runs that differ only in this cap (with
+  `SHOWDOWN_ACCURACY_MODE` on) produce different `config_hash`.
 
 ## 7. Derived diagnostics
 
-Computed as a byproduct of the branch enumeration already done in §5 — no separate code path, no
-extra `resolve_turn` calls:
+Computed as a byproduct of the leaf list `resolve_turn_branches` already returns (§5) — no
+separate code path, no extra `resolve_turn` calls:
 
-- `ko_probability(target)` — sum of branch probabilities in which `target` ends up fainted in that
-  branch's `TurnOutcome` (already known per branch).
+- `ko_probability(target)` — sum of leaf weights in which `target` ends up fainted in that leaf's
+  `TurnOutcome` (already known per leaf).
 - `survival_probability(target) = 1 - ko_probability(target)`.
 - `accuracy_required` — pass-through of the move's own `hit_probability` value, exposed for
   logging/search use, not recomputed.
-- `miss_punish_value` — `score(all-hit branch) - score(the branch where only this specific event
-  is forced-missed, others held at all-hit)`, i.e. the marginal cost of *this* event missing,
-  extracted from the already-enumerated branch scores.
+- `miss_punish_value(pair)` — for each `pair` that was an actual fork point on the path to
+  `leaves[0]` (the all-hit leaf), the weighted-average score of that fork's *miss* sibling subtree
+  minus `score(leaves[0])`. This is well-defined directly from `expand()`'s recursion (each fork's
+  two children are already separately computable) without needing a separate "only this one event
+  missed, everything else held at hit" leaf to exist in the tree — for events that are the *last*
+  fork before `leaves[0]`, the two coincide; for earlier forks, the miss-sibling subtree already
+  correctly re-resolves any later events that only become live in that miss branch (§5), so this
+  is if anything a more faithful marginal-cost figure than a naive single-event flip would be.
 
 These populate a new, optional `AccuracyDiagnostics` structure attached to the trace only when
 accuracy modeling is active (§9); `None`/absent when off, so the off-path stays byte-identical.
@@ -272,9 +359,26 @@ path, byte-identical output. On = hit/miss branching per §4-§7 active. Added t
 `BEHAVIOR_AFFECTING` in `eval/config_env.py` (unconditionally included in `behavior_env()`, same
 as its siblings) — this is the single reproducible on/off ablation requested, distinct from the
 always-included `movedata_hash` (§8), which changes with the *data* regardless of whether the
-feature that consumes it is switched on.
+feature that consumes it is switched on. `SHOWDOWN_ACCURACY_BRANCH_CAP` (§6) is likewise added to
+`BEHAVIOR_AFFECTING` unconditionally, for the same audit-precedent reason spelled out in §6 —
+listing it here alongside `SHOWDOWN_ACCURACY_MODE` since both are read at the same call site.
 
-## 10. Testing strategy
+## 10. Rollout gating: fallback-rate go/no-go before default-on
+
+`SHOWDOWN_ACCURACY_MODE` ships **off by default** regardless of test results — this section is the
+criterion for later flipping the default, not a condition on merging this slice. Before that
+happens: run the mode on a representative battle panel (reusing existing gauntlet/eval-report
+infrastructure) and measure the `accuracy_branch_cap_hits` rate (§6) over real decisions, broken
+out by whether the affected line was actually the *chosen* candidate (a fallback on a
+never-selected candidate is harmless; a fallback on the line the bot goes on to play is the case
+that matters). Required before default-on: the report must state this rate explicitly (no silent
+truncation applies to the aggregate report just as much as to a single trace), and a materially
+non-zero rate on chosen lines blocks flipping the default until either the cap is raised (re-run
+the latency gate) or the fallback behavior itself is revisited. This gate is deliberately separate
+from the correctness/determinism tests in §11 — those must pass before merge; this one gates the
+subsequent default-on decision.
+
+## 11. Testing strategy
 
 - **Generator:** fail-closed test asserting every move in a fresh `gen_movedata.mjs` run has an
   `accuracy` key (number or explicit `null`), and that a synthetic dex entry with
@@ -286,31 +390,49 @@ feature that consumes it is switched on.
   convention — confirm exact protocol strings via existing `evaluate.py`/`rollout_adapter.py`
   fixtures rather than assuming) for: base accuracy only, boost-stage adjustment (both
   directions), Blizzard in Snow (100%), Blizzard outside Snow (nominal), Thunder/Hurricane in Rain
-  (100%) and Sun (exactly 0.5, not composed with boosts), always-hit moves (`None`, no stage/
-  weather adjustment applied).
+  (unconditional 100%, verified stage-independent), Thunder/Hurricane in Sun **with a non-zero
+  accuracy/evasion stage** (must equal `trunc(50 * stage_multiplier)`, not a flat 0.5 — this is
+  the specific case the earlier design got wrong and must be pinned against
+  `sim/battle-actions.ts:709-722`'s actual formula at the pinned commit), always-hit moves (`None`,
+  no stage/weather adjustment applied).
 - **`apply_hit`/`resolve_turn`:** a Protect-blocked hit with a simultaneous forced-miss entry for
   the same pair still records `protected_hits`, never `missed_hits` (proves the ordering). A
   spread move forced-missing one target and hitting another produces exactly one `MissedHit` and
-  one damaged target. `attempted_hits` is populated even when `forced_miss=∅` (proves the
-  discovery-pass reuse in §5).
-- **`evaluate_line` branch enumeration:** a synthetic two-branch case (one uncertain event) checks
+  one damaged target. `attempted_hits` is populated even when `forced_miss=∅`.
+- **`resolve_turn_branches` (§5), the core correctness case:** a fixture with a fast attacker whose
+  uncertain move KOs a slower defender that itself has a queued uncertain-accuracy move. Assert
+  that the miss-branch's leaves correctly include the defender's own accuracy fork (i.e., the
+  defender's move appears as a pending event *only* in the subtree reached after the attacker's
+  miss, and the resulting weighted score reflects that move's own hit/miss uncertainty) — this is
+  the regression test for the exact bug the one-shot-discovery design had.
+- **`evaluate_line` branch composition:** a synthetic two-leaf case (one uncertain event) checks
   the weighted score equals `p * score(hit) + (1-p) * score(miss)` exactly. A synthetic case with
-  events beyond the cap checks the whole-line fallback (`forced_miss=∅` only) and the telemetry
-  counter increments. A combined tie+accuracy case checks the two axes compose additively (no
-  cross-product blowup, exact expected weighted value computed by hand for a small fixture).
+  events beyond `branch_cap` checks the per-branch fallback (only the specific over-cap subtree
+  stops subdividing, sibling subtrees unaffected) and that `fallback_leaves`/the telemetry counter
+  increments by the correct count. A combined tie+accuracy case measures and asserts the actual
+  `resolve_turn` call count equals the `2 × leaf_count` product from §5 (not an assumed-additive
+  smaller number), and separately checks the returned score is still the correct weighted average.
 - **Provenance:** two runs differing only in `movedata.json` content (synthetic fixture) produce
   different `config_hash` even with `SHOWDOWN_ACCURACY_MODE` off; two runs differing only in
-  `SHOWDOWN_ACCURACY_MODE` produce different `config_hash` with identical `movedata.json`.
+  `SHOWDOWN_ACCURACY_MODE` produce different `config_hash` with identical `movedata.json`; two runs
+  with `SHOWDOWN_ACCURACY_MODE` on but different `SHOWDOWN_ACCURACY_BRANCH_CAP` values produce
+  different `config_hash` (the TOPN/TOPM-class regression test §6/§9 call for).
 - **Off-path byte-identity:** existing resolve/evaluate golden tests re-run with
   `SHOWDOWN_ACCURACY_MODE` unset/off must produce byte-identical output to pre-slice behavior.
+- **Latency:** measure real wall-clock for the worst-case 8-event/`2 × 2^branch_cap`-call scenario
+  (§5) at the chosen `branch_cap` default, per the Depth-2-precedent methodology (persistent calc
+  backend, local micro-bench, no silent assumption of "cheap because cached").
 
-## 11. Explicitly out of scope
+## 12. Explicitly out of scope
 
 - `rollout.py` / `_rollout_value`'s multi-turn condition engine (pure ratio arithmetic, no damage
   calc — confirmed twice by the user).
 - Ability/item/field accuracy modifiers beyond the two weather rules in §3 (named v1.1 candidates).
-- Partial/risk-priority branch collapsing above the cap (named v1.1 candidate, contingent on
-  fallback-rate telemetry from §6).
+- Risk-priority fork ordering: `expand()` (§5) forks on `pending[0]` in attempted-hit order
+  (deterministic, but not ranked by `1-p`). If the cap-hit rate from §10's gate turns out to be
+  material, forking the riskiest (`1-p` largest) pending event first — so a capped branch has
+  already explored its highest-value uncertainty before giving up — is a named v1.1 candidate. The
+  per-branch (not whole-line) fallback itself is already v1 baseline (§6), not deferred.
 - Any change to Depth-2 Stage 3 itself — this slice only fixes the shared 1-ply evaluation seam
   that both the primary decision and Depth-2's turn-2 backup consume; the re-baseline and Stage 3
   work follow this slice, not inside it.
