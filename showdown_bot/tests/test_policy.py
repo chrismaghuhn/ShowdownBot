@@ -139,3 +139,19 @@ def test_ahead_unaffected_by_cvar_env(monkeypatch):
     monkeypatch.setenv("SHOWDOWN_NEUTRAL_CVAR", "1")
     scores = [1.0, 2.0, 3.0, 4.0]
     assert aggregate_scores(scores, GameMode.AHEAD) == pytest.approx(mean(scores))
+
+
+def test_neutral_default_env_is_exact_legacy(monkeypatch):
+    # With no CVaR env set at all, NEUTRAL must equal the legacy variance formula EXACTLY
+    # (byte-identical-off invariant) for both weighted and unweighted paths.
+    for name in ("SHOWDOWN_NEUTRAL_CVAR", "SHOWDOWN_CVAR_ALPHA", "SHOWDOWN_CVAR_LAMBDA"):
+        monkeypatch.delenv(name, raising=False)
+    scores = [1.0, 3.0, 3.0, 7.0]
+    assert aggregate_scores(scores, GameMode.NEUTRAL, risk_lambda=0.5) == (
+        mean(scores) - 0.5 * pvariance(scores))
+    weights = [0.4, 0.3, 0.2, 0.1]
+    wsum = sum(weights)
+    wmean = sum(s * w for s, w in zip(scores, weights)) / wsum
+    wvar = sum(w * (s - wmean) ** 2 for s, w in zip(scores, weights)) / wsum
+    assert aggregate_scores(scores, GameMode.NEUTRAL, risk_lambda=0.5, weights=weights) == (
+        wmean - 0.5 * wvar)
