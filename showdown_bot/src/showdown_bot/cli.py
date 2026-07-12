@@ -528,9 +528,11 @@ def run_generalisation_analyze(args):
         exposure_path=args.exposure, taxonomy_path=args.taxonomy,
         manifest_path=args.generalisation_manifest,
         panel_path=args.panel, schedule_path=args.schedule, run_a=args.run_a,
-        seedlog_a=args.seedlog_a, room_raw_a=args.room_raw_a, run_manifest_a=args.manifest_a,
-        run_b=args.run_b, seedlog_b=args.seedlog_b, room_raw_b=args.room_raw_b,
-        run_manifest_b=args.manifest_b, teams_root=args.teams_root, out_dir=args.out,
+        seedlog_a=args.seedlog_a, room_raw_a=args.room_raw_a,
+        run_manifest_a=args.manifest_a or None,
+        run_b=args.run_b or None, seedlog_b=args.seedlog_b or None,
+        room_raw_b=args.room_raw_b or None,
+        run_manifest_b=args.manifest_b or None, teams_root=args.teams_root, out_dir=args.out,
         overwrite=args.overwrite)
     if report["status"] in {"INVALID", "INCONCLUSIVE", "REGRESSION"}:
         raise SystemExit(1)
