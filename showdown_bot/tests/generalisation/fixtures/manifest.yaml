@@ -1,0 +1,11 @@
+schema_version: generalisation-manifest-v1
+manifest_id: t4-rerun-generalisation
+format_ids: [gen9vgc2025regi]
+splits: [dev]
+hero_team_hashes: [5aef213f351a6627]
+opponent_team_hashes: [e622869d6c68307e, b0048ae65f0e9ee5, 69f471c2740f1927]
+opponent_policies: [heuristic, max_damage, simple_heuristic, greedy_protect, scripted_vgc]
+required_axes: [hero_team_hash, opponent_team_hash, opponent_policy, format_id]
+protected_cells: all_materialized
+required_unique_seeds_per_cell: 30
+side_control: observed_only
