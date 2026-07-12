@@ -119,6 +119,12 @@ def test_hit_probability_positive_accuracy_stage_raises_it():
     assert abs(p - 0.93) < 1e-9  # int(70 * 4/3) / 100 = int(93.33)/100 = 0.93
 
 
+def test_hit_probability_negative_accuracy_stage_lowers_it():
+    thunder = get_move_meta("Thunder")
+    p = hit_probability(thunder, _mon(accuracy=-1), _mon(), FieldState())
+    assert abs(p - 0.52) < 1e-9  # int(70 * 3/4) / 100 = int(52.5)/100 = 0.52
+
+
 def test_hit_probability_negative_evasion_stage_raises_it():
     # Target evasion DOWN raises the attacker's effective hit chance (stage = acc - evasion,
     # so evasion=-1 contributes the same +1 as attacker accuracy=+1 would).
@@ -175,3 +181,13 @@ def test_hit_probability_clamped_to_one_when_stage_pushes_above_100():
     tackle_like = get_move_meta("Tackle")  # accuracy 100
     p = hit_probability(tackle_like, _mon(accuracy=6), _mon(), FieldState())
     assert p == 1.0
+
+
+def test_hit_probability_field_none_is_valid_input():
+    # field is a documented valid None (no weather to consult) -- distinct from FieldState()
+    # with weather=None, though both should behave identically here.
+    swift = get_move_meta("Swift")
+    assert hit_probability(swift, _mon(), _mon(), None) is None
+    thunder = get_move_meta("Thunder")
+    p = hit_probability(thunder, _mon(), _mon(), None)
+    assert abs(p - 0.70) < 1e-9

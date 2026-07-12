@@ -165,7 +165,7 @@ def move_priority(meta: MoveMeta, field: FieldState | None = None) -> int:
 
 
 def hit_probability(
-    meta: MoveMeta, attacker: PokemonState, target: PokemonState, field: FieldState | None,
+    meta: MoveMeta, attacker: PokemonState, target: PokemonState, field: FieldState | None = None,
 ) -> float | None:
     """Probability this move connects. ``None`` means unconditionally guaranteed to hit
     (no branching needed): either ``meta.accuracy is None`` (the normalized @pkmn/dex
