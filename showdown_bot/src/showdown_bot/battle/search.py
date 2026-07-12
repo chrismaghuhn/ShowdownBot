@@ -131,9 +131,13 @@ def depth2_value(
     ``monkeypatch.setattr(search, "<name>", ...)`` to isolate this function's own
     orchestration from its collaborators.
 
-    Does NOT flush ``oracle`` -- turn-2 calc requests are only enqueued into the
-    passed-in shared ``DamageOracle``; Task 4's frontier wrapper flushes it once
-    across the whole depth-2 frontier (one batched Node round trip).
+    Does not call ``oracle.flush()`` itself -- turn-2 calc requests are enqueued
+    into the passed-in shared ``DamageOracle`` and resolve lazily when the first
+    ``evaluate_line`` reads a result (``DamageOracle.get`` auto-flushes any pending
+    request, oracle.py:56). Sharing one oracle across the depth-2 frontier buys
+    calc-cache reuse (identical calcs dedupe); it does NOT batch the whole frontier
+    into a single Node round trip -- that batching/latency question is what the
+    Task 6 stage-1 gate measures.
     """
     predict_kwargs = predict_kwargs or {}
     model_kwargs = model_kwargs or {}

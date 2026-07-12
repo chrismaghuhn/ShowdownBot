@@ -121,6 +121,12 @@ NON_BEHAVIORAL_PREFIXES = ("SHOWDOWN_AUTH_", "SHOWDOWN_DATASET_")
 EXCLUDED_BY_REASON = {
     "SHOWDOWN_FORMAT": "captured via the manifest field format_id",
     "SHOWDOWN_TEAM_PATH": "captured via hero_team_hash / team content hashes",
+    "SHOWDOWN_SEARCH_TOPN": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
+    "SHOWDOWN_SEARCH_TOPM": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
 }
 
 
