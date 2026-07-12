@@ -42,6 +42,27 @@ The offline signal was also **rain-specific**: re-running the full-fidelity prob
 panel, `must_react_lambda` had **zero** teacher-agreement effect (rain: +13.7pp). Rain (fast tailwind) has
 many must-react flips; trickroom (slow) decisions are clear-cut.
 
+## `risk_lambda` control (NEUTRAL lever) — the inversion is **lever-specific**
+
+The natural follow-up: if `must_react_lambda` inverted, does the *other* aggregation lever invert too? The
+offline probe's single largest signal was `risk_lambda`-down on the fixed panel (**+32pp** teacher-agreement),
+so a `risk_lambda`-**up** A/B (0.75 vs the 0.5 default) was the obvious test. It **falsifies** a universal
+inversion:
+
+| candidate vs baseline 0.5 | winrate (cand / base) | Δ | McNemar (A-won-B-lost / B-won-A-lost, n_disc) | p | verdict |
+|---|---|---:|---|---:|---|
+| `risk_lambda=0.75` | 5.3% / 18.0% | −12.67pp | 3 / 22, n=25 | 0.0002 | **REGRESSION** |
+
+Raising `risk_lambda` **hurts**. So offline (favored *lower*) and live (raising *hurts*) **agree** on direction
+for this lever — **no inversion**, unlike `must_react_lambda`. The mechanism explains the difference:
+`must_react_lambda` multiplies the **worst-case gap** `(avg − worst)`, which aligns with `max_damage`'s
+worst-case play, so raising it correctly models the opponent and inverts the mean-teacher; `risk_lambda`
+multiplies **variance** (`wmean − risk_lambda·wvar`), which is *not* worst-case-aligned, so raising it just adds
+miscalibrated conservatism and loses. **The teacher-agreement inversion is therefore specific to
+worst-case/CVaR-style levers against a worst-case opponent — not a blanket property of aggregation
+conservatism.** All aggregation levers are now tested and all four offline panels mapped; the investigation is
+complete (no further Kaggle).
+
 ## Caveats (read before shipping)
 
 1. **vs `max_damage` only.** `max_damage` literally plays worst-case, so conservatism matching it is
@@ -60,7 +81,10 @@ inverted.** The 2c-0b aggregation-retuning-via-teacher-agreement direction is a 
 metric (the probe is bit-exact-sound; its *signal* just doesn't predict winrate). Future tuning should gate
 on **winrate/McNemar** (the T5 `eval-report` machinery) and the outcome-grounded labels from the new
 **outcome-join** (Spec-04, built the same night), not teacher-agreement. This also cautions any 2b reranker
-training that distills the same teacher.
+training that distills the same teacher. The `risk_lambda` control refines the lesson: the inversion is **not
+universal** — it strikes worst-case/CVaR-style levers (like `must_react_lambda`) against a worst-case
+opponent, while a variance lever (`risk_lambda`) is not inverted (raising it regressed). Gate on winrate
+regardless; the inversion caution is sharpest for worst-case-weighting knobs.
 
 ## Recommendation for the user
 
@@ -68,8 +92,9 @@ training that distills the same teacher.
    `max_damage` dev-GO generalizes. If it holds → ship `SHOWDOWN_MUST_REACT_LAMBDA=0.8` (or the held-out-best
    value); a pure-heuristic, no-ML winrate improvement.
 2. Treat the 2c-0b offline probe as a **diagnostic/telemetry tool, not a decision metric.**
-3. Consider the same inversion for `risk_lambda` (NEUTRAL mode) — env-tunability added this session; a
-   `risk_lambda↑` A/B is the natural next check.
+3. **`risk_lambda` is settled — do not raise it.** The `risk_lambda↑` A/B (0.75 vs 0.5) was run this session
+   and **regressed −12.67pp (p=0.0002)**. The inversion is `must_react_lambda`-specific (the worst-case term),
+   not a general property of the aggregator. Leave `risk_lambda` at its 0.5 default.
 
 ## Tooling delivered (reusable, this slice)
 
@@ -83,5 +108,7 @@ training that distills the same teacher.
 
 - `sb-2c1-mustreact-strength` (0.3 vs 0.6): NO-GO / regression. `kaggle_out/2c1-mustreact/paired-report/`.
 - `sb-2c1-mustreact08-strength` (0.8 vs 0.6): GO. `kaggle_out/2c1-mustreact08/paired-report/`.
+- `sb-2c1-risklambda-strength` (`risk_lambda` 0.75 vs 0.5): NO-GO / regression (−12.67pp, p=0.0002).
+  `kaggle_out/2c1-risklambda/paired-report/`. (`REPO_SHA=5dabe5f`; the two `must_react` runs are on `c40159b`.)
 - Schedule `2b4_devstrength_v001` (panel_split=dev; held-out ledger never touched). Baseline/candidate pair
   by `battle_id` (differing `config_hash`, as required).
