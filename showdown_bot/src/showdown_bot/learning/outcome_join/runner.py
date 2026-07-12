@@ -13,17 +13,28 @@ from showdown_bot.learning.outcome_join.join import build_labels, apply_labels
 from showdown_bot.learning.outcome_join.report import build_report, format_json, format_md
 
 
-def _results_index(results_paths):
-    """team_hash -> {seed_index: result_row}. Falls hero_team_hash fehlt, wird die
-    Datei unter dem Sentinel-Key None geführt und später per Gate zugeordnet."""
-    by_team = {}
-    for path in results_paths:
-        rows = read_jsonl(path)
-        team = None
-        for r in rows:
-            team = r.get("hero_team_hash") or team
-        by_team.setdefault(team, {}).update({int(r["seed_index"]): r for r in rows})
-    return by_team
+def _load_results_sources(results_paths):
+    """[(path_str, {seed_index: result_row}), ...] -- one entry per results
+    file, kept SEPARATE (never merged by hero_team_hash).
+
+    `hero_team_hash` (schedule/eval-side provenance, `eval.result_jsonl`) and
+    the dataset's own `team_hash` (export-side provenance,
+    `learning.provenance.team_hash` over the packed team string) are different
+    hashes over different inputs -- confirmed against the real
+    phase3-slice2b25a reference data: zero overlap across all (group, results
+    file) pairs, even for the matching hero. Equality-matching them is
+    unreliable, so every group tries every source file and keeps whichever
+    one(s) pass the FULL integrity gate (bijective-over-group bridge + 0
+    turn-violations) -- this is exactly the plan's own documented
+    "hero_team_hash absent -> the gate alone decides" fallback, applied
+    universally since the equality path structurally never matches on real
+    data. The turn-check uses real per-battle data (`turns` per seed_index) so
+    it uniquely disambiguates in practice: each of the 4 reference groups
+    passes against exactly one results file, with 9-63 turn-violations against
+    every other file.
+    """
+    return [(str(path), {int(r["seed_index"]): r for r in read_jsonl(path)})
+            for path in results_paths]
 
 
 def run_outcome_join(*, dataset_path, results_paths, out_dir, mode="label",
@@ -40,23 +51,37 @@ def run_outcome_join(*, dataset_path, results_paths, out_dir, mode="label",
             canonical_json({"status": "FATAL_INPUT", "error": str(exc)}), encoding="utf-8")
         return 1
 
-    results_by_team = _results_index(results_paths)
+    results_sources = _load_results_sources(results_paths)
     all_labels, group_reports = [], []
     for group in groups:
-        results = results_by_team.get(group.team_hash) or results_by_team.get(None) or {}
-        results_list = [results[s] for s in sorted(results)]
-        mapping = reconstruct_mapping(
-            group, results_list, dirty_candidates=config.dirty_candidates,
-            run_seed_candidates=config.run_seed_candidates) if results_list else None
-        gate = check_group(group, mapping, results) if mapping else None
-        if mapping is None or not gate.passed:
-            reason = ("no_results" if not results_list else
-                      "no_unique_constants" if mapping is None else
-                      "coverage" if not gate.coverage_ok else "turn_violation")
+        passing = []
+        best_turn_violations = None
+        for _path, results in results_sources:
+            results_list = [results[s] for s in sorted(results)]
+            if not results_list:
+                continue
+            try:
+                mapping = reconstruct_mapping(
+                    group, results_list, dirty_candidates=config.dirty_candidates,
+                    run_seed_candidates=config.run_seed_candidates)
+            except OutcomeJoinError:
+                mapping = None
+            if mapping is None:
+                continue
+            gate = check_group(group, mapping, results)
+            if best_turn_violations is None or gate.turn_violations < best_turn_violations:
+                best_turn_violations = gate.turn_violations
+            if gate.passed:
+                passing.append((mapping, results))
+        if len(passing) != 1:
+            reason = ("no_results" if not results_sources else
+                      "ambiguous_results_file" if len(passing) > 1 else
+                      "no_matching_results_file")
             group_reports.append({"team_hash": group.team_hash, "labelled": 0,
                 "skipped_reason": reason, "constants": [], "distribution": {},
-                "turn_violations": 0 if gate is None else gate.turn_violations})
+                "turn_violations": 0 if best_turn_violations is None else best_turn_violations})
             continue
+        mapping, results = passing[0]
         labels = build_labels(group, mapping, results)
         all_labels.extend(labels)
         dist = Counter(lab.winner for lab in labels)

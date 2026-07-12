@@ -51,3 +51,27 @@ def test_reconstruct_rejects_ambiguous_multiple_matches():
     m = reconstruct_mapping(g, _results(1), dirty_candidates=(True, False),
                             run_seed_candidates=(0, 1))
     assert m is None or m.constants == (True, 0)
+
+def test_reconstruct_covers_dataset_that_is_a_strict_subset_of_results_battles():
+    # Real-world edge case (phase3-slice2b25a's trickroom hero): a results file
+    # can record MORE played battles than the dataset has games for, because a
+    # battle whose sampling gate selected zero decisions never produces a
+    # dataset row/game_id at all. reconstruct_mapping must still find the
+    # unique (dirty, run_seed) and return a mapping trimmed to exactly the
+    # dataset's own games -- never guessing at the missing one.
+    run_id = make_run_id(GIT, True, TEAM, CFG, 0)
+    all_game_ids = [make_game_id(run_id, gi) for gi in range(4)]
+    rows = []
+    for gi in (0, 1, 3):  # game 2's battle produced zero dataset rows
+        for turn in (1, 3):
+            rows.append({"metadata": {"game_id": all_game_ids[gi], "git_sha": GIT,
+                                      "team_hash": TEAM, "config_hash": CFG},
+                         "features": {"turn_number": turn}})
+    g = group_dataset_rows(rows)[0]
+    m = reconstruct_mapping(g, _results(4), dirty_candidates=(True, False),
+                            run_seed_candidates=(0,))
+    assert m is not None
+    assert m.constants == (True, 0)
+    assert set(m.game_to_seed) == {all_game_ids[0], all_game_ids[1], all_game_ids[3]}
+    assert m.game_to_seed[all_game_ids[0]] == 0
+    assert m.game_to_seed[all_game_ids[3]] == 3

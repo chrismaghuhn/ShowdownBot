@@ -44,8 +44,22 @@ def group_dataset_rows(rows: list[dict]) -> list[DatasetGroup]:
 
 def reconstruct_mapping(group: DatasetGroup, results: list[dict], *,
                         dirty_candidates, run_seed_candidates) -> BridgeMapping | None:
-    """Return the UNIQUE (dirty, run_seed) whose replayed game_ids bijectively
-    cover the group's game_ids, else None (fail-closed: ambiguous or no match)."""
+    """Return the UNIQUE (dirty, run_seed) whose replayed game_ids cover the
+    group's game_ids, else None (fail-closed: ambiguous or no match).
+
+    Coverage is a SUBSET check (group.game_ids <= replayed game_ids), not exact
+    set equality: a results file can legitimately record MORE battles than the
+    dataset has games for -- e.g. a battle whose sampling gate selected zero
+    decisions never produces a dataset row, so its game_id never appears in any
+    group.game_ids even though the battle was played and has a results row
+    (real-world instance: phase3-slice2b25a's trickroom hero played 75 battles
+    but only 74 produced dataset rows -- see that dataset's manifest.json
+    "trickroom_zero_sample_game" note). The returned mapping is trimmed to
+    exactly the group's own game_ids (the extra, dataset-absent battles are
+    dropped), so it stays bijective **over the group** for downstream
+    consumers (`integrity.check_group`'s exact-equality coverage check,
+    `join.build_labels`).
+    """
     seed_indices = sorted(int(r["seed_index"]) for r in results)
     if seed_indices != list(range(len(results))):
         raise OutcomeJoinError("results seed_index must be contiguous from 0")
@@ -56,8 +70,10 @@ def reconstruct_mapping(group: DatasetGroup, results: list[dict], *,
                                  group.config_hash, run_seed)
             expected = {make_game_id(run_id, s): s for s in seed_indices}
             if len(expected) == len(seed_indices) and \
-                    frozenset(expected) == group.game_ids:
-                solutions.append(BridgeMapping(group.key, (dirty, run_seed), expected))
+                    group.game_ids <= frozenset(expected):
+                covering = {gid: seed for gid, seed in expected.items()
+                           if gid in group.game_ids}
+                solutions.append(BridgeMapping(group.key, (dirty, run_seed), covering))
     if len(solutions) != 1:
         return None       # 0 = no cover, >1 = ambiguous -> fail-closed
     return solutions[0]
