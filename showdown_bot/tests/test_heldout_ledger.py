@@ -129,3 +129,13 @@ def test_ledger_git_history_append_only():
                 f"git history of {_LEDGER_REL_PATH} contains a removed/modified line "
                 f"(append-only violated) at output line {lineno}: {line!r}"
             )
+
+
+def test_generalisation_schedule_entry_is_append_only_and_strict(tmp_path):
+    path = tmp_path / "ledger.jsonl"
+    entry = {"kind": "generalisation_schedule", "date": "2026-07-12", "purpose": "gate",
+             "panel_hash": "panel", "schedule_hash": "schedule", "git_sha": "git",
+             "justification": None, "manifest_hash": "manifest", "policy_hash": "policy",
+             "plan_hash": "plan"}
+    append_entry(path, entry)
+    assert read_ledger(path) == [entry]

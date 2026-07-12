@@ -1,0 +1,15 @@
+schema_version: generalisation-policy-v1
+confidence_level: 0.95
+alpha: 0.05
+descriptive_min_unique_seeds_per_cell: 10
+gate_min_unique_seeds_per_cell: 30
+required_cell_coverage: 1.0
+required_pairing_coverage: 1.0
+bootstrap_replicates: 10000
+bootstrap_seed: 20260712
+regression_margin: 0.02
+improvement_margin: 0.0
+tie_mode: non_win
+multiple_testing: holm
+planner_seed: 20260712
+allow_nonreproducible_policies: false
