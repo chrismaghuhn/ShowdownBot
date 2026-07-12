@@ -282,3 +282,19 @@ def test_config_hash_changes_when_world_samples_set():
     h_off = make_config_hash(_manifest(behavior_env({})))
     h_on = make_config_hash(_manifest(behavior_env({"SHOWDOWN_WORLD_SAMPLES": "4"})))
     assert h_off != h_on
+
+
+# --- depth-2 search toggle (2c-depth2 Task 1) -------------------------------------------
+
+def test_search_depth_is_behavior_affecting_and_clamped(monkeypatch):
+    from showdown_bot.battle.decision import _search_depth
+    assert "SHOWDOWN_SEARCH_DEPTH" in BEHAVIOR_AFFECTING
+    monkeypatch.delenv("SHOWDOWN_SEARCH_DEPTH", raising=False)
+    base = make_config_hash(_manifest(behavior_env({})))
+    assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2"); assert _search_depth() == 2
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "5"); assert _search_depth() == 2   # clamp
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "0"); assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "x"); assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    assert make_config_hash(_manifest(behavior_env({"SHOWDOWN_SEARCH_DEPTH": "2"}))) != base   # set -> hash changes

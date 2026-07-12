@@ -33,6 +33,11 @@ BEHAVIOR_AFFECTING = frozenset({
     # candidate wins (aggregation over sampled worlds) -> config_hash. Off/<=1 = 1
     # world = byte-identical.
     "SHOWDOWN_WORLD_SAMPLES",
+    # [2c-depth2] Search depth (1 = verbatim 1-ply, 2 = approximate depth-2 backup) in
+    # _choose_best's single-world path -> changes which candidate's score vector is used
+    # (1-ply leaf vs depth-2 backup), which can flip which move is played -> config_hash.
+    # Off/<=1 = 1-ply = byte-identical.
+    "SHOWDOWN_SEARCH_DEPTH",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",
@@ -116,6 +121,12 @@ NON_BEHAVIORAL_PREFIXES = ("SHOWDOWN_AUTH_", "SHOWDOWN_DATASET_")
 EXCLUDED_BY_REASON = {
     "SHOWDOWN_FORMAT": "captured via the manifest field format_id",
     "SHOWDOWN_TEAM_PATH": "captured via hero_team_hash / team content hashes",
+    "SHOWDOWN_SEARCH_TOPN": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
+    "SHOWDOWN_SEARCH_TOPM": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
 }
 
 
