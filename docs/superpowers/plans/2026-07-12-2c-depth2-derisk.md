@@ -190,19 +190,44 @@ def test_depth2_value_is_turn2_aggregate(monkeypatch):
 
 ---
 
-### Task 4: wire the depth-2 wrap into `_choose_best` (single-world path, guarded) + single-flush
+### Task 4: wire the depth-2 wrap into `_choose_best` (single-world path, guarded) + shared-oracle cache reuse
 
-**Files:** Modify `decision.py`; extend `test_search_depth2.py`.
+**CORRECTED against the built `depth2_value` (Task 3, `b7ea7d5`) — the original plan had three API-mismatch errors; the real design is below. Read `battle/search.py` and decision.py 358-393 first.**
 
-- [ ] **Step 1: Failing tests** — (a) **off-parity**: with `SHOWDOWN_SEARCH_DEPTH` unset, `heuristic_choose_for_request` on a fixed fixture returns the SAME choice + trace as before (reuse the `test_decision_trace.py` fake-calc fixture); (b) **depth-2 fires**: with `SHOWDOWN_SEARCH_DEPTH=2` + `SHOWDOWN_WORLD_SAMPLES` unset, the decision runs to completion and returns a legal choice (monkeypatch `decision.depth2_value` to a spy asserting it is called only for the top-N candidates, and that the shared oracle is flushed exactly once after the frontier).
+**Key facts the implementer MUST honor (verified against code):**
+- **`depth2_value` returns the leaf value directly** — it evaluates internally (its `_score_turn2_plans` → `evaluate_line` → `damage_fn` → `oracle.get()`, and `DamageOracle.get` auto-flushes any pending request, oracle.py:56-57). There is **NO** "enqueue-only, flush-once, read-back" split. Call it per (selected line, selected response); it comes back with the value. The shared `oracle` buys **cache reuse** across turn-1 and turn-2 calcs (identical calcs dedupe), NOT a single Node round trip. Whether N×M1 auto-flushes fit the budget is precisely what the Task 6 stage-1 latency gate measures — do the simple thing here.
+- **`applied_damage` bridge (load-bearing — get this wrong and depth-2 is silently a no-op):** the per-slot turn-1 damage comes from `evaluate_line(...)[1]` (a `TurnOutcome`, resolve.py:73). `TurnOutcome.hp_delta[(side,slot)]` is a **fraction** (`new_frac − start_frac`, ≤0 for damage), NOT absolute HP. `approx_turn2_state` wants **absolute HP**. Convert with the exact helper below (verified to reconstruct the outcome's resulting HP: `mon.hp − (−delta·max_hp) = new_frac·max_hp`). Note the 1-ply `score_plan` discards `[1]` — so the depth-2 branch must capture it (a `score_plan` variant returning `(score, outcome)`), NOT re-run `evaluate_line`.
+- **Vector-length alignment:** the 1-ply score vector for a candidate is length-R (one entry per `opp_resps`), aligned with `resp_weights` (length R). Depth-2 must **replace only the top-M1 response *slots*** of a selected candidate (keeping length R), so `pick_best(items, …, weights=resp_weights)` stays aligned. Do NOT hand `pick_best` a shorter vector.
+- **Three distinct caps:** **N** = how many of *my* turn-1 candidate lines get depth-2 (`_search_topn()`, default 2); **M1** = how many of *that line's* `opp_resps` slots get expanded to depth-2 (`_search_topm()`, default 2, the highest-weight response indices — the SAME indices for every candidate since `opp_resps` is action-independent); **M2** = `depth2_value`'s own `top_m` (turn-2 opponent leaf cap, pass 2). `_search_topn`/`_search_topm` read `SHOWDOWN_SEARCH_TOPN`/`SHOWDOWN_SEARCH_TOPM` (default 2); do **NOT** add them to `BEHAVIOR_AFFECTING` (they are unused at depth=1, so keeping them out preserves byte-identical-off even if someone exports them; the gate records them in its own run manifest).
+
+**Files:** Modify `decision.py` (single-world branch only, and add `_search_topn`/`_search_topm` + `_applied_damage_from_outcome`); extend `test_search_depth2.py`.
+
+- [ ] **Step 1: Failing tests** — (a) **off-parity**: with `SHOWDOWN_SEARCH_DEPTH` unset, the single-world decision on a fixed fake-calc fixture (reuse `test_decision_trace.py`'s fixture) returns the SAME choice + trace as before; (b) **bridge**: `_applied_damage_from_outcome(outcome, state)` on a hand-built `TurnOutcome(hp_delta={("p2","a"): -0.5})` with a 150-max_hp mon → `{("p2","a"): 75.0}` (and a `+0.1` heal delta → absent/0); (c) **depth-2 fires + frontier bound**: with `SHOWDOWN_SEARCH_DEPTH=2` + `SHOWDOWN_WORLD_SAMPLES` unset, monkeypatch `decision.depth2_value` to a spy returning a fixed float; assert it is called **exactly N×M1 times** (only the top-N candidates × their top-M1 response slots), the decision returns a legal choice, and a non-selected candidate's score vector is byte-unchanged from its 1-ply value.
 
 - [ ] **Step 2: RED.**
-- [ ] **Step 3: Implement.** In the single-world path, AFTER `items`/1-ply `best_ja` and ONLY when `_search_depth() > 1 and _world_samples() <= 1`:
-  1. rank `items` by their 1-ply aggregate (`aggregate_scores`), take the top-N (`_search_depth_topn()`, default 2).
-  2. for each selected `(ja, plan)` and its top-M `opp_resps` (by weight): compute the line's `applied_damage` (from `model.damage_fn`/the TurnOutcome), call `depth2_value(...)` with the SHARED `oracle` (enqueue only), collecting a new per-response score vector.
-  3. after the whole frontier is enqueued, `oracle.flush()` once; read back the depth-2 values; replace the selected candidates' score vectors; keep non-selected candidates' 1-ply vectors.
-  4. `best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)` — unchanged aggregator.
-  Keep the whole block inside `if _search_depth() > 1 and _world_samples() <= 1:`; else the verbatim single-world code runs (byte-identical).
+- [ ] **Step 3: Implement.** Add the bridge helper to `decision.py`:
+
+```python
+def _applied_damage_from_outcome(outcome, state) -> dict[tuple[str, str], float]:
+    """Absolute-HP damage per (side, slot) from a turn-1 TurnOutcome, for
+    approx_turn2_state. hp_delta is FRACTIONAL (new_frac - start_frac, <=0 for
+    damage); convert to abs HP via the CURRENT (turn-1) max_hp. Heals (delta>=0)
+    contribute no subtraction."""
+    dmg: dict[tuple[str, str], float] = {}
+    for (side, slot), delta in outcome.hp_delta.items():
+        if delta >= 0:
+            continue
+        mon = state.sides.get(side, {}).get(slot)
+        if mon is not None:
+            dmg[(side, slot)] = -delta * mon.max_hp
+    return dmg
+```
+
+In the **single-world path only**, AFTER building `opp_resps`/`resp_weights`/`model` and ONLY inside `if _search_depth() > 1 and _world_samples() <= 1:` (else the verbatim `score_plan`/`items` block runs → byte-identical):
+  1. score with a variant that keeps outcomes: `full = {ja: [(evaluate_line(state, plan, r.actions, model.damage_fn, our_side=our_side, weights=weights, field=state.field, rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board)) for r in opp_resps] for ja, plan in plans.items()}` (each entry is `(score, outcome)`; handle the empty-`opp_resps` case exactly as the 1-ply path does). Build `items = [(ja, [s for s, _o in vec]) for ja, vec in full.items()]` — identical numbers to the 1-ply vectors.
+  2. rank `items` by `aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)`; take the top-**N** `ja`s. Determine the top-**M1** response indices once: the M1 highest-weight indices of `opp_resps` (if `resp_weights` is None, the first M1).
+  3. for each selected `ja` and each selected response index `i`: `ad = _applied_damage_from_outcome(full[ja][i][1], state)`; `v = depth2_value(state, our_side=our_side, applied_damage=ad, mode=mode, risk_lambda=risk_lambda, top_m=2, book=book, oracle=model.oracle, predict_kwargs={...}, model_kwargs={...}, eval_kwargs={...})`; overwrite that candidate's score-vector slot: `items[<ja>][1][i] = v`. Keep every other slot (and every non-selected candidate) at its 1-ply value. **Pass only side-neutral collaborators in `predict_kwargs`/`model_kwargs`** (e.g. `dex`, `speed_oracle`; `our_spreads`/`opp_sets` for the model) — do NOT pass `opp_sets`/`threatened_slots`/`priors` into the role-reversed my-side `predict_responses`, they are side-specific (see search.py `_score_turn2_plans` docstring). For the de-risk, minimal kwargs are correct; the coarse leaf only needs to move decisions, not be exact.
+  4. `best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)` — unchanged aggregator, unchanged shape.
 - [ ] **Step 4: GREEN** + run the decision-trace + K-world guard suites to prove no interaction:
   `cd showdown_bot && python -m pytest tests/test_search_depth2.py tests/test_decision_trace.py tests/test_world_sampling_decision.py -q`
 - [ ] **Step 5: Commit** — `feat(2c-depth2): guarded depth-2 wrap in _choose_best (off=verbatim)`
