@@ -278,3 +278,26 @@ def test_depth2_fires_frontier_bound_and_leaves_unselected_untouched(monkeypatch
     # A non-selected candidate's vector is byte-unchanged from its 1-ply value.
     unselected_ja = next(ja for ja in d2_items if ja not in selected)
     assert d2_items[unselected_ja] == baseline_items[unselected_ja]
+
+
+def test_depth2_suppressed_when_world_sampling_active(monkeypatch):
+    """INV-orthogonal: the depth-2 wrap is guarded by ``world_samples() <= 1``,
+    so with SHOWDOWN_WORLD_SAMPLES=2 it must NOT run even when
+    SHOWDOWN_SEARCH_DEPTH=2. Setting both never crashes, returns a legal choice,
+    and never invokes depth2_value (the +Sampling K-world path owns that turn)."""
+    from showdown_bot.battle import decision
+    from showdown_bot.battle.actions import enumerate_my_actions
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
+
+    calls = []
+    monkeypatch.setattr(decision, "depth2_value",
+                        lambda *a, **k: (calls.append(1), -1.0)[1])
+
+    req = _d2_req()
+    choice_ja = decision._choose_best_ja(req, **_d2_kwargs())
+
+    legal = enumerate_my_actions(req, moved_since_switch=[False, False])
+    assert choice_ja in legal
+    assert calls == []  # depth-2 suppressed while K-world sampling is active
