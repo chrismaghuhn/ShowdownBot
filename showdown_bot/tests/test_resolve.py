@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from showdown_bot.battle.resolve import PlannedAction, resolve_turn, sort_actions
+from showdown_bot.battle.resolve import MissedHit, PlannedAction, resolve_turn, sort_actions
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
@@ -287,3 +287,92 @@ def test_tie_break_orders_both_ways():
     first = sort_actions([opp, ours], tie_break="ours_first")
     assert last[0] is opp and last[1] is ours      # ours acts last (default)
     assert first[0] is ours and first[1] is opp     # ours acts first
+
+
+def test_attempted_hits_recorded_even_with_no_forced_miss():
+    st = _state()
+    moon = get_move_meta("Moonblast")
+    atk = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.4
+
+    out = resolve_turn(st, [atk], dmg, our_side="p1")
+    assert len(out.attempted_hits) == 1
+    assert out.attempted_hits[0].attacker == ("p1", "a")
+    assert out.attempted_hits[0].target == ("p2", "a")
+    assert out.missed_hits == []
+
+
+def test_forced_miss_prevents_damage_and_records_missed_hit():
+    st = _state()
+    moon = get_move_meta("Moonblast")
+    atk = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.4
+
+    out = resolve_turn(
+        st, [atk], dmg, our_side="p1", forced_miss=frozenset({(("p1", "a"), ("p2", "a"))}),
+    )
+    assert out.hp_delta[("p2", "a")] == 0.0
+    assert len(out.missed_hits) == 1
+    assert out.missed_hits[0] == MissedHit(("p1", "a"), ("p2", "a"), moon.id)
+
+
+def test_forced_miss_default_is_todays_exact_behavior():
+    st = _state()
+    moon = get_move_meta("Moonblast")
+    atk = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.4
+
+    out_default = resolve_turn(st, [atk], dmg, our_side="p1")
+    out_explicit_empty = resolve_turn(st, [atk], dmg, our_side="p1", forced_miss=frozenset())
+    assert out_default.hp_delta == out_explicit_empty.hp_delta
+
+
+def test_protect_blocked_hit_not_reclassified_as_missed_even_if_also_forced_miss():
+    st = _state()
+    protect = get_move_meta("Protect")
+    moon = get_move_meta("Moonblast")
+    prot = PlannedAction("p1", "a", "protect", speed=50, move=protect, is_ours=True)
+    atk = PlannedAction("p2", "a", "move", speed=200, move=moon, target=("p1", "a"), is_ours=False)
+
+    def dmg(action, target):
+        return 0.8
+
+    out = resolve_turn(
+        st, [prot, atk], dmg, our_side="p1",
+        forced_miss=frozenset({(("p2", "a"), ("p1", "a"))}),
+    )
+    assert len(out.protected_hits) == 1
+    assert out.missed_hits == []  # protect check comes first; never reaches the miss check
+
+
+def test_spread_move_partial_forced_miss_hits_one_target_misses_other():
+    st = _doubles_state()
+    # Heat Wave (allAdjacentFoes) rather than Earthquake (allAdjacent): Earthquake
+    # also hits the ally slot p1:b under real PS mechanics (already modeled
+    # correctly by this resolver), which would make this a 3-target case instead
+    # of the intended 2-target foe-only spread scenario.
+    heat = get_move_meta("Heat Wave")
+    atk = PlannedAction("p1", "a", "move", speed=100, move=heat, target=None, is_ours=True)
+    others = [
+        PlannedAction("p1", "b", "pass", speed=1, is_ours=True),
+        PlannedAction("p2", "a", "pass", speed=1, is_ours=False),
+        PlannedAction("p2", "b", "pass", speed=1, is_ours=False),
+    ]
+
+    def dmg(action, target):
+        return 0.3
+
+    out = resolve_turn(
+        st, [atk] + others, dmg, our_side="p1",
+        forced_miss=frozenset({(("p1", "a"), ("p2", "a"))}),
+    )
+    assert out.hp_delta[("p2", "a")] == 0.0  # forced miss
+    assert out.hp_delta[("p2", "b")] < 0.0   # still hit
+    assert len(out.missed_hits) == 1
+    assert len(out.attempted_hits) == 2  # both targets attempted, one missed

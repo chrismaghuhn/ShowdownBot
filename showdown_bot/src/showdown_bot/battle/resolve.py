@@ -62,6 +62,20 @@ class RedirectedHit:
 
 
 @dataclass
+class AttemptedHit:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+
+
+@dataclass
+class MissedHit:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+
+
+@dataclass
 class SpeedEvent:
     side: str
     slot: str
@@ -79,6 +93,8 @@ class TurnOutcome:
     prevented_actions: list[PreventedAction] = field(default_factory=list)
     protected_hits: list[ProtectedHit] = field(default_factory=list)
     redirected_hits: list[RedirectedHit] = field(default_factory=list)
+    attempted_hits: list[AttemptedHit] = field(default_factory=list)
+    missed_hits: list[MissedHit] = field(default_factory=list)
     speed_events: list[SpeedEvent] = field(default_factory=list)
     tera_used_by_me: bool = False
     tera_used_by_opp: bool = False
@@ -123,6 +139,7 @@ def resolve_turn(
     our_side: str = "p1",
     field: FieldState | None = None,
     tie_break: str = "ours_last",
+    forced_miss: frozenset[tuple[SlotId, SlotId]] = frozenset(),
 ) -> TurnOutcome:
     """Approximate one-ply tactical resolution (layers 2A + 2B).
 
@@ -177,6 +194,10 @@ def resolve_turn(
             return
         tgt_mon = state.sides.get(tgt_key[0], {}).get(tgt_key[1])
         if tgt_mon is None:
+            return
+        outcome.attempted_hits.append(AttemptedHit(attacker_key, tgt_key, move.id))
+        if (attacker_key, tgt_key) in forced_miss:
+            outcome.missed_hits.append(MissedHit(attacker_key, tgt_key, move.id))
             return
         act_for_dmg = (
             attacker_action
