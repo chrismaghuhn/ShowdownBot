@@ -292,14 +292,17 @@ def _choose_best(
         for slot, mon in state.side(opp_side).items()
         if slot in ("a", "b") and 0.0 < mon.hp_fraction <= 0.6
     }
+    world_dist = None
     if world_samples() > 1:
-        # --- K-world opponent-set sampling (2c +Sampling) ---
         opp_mons = [(to_id(mon.species), mon.species)
                     for mon in state.side(opp_side).values()]
-        dist = build_world_dist(opp_mons, book, opp_sets or {})
+        world_dist = build_world_dist(opp_mons, book, opp_sets or {})
+    if world_dist:
+        # --- K-world opponent-set sampling (2c +Sampling): only when there is actual
+        # opponent-set uncertainty to sample; empty dist -> single-world = byte-identical ---
         seed = world_seed(os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "world"),
                           getattr(state, "turn", 0) or 0, _board_key(state, opp_side))
-        worlds = sample_worlds(dist, world_samples(), seed=seed)
+        worlds = sample_worlds(world_dist, world_samples(), seed=seed)
         shared_oracle = oracle or DamageOracle()
         world_ctx = []  # (world_weight, opp_resps_k, model_k)
         for world_sets, world_w in worlds:
@@ -316,6 +319,11 @@ def _choose_best(
             model_k.enqueue(list(plans.values()) + [r.actions for r in resps_k])
             world_ctx.append((world_w, resps_k, model_k))
         shared_oracle.flush()
+        # _maybe_tera + report/trace below reference a single opp_resps/model; bind them
+        # to the most-likely world (world_ctx[0], always present). Full K-world Tera/trace
+        # is a follow-up refinement (this machinery slice is off-by-default, no winrate claim).
+        opp_resps = world_ctx[0][1]
+        model = world_ctx[0][2]
 
         def score_plan(my_plan: list[PlannedAction]) -> list[float]:
             out: list[float] = []
@@ -331,8 +339,9 @@ def _choose_best(
 
         resp_weights = []
         for world_w, resps_k, _model_k in world_ctx:
-            if priors is not None and resps_k:
-                resp_weights.extend(world_w * r.weight for r in resps_k)
+            if resps_k:
+                for r in resps_k:
+                    resp_weights.append(world_w * (r.weight if priors is not None else 1.0))
             else:
                 resp_weights.append(world_w)
         items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
