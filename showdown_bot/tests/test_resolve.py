@@ -349,6 +349,7 @@ def test_protect_blocked_hit_not_reclassified_as_missed_even_if_also_forced_miss
     )
     assert len(out.protected_hits) == 1
     assert out.missed_hits == []  # protect check comes first; never reaches the miss check
+    assert out.attempted_hits == []  # ...nor the attempted-hit bookkeeping
 
 
 def test_spread_move_partial_forced_miss_hits_one_target_misses_other():

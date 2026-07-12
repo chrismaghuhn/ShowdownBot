@@ -153,6 +153,9 @@ def resolve_turn(
       filter), spread moves (x0.75 to every adjacent target), single-target
       failed-target retargeting, switch-before-move ordering.
     - Speed ties stay pessimistic (our mon acts last).
+    - forced_miss: an explicit (attacker, target) pair set that overrides the
+      hit into a miss (no damage/hit-effects), recorded in missed_hits; every
+      attempted hit is recorded in attempted_hits regardless.
     """
     field = field or state.field
     outcome = TurnOutcome()
