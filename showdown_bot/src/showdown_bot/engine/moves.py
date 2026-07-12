@@ -48,6 +48,7 @@ class MoveMeta:
     category: str = "physical"  # physical | special | status
     target: str = "normal"
     base_power: int = 0
+    accuracy: int | None = None
     move_type: str | None = None
     flags: frozenset[str] = field(default_factory=frozenset)
     terrain_priority: str | None = None
@@ -82,6 +83,9 @@ class MoveMeta:
 
 
 def _meta_from_record(rec: dict) -> MoveMeta:
+    if "accuracy" not in rec:
+        raise KeyError(f"move record {rec.get('id', '<unknown>')} is missing 'accuracy' — "
+                        f"regenerate movedata.json (tools/gen/gen_movedata.mjs)")
     return MoveMeta(
         id=rec["id"],
         name=rec["name"],
@@ -89,6 +93,7 @@ def _meta_from_record(rec: dict) -> MoveMeta:
         category=(rec.get("category") or "Physical").lower(),
         target=rec.get("target") or "normal",
         base_power=int(rec.get("basePower") or 0),
+        accuracy=rec["accuracy"],
         move_type=rec.get("type"),
         flags=frozenset(rec.get("flags") or ()),
         terrain_priority=_TERRAIN_PRIORITY.get(rec["id"]),

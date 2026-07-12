@@ -31,12 +31,25 @@ function hasFlinch(m) {
   return secs.some((s) => s && s.volatileStatus === 'flinch');
 }
 
+// resolve.py's hit_probability() distinguishes "no accuracy field at all" (data error) from
+// "accuracy is the normalized always-hit sentinel" (legitimate null). @pkmn/dex represents
+// always-hit moves as accuracy===true; everything else is a number 1-100. A move with
+// accuracy===undefined would silently collapse into the null case if we didn't check first,
+// hiding a real @pkmn/dex data gap as a fully legitimate "this move can't miss".
+function accuracyRecord(m) {
+  if (m.accuracy === undefined) {
+    throw new Error(`move ${m.id} has no accuracy field from @pkmn/dex`);
+  }
+  return m.accuracy === true ? null : m.accuracy;
+}
+
 function moveRecord(m) {
   const flags = Object.keys(m.flags || {});
   if (hasFlinch(m)) flags.push('flinch');
   return {
     id: m.id,
     name: m.name,
+    accuracy: accuracyRecord(m),
     basePower: m.basePower,
     category: m.category,
     type: m.type,
