@@ -1,4 +1,3 @@
-# src/showdown_bot/analysis/generalisation/metrics.py
 from __future__ import annotations
 
 from collections import defaultdict

@@ -1,8 +1,6 @@
-# src/showdown_bot/analysis/generalisation/coverage.py
 from __future__ import annotations
 
 from collections import defaultdict
-import json
 
 
 def coverage_matrix(manifest, observations, policy):
