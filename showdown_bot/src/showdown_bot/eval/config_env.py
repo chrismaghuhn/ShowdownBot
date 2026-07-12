@@ -33,6 +33,11 @@ BEHAVIOR_AFFECTING = frozenset({
     # candidate wins (aggregation over sampled worlds) -> config_hash. Off/<=1 = 1
     # world = byte-identical.
     "SHOWDOWN_WORLD_SAMPLES",
+    # [2c-depth2] Search depth (1 = verbatim 1-ply, 2 = approximate depth-2 backup) in
+    # _choose_best's single-world path -> changes which candidate's score vector is used
+    # (1-ply leaf vs depth-2 backup), which can flip which move is played -> config_hash.
+    # Off/<=1 = 1-ply = byte-identical.
+    "SHOWDOWN_SEARCH_DEPTH",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",

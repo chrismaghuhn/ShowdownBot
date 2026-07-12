@@ -53,6 +53,15 @@ def _fast_board_protect_weight() -> float:
         return 0.0
 
 
+def _search_depth() -> int:
+    """Search depth (SHOWDOWN_SEARCH_DEPTH), clamped to {1, 2}. Default/unparsable
+    -> 1 (verbatim 1-ply = byte-identical). >=2 -> approximate depth-2."""
+    try:
+        return 2 if int(os.environ.get("SHOWDOWN_SEARCH_DEPTH", "1")) >= 2 else 1
+    except ValueError:
+        return 1
+
+
 def choose_for_request(req: BattleRequest) -> str:
     """Legacy random agent (kept for smoke tests / hard fallback)."""
     if req.team_preview:
