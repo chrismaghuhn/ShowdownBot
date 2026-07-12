@@ -9,9 +9,10 @@ from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
 from showdown_bot.battle.opponent import SpeciesDex, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
-from showdown_bot.battle.policy import _risk_lambda, pick_best, tera_decision
+from showdown_bot.battle.policy import _risk_lambda, aggregate_scores, pick_best, tera_decision
 from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
 from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.battle.search import depth2_value
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.belief.game_mode import classify_game_mode
 from showdown_bot.engine.belief.hypotheses import SpreadBook
@@ -60,6 +61,46 @@ def _search_depth() -> int:
         return 2 if int(os.environ.get("SHOWDOWN_SEARCH_DEPTH", "1")) >= 2 else 1
     except ValueError:
         return 1
+
+
+def _search_topn() -> int:
+    """Depth-2 candidate frontier cap N (SHOWDOWN_SEARCH_TOPN): how many of our
+    top-1-ply-ranked turn-1 candidates get expanded to depth-2. Default 2,
+    clamped >=1. Unused unless SHOWDOWN_SEARCH_DEPTH>=2 (see ``_search_depth``)
+    -- deliberately NOT BEHAVIOR_AFFECTING (see config_env), since it cannot
+    affect output at depth=1."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_SEARCH_TOPN", "2"))
+    except ValueError:
+        return 2
+    return max(1, v)
+
+
+def _search_topm() -> int:
+    """Depth-2 response frontier cap M1 (SHOWDOWN_SEARCH_TOPM): how many of a
+    selected candidate's opponent-response slots (the highest-weight ones) get
+    expanded to depth-2. Default 2, clamped >=1. Same non-BEHAVIOR_AFFECTING
+    rationale as ``_search_topn``."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_SEARCH_TOPM", "2"))
+    except ValueError:
+        return 2
+    return max(1, v)
+
+
+def _applied_damage_from_outcome(outcome, state: BattleState) -> dict[tuple[str, str], float]:
+    """Absolute-HP damage per (side, slot) from a turn-1 ``TurnOutcome``, for
+    ``approx_turn2_state``. ``hp_delta`` is FRACTIONAL (new_frac - start_frac,
+    <=0 for damage); convert to absolute HP via the CURRENT (turn-1) max_hp.
+    Heals (delta>=0) contribute no subtraction."""
+    dmg: dict[tuple[str, str], float] = {}
+    for (side, slot), delta in outcome.hp_delta.items():
+        if delta >= 0:
+            continue
+        mon = state.sides.get(side, {}).get(slot)
+        if mon is not None:
+            dmg[(side, slot)] = -delta * mon.max_hp
+    return dmg
 
 
 def choose_for_request(req: BattleRequest) -> str:
@@ -389,7 +430,63 @@ def _choose_best(
                 )[0]
             ]
 
-        items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
+        if _search_depth() > 1 and world_samples() <= 1:
+            # --- depth-2 wrap (guarded; the verbatim 1-ply branch below runs
+            # unchanged whenever this condition is false -> byte-identical off) ---
+            def score_plan_with_outcome(my_plan: list[PlannedAction]) -> list[tuple[float, object]]:
+                targets = [r.actions for r in opp_resps] if opp_resps else [[]]
+                return [
+                    evaluate_line(
+                        state, my_plan, opp_actions, model.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                    )
+                    for opp_actions in targets
+                ]
+
+            full = {ja: score_plan_with_outcome(plan) for ja, plan in plans.items()}
+            items = [(ja, [s for s, _o in vec]) for ja, vec in full.items()]
+
+            # Frontier caps: N turn-1 candidates x M1 opponent-response slots.
+            top_n = _search_topn()
+            top_m = _search_topm()
+            ranked_pos = sorted(
+                range(len(items)),
+                key=lambda i: aggregate_scores(
+                    items[i][1], mode, risk_lambda=risk_lambda, weights=resp_weights
+                ),
+                reverse=True,
+            )
+            top_n_pos = ranked_pos[:top_n]
+
+            n_resps = len(opp_resps) if opp_resps else 1
+            if resp_weights is not None:
+                top_m_idx = sorted(range(len(resp_weights)), key=lambda i: -resp_weights[i])[:top_m]
+            else:
+                top_m_idx = list(range(min(top_m, n_resps)))
+
+            d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
+            d2_model_kwargs = {"our_spreads": our_spreads, "opp_sets": opp_sets}
+            d2_eval_kwargs = {
+                "weights": weights, "rollout_horizon": rollout_horizon,
+                "endgame": endgame, "fast_board": fast_board,
+            }
+
+            for pos in top_n_pos:
+                ja, scores_vec = items[pos]
+                outcomes = full[ja]
+                for i in top_m_idx:
+                    _score1, outcome = outcomes[i]
+                    applied_damage = _applied_damage_from_outcome(outcome, state)
+                    v = depth2_value(
+                        state, our_side=our_side, applied_damage=applied_damage, mode=mode,
+                        risk_lambda=risk_lambda, top_m=2, book=book, oracle=model.oracle,
+                        predict_kwargs=d2_predict_kwargs, model_kwargs=d2_model_kwargs,
+                        eval_kwargs=d2_eval_kwargs,
+                    )
+                    scores_vec[i] = v
+        else:
+            items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
         best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
     if trace is not None:
         from showdown_bot.battle.policy import must_react_lambda as _mrl
@@ -407,7 +504,6 @@ def _choose_best(
 
     if report is not None:
         from showdown_bot.battle.diagnostics import format_decision
-        from showdown_bot.battle.policy import aggregate_scores
 
         ranked = sorted(
             (
@@ -456,7 +552,6 @@ def _choose_best(
             DecisionTrace as _DT,
         )
         from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
-        from showdown_bot.battle.policy import aggregate_scores
         from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
 
         rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
