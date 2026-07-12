@@ -108,6 +108,25 @@ def _parsed_header_fields(env: dict) -> tuple[str, str, dict, dict]:
     return repo_url, repo_sha, baseline_env, candidate_env
 
 
+def _optional_run_overrides(env: dict) -> tuple[str | None, str | None]:
+    """Recover the OPTIONAL ``SCHEDULE_RELPATH`` + ``SEED_BASE`` header fields ``(schedule_relpath,
+    seed_base)`` from a parsed KAGGLE_ENV header dict. Absent -> ``(None, None)`` ->
+    ``run_devstrength_env_ab`` keeps its dev-strength defaults (byte-identical to the original
+    dev A/B). Present -> retargets the SAME paired machinery at another all-one-split schedule +
+    seed_base (e.g. the held-out gate ``config/eval/schedules/t6_heldout_v001.yaml`` +
+    ``t6heldout2026``). Each, if present, MUST be a string -- fails loudly on a non-string, same
+    discipline as ``_env_dict_from_header`` (a bad type here would silently mis-target the run,
+    the one thing a held-out gate must never do). Kept separate from ``_parsed_header_fields`` so
+    the required-field contract (and its tests) are untouched -- this is a purely additive optional
+    surface."""
+    schedule_relpath = env.get("SCHEDULE_RELPATH")
+    seed_base = env.get("SEED_BASE")
+    for name, val in (("SCHEDULE_RELPATH", schedule_relpath), ("SEED_BASE", seed_base)):
+        if val is not None and not isinstance(val, str):
+            raise ValueError(f"{name} header field, if present, must be a string, got {val!r}")
+    return schedule_relpath, seed_base
+
+
 def _ensure_runtime_deps() -> None:
     missing = [pip_name for module_name, pip_name in _RUNTIME_DEPS
                if importlib.util.find_spec(module_name) is None]
@@ -118,6 +137,7 @@ def _ensure_runtime_deps() -> None:
 def main() -> None:
     env = _own_env()
     repo_url, repo_sha, baseline_env, candidate_env = _parsed_header_fields(env)
+    schedule_relpath, seed_base = _optional_run_overrides(env)
 
     subprocess.run(["git", "clone", repo_url, str(_REPO_DIR)], check=True)
     subprocess.run(["git", "checkout", repo_sha], cwd=str(_REPO_DIR), check=True)
@@ -137,7 +157,8 @@ def main() -> None:
 
     result = kernel_payload.run_devstrength_env_ab(
         str(_REPO_DIR), showdown_dir, str(_OUT_DIR),
-        baseline_env=baseline_env, candidate_env=candidate_env, working_dir=str(_WORKING_DIR),
+        baseline_env=baseline_env, candidate_env=candidate_env,
+        schedule_relpath=schedule_relpath, seed_base=seed_base, working_dir=str(_WORKING_DIR),
     )
 
     _WORKING_DIR.mkdir(parents=True, exist_ok=True)

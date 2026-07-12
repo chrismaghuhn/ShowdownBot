@@ -157,6 +157,49 @@ def test_run_devstrength_env_ab_uses_devstrength_schedule_relpath(tmp_path, monk
     assert run_calls[1]["schedule_relpath"] == expected
 
 
+def test_run_devstrength_env_ab_schedule_and_seed_base_override(tmp_path, monkeypatch):
+    # Held-out retarget: supplying schedule_relpath + seed_base makes BOTH arms use them (still one
+    # schedule + one seed_base across arms, so eval.pairing.pair_runs still pairs). The gate run.
+    run_calls = []
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded", _fake_run_schedule_seeded_capturing(run_calls))
+    monkeypatch.setattr(
+        kernel_payload, "copy_outputs", _fake_copy_outputs_capturing([]))
+
+    kernel_payload.run_devstrength_env_ab(
+        str(_REPO_ROOT), "fake_showdown_dir", str(tmp_path / "out"),
+        baseline_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.6"},
+        candidate_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.8"},
+        schedule_relpath="config/eval/schedules/t6_heldout_v001.yaml",
+        seed_base="t6heldout2026",
+    )
+
+    assert run_calls[0]["schedule_relpath"] == "config/eval/schedules/t6_heldout_v001.yaml"
+    assert run_calls[1]["schedule_relpath"] == "config/eval/schedules/t6_heldout_v001.yaml"
+    assert run_calls[0]["seed_base"] == "t6heldout2026"
+    assert run_calls[1]["seed_base"] == "t6heldout2026"
+
+
+def test_run_devstrength_env_ab_defaults_preserved_when_overrides_explicitly_none(tmp_path, monkeypatch):
+    # Explicit None (what env_ab_kernel passes when the header omits the fields) is byte-identical
+    # to the original dev-strength behaviour -- guards the backward-compat contract.
+    run_calls = []
+    monkeypatch.setattr(
+        kernel_payload, "run_schedule_seeded", _fake_run_schedule_seeded_capturing(run_calls))
+    monkeypatch.setattr(
+        kernel_payload, "copy_outputs", _fake_copy_outputs_capturing([]))
+
+    kernel_payload.run_devstrength_env_ab(
+        str(_REPO_ROOT), "fake_showdown_dir", str(tmp_path / "out"),
+        baseline_env={"A": "1"}, candidate_env={"A": "2"},
+        schedule_relpath=None, seed_base=None,
+    )
+
+    assert run_calls[0]["schedule_relpath"] == schedule_2b4.schedule_relpath("devstrength")
+    assert run_calls[0]["seed_base"] == kernel_payload._MUSTREACT_AB_SEED_BASE
+    assert run_calls[1]["seed_base"] == kernel_payload._MUSTREACT_AB_SEED_BASE
+
+
 def test_run_devstrength_env_ab_copies_both_arms_out(tmp_path, monkeypatch):
     copy_calls = []
     monkeypatch.setattr(
@@ -355,6 +398,70 @@ def test_parsed_header_fields_non_dict_candidate_env_raises_value_error():
 
     with pytest.raises(ValueError, match="CANDIDATE_ENV"):
         env_ab_kernel._parsed_header_fields(env)
+
+
+# ---------------------------------------------------------------------------
+# _optional_run_overrides -- the OPTIONAL SCHEDULE_RELPATH/SEED_BASE retarget surface (held-out
+# gate). Absent -> (None, None) -> dev-strength defaults preserved. Additive: does not touch the
+# required-field _parsed_header_fields contract or its tests.
+# ---------------------------------------------------------------------------
+
+def test_optional_run_overrides_absent_returns_none_none():
+    env = {
+        "REPO_SHA": "abc",
+        "BASELINE_ENV": {"SHOWDOWN_MUST_REACT_LAMBDA": "0.6"},
+        "CANDIDATE_ENV": {"SHOWDOWN_MUST_REACT_LAMBDA": "0.8"},
+    }
+
+    assert env_ab_kernel._optional_run_overrides(env) == (None, None)
+
+
+def test_optional_run_overrides_present_passes_through():
+    env = {
+        "SCHEDULE_RELPATH": "config/eval/schedules/t6_heldout_v001.yaml",
+        "SEED_BASE": "t6heldout2026",
+    }
+
+    assert env_ab_kernel._optional_run_overrides(env) == (
+        "config/eval/schedules/t6_heldout_v001.yaml", "t6heldout2026")
+
+
+def test_optional_run_overrides_partial_schedule_only():
+    env = {"SCHEDULE_RELPATH": "config/eval/schedules/t6_heldout_v001.yaml"}
+
+    assert env_ab_kernel._optional_run_overrides(env) == (
+        "config/eval/schedules/t6_heldout_v001.yaml", None)
+
+
+def test_optional_run_overrides_non_string_schedule_raises():
+    with pytest.raises(ValueError, match="SCHEDULE_RELPATH"):
+        env_ab_kernel._optional_run_overrides({"SCHEDULE_RELPATH": 123})
+
+
+def test_optional_run_overrides_non_string_seed_base_raises():
+    with pytest.raises(ValueError, match="SEED_BASE"):
+        env_ab_kernel._optional_run_overrides({"SEED_BASE": ["nope"]})
+
+
+def test_optional_run_overrides_survives_kaggle_driver_env_header_round_trip():
+    kaggle_driver_path = _REPO_ROOT / "tools" / "kaggle" / "kaggle_driver.py"
+    spec = importlib.util.spec_from_file_location(
+        "kaggle_driver_for_env_ab_override_test", kaggle_driver_path)
+    kaggle_driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kaggle_driver)
+
+    env = {
+        "REPO_SHA": "deadbeef",
+        "BASELINE_ENV": {"SHOWDOWN_MUST_REACT_LAMBDA": "0.6"},
+        "CANDIDATE_ENV": {"SHOWDOWN_MUST_REACT_LAMBDA": "0.8"},
+        "SCHEDULE_RELPATH": "config/eval/schedules/t6_heldout_v001.yaml",
+        "SEED_BASE": "t6heldout2026",
+    }
+    injected = kaggle_driver.inject_env_header("print(1)\n", env)
+    parsed = kaggle_driver.parse_env_header(injected)
+
+    assert env_ab_kernel._optional_run_overrides(parsed) == (
+        "config/eval/schedules/t6_heldout_v001.yaml", "t6heldout2026")
 
 
 # ---------------------------------------------------------------------------

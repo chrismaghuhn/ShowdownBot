@@ -967,6 +967,7 @@ def run_gated_override_strength(repo_root, showdown_dir, out_dir) -> dict:
 # ---------------------------------------------------------------------------
 
 def run_devstrength_env_ab(repo_root, showdown_dir, out_dir, *, baseline_env, candidate_env,
+                            schedule_relpath=None, seed_base=None,
                             working_dir="/kaggle/working") -> dict:
     """2c-1: generic paired dev-strength env-A/B run. Runs
     ``config/eval/schedules/2b4_devstrength_v001.yaml`` TWICE with the SAME seed_base
@@ -980,6 +981,14 @@ def run_devstrength_env_ab(repo_root, showdown_dir, out_dir, *, baseline_env, ca
     knob directly (e.g. ``baseline_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.6"}`` vs
     ``candidate_env={"SHOWDOWN_MUST_REACT_LAMBDA": "0.3"}``) without touching the reranker-
     override gating machinery at all.
+
+    ``schedule_relpath`` and ``seed_base`` both default to ``None`` -> the dev-strength schedule
+    (``config/eval/schedules/2b4_devstrength_v001.yaml``) + ``_MUSTREACT_AB_SEED_BASE``, i.e. the
+    original behaviour byte-for-byte (existing call sites pass neither). Supplying them retargets
+    this SAME paired machinery at another all-one-split schedule + seed_base -- e.g. the held-out
+    gate: ``config/eval/schedules/t6_heldout_v001.yaml`` + ``t6heldout2026``. Both arms still share
+    ONE schedule + ONE seed_base, so ``eval.pairing.pair_runs`` pairs them exactly as before; only
+    the (schedule, seed_base) the pair runs against changes.
 
     Unlike ``run_gated_override_strength`` (which leaves output archival to the wrapping kernel
     script's ``main()``), this function copies EACH arm's outputs itself via ``copy_outputs`` --
@@ -1010,17 +1019,20 @@ def run_devstrength_env_ab(repo_root, showdown_dir, out_dir, *, baseline_env, ca
     repo_root = Path(repo_root)
     out_dir = Path(out_dir)
     working_dir = Path(working_dir)
-    schedule_relpath = schedule_2b4.schedule_relpath("devstrength")
+    if schedule_relpath is None:
+        schedule_relpath = schedule_2b4.schedule_relpath("devstrength")
+    if seed_base is None:
+        seed_base = _MUSTREACT_AB_SEED_BASE
 
     baseline_paths = run_schedule_seeded(
         str(repo_root), showdown_dir, schedule_relpath,
-        _MUSTREACT_AB_SEED_BASE, str(out_dir / "baseline"), extra_env=baseline_env,
+        seed_base, str(out_dir / "baseline"), extra_env=baseline_env,
     )
     copy_outputs(str(out_dir / "baseline"), working_dir=str(working_dir / "baseline"))
 
     candidate_paths = run_schedule_seeded(
         str(repo_root), showdown_dir, schedule_relpath,
-        _MUSTREACT_AB_SEED_BASE, str(out_dir / "candidate"), extra_env=candidate_env,
+        seed_base, str(out_dir / "candidate"), extra_env=candidate_env,
     )
     copy_outputs(str(out_dir / "candidate"), working_dir=str(working_dir / "candidate"))
 
