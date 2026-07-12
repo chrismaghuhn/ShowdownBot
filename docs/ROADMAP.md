@@ -94,11 +94,31 @@ state (depth-2 slice, value-calibration spec).
    actual matrix (hero archetypes × opponent teams × opponent policies, per-cell eval,
    worst-cell protection, paired seeds, staged pilot before the full gate) does not yet
    exist as run data. This is the actual blocker on depth-2 Stage 3, not a parallel task.
-2. **Depth-1 vs depth-2(3,3) on that panel.** The most mature, plausible-impact experiment
+2. **VGC-Bench compatibility study (read-only, no integration) — sequenced after the
+   accuracy-hit-probability slice, before Depth-2 Stage 3.** User verdict (2026-07-13):
+   GO for a small integration study, explicitly NOT a rebuild of our bot — neither
+   VGC-Bench's resolver nor its RL stack get integrated into our core now. Feeds directly
+   into item 1's panel-diversity gap (we currently have only 4 archetypes and a coarse
+   LOTO test). Scope:
+   - Adapter for our heuristic agent vs. VGC-Bench's Random/MaxBasePower/SimpleHeuristics
+     baselines (external comparison point our internal-only benchmark currently lacks).
+   - Check whether the 72 holdout teams (or a license/provenance-clean compatible subset)
+     can be adopted into our dev panel — directly addresses item 1's team-diversity gap.
+   - Trained policies (BC/RL) as a **future opponent population** for opponent-response/
+     belief/Depth-2 — comparison opponents, explicitly NOT ground truth.
+   - Compatibility checklist: pinned Showdown commit + poke-env version, format/OTS/team-
+     preview/action-space compatibility, team-file licenses, adapter-effort estimate,
+     whether our `config_hash`/run-manifest provenance chain survives the integration.
+   - Concrete smoke matrix: 100–200 games vs. the 3 heuristic baselines.
+   - No BC/RL implementation starts from this study — investigation only.
+   Related to, but broader than, the existing P2 item 1 ("VGC-Bench Part B" — that one is
+   specifically the OTS/hidden-information angle; this item is benchmarking infrastructure
+   — baselines, holdout teams, provenance).
+3. **Depth-1 vs depth-2(3,3) on that panel.** The most mature, plausible-impact experiment
    on the table — run before any new architecture slice. GO → depth-2 becomes the new
    baseline candidate. NO-GO → analyze the coarse-approximation failure mode, don't just
    re-tune N/M. Inconclusive → panel/opponents aren't discriminating enough.
-3. **Bounded ladder calibration** — only after the candidate wins on the diverse dev panel;
+4. **Bounded ladder calibration** — only after the candidate wins on the diverse dev panel;
    external validation, not the primary optimization loop.
 
 ## P2 — Probabilistische Hidden Information
