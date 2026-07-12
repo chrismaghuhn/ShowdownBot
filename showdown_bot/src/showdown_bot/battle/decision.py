@@ -308,6 +308,11 @@ def _choose_best(
 
     items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
     best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+    if trace is not None:
+        from showdown_bot.battle.policy import must_react_lambda as _mrl
+        trace.aggregation_mode = mode.value if hasattr(mode, "value") else str(mode)
+        trace.risk_lambda = float(risk_lambda)
+        trace.must_react_lambda = float(_mrl())
     if best_ja is None:
         raise ValueError("no best action found")
 

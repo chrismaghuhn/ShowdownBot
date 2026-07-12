@@ -384,3 +384,19 @@ def test_choose_with_fallback_marks_server_default(monkeypatch):
     assert out == f"/choose default|{req.rqid}"
     assert trace.selection_stage == "server_default"
     assert trace.fallback_reason == "default_pair_error"
+
+
+# ---------------------------------------------------------------------------
+# 2c Task 1: aggregation-params telemetry -- a real heuristic decision records
+# the exact aggregation mode + both lambdas used by policy.aggregate_scores as
+# pure side-effect telemetry on trace (never read to make the decision itself).
+# ---------------------------------------------------------------------------
+
+
+def test_aggregation_params_populated_on_real_decision(decision_fixture):
+    req, kw = decision_fixture
+    trace = DecisionTrace()
+    heuristic_choose_for_request(req, trace=trace, **kw)
+    assert isinstance(trace.aggregation_mode, str) and trace.aggregation_mode
+    assert isinstance(trace.risk_lambda, float)
+    assert isinstance(trace.must_react_lambda, float)

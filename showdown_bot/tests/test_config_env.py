@@ -18,6 +18,7 @@ from showdown_bot.eval.config_env import (
     behavior_env,
     build_config_manifest,
     is_classified,
+    is_excluded,
 )
 from showdown_bot.eval.result_jsonl import make_config_hash
 
@@ -141,6 +142,28 @@ def test_config_hash_changes_when_fast_board_protect_penalty_toggled():
     h_on = make_config_hash(_manifest(behavior_env(
         {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY": "-2.0"})))
     assert h_off != h_on
+
+
+# --- research-only aggregation-trace sidecar PATH (2c-Slice-0b Task 3) ------------------
+
+def test_agg_trace_out_is_non_behavioral_and_classified():
+    # SHOWDOWN_AGG_TRACE_OUT is the env alias for --agg-trace-out (cli.run_schedule): a
+    # research-only full-fidelity aggregation sidecar PATH, IO/telemetry-only with no /choose
+    # effect. Same species as SHOWDOWN_DECISION_DIFF (diagnostic) and the SHOWDOWN_DATASET_
+    # prefix family -> excluded from config_hash. It MUST stay non-behavioral so a per-shard
+    # datagen export path never perturbs config_hash / breaks pairing.
+    assert is_excluded("SHOWDOWN_AGG_TRACE_OUT") is True
+    assert is_classified("SHOWDOWN_AGG_TRACE_OUT")
+    assert "SHOWDOWN_AGG_TRACE_OUT" not in BEHAVIOR_AFFECTING
+
+
+def test_behavior_env_excludes_agg_trace_out():
+    # The export path must NOT fold into config_hash (fail-closed would otherwise include an
+    # unclassified SHOWDOWN_* var): a run that sets it, and one that sets a DIFFERENT per-shard
+    # path, must still produce the same config_hash and pair.
+    assert behavior_env(
+        {"SHOWDOWN_AGG_TRACE_OUT": "/x/agg.jsonl", "SHOWDOWN_ROLLOUT_HORIZON": "3"}
+    ) == {"SHOWDOWN_ROLLOUT_HORIZON": "3"}
 
 
 # --- make_config_hash over the manifest ------------------------------------------------
