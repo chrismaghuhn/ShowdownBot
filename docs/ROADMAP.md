@@ -19,7 +19,7 @@ state (depth-2 slice, value-calibration spec).
 | Reranker v1 **live override** | **NO-GO** | 2b-4 report: +13 net vs max_damage, McNemar p=0.105 n.s. | not shipped; don't re-attempt without new evidence |
 | Scalar aggregation (λ tuning) | **NO-GO** | 4 experiments, see detail table below | stop; no more global-λ experiments |
 | +Sampling machinery (K-world) | **Built, off** | latency report: linear-in-K, max K=8 local | hold until calibrated posterior exists (P2/P3) |
-| Depth-2 search | **Stage 1+2 GO, merged local main** | `2026-07-12-2c-depth2-derisk-verdict.md` | Stage 3 blocked on the panel actually being *run* (below) |
+| Depth-2 search | **Stage 1+2 GO, merged local main** | `2026-07-12-2c-depth2-derisk-verdict.md` | Stage 3 blocked on TWO things: the panel actually being *run* (below), AND the accuracy chosen-line cap/fallback gate FAIL (row below) being re-derisked first |
 | Generalisation analyzer (05) | **Built (tool only)** | merged `35956df` | materialize the actual archetype×opponent panel — data doesn't exist yet |
 | VGC-Bench ingestion | **Part A done** | `6210e4d` | Part B (player-perspective, OTS-vs-reveal, legality, leakage audit) |
 | Value calibration study | **Spec Revision 2 committed** (T3A arm, disjoint verdict, outcome-encoding, sklearn dep, fold-local categorical encoding all addressed) | `docs/superpowers/specs/2026-07-12-value-calibration-design.md` Rev 2, commit `8e4c47f` | implementation plan once Rev 2 explicitly signed off |
@@ -29,7 +29,7 @@ state (depth-2 slice, value-calibration spec).
 | Belief (item/spread/move priors) | **Not started** | — | P2, after the panel + data-identity fix |
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
-| Accuracy / hit-probability evaluation | **Built, off by default, merged local main** | 9-task plan, `af575e5`..`c93e863`, merge `3fd3b09`; `reports/2026-07-12-accuracy-slice-closeout.md` + `-latency-gate.md` | `AccuracyDiagnostics`→`DecisionTrace` wiring is an explicit open follow-up (P0 item below); default-on gate needs a fallback-rate review per the closeout report before ever flipping `SHOWDOWN_ACCURACY_MODE`'s default — not this task |
+| Accuracy / hit-probability evaluation | **Accuracy-Modell mechanisch implementiert, Default-on-Gate wegen 12,9 % Chosen-Line-Cap-Hits nicht bestanden** | 9-task hit-probability plan, `af575e5`..`c93e863`, merge `3fd3b09`; 11-task offline-gate plan merged 2026-07-13; `reports/2026-07-13-accuracy-offline-gate-verdict.md` (real Gate B run, 85 battles/944 decisions, cap-hit rate 114/881=12.9% vs 5% threshold, FAIL; robust under worst-case exclusion treatment, 12.1–18.8%) | `SHOWDOWN_ACCURACY_MODE` stays **default-off**; no new strength claim; Depth-2 Stage 3 stays blocked until the cap/fallback is re-derisked (see new P0 follow-up item below) — not a green light for any of the three decisions this gate was built to inform |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
@@ -107,6 +107,33 @@ state (depth-2 slice, value-calibration spec).
    from any live decision-code caller. See
    `reports/2026-07-13-accuracy-offline-gate-verdict.md` and the design spec's own §2.4 framing
    ("does not close the whole item").
+6. **Accuracy chosen-line cap/fallback re-derisking (new, opened by the 2026-07-13 offline-gate
+   FAIL result).** The real Gate B run over the full 85-battle/944-decision deduplicated corpus
+   found a chosen-line cap-hit rate of 12.9% (114/881), decisively above the gate's pinned 5%
+   threshold — i.e. `SHOWDOWN_ACCURACY_BRANCH_CAP`'s default (4) and/or the current always-hit
+   fallback-on-cap behavior is being hit far more often than the safety margin assumed when that
+   default was pinned (see `reports/2026-07-12-accuracy-slice-latency-gate.md`). This is not
+   fixed by this plan — it is the plan's own headline finding, reported honestly per the user's
+   explicit instruction not to interpret or soften it.
+   **Concrete next step, offline first:** on the SAME 85-battle corpus, compare
+   `SHOWDOWN_ACCURACY_BRANCH_CAP` values (6 and 8 are the natural next probes) and/or a less
+   optimistic cap-fallback strategy against today's always-hit-on-cap default, each measured on
+   the SAME two axes the gate already reports: chosen-line cap-hit rate and real latency (not
+   just one or the other — a lower cap-hit rate that blows the latency budget isn't a fix). Only
+   after that offline comparison, re-run the EXISTING accuracy-offline-gate (`eval/accuracy_gate_b.py`
+   + `accuracy_gate_stats.py`) **unchanged** against whichever cap/fallback choice looks best —
+   do **not** retroactively loosen the pinned 5% threshold to make a result pass; the threshold
+   was pinned before this run per spec §4 and must stay pinned across this follow-up too.
+   **Also open, don't let it quietly disappear:** the 63/944 decisions Task 10's
+   `_chosen_candidate` correctly excluded as ambiguous-`candidate_id` (`decision.py`'s `_label_ja`
+   collapses different switch targets in the same slot to the identical label, e.g.
+   `"(Knock Off->1, switch)"`) need their own separate diagnosis — the gate's FAIL verdict is
+   robust to worst-case treatment of these 63 (12.1%–18.8% either way, still decisively above 5%),
+   so this is not blocking the verdict above, but the underlying `_label_ja` non-injectivity is a
+   real gap in `decision.py`'s candidate labeling that this plan deliberately did not fix (guarded
+   at the gate-consumption layer only, per Task 10's own scoping) — these 63 decisions must not
+   simply vanish from future decision-diff/accuracy analyses; they need either a `_label_ja` fix
+   (switch target disambiguation) or an explicit, tracked sampling/analysis plan of their own.
 
 ## P1 — Nächster realer Stärkeversuch
 
