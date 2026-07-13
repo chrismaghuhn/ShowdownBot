@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from showdown_bot.battle.resolve import MissedHit, PlannedAction, resolve_turn, sort_actions
-from showdown_bot.engine.moves import get_move_meta
+from showdown_bot.battle.resolve import (
+    MissedHit,
+    PlannedAction,
+    resolve_turn,
+    resolve_turn_branches,
+    sort_actions,
+)
+from showdown_bot.engine.moves import MoveMeta, get_move_meta
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 
@@ -377,3 +383,130 @@ def test_spread_move_partial_forced_miss_hits_one_target_misses_other():
     assert out.hp_delta[("p2", "b")] < 0.0   # still hit
     assert len(out.missed_hits) == 1
     assert len(out.attempted_hits) == 2  # both targets attempted, one missed
+
+
+def test_resolve_turn_branches_discovers_ko_dependent_event():
+    """Regression test: X's uncertain move KOs slower Y in the all-hit run, so Y never
+    reaches apply_hit there and Y's own uncertain move is invisible to any event list
+    built from that run alone. The recursive expansion must discover it in the branch
+    where X's move misses and Y survives to act."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Fast", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Slow", hp=100, max_hp=100)
+    x_move = MoveMeta(id="xmove", name="X", accuracy=70, base_power=100,
+                       category="physical", target="normal")
+    y_move = MoveMeta(id="ymove", name="Y", accuracy=50, base_power=100,
+                       category="physical", target="normal")
+    x = PlannedAction("p1", "a", "move", speed=200, move=x_move, target=("p2", "a"), is_ours=True)
+    y = PlannedAction("p2", "a", "move", speed=50, move=y_move, target=("p1", "a"), is_ours=False)
+
+    def dmg(action, target):
+        return 1.0  # any hit is lethal
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, [x, y], dmg, our_side="p1", field=FieldState(), tie_break="ours_last", branch_cap=8,
+    )
+    assert fallback_leaves == 0
+    assert len(leaves) == 3  # X-hit (Y never acts); X-miss+Y-hit; X-miss+Y-miss
+    total_weight = sum(w for w, _ in leaves)
+    assert abs(total_weight - 1.0) < 1e-9
+
+    x_hit_weight, x_hit_out = leaves[0]  # depth-first hit-first -> leaves[0] is the all-hit leaf
+    assert abs(x_hit_weight - 0.7) < 1e-9
+    # x is OUR mon (p1, is_ours=True) KOing the opponent's p2:a -> that's a kill WE scored.
+    # my_kos = kills we score (evaluate.py:109 adds it positively to our score); opp_kos = kills
+    # the opponent scores against us (see test_ko_before_act_cancels_victim_action: "they KO us").
+    assert x_hit_out.my_kos == 1
+    assert x_hit_out.opp_kos == 0
+    assert not any(ah.attacker == ("p2", "a") for ah in x_hit_out.attempted_hits)
+
+    # The other two leaves are exactly the event a one-shot discovery pass would have missed:
+    # Y surviving X's miss and taking its OWN uncertain-accuracy action.
+    for w, out in leaves[1:]:
+        assert any(ah.attacker == ("p2", "a") for ah in out.attempted_hits)
+    remaining_weight = sum(w for w, _ in leaves[1:])
+    assert abs(remaining_weight - 0.3) < 1e-9
+
+    # fork_records: exactly one fork lies on the path to leaves[0] (X's pair). Its recorded
+    # miss-sibling subtree must be exactly leaves[1:] (the two branches where X missed) --
+    # this is the structure miss_punish_value (a later task, spec Sec.7) depends on.
+    assert len(fork_records) == 1
+    fork_pair, miss_subtree = fork_records[0]
+    assert fork_pair == (("p1", "a"), ("p2", "a"))
+    assert len(miss_subtree) == 2
+    assert abs(sum(w for w, _ in miss_subtree) - 0.3) < 1e-9
+
+
+def test_resolve_turn_branches_all_hit_leaf_when_no_uncertainty():
+    st = _state()
+    swift = get_move_meta("Swift")  # always-hit
+    atk = PlannedAction("p1", "a", "move", speed=100, move=swift, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.3
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, [atk], dmg, our_side="p1", field=FieldState(), tie_break="ours_last", branch_cap=4,
+    )
+    assert fallback_leaves == 0
+    assert len(leaves) == 1
+    assert abs(leaves[0][0] - 1.0) < 1e-9
+    assert fork_records == []  # no uncertainty -> no fork points at all
+
+
+def test_resolve_turn_branches_two_independent_events_four_leaves():
+    st = _doubles_state()
+    m1 = MoveMeta(id="m1", name="M1", accuracy=60, base_power=100, category="physical", target="normal")
+    m2 = MoveMeta(id="m2", name="M2", accuracy=40, base_power=100, category="physical", target="normal")
+    a1 = PlannedAction("p1", "a", "move", speed=150, move=m1, target=("p2", "a"), is_ours=True)
+    a2 = PlannedAction("p1", "b", "move", speed=140, move=m2, target=("p2", "b"), is_ours=True)
+    others = [
+        PlannedAction("p2", "a", "pass", speed=1, is_ours=False),
+        PlannedAction("p2", "b", "pass", speed=1, is_ours=False),
+    ]
+
+    def dmg(action, target):
+        return 0.1  # non-lethal -> both events are independent, no KO interaction
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, [a1, a2] + others, dmg, our_side="p1", field=FieldState(), tie_break="ours_last",
+        branch_cap=8,
+    )
+    assert fallback_leaves == 0
+    assert len(leaves) == 4
+    total = sum(w for w, _ in leaves)
+    assert abs(total - 1.0) < 1e-9
+    weights = sorted(round(w, 6) for w, _ in leaves)
+    expected = sorted(round(w, 6) for w in
+                       [0.6 * 0.4, 0.6 * 0.6, 0.4 * 0.4, 0.4 * 0.6])
+    assert weights == expected
+
+
+def test_resolve_turn_branches_cap_produces_per_branch_fallback_not_whole_line():
+    st = _doubles_state()
+    # Four independent uncertain events (2 per side) -> a cap of 2 forces exactly one fork,
+    # so at least one leaf must stop expanding early while its sibling still resolves fully.
+    moves = [MoveMeta(id=f"u{i}", name=f"U{i}", accuracy=50, base_power=100,
+                       category="physical", target="normal") for i in range(2)]
+    a1 = PlannedAction("p1", "a", "move", speed=150, move=moves[0], target=("p2", "a"), is_ours=True)
+    a2 = PlannedAction("p1", "b", "move", speed=140, move=moves[1], target=("p2", "b"), is_ours=True)
+    others = [
+        PlannedAction("p2", "a", "pass", speed=1, is_ours=False),
+        PlannedAction("p2", "b", "pass", speed=1, is_ours=False),
+    ]
+
+    def dmg(action, target):
+        return 0.1
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, [a1, a2] + others, dmg, our_side="p1", field=FieldState(), tie_break="ours_last",
+        branch_cap=2,
+    )
+    assert fallback_leaves >= 1  # at least one path exhausted the cap before fully resolving
+    total = sum(w for w, _ in leaves)
+    assert abs(total - 1.0) < 1e-9  # weight is still fully conserved despite the cap
+    # fork_records only ever records forks that were actually reached and split before the cap
+    # fired -- each one's miss-sibling subtree is non-empty with positive total weight.
+    for _pair, miss_subtree in fork_records:
+        assert len(miss_subtree) >= 1
+        assert sum(w for w, _ in miss_subtree) > 0.0

@@ -3,7 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from showdown_bot.engine.moves import MoveMeta, blocks_move, can_redirect, move_priority
+from showdown_bot.engine.moves import (
+    MoveMeta,
+    blocks_move,
+    can_redirect,
+    hit_probability,
+    move_priority,
+)
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 SPREAD_MULT = 0.75  # doubles damage reduction for spread moves
@@ -335,3 +341,83 @@ def resolve_turn(
         outcome.hp_delta[key] = cur_frac[key] - start_frac[key]
 
     return outcome
+
+
+ForkRecord = tuple[tuple[SlotId, SlotId], list[tuple[float, TurnOutcome]]]
+
+
+def resolve_turn_branches(
+    state: BattleState,
+    actions: list[PlannedAction],
+    damage_fn: DamageFn,
+    *,
+    our_side: str = "p1",
+    field: FieldState | None = None,
+    tie_break: str = "ours_last",
+    branch_cap: int = 4,
+) -> tuple[list[tuple[float, TurnOutcome]], int, list[ForkRecord]]:
+    """Recursively fork ``resolve_turn`` on genuinely uncertain accuracy events, re-discovering
+    newly-revealed events after every partial resolve (spec Sec.5).
+
+    A fixed, one-shot "discover events from a single all-hit resolve_turn call" list is WRONG
+    whenever a hit/miss outcome changes who gets to act at all (KO-before-act) or who gets
+    targeted (redirection): an action that never reaches ``apply_hit`` in one branch's resolve
+    is invisible to a list built from that branch alone, so a sibling branch that revives it
+    would otherwise be silently scored as if that action always hits.
+
+    Returns ``(leaves, fallback_leaves, fork_records)``:
+
+    - ``leaves``: a probability-weighted list of ``(weight, TurnOutcome)`` pairs whose weights
+      sum to 1.0 exactly; ``leaves[0]`` is always the fully-resolved "everything hits" leaf
+      (hit-branches are explored before miss-branches, and recursion is depth-first).
+    - ``fallback_leaves``: how many recursion paths hit ``branch_cap`` before fully resolving --
+      each such leaf keeps its own remaining pending events implicitly hit (today's legacy
+      resolution), affecting only that specific subtree.
+    - ``fork_records``: for every fork point encountered ON THE PATH TO ``leaves[0]`` (i.e. while
+      every earlier decision along the way was the "hit" side), the ``(pair, miss_subtree)`` pair
+      where ``miss_subtree`` is that fork's own miss-sibling's full leaf list. This is exactly
+      the input a later ``miss_punish_value`` diagnostic (spec Sec.7) needs -- the tree structure
+      a flat leaf list alone cannot reconstruct after the fact.
+    """
+    actions_by_key = {a.key: a for a in actions}
+    calls = 0
+    fallback_leaves = 0
+    fork_records: list[ForkRecord] = []
+
+    def expand(miss_set, decided_hit, weight, on_hit_path):
+        nonlocal calls, fallback_leaves
+        calls += 1
+        out = resolve_turn(
+            state, actions, damage_fn, our_side=our_side, field=field,
+            tie_break=tie_break, forced_miss=miss_set,
+        )
+        decided = miss_set | decided_hit
+        pending: list[tuple[tuple[SlotId, SlotId], float]] = []
+        for ah in out.attempted_hits:
+            pair = (ah.attacker, ah.target)
+            if pair in decided:
+                continue
+            attacker_action = actions_by_key.get(ah.attacker)
+            if attacker_action is None or attacker_action.move is None:
+                continue
+            attacker_mon = state.sides.get(ah.attacker[0], {}).get(ah.attacker[1])
+            target_mon = state.sides.get(ah.target[0], {}).get(ah.target[1])
+            if attacker_mon is None or target_mon is None:
+                continue
+            p = hit_probability(attacker_action.move, attacker_mon, target_mon, field)
+            if p is not None and 0.0 < p < 1.0:
+                pending.append((pair, p))
+        if not pending:
+            return [(weight, out)]
+        if calls >= branch_cap:
+            fallback_leaves += 1
+            return [(weight, out)]
+        pair, p = pending[0]  # deterministic: first attempted-hit order
+        hit_leaves = expand(miss_set, decided_hit | {pair}, weight * p, on_hit_path)
+        miss_leaves = expand(miss_set | {pair}, decided_hit, weight * (1.0 - p), False)
+        if on_hit_path:
+            fork_records.append((pair, miss_leaves))
+        return hit_leaves + miss_leaves
+
+    leaves = expand(frozenset(), frozenset(), 1.0, True)
+    return leaves, fallback_leaves, fork_records
