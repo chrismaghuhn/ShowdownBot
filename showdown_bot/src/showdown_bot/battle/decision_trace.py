@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from showdown_bot.battle.evaluate import OutcomeBreakdown
+from showdown_bot.battle.resolve import SlotId
 
 
 @dataclass
@@ -38,6 +39,43 @@ class CandidateModelFeatures:
 
 
 @dataclass
+class AccuracyEventTrace:
+    """One uncertain (accuracy < 100%) attempted hit surfaced from a single opponent
+    response's accuracy-mode evaluation. ``response_index`` ties it back to the parallel
+    ``score_vector``/``outcome_breakdowns`` position on the owning ``CandidateTrace``."""
+
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+    hit_probability: float
+    response_index: int
+    tie_order: str  # "ours_first" | "ours_last"
+
+
+@dataclass
+class AccuracyTieOrderTrace:
+    tie_order: str
+    weight: float
+    accuracy_leaf_count: int
+    accuracy_branch_cap_hits: int
+    events_complete: bool
+
+
+@dataclass
+class AccuracyResponseDetail:
+    """Per-response accuracy telemetry (one per opponent response, parallel to
+    ``CandidateTrace.score_vector``/``outcome_breakdowns``). Research-only, mirrors
+    ``battle.evaluate.LineEvaluation`` -- never read to make a decision."""
+
+    accuracy_leaf_count: int
+    accuracy_event_count: int
+    accuracy_branch_cap_hits: int
+    events_complete: bool
+    tie_orders: list[AccuracyTieOrderTrace] = field(default_factory=list)
+    events: list[AccuracyEventTrace] = field(default_factory=list)
+
+
+@dataclass
 class CandidateTrace:
     candidate_id: str
     joint_action: Any
@@ -47,6 +85,7 @@ class CandidateTrace:
     outcome_breakdowns: list[OutcomeBreakdown]  # parallel to opponent responses
     aggregate_breakdown: OutcomeBreakdown
     model_features: CandidateModelFeatures = field(default_factory=CandidateModelFeatures)
+    accuracy_details: list[AccuracyResponseDetail] = field(default_factory=list)  # parallel to opponent responses
 
 
 @dataclass

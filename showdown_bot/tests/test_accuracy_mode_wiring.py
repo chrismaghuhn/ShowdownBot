@@ -13,21 +13,41 @@ per spec Sec.12 -- see the comment above ``d2_eval_kwargs`` in ``decision.py``);
 default ``decision_fixture`` scenario runs at ``SHOWDOWN_SEARCH_DEPTH`` unset (=1) and
 ``SHOWDOWN_WORLD_SAMPLES`` unset (=1), so the depth-2 and K-world code paths (which
 would reach into ``search.py``) are not exercised, matching that scope boundary.
+
+Accuracy-slice Task 6 changed ``_breakdowns_for`` (the trace-population call site) to
+call ``evaluate._evaluate_line_details`` directly instead of the public ``evaluate_line``
+wrapper (so the breakdown and the accuracy telemetry come from the same evaluation call,
+no duplicate resolve pass). ``evaluate_line`` itself is a thin wrapper that calls
+``_evaluate_line_details`` internally and unpacks ``(d.score, d.representative_outcome)``
+-- and it does so via a plain module-global name lookup inside ``evaluate.py``, resolved
+at call time against ``evaluate.py``'s own namespace regardless of which module's variable
+holds a reference to the ``evaluate_line`` function object. So patching
+``evaluate_module._evaluate_line_details`` alone transparently intercepts BOTH every
+``evaluate_line`` call site still in ``decision.py`` (their internal call bottoms out
+there) AND ``_breakdowns_for``'s direct call (its function-local
+``from showdown_bot.battle.evaluate import _evaluate_line_details`` re-resolves the name
+against ``evaluate.py``'s namespace on every ``_choose_best`` invocation, picking up
+whatever is currently patched there) -- one patch, one record per call, no double
+counting, no need to separately patch ``decision_module.evaluate_line`` (which would
+double-record: once explicitly, once again via the internal ``_evaluate_line_details``
+call the original ``evaluate_line`` makes).
 """
 from __future__ import annotations
 
-from showdown_bot.battle import decision as decision_module
 from showdown_bot.battle import evaluate as evaluate_module
 from showdown_bot.battle.decision import _choose_best
 from showdown_bot.battle.decision_trace import DecisionTrace
 
 
 def _install_recorder(monkeypatch):
-    """Wrap (not replace) the real ``evaluate_line`` so the decision pipeline runs
-    exactly as it would live -- same scores feed pick_best/tera/report/trace -- while
-    recording the accuracy_mode/accuracy_branch_cap every call actually received."""
+    """Wrap (not replace) the real ``_evaluate_line_details`` so the decision pipeline
+    runs exactly as it would live -- same scores feed pick_best/tera/report/trace --
+    while recording the accuracy_mode/accuracy_branch_cap every call actually received.
+    Patching this one function is sufficient to cover every ``evaluate_line`` call site
+    in ``decision.py`` plus ``_breakdowns_for``'s direct call; see the module docstring
+    for why."""
     calls: list[dict] = []
-    real = evaluate_module.evaluate_line
+    real = evaluate_module._evaluate_line_details
 
     def _wrapped(*args, **kwargs):
         calls.append({
@@ -36,7 +56,7 @@ def _install_recorder(monkeypatch):
         })
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(decision_module, "evaluate_line", _wrapped)
+    monkeypatch.setattr(evaluate_module, "_evaluate_line_details", _wrapped)
     return calls
 
 

@@ -586,19 +586,27 @@ def _choose_best(
 
     if trace is not None:
         from showdown_bot.battle.decision_trace import (
+            AccuracyEventTrace,
+            AccuracyResponseDetail,
+            AccuracyTieOrderTrace,
             CandidateModelFeatures,
             CandidateTrace,
             DecisionTrace as _DT,
         )
-        from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
+        from showdown_bot.battle.evaluate import (
+            OutcomeBreakdown,
+            _evaluate_line_details,
+            score_outcome_with_breakdown,
+        )
         from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
 
         rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
 
         def _breakdowns_for(plan):
             out = []
-            for ra in rep_resps:
-                _, oc = evaluate_line(
+            acc_details = []
+            for ri, ra in enumerate(rep_resps):
+                d = _evaluate_line_details(
                     state, plan, ra, model.damage_fn, our_side=our_side,
                     weights=weights, field=state.field, rollout_horizon=0,
                     endgame=endgame, fast_board=fast_board,
@@ -606,10 +614,30 @@ def _choose_best(
                 )
                 out.append(
                     score_outcome_with_breakdown(
-                        oc, our_side, weights, endgame=endgame, fast_board=fast_board
+                        d.representative_outcome, our_side, weights, endgame=endgame, fast_board=fast_board
                     )[1]
                 )
-            return out
+                acc_details.append(AccuracyResponseDetail(
+                    accuracy_leaf_count=sum(t.accuracy_leaf_count for t in d.tie_order_details),
+                    accuracy_event_count=len(d.accuracy_events),
+                    accuracy_branch_cap_hits=d.fallback_leaves,
+                    events_complete=(d.fallback_leaves == 0),
+                    tie_orders=[
+                        AccuracyTieOrderTrace(
+                            t.tie_order, t.weight, t.accuracy_leaf_count,
+                            t.accuracy_branch_cap_hits, t.events_complete,
+                        )
+                        for t in d.tie_order_details
+                    ],
+                    events=[
+                        AccuracyEventTrace(
+                            e.attacker, e.target, e.move_id, e.hit_probability,
+                            response_index=ri, tie_order=e.tie_order,
+                        )
+                        for e in d.accuracy_events
+                    ],
+                ))
+            return out, acc_details
 
         def _weighted_mean_breakdown(bds):
             ws = resp_weights or [1.0] * len(bds)
@@ -655,7 +683,7 @@ def _choose_best(
         scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
         cands = []
         for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
-            bds = _breakdowns_for(plans[ja])
+            bds, acc_details = _breakdowns_for(plans[ja])
             cands.append(CandidateTrace(
                 candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
                 aggregate_score=agg, score_vector=list(scores),
@@ -665,6 +693,7 @@ def _choose_best(
                     ko_threatened_count=dec_threatened,
                     survives_for_sure_count=dec_survives,
                 ),
+                accuracy_details=acc_details,
             ))
         trace.game_mode = getattr(mode, "name", str(mode))
         trace.chosen_candidate_id = _label_ja(req, best_ja)
