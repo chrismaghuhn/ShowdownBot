@@ -9,8 +9,8 @@ resolved ``SHOWDOWN_ACCURACY_MODE`` value -- so a future call site that quietly 
 the kwarg (reverting to the always-hit default) fails a test, not just a code review.
 
 ``depth2_value``/``search.py`` is out of scope here (documented, separate follow-up
-per spec Sec.12 -- see Task 5's own docstring in decision.py); the default
-``decision_fixture`` scenario runs at ``SHOWDOWN_SEARCH_DEPTH`` unset (=1) and
+per spec Sec.12 -- see the comment above ``d2_eval_kwargs`` in ``decision.py``); the
+default ``decision_fixture`` scenario runs at ``SHOWDOWN_SEARCH_DEPTH`` unset (=1) and
 ``SHOWDOWN_WORLD_SAMPLES`` unset (=1), so the depth-2 and K-world code paths (which
 would reach into ``search.py``) are not exercised, matching that scope boundary.
 """

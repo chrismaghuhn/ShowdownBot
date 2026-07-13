@@ -496,6 +496,14 @@ def _choose_best(
 
             d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
             d2_model_kwargs = {"our_spreads": our_spreads, "opp_sets": opp_sets}
+            # [accuracy-slice] Deliberately does NOT include accuracy_mode/accuracy_branch_cap.
+            # depth2_value's turn-2 refinement (search.py) is out of scope for the accuracy slice
+            # (spec Sec.12, Depth-2 Stage 3 is separate, later work) -- if SHOWDOWN_ACCURACY_MODE
+            # and SHOWDOWN_SEARCH_DEPTH=2 are ever both on, the top-N/top-M candidates' scores get
+            # overwritten by depth2_value with legacy always-hit values, mixing methodologies
+            # inside one decision's comparison set. Not exercised by the accuracy-slice latency
+            # bench (scratchpad/bench_accuracy_latency.py) or tests -- known, accepted gap until
+            # Depth-2 Stage 3 threads these two kwargs through search.py.
             d2_eval_kwargs = {
                 "weights": weights, "rollout_horizon": rollout_horizon,
                 "endgame": endgame, "fast_board": fast_board,
