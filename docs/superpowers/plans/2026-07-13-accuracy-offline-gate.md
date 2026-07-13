@@ -42,25 +42,73 @@ that refactor only starts once the baseline artifact is committed. Tasks 1-5 bel
 order. Do not start Task 5 (the `evaluate.py` refactor) before Task 4 (baseline freeze) is
 committed.
 
-## Provenance facts this plan relies on (verified directly against real files this session, not
-assumed from the spec's summary)
+## Provenance facts this plan relies on (verified directly against real files, twice — once when
+this plan was first written, and again after a real bug was found in the first pass; see the
+correction note below)
 
-- `data/eval/t4/t4-run1.jsonl`, `t4-run2.jsonl`, `t4-prefix.jsonl`, `data/eval/t6/t6-run1.jsonl`,
-  `t6-run2.jsonl`, `data/eval/kaggle-validation/results.jsonl` are **results manifests**, one JSON
-  row per battle, each row already containing `schedule_hash`, `seed_base`, `seed_index`, `seed`,
-  `battle_id`, and `room_raw_path` (e.g.
+**Correction (found via direct data verification after the first version of this plan was
+written): the manifest join sources below are NOT the top-level `data/eval/t4/t4-{run1,run2,
+prefix}.jsonl` files.** Those are the ORIGINAL (buggy, pre-fix) T4 smoke run's manifests
+(`seed_base=t4smoke2026`) — they describe a *different* room_raw dump (`C:/tmp/t4/full_room_raw/…`)
+than what's actually committed under `data/eval/t4/rerun/room_raw/`. Joining the committed
+`.log.gz` files against them matches **0 of 112** t4 files. The committed `room_raw/` files are the
+**re-run's** output (the T4 smoke report: *"T4 must be re-run after the fix; this run's data is
+committed as evidence, not fixture… After the fix, a full T4 re-run… That run's artifacts become
+the T5 fixture"*), whose manifests live at `data/eval/t4/rerun/t4rerun-{run1,run2,prefix}.jsonl`
+(`seed_base=t4rerun2026`) — joining against **these** matches **112/112**.
+
+**Second correction, found while re-verifying the first: the dedup identity key must be
+`(seed_base, seed_index)`, NOT `(schedule_hash, seed_base, seed_index)`.** `schedule_hash` hashes
+the *schedule YAML file's content* — it is not part of battle identity.
+`derive_battle_seed(seed_base, seed_index)` (`eval/seeding.py`) is a pure function of those two
+fields alone. Directly verified: `t4rerun-prefix.jsonl` carries a *different* `schedule_hash` from
+`t4rerun-run1.jsonl` (different YAML file — `t4_smoke_v001_prefix.yaml` vs `t4_smoke_v001.yaml`)
+despite sharing `seed_base=t4rerun2026`, yet the actual `seed` **values** at matching `seed_index`
+0-9 are byte-identical between `t4rerun-run1.jsonl`, `t4rerun-prefix.jsonl`, and
+`kaggle-validation/results.jsonl`. Including `schedule_hash` in the key would treat
+`prefix`/`kaggle-validation` as a *third independent* 10-battle group; they are actually duplicates
+of `run1`'s own first 10 battles.
+
+**Verified final numbers** (join all 190 regular-directory files — the 197-file corpus minus
+`room_raw_divergent`'s 7, which are excluded a-priori, never manifest-joined or content-hashed —
+against `data/eval/t4/rerun/t4rerun-{run1,run2,prefix}.jsonl`, `data/eval/t6/t6-run1.jsonl`,
+`data/eval/t6/t6-run2.jsonl`, `data/eval/kaggle-validation/results.jsonl`, keyed on `(seed_base,
+seed_index)`): **190/190 files match exactly one manifest row; the 190 rows collapse to exactly 85
+unique identities** — `t4`'s 51 (`run1`'s own seeds) + `t6`'s 34 (`run1`'s own seeds). `t4`'s
+`run2` (51 files) and `prefix` (10 files) are each fully redundant with `run1`'s seeds;
+`kaggle-validation` (10 files) is fully redundant with `prefix`'s (= `run1`'s first 10) seeds;
+`t6`'s `run2` (34 files) is fully redundant with `t6 run1`'s seeds. **The canonical, deduplicated
+Gate B corpus is exactly `data/eval/t4/rerun/room_raw/run1/` (51 files) +
+`data/eval/t6/room_raw/run1/` (34 files) = 85 files, G = 85** — everything else in the 197-file
+corpus is either a confirmed duplicate (excluded with reason `duplicate_seed_identity`) or
+`room_raw_divergent` (excluded with reason `excluded_diagnostic_artifact`). This exact-collapse
+result and the resulting `G=85` are also now reflected in
+`docs/superpowers/specs/2026-07-13-accuracy-offline-gate-design.md` (round 6) — this plan and the
+spec are consistent; do not reintroduce the `schedule_hash`-inclusive key or the wrong manifest
+paths from this plan's own first draft.
+
+- `data/eval/t4/rerun/t4rerun-run1.jsonl`, `t4rerun-run2.jsonl`, `t4rerun-prefix.jsonl`,
+  `data/eval/t6/t6-run1.jsonl`, `t6-run2.jsonl`, `data/eval/kaggle-validation/results.jsonl` are
+  **results manifests**, one JSON row per battle, each row containing `schedule_hash`, `seed_base`,
+  `seed_index`, `seed`, `battle_id`, and `room_raw_path` (e.g.
   `"room_raw_path": "C:/tmp/t4/full_room_raw\\HeuristicBot1167__battle-gen9vgc2025regi-310.log"`).
-  This is the **single, sufficient join source** for the dedup key — there is no need to
-  cross-reference the separate `*-seedlog.jsonl` files (which only carry `{battle_index, seed,
-  seed_base}`, no `schedule_hash`/`seed_index`) or the schedule YAMLs directly.
+  This is the **single, sufficient join source** — there is no need to cross-reference the separate
+  `*-seedlog.jsonl` files (which only carry `{battle_index, seed, seed_base}`, no
+  `schedule_hash`/`seed_index`) or the schedule YAMLs directly. `schedule_hash` is read and reported
+  (for the dedup report's provenance detail) but is **not** part of the identity/grouping key.
 - `room_raw_path`'s basename (final path component, `.log` suffix) matches the on-disk committed
   `.log.gz` filename in `data/eval/t4/rerun/room_raw/run1/` etc. 1:1 (confirmed:
   `HeuristicBot1167__battle-gen9vgc2025regi-310.log` in the manifest row vs
   `HeuristicBot1084__battle-gen9vgc2025regi-487.log.gz` as an on-disk example — same naming
   pattern, differing only by the trailing `.gz`).
-- `data/eval/t4/room_raw_divergent/` has **no results.jsonl of its own** — its 7 files
-  (`run1-idx09-regi-319.log.gz`, `run2-idx19-regi-401.log.gz`, `prefix-idx09-regi-380.log.gz`, ...)
-  must be deduplicated via the **content-hash fallback** (Task 2), not a manifest join.
+- `data/eval/t4/room_raw_divergent/` has **no results.jsonl of its own, and must never be
+  manifest-joined or content-hash-deduplicated** — its 7 files (`run1-idx09-regi-319.log.gz`,
+  `run2-idx19-regi-401.log.gz`, `prefix-idx09-regi-380.log.gz`, ...) are diagnostic captures of
+  specific, already-counted `(seed_base, seed_index)` positions that diverged between `run1`/`run2`
+  due to a since-fixed determinism bug — their content is *deliberately* different from their
+  source file's, so a content-hash fallback would wrongly admit them as new independent battles and
+  inflate `G`. Recognize and exclude them by directory before either the manifest-join or
+  content-hash path runs (Task 2).
 - `BattleRequest` (`models/request.py:44-55`) has an `rqid: int` field — Showdown's own
   reconnect-detection request ID. Used directly for in-log reconnect-duplicate detection (Task 1).
 - `client/gauntlet.py`'s exact causality-relevant chain (`_state_for`, lines 474-483; called from
@@ -375,22 +423,42 @@ git commit -m "feat(eval): room_raw_replay causality-safe decision extraction"
 
 Implements spec §6 item 5 — the highest-stakes piece of this plan's non-`battle/` work: a wrong
 dedup silently invalidates every downstream statistic (G, the bootstrap, the Clopper-Pearson
-bound). **Extra scrutiny on this task's review.**
+bound). **Extra scrutiny on this task's review.** This task's design was itself corrected once
+already (see the plan's provenance-facts section above) — the manifest join sources and the
+identity key below are the **verified-correct** versions, not the original draft.
 
-Two-tier design, per the plan's provenance-facts section above:
-1. **Primary: manifest join.** For each on-disk `.log.gz`/`.log` file, find the results-manifest
-   row (`t4-run1.jsonl`, `t4-run2.jsonl`, `t4-prefix.jsonl`, `t6-run1.jsonl`, `t6-run2.jsonl`,
+Three-part design:
+1. **A-priori exclusion, before anything else runs.** Any file under a directory named
+   `room_raw_divergent` is excluded outright — never manifest-joined, never content-hashed. Its
+   filenames encode already-known run/index references (`run1-idx09`, `run2-idx19`,
+   `prefix-idx09`, ...) and its content is *deliberately* divergent from its source (diagnostic
+   capture of a determinism-bug-triggered difference), so a content-hash fallback would wrongly
+   treat it as new independent content. Excluded with reason `excluded_diagnostic_artifact`.
+2. **Primary: manifest join, keyed on `(seed_base, seed_index)` only.** For each remaining
+   on-disk `.log.gz`/`.log` file, find the results-manifest row (`t4rerun-run1.jsonl`,
+   `t4rerun-run2.jsonl`, `t4rerun-prefix.jsonl`, `t6-run1.jsonl`, `t6-run2.jsonl`,
    `kaggle-validation/results.jsonl`) whose `room_raw_path` basename matches this file's basename
-   (stripping `.gz`). That row's `(schedule_hash, seed_base, seed_index)` is the file's identity.
-2. **Fallback: content hash.** Files with no matching manifest row (confirmed real case:
-   `data/eval/t4/room_raw_divergent/`, 7 files) are identified by comparing their **normalized
-   room-log content hash** (`eval.room_dump.normalized_room_log_sha256`, already used elsewhere in
-   this project for exactly this "are these two logs the same battle" question) against every
-   already-kept file's own normalized hash; a match means it's a duplicate of that kept file.
+   (stripping `.gz`). That row's `(seed_base, seed_index)` — **not** `schedule_hash`, which is
+   YAML-file provenance, not battle identity (verified: `derive_battle_seed(seed_base, seed_index)`
+   is a pure function of those two fields alone; `prefix`'s rows carry a different `schedule_hash`
+   from `run1`'s despite byte-identical `seed` values at matching indices) — is the file's identity.
+   `schedule_hash` is still read and reported per-row for the dedup report's own provenance detail,
+   just not used for grouping.
+3. **Fallback: content hash**, for files with no matching manifest row at all (should not occur
+   for any file outside `room_raw_divergent`, given step 1 already removed the one confirmed
+   real case — this path exists as defense-in-depth, not because a real un-joinable file is
+   expected). Uses the **normalized room-log content hash**
+   (`eval.room_dump.normalized_room_log_sha256`, already used elsewhere in this project for
+   exactly this "are these two logs the same battle" question) against every already-kept file's
+   own normalized hash.
+4. **Fail-closed on ambiguity.** If a file's basename matches manifest rows with **different**
+   `(seed_base, seed_index)` identities (should never happen given each manifest's own internal
+   consistency, but must not be silently resolved by picking one), raise
+   `AmbiguousManifestMatchError` rather than guessing.
 
 Within a group of files sharing one identity, keep exactly one — priority order `run1` > `run2` >
-`prefix` > anything else (source-directory name, lexicographic tie-break if still ambiguous) — and
-record the rest as excluded.
+`prefix` > `kaggle-validation` (source-directory name, lexicographic tie-break if still ambiguous)
+— and record the rest as excluded.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -404,7 +472,11 @@ from pathlib import Path
 
 import pytest
 
-from showdown_bot.eval.room_raw_replay import DedupReport, deduplicate_battle_logs
+from showdown_bot.eval.room_raw_replay import (
+    AmbiguousManifestMatchError,
+    DedupReport,
+    deduplicate_battle_logs,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3].parent  # .../SHowdown BOt
 DATA_T4 = REPO_ROOT / "data" / "eval" / "t4"
@@ -464,11 +536,42 @@ def test_manifest_join_dedups_run1_vs_run2_reproduction(tmp_path):
     assert len(report.kept) == 1
     assert report.kept[0] == p1  # run1 wins the priority order
     assert len(report.excluded) == 1
-    assert report.excluded[0].reason == "duplicate_schedule_identity"
+    assert report.excluded[0].reason == "duplicate_seed_identity"
     assert report.final_g == 1
 
 
-def test_manifest_join_keeps_genuinely_distinct_schedules(tmp_path):
+def test_manifest_join_ignores_schedule_hash_and_dedups_prefix_against_run1(tmp_path):
+    """The core round-6 regression: two files with DIFFERENT schedule_hash but the SAME
+    (seed_base, seed_index) must be recognized as the same battle -- this is exactly the real
+    run1-vs-prefix relationship, and a schedule_hash-inclusive key would wrongly miss it."""
+    battle_lines = [
+        ">battle-p",
+        '|request|{"active":[{"moves":[]}],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}',
+    ]
+    run1_dir = tmp_path / "run1"
+    prefix_dir = tmp_path / "prefix"
+    p1 = _write_synthetic_log(run1_dir, "HeuristicBot1__battle-run1-0", battle_lines)
+    p2 = _write_synthetic_log(prefix_dir, "HeuristicBot2__battle-prefix-0", battle_lines)
+
+    manifest1 = tmp_path / "run1.jsonl"
+    manifest2 = tmp_path / "prefix.jsonl"
+    _write_manifest(manifest1, [_make_manifest_row(
+        "C:/tmp/run1/HeuristicBot1__battle-run1-0.log", "SCHEDULE_FULL", "sharedbase", 0,
+    )])
+    _write_manifest(manifest2, [_make_manifest_row(
+        "C:/tmp/prefix/HeuristicBot2__battle-prefix-0.log", "SCHEDULE_PREFIX_DIFFERENT_HASH",
+        "sharedbase", 0,  # same (seed_base, seed_index), DIFFERENT schedule_hash
+    )])
+
+    report = deduplicate_battle_logs(
+        log_files=[p1, p2], manifest_files=[manifest1, manifest2], keep_priority=["run1", "prefix"],
+    )
+    assert report.final_g == 1
+    assert report.kept == [p1]
+    assert report.excluded[0].reason == "duplicate_seed_identity"
+
+
+def test_manifest_join_keeps_genuinely_distinct_seeds(tmp_path):
     battle_lines_a = [">battle-a", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}']
     battle_lines_b = [">battle-b", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}']
     d = tmp_path / "run1"
@@ -484,65 +587,119 @@ def test_manifest_join_keeps_genuinely_distinct_schedules(tmp_path):
     assert set(report.kept) == {p1, p2}
 
 
-def test_content_hash_fallback_for_files_without_manifest_row(tmp_path):
-    battle_lines = [
-        ">battle-c",
+def test_room_raw_divergent_excluded_a_priori_never_content_hash_admitted(tmp_path):
+    """Round-5/6 requirement: files under a `room_raw_divergent` directory must be excluded
+    outright, even when their content genuinely differs from any kept file's (they were
+    deliberately preserved AS evidence of divergence -- admitting them via content-hash
+    mismatch would wrongly inflate G)."""
+    kept_lines = [">battle-d", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}']
+    divergent_lines = [  # deliberately DIFFERENT content -- a divergent-outcome capture
+        ">battle-d",
         '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}',
-        "|turn|1",
+        "|switch|p1a: SomethingElse",
     ]
     run1_dir = tmp_path / "run1"
-    divergent_dir = tmp_path / "divergent"
-    kept = _write_synthetic_log(run1_dir, "HeuristicBot1__battle-c", battle_lines)
-    orphan = _write_synthetic_log(divergent_dir, "run1-idx00-battle-c", battle_lines)  # same content, no manifest row
+    divergent_dir = tmp_path / "room_raw_divergent"
+    kept = _write_synthetic_log(run1_dir, "HeuristicBot1__battle-d", kept_lines)
+    divergent = _write_synthetic_log(divergent_dir, "run1-idx00-battle-d", divergent_lines)
 
     manifest = tmp_path / "run1.jsonl"
     _write_manifest(manifest, [_make_manifest_row(
-        "C:/tmp/run1/HeuristicBot1__battle-c.log", "SCHED_T4", "t4base", 0,
+        "C:/tmp/run1/HeuristicBot1__battle-d.log", "SCHED_T4", "t4base", 0,
     )])
 
     report = deduplicate_battle_logs(
-        log_files=[kept, orphan], manifest_files=[manifest], keep_priority=["run1", "divergent"],
+        log_files=[kept, divergent], manifest_files=[manifest], keep_priority=["run1"],
     )
     assert report.final_g == 1
     assert report.kept == [kept]
-    assert report.excluded[0].source_file == orphan
-    assert report.excluded[0].reason == "duplicate_content_hash"
+    assert report.excluded[0].source_file == divergent
+    assert report.excluded[0].reason == "excluded_diagnostic_artifact"
+
+
+def test_ambiguous_manifest_match_fails_closed(tmp_path):
+    battle_lines = [">battle-e", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}']
+    d = tmp_path / "run1"
+    p1 = _write_synthetic_log(d, "HeuristicBot1__battle-e", battle_lines)
+    manifest_a = tmp_path / "a.jsonl"
+    manifest_b = tmp_path / "b.jsonl"
+    # Two manifests disagreeing about the SAME file's identity -- must never be silently resolved.
+    _write_manifest(manifest_a, [_make_manifest_row(
+        "C:/tmp/run1/HeuristicBot1__battle-e.log", "SCHED_X", "baseX", 0,
+    )])
+    _write_manifest(manifest_b, [_make_manifest_row(
+        "C:/tmp/run1/HeuristicBot1__battle-e.log", "SCHED_Y", "baseY", 7,  # different (seed_base, seed_index)
+    )])
+    with pytest.raises(AmbiguousManifestMatchError):
+        deduplicate_battle_logs(
+            log_files=[p1], manifest_files=[manifest_a, manifest_b], keep_priority=["run1"],
+        )
 
 
 @pytest.mark.skipif(
-    not (DATA_T4 / "t4-run1.jsonl").exists(), reason="real t4/t6/kaggle-validation corpus not present"
+    not (DATA_T4 / "rerun" / "t4rerun-run1.jsonl").exists(),
+    reason="real t4/t6/kaggle-validation corpus not present",
 )
-def test_real_corpus_dedup_matches_expected_two_schedules():
+def test_real_corpus_dedup_collapses_190_regular_files_to_85():
     """Integration check against the REAL committed corpus, per spec §7's
-    test_global_dedup_uses_seed_schedule_not_room_id -- the ~197-files-to-~85-unique-battles
-    ratio is itself a load-bearing claim this gate's credibility depends on, so this must run
-    against real data, not only synthetic fixtures."""
+    test_global_dedup_uses_seed_schedule_not_room_id -- the 197-files-to-85-unique-battles ratio
+    is itself a load-bearing claim this gate's credibility depends on, so this must run against
+    real data, not only synthetic fixtures. G=85 is VERIFIED (not an estimate) -- see this plan's
+    provenance-facts section for the exact join performed to arrive at it."""
     import glob
 
-    log_files = [Path(p) for p in glob.glob(str(DATA_T4 / "rerun" / "room_raw" / "**" / "*.log.gz"), recursive=True)]
-    log_files += [Path(p) for p in glob.glob(str(DATA_T4 / "room_raw_divergent" / "*.log.gz"))]
-    log_files += [Path(p) for p in glob.glob(str(DATA_T6 / "room_raw" / "**" / "*.log.gz"), recursive=True)]
-    log_files += [Path(p) for p in glob.glob(str(DATA_KAGGLE / "room_raw" / "*.log.gz"))]
+    regular_log_files = [
+        Path(p) for p in glob.glob(str(DATA_T4 / "rerun" / "room_raw" / "**" / "*.log.gz"), recursive=True)
+    ]
+    regular_log_files += [Path(p) for p in glob.glob(str(DATA_T6 / "room_raw" / "**" / "*.log.gz"), recursive=True)]
+    regular_log_files += [Path(p) for p in glob.glob(str(DATA_KAGGLE / "room_raw" / "*.log.gz"))]
+    divergent_log_files = [Path(p) for p in glob.glob(str(DATA_T4 / "room_raw_divergent" / "*.log.gz"))]
+
+    assert len(regular_log_files) == 190, (
+        f"expected 190 regular-directory files (t4 run1+run2+prefix=112, t6 run1+run2=68, "
+        f"kaggle-validation=10); got {len(regular_log_files)} -- the corpus itself changed, "
+        f"re-derive every downstream number in this plan and the spec before proceeding"
+    )
+    assert len(divergent_log_files) == 7
+
     manifests = [
-        DATA_T4 / "t4-run1.jsonl", DATA_T4 / "t4-run2.jsonl", DATA_T4 / "t4-prefix.jsonl",
+        DATA_T4 / "rerun" / "t4rerun-run1.jsonl", DATA_T4 / "rerun" / "t4rerun-run2.jsonl",
+        DATA_T4 / "rerun" / "t4rerun-prefix.jsonl",
         DATA_T6 / "t6-run1.jsonl", DATA_T6 / "t6-run2.jsonl", DATA_KAGGLE / "results.jsonl",
     ]
+    all_log_files = regular_log_files + divergent_log_files
     report = deduplicate_battle_logs(
-        log_files=log_files, manifest_files=manifests,
-        keep_priority=["run1", "run2", "prefix", "room_raw", "room_raw_divergent"],
+        log_files=all_log_files, manifest_files=manifests,
+        keep_priority=["run1", "run2", "prefix", "kaggle-validation"],
     )
-    assert report.files_found == len(log_files)
-    # Two independent seed schedules exist (t4's 51-seed schedule_hash, t6's 34-seed
-    # schedule_hash) -- report.final_g must land at exactly their sum, not the file count.
-    unique_schedule_identities = {
-        (row.schedule_hash, row.seed_base, row.seed_index) for row in report.kept_identities
-    }
-    assert len(unique_schedule_identities) == report.final_g
-    assert 80 <= report.final_g <= 90, (
-        f"expected the provisional ~85-unique-battle estimate (t4's 51 + t6's 34) to hold "
-        f"within a small margin; got {report.final_g} -- if this genuinely changed, update "
-        f"the spec's G and the derived Clopper-Pearson numbers, don't just widen this bound"
+    assert report.files_found == 197
+
+    # Every regular-directory file must resolve to exactly one manifest match -- none may
+    # silently fall through to the content-hash fallback (that path is defense-in-depth only;
+    # a real fallback hit here would mean a manifest/on-disk mismatch worth investigating).
+    fallback_reasons = {e.source_file: e.reason for e in report.excluded}
+    for f in regular_log_files:
+        assert fallback_reasons.get(f) != "duplicate_content_hash", (
+            f"{f} silently fell through to content-hash dedup instead of matching a manifest row"
+        )
+
+    # room_raw_divergent's 7 files must be excluded with their own dedicated reason, never
+    # counted toward kept/G, regardless of content.
+    divergent_excluded = {e.source_file: e.reason for e in report.excluded if e.source_file in divergent_log_files}
+    assert len(divergent_excluded) == 7
+    assert all(r == "excluded_diagnostic_artifact" for r in divergent_excluded.values())
+
+    # The verified number: 190 regular files -> exactly 85 unique (seed_base, seed_index)
+    # identities. Do not loosen this to a range if it fails -- it is a directly re-derivable,
+    # exact fact (see the provenance-facts section), not an estimate.
+    assert report.final_g == 85, (
+        f"expected the VERIFIED G=85 (t4's 51 unique seeds + t6's 34); got {report.final_g} -- "
+        f"if the corpus genuinely changed since this plan was written, re-run the provenance "
+        f"verification in the plan's own provenance-facts section and update every downstream "
+        f"number (this test, Task 4/9/11, and the spec's §1/§4/§6) together, don't just widen this"
     )
+    unique_identities = {(i.seed_base, i.seed_index) for i in report.kept_identities}
+    assert len(unique_identities) == 85
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -555,38 +712,54 @@ Expected: FAIL with `ImportError: cannot import name 'DedupReport'`
 Add to `showdown_bot/src/showdown_bot/eval/room_raw_replay.py`:
 
 ```python
+class AmbiguousManifestMatchError(Exception):
+    """Raised when a file's basename matches manifest rows with conflicting identities --
+    fail closed rather than silently picking one (spec §6 item 5's fail-closed requirement)."""
+
+
 @dataclass(frozen=True)
-class ScheduleIdentity:
-    schedule_hash: str
+class SeedIdentity:
     seed_base: str
     seed_index: int
+    schedule_hash: str  # provenance detail only -- NOT part of equality/grouping (see below)
 
+    def __hash__(self) -> int:
+        return hash((self.seed_base, self.seed_index))
 
-@dataclass(frozen=True)
-class KeptBattle:
-    source_file: Path
-    identity: ScheduleIdentity | None  # None if identified only by content-hash fallback
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SeedIdentity):
+            return NotImplemented
+        return (self.seed_base, self.seed_index) == (other.seed_base, other.seed_index)
 
 
 @dataclass(frozen=True)
 class ExcludedBattle:
     source_file: Path
-    reason: str  # "duplicate_schedule_identity" | "duplicate_content_hash"
-    duplicate_of: Path
+    reason: str  # "duplicate_seed_identity" | "duplicate_content_hash" | "excluded_diagnostic_artifact"
+    duplicate_of: Path | None  # None for excluded_diagnostic_artifact (excluded a-priori, not vs. a specific file)
 
 
 @dataclass(frozen=True)
 class DedupReport:
     files_found: int
     kept: list[Path]
-    kept_identities: list[ScheduleIdentity]  # parallel-ish, only for files with a manifest match
+    kept_identities: list[SeedIdentity]  # parallel-ish, only for files with a manifest match
     excluded: list[ExcludedBattle]
     final_g: int
 
 
-def _load_manifest_rows(manifest_files: list[Path]) -> dict[str, ScheduleIdentity]:
-    """basename (with .log, no .gz) -> ScheduleIdentity, across all given manifest files."""
-    by_basename: dict[str, ScheduleIdentity] = {}
+_DIVERGENT_DIR_NAME = "room_raw_divergent"
+
+
+def _is_diagnostic_artifact(path: Path) -> bool:
+    return any(part == _DIVERGENT_DIR_NAME for part in path.parts)
+
+
+def _load_manifest_rows(manifest_files: list[Path]) -> dict[str, SeedIdentity]:
+    """basename (with .log, no .gz) -> SeedIdentity, across all given manifest files.
+    Fails closed (AmbiguousManifestMatchError) if two manifests disagree about one file's
+    (seed_base, seed_index) identity."""
+    by_basename: dict[str, SeedIdentity] = {}
     for manifest_path in manifest_files:
         if not manifest_path.exists():
             continue
@@ -598,11 +771,20 @@ def _load_manifest_rows(manifest_files: list[Path]) -> dict[str, ScheduleIdentit
                 row = json.loads(line)
                 raw_path = row["room_raw_path"].replace("\\", "/")
                 basename = raw_path.rsplit("/", 1)[-1]
-                by_basename[basename] = ScheduleIdentity(
+                identity = SeedIdentity(
+                    seed_base=row["seed_base"], seed_index=row["seed_index"],
                     schedule_hash=row["schedule_hash"],
-                    seed_base=row["seed_base"],
-                    seed_index=row["seed_index"],
                 )
+                existing = by_basename.get(basename)
+                if existing is not None and (existing.seed_base, existing.seed_index) != (
+                    identity.seed_base, identity.seed_index,
+                ):
+                    raise AmbiguousManifestMatchError(
+                        f"{basename} matches conflicting identities: "
+                        f"{(existing.seed_base, existing.seed_index)} vs "
+                        f"{(identity.seed_base, identity.seed_index)}"
+                    )
+                by_basename[basename] = identity
     return by_basename
 
 
@@ -625,10 +807,17 @@ def deduplicate_battle_logs(
 ) -> DedupReport:
     manifest_by_basename = _load_manifest_rows(manifest_files)
 
-    # Group 1: files with a manifest-resolved schedule identity.
-    groups: dict[ScheduleIdentity, list[Path]] = {}
+    # Step 0: a-priori exclusion, before either matching path runs.
+    diagnostic_files = [p for p in log_files if _is_diagnostic_artifact(p)]
+    remaining_files = [p for p in log_files if not _is_diagnostic_artifact(p)]
+    excluded: list[ExcludedBattle] = [
+        ExcludedBattle(p, "excluded_diagnostic_artifact", None) for p in diagnostic_files
+    ]
+
+    # Step 1: manifest join, keyed on (seed_base, seed_index) via SeedIdentity's __eq__/__hash__.
+    groups: dict[SeedIdentity, list[Path]] = {}
     unmatched: list[Path] = []
-    for path in log_files:
+    for path in remaining_files:
         basename = path.name
         if basename.endswith(".gz"):
             basename = basename[: -len(".gz")]
@@ -639,8 +828,7 @@ def deduplicate_battle_logs(
             groups.setdefault(identity, []).append(path)
 
     kept: list[Path] = []
-    kept_identities: list[ScheduleIdentity] = []
-    excluded: list[ExcludedBattle] = []
+    kept_identities: list[SeedIdentity] = []
 
     for identity, paths in groups.items():
         paths_sorted = sorted(paths, key=lambda p: (_source_priority(p, keep_priority), str(p)))
@@ -648,10 +836,9 @@ def deduplicate_battle_logs(
         kept.append(winner)
         kept_identities.append(identity)
         for loser in paths_sorted[1:]:
-            excluded.append(ExcludedBattle(loser, "duplicate_schedule_identity", winner))
+            excluded.append(ExcludedBattle(loser, "duplicate_seed_identity", winner))
 
-    # Group 2: content-hash fallback for files with no manifest row at all.
-    kept_content_hashes: dict[str, Path] = {p: _content_hash(p) for p in kept}.items()  # placeholder overwritten below
+    # Step 2: content-hash fallback, defense-in-depth for files with no manifest row at all.
     hash_to_kept: dict[str, Path] = {}
     for k in kept:
         hash_to_kept[_content_hash(k)] = k
@@ -662,41 +849,32 @@ def deduplicate_battle_logs(
         if h in hash_to_kept:
             excluded.append(ExcludedBattle(path, "duplicate_content_hash", hash_to_kept[h]))
             continue
-        # Also check against other not-yet-decided unmatched files sharing this hash.
-        existing = [k for k, kh in ((p2, _content_hash(p2)) for p2 in kept) if kh == h]
-        if h not in hash_to_kept:
-            hash_to_kept[h] = path
-            kept.append(path)
-            kept_identities.append(None)  # no manifest identity available
+        hash_to_kept[h] = path
+        kept.append(path)
 
     return DedupReport(
         files_found=len(log_files),
         kept=kept,
-        kept_identities=[i for i in kept_identities if i is not None],
+        kept_identities=kept_identities,
         excluded=excluded,
         final_g=len(kept),
     )
 ```
 
-Note during implementation: the `kept_content_hashes` placeholder line above is dead code left over
-from drafting — remove it before committing (it computes nothing that's used; `hash_to_kept` is
-built correctly on the next line). Verify with a quick read-through, not just the tests passing,
-since this function is the highest-stakes piece of non-`battle/` code in this plan.
-
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd showdown_bot && python -m pytest tests/eval/test_room_raw_dedup.py -v`
-Expected: PASS (4 passed, or 3 passed + 1 skipped if the real corpus manifests aren't present —
-they are committed, so expect all 4 to run). If `test_real_corpus_dedup_matches_expected_two_schedules`
-fails because `final_g` lands outside `[80, 90]`, **do not loosen the assertion** — investigate
-whether the dedup logic has a bug or whether the spec's provisional ~85 estimate needs a real
-correction; report either finding, don't silently paper over it.
+Expected: PASS (6 passed, or 5 passed + 1 skipped if the real corpus manifests aren't present — they
+are committed, so expect all 6 to run). `test_real_corpus_dedup_collapses_190_regular_files_to_85`
+asserts an **exact** `report.final_g == 85` — this is a verified fact (see the plan's
+provenance-facts section), not an estimate; **do not loosen this to a range if it fails** —
+investigate whether the dedup logic has a bug, don't paper over it.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/room_raw_replay.py showdown_bot/tests/eval/test_room_raw_dedup.py
-git commit -m "feat(eval): global battle-level dedup via results-manifest schedule identity"
+git commit -m "feat(eval): global battle-level dedup via (seed_base, seed_index) identity, room_raw_divergent excluded a-priori"
 ```
 
 ---
@@ -952,9 +1130,12 @@ pattern for the convention before placing this; match it). The script must:
 
 1. Glob every `.log.gz` under `data/eval/t4/rerun/room_raw/`, `data/eval/t4/room_raw_divergent/`,
    `data/eval/t6/room_raw/`, `data/eval/kaggle-validation/room_raw/`.
-2. Call `deduplicate_battle_logs(...)` (Task 2) with the manifest files listed in this plan's
-   provenance-facts section and `keep_priority=["run1", "run2", "prefix", "room_raw",
-   "room_raw_divergent"]`.
+2. Call `deduplicate_battle_logs(...)` (Task 2) with the manifest files
+   `data/eval/t4/rerun/t4rerun-run1.jsonl`, `t4rerun-run2.jsonl`, `t4rerun-prefix.jsonl`,
+   `data/eval/t6/t6-run1.jsonl`, `t6-run2.jsonl`, `data/eval/kaggle-validation/results.jsonl` (this
+   plan's provenance-facts section — **not** the top-level `data/eval/t4/t4-run1.jsonl`-shaped
+   files, which are a different, superseded run) and `keep_priority=["run1", "run2", "prefix",
+   "kaggle-validation"]`.
 3. For every kept file, call `extract_decisions_from_log(...)` (Task 1) and filter to
    `RequestKind.MOVE` only (team-preview/force-switch decisions have no move-accuracy content —
    spec §6 item 4 — exclude them from the primary baseline sample, but report their counts).
@@ -981,9 +1162,12 @@ cd showdown_bot && python scripts/run_accuracy_baseline_freeze.py
 ```
 
 Expected: completes without exceptions, `data/eval/accuracy-gate/pre-refactor-baseline.jsonl` has
-one row per non-team-preview/non-force-switch decision in the deduplicated corpus,
-`dedup-report.json`'s `final_g` is in the 80-90 range (matching Task 2's real-corpus test) unless
-that test already surfaced and explained a different real number.
+one row per non-team-preview/non-force-switch decision in the deduplicated corpus (canonically
+`data/eval/t4/rerun/room_raw/run1/` (51 files) + `data/eval/t6/room_raw/run1/` (34 files) = 85
+files — everything else in the 197-file corpus is a confirmed duplicate or the excluded
+`room_raw_divergent` set), `dedup-report.json`'s `final_g` is exactly `85` (matching Task 2's
+real-corpus test — verified, not a range) unless the corpus itself changed since this plan was
+written, in which case stop and re-derive every downstream number, don't silently proceed.
 
 - [ ] **Step 6: Commit — this is the hard checkpoint, never regenerate after this**
 
@@ -1994,11 +2178,46 @@ git commit -m "feat(eval): pinned bootstrap + zero-event Clopper-Pearson verdict
 - Create: `showdown_bot/src/showdown_bot/eval/accuracy_gate_a.py`
 - Create: `showdown_bot/tests/eval/test_accuracy_gate_a.py`
 
-Implements spec §1's Gate A. Reuses `scratchpad/bench_accuracy_latency.py`'s board (read it first
-to reuse its exact team/board construction, don't rebuild it) plus 1-2 archetypes from
-`config/eval/panels/panel_v001.yaml`, swept across the 7 field-bucket variants already used by the
-Depth-2 Stage 2 script (`neutral`, `tailwind_both`, `tailwind_p1`, `tailwind_p2`, `trick_room`,
-`sun`, `rain` — read that script to reuse its exact field-variant construction helper).
+Implements spec §1's Gate A. Verified against real source this session (not a placeholder-driven
+draft):
+
+- `heuristic_choose_for_request` (`battle/decision.py:750-800`) is the real top-level entry point.
+  Exact signature: `heuristic_choose_for_request(req: BattleRequest, *, state: BattleState, book:
+  SpreadBook, our_side: str | None = None, calc: CalcClient | None = None, oracle: DamageOracle |
+  None = None, speed_oracle: SpeedOracle | None = None, dex: SpeciesDex | None = None, priors=None,
+  weights: EvalWeights | None = None, risk_lambda: float | None = None, tera_margin: float = 1.0,
+  rollout_horizon: int | None = None, report: list[str] | None = None, our_spreads: dict | None =
+  None, opp_sets: dict | None = None, trace=None) -> str`. Returns the `/choose` string directly.
+  **It does not take an `accuracy_mode` kwarg** — accuracy on/off is controlled *purely* by the
+  `SHOWDOWN_ACCURACY_MODE` environment variable, read internally by `_choose_best`. Confirmed
+  directly from `scratchpad/bench_accuracy_latency.py`'s own usage: it never passes
+  `accuracy_mode=...` to `heuristic_choose_for_request`, only sets/unsets
+  `os.environ["SHOWDOWN_ACCURACY_MODE"]` around each call.
+- `scratchpad/bench_accuracy_latency.py`'s `make_state()`/`REQ`/`BOOK`/`CALC`/`SPEED`/`DEX`
+  construction (lines 49-74) is the real, working board this task reuses verbatim: p1
+  Incineroar+Rillaboom (Rillaboom's Heat Wave is a 90%-accuracy spread move) vs p2 Flutter
+  Mane+Tornadus (Tornadus's Bleakwind Storm is an 80%-accuracy spread move) — genuinely exercises
+  accuracy branching on both sides, not a board picked for convenience.
+- `FieldState` (`engine/state.py:75-79`) is a plain dataclass: `weather: str | None`,
+  `terrain: str | None`, `trick_room: bool = False`, `tailwind: dict[str, bool] =
+  {"p1": False, "p2": False}`. The 7 field-bucket variants are constructed directly from this —
+  the Depth-2 Stage 2 script this pattern was originally attributed to no longer exists on disk
+  (`scratchpad/stage2_decision_diff.py` was transient, never committed); its own report
+  (`reports/2026-07-12-2c-depth2-derisk-verdict.md`) confirms the *approach* ("vary `FieldState`
+  on the fixed realistic board") but not exact code, so this task writes the 7 variants fresh,
+  directly against `FieldState`'s real fields, rather than reusing since-deleted code.
+- **Scope decision, stated plainly rather than left implicit:** the spec's "1-2 additional real
+  archetypes pulled from `config/eval/panels/panel_v001.yaml`" requirement assumes a
+  team-file-to-`BattleState` loader for offline direct calls. No such loader exists in this
+  codebase — team files are only ever turned into battle state via the live server/gauntlet
+  protocol flow (`client/gauntlet.py`), which Gate A explicitly does not use (spec §1: "no
+  server"). Rather than block on building a new team-file loader (out of scope for this gate) or
+  leave a placeholder, this task adds 1-2 **additional hand-constructed boards**, in the exact same
+  style as `make_state()`, chosen to have a genuinely different accuracy profile (e.g. a board with
+  a single-target <100%-accuracy move instead of a spread move) — satisfying the spirit of "more
+  than one board" without a fabricated panel-loading call. If a real panel-team loader is ever
+  built for another purpose, swapping these in is a natural, isolated follow-up, not part of this
+  gate.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2006,26 +2225,29 @@ Depth-2 Stage 2 script (`neutral`, `tailwind_both`, `tailwind_p1`, `tailwind_p2`
 # showdown_bot/tests/eval/test_accuracy_gate_a.py
 from __future__ import annotations
 
-from showdown_bot.eval.accuracy_gate_a import GateAResult, run_gate_a
+from showdown_bot.eval.accuracy_gate_a import FIELD_VARIANTS, GateAResult, run_gate_a
 
 
 def test_run_gate_a_produces_one_result_per_board_x_field_combo():
-    result = run_gate_a(boards=["smoke"], field_variants=["neutral", "sun"])
+    result = run_gate_a(board_names=["primary"], field_variants=["neutral", "sun"])
     assert isinstance(result, GateAResult)
     assert len(result.rows) == 2
     for row in result.rows:
-        assert row.board in ("smoke",)
+        assert row.board == "primary"
         assert row.field_variant in ("neutral", "sun")
-        assert isinstance(row.off_chosen_action, str)
-        assert isinstance(row.on_chosen_action, str)
-        assert isinstance(row.exception is None, bool)
-```
+        assert isinstance(row.off_chosen_action, str) and row.off_chosen_action
+        assert isinstance(row.on_chosen_action, str) and row.on_chosen_action
+        assert row.exception is None
 
-Adapt this to the real `run_gate_a` signature once written — the shape (board × field-variant
-rows, off/on chosen actions per row, no exceptions) is what matters, not the exact param names,
-which should follow whatever this project's existing `heuristic_choose_for_request` direct-call
-convention already looks like (check `scratchpad/bench_accuracy_latency.py` and the Depth-2 Stage
-2 field-bucket sweep script for the established pattern before finalizing this signature).
+
+def test_run_gate_a_default_sweeps_all_7_field_variants_and_both_boards():
+    result = run_gate_a()
+    assert len(FIELD_VARIANTS) == 7
+    assert {r.board for r in result.rows} == {"primary", "single_target"}
+    assert {r.field_variant for r in result.rows} == set(FIELD_VARIANTS)
+    assert len(result.rows) == 2 * 7
+    assert result.exception_count == 0
+```
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2033,9 +2255,6 @@ Run: `cd showdown_bot && python -m pytest tests/eval/test_accuracy_gate_a.py -v`
 Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement `accuracy_gate_a.py`**
-
-Structure (fill in the exact board-construction and `heuristic_choose_for_request` call using the
-real conventions read in Step 1's note above):
 
 ```python
 # showdown_bot/src/showdown_bot/eval/accuracy_gate_a.py
@@ -2045,9 +2264,86 @@ server. Explicitly a smoke test (spec Sec.1) -- cannot license anything on its o
 
 from __future__ import annotations
 
+import copy
+import json
+import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from showdown_bot.battle.decision import heuristic_choose_for_request
+from showdown_bot.battle.oracle import DamageOracle
+from showdown_bot.battle.opponent import SpeciesDex
+from showdown_bot.engine.belief.hypotheses import load_spread_book
+from showdown_bot.engine.calc.client import CalcClient
+from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.speed import SpeedOracle
+from showdown_bot.engine.state import BattleState, FieldState, PokemonState
+from showdown_bot.models.request import BattleRequest
+
+_FIXTURE_DIR = Path(__file__).resolve().parents[3] / "tests" / "fixtures"
 
 FIELD_VARIANTS = ["neutral", "tailwind_both", "tailwind_p1", "tailwind_p2", "trick_room", "sun", "rain"]
+
+
+def _make_field(variant: str) -> FieldState:
+    if variant == "neutral":
+        return FieldState()
+    if variant == "tailwind_both":
+        return FieldState(tailwind={"p1": True, "p2": True})
+    if variant == "tailwind_p1":
+        return FieldState(tailwind={"p1": True, "p2": False})
+    if variant == "tailwind_p2":
+        return FieldState(tailwind={"p1": False, "p2": True})
+    if variant == "trick_room":
+        return FieldState(trick_room=True)
+    if variant == "sun":
+        return FieldState(weather="Sun")
+    if variant == "rain":
+        return FieldState(weather="Rain")
+    raise ValueError(f"unknown field variant: {variant!r}")
+
+
+def _make_primary_state() -> BattleState:
+    # Verbatim reproduction of scratchpad/bench_accuracy_latency.py's make_state(): p1
+    # Incineroar+Rillaboom (Heat Wave 90% spread) vs p2 FlutterMane+Tornadus (Bleakwind Storm
+    # 80% spread) -- exercises accuracy branching on both sides.
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150)
+    st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=155, max_hp=155)
+    fm = PokemonState(species="Flutter Mane", hp=131, max_hp=131)
+    fm.move_names = {"Moonblast", "Shadow Ball"}
+    tor = PokemonState(species="Tornadus", hp=140, max_hp=140)
+    tor.move_names = {"Tailwind", "Bleakwind Storm"}
+    st.sides["p2"]["a"] = fm
+    st.sides["p2"]["b"] = tor
+    return st
+
+
+def _make_single_target_state() -> BattleState:
+    # A second board with a single-target (not spread) <100%-accuracy move, so Gate A's smoke
+    # test isn't only exercising spread-move accuracy branching -- Focus Blast (70% acc).
+    st = BattleState()
+    gar = PokemonState(species="Gholdengo", hp=133, max_hp=133)
+    gar.move_names = {"Shadow Ball", "Focus Blast"}
+    st.sides["p1"]["a"] = gar
+    st.sides["p1"]["b"] = PokemonState(species="Landorus-Therian", hp=155, max_hp=155)
+    st.sides["p2"]["a"] = PokemonState(species="Amoonguss", hp=176, max_hp=176)
+    st.sides["p2"]["b"] = PokemonState(species="Urshifu", hp=139, max_hp=139)
+    return st
+
+
+_BOARDS = {
+    "primary": _make_primary_state,
+    "single_target": _make_single_target_state,
+}
+
+_REQ = BattleRequest.model_validate(
+    json.loads((_FIXTURE_DIR / "request_doubles_moves.json").read_text())
+)
+_BOOK = load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
+_CALC = CalcClient()
+_SPEED = SpeedOracle(stats_backend=_CALC.backend)
+_DEX = SpeciesDex(_CALC.backend)
 
 
 @dataclass(frozen=True)
@@ -2073,58 +2369,69 @@ class GateAResult:
         return sum(1 for r in self.rows if r.exception is not None)
 
 
-def run_gate_a(*, boards: list[str], field_variants: list[str] = FIELD_VARIANTS) -> GateAResult:
+def _decide(board_name: str, field: FieldState, *, accuracy_on: bool) -> str:
+    st = copy.deepcopy(_BOARDS[board_name]())
+    st.field = field
+    if accuracy_on:
+        os.environ["SHOWDOWN_ACCURACY_MODE"] = "1"
+    else:
+        os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
+    oracle = DamageOracle(_CALC)
+    return heuristic_choose_for_request(
+        _REQ, state=st, book=_BOOK, our_side="p1",
+        calc=_CALC, oracle=oracle, speed_oracle=_SPEED, dex=_DEX,
+    )
+
+
+def run_gate_a(
+    *, board_names: list[str] | None = None, field_variants: list[str] = FIELD_VARIANTS,
+) -> GateAResult:
+    board_names = board_names if board_names is not None else list(_BOARDS)
     rows: list[GateARow] = []
-    for board in boards:
-        for variant in field_variants:
-            try:
-                # Reuse scratchpad/bench_accuracy_latency.py's board-construction helper and
-                # the Depth-2 Stage 2 field-variant helper here -- exact call TBD against those
-                # real functions' signatures, verified when this task is implemented.
-                off_action = "PLACEHOLDER"  # replace with real heuristic_choose_for_request(..., accuracy_mode=False)
-                on_action = "PLACEHOLDER"  # replace with real heuristic_choose_for_request(..., accuracy_mode=True)
-                rows.append(GateARow(
-                    board=board, field_variant=variant,
-                    off_chosen_action=off_action, on_chosen_action=on_action,
-                    action_changed=(off_action != on_action), exception=None,
-                ))
-            except Exception as exc:  # noqa: BLE001
-                rows.append(GateARow(
-                    board=board, field_variant=variant,
-                    off_chosen_action="", on_chosen_action="",
-                    action_changed=False, exception=str(exc),
-                ))
+    try:
+        for board in board_names:
+            for variant in field_variants:
+                field = _make_field(variant)
+                try:
+                    off_action = _decide(board, field, accuracy_on=False)
+                    on_action = _decide(board, field, accuracy_on=True)
+                    rows.append(GateARow(
+                        board=board, field_variant=variant,
+                        off_chosen_action=off_action, on_chosen_action=on_action,
+                        action_changed=(off_action != on_action), exception=None,
+                    ))
+                except Exception as exc:  # noqa: BLE001
+                    rows.append(GateARow(
+                        board=board, field_variant=variant,
+                        off_chosen_action="", on_chosen_action="",
+                        action_changed=False, exception=str(exc),
+                    ))
+    finally:
+        os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)  # never leak state into other test runs
     return GateAResult(rows=rows)
 ```
 
-**Implementer note:** the two `"PLACEHOLDER"` lines above must be replaced with real calls before
-this task is considered done — they exist here only because this plan was written without
-re-reading `scratchpad/bench_accuracy_latency.py`'s exact board-construction API in this pass.
-Read that file plus the Depth-2 Stage 2 field-bucket sweep script FIRST, then replace both lines
-with the real `heuristic_choose_for_request(request, state=..., accuracy_mode=False/True, ...)`
-calls (or whatever the real helper is named) using their established board/field-variant
-construction. Do not leave a placeholder in the committed version — this is flagged explicitly so
-the review step catches it if it's missed.
-
-- [ ] **Step 4: Replace placeholders with real calls, then run the test**
+- [ ] **Step 4: Run the tests**
 
 Run: `cd showdown_bot && python -m pytest tests/eval/test_accuracy_gate_a.py -v`
-Expected: PASS, with `off_chosen_action`/`on_chosen_action` real `/choose`-shaped strings, not the
-literal string `"PLACEHOLDER"` — assert this explicitly if the test above doesn't already catch it.
+Expected: PASS (2 passed), with real `/choose`-shaped `off_chosen_action`/`on_chosen_action`
+strings (e.g. `"move 1, move 2"`), zero exceptions.
 
-- [ ] **Step 5: Run Gate A for real across the smoke board(s) and produce a report**
+- [ ] **Step 5: Run Gate A for real across both boards and produce a report**
 
 ```bash
 cd showdown_bot && python -c "
 from showdown_bot.eval.accuracy_gate_a import run_gate_a
-result = run_gate_a(boards=['smoke'])
+result = run_gate_a()
 print(f'diffs: {result.diff_count}/{len(result.rows)}, exceptions: {result.exception_count}')
+for row in result.rows:
+    print(row.board, row.field_variant, row.off_chosen_action, '->', row.on_chosen_action, row.action_changed)
 "
 ```
 
-Expected: `exceptions: 0/...` (spec §4's "no exceptions" acceptance rule). Write the row-level
-output to `data/eval/accuracy-gate/gate-a-report.json` (reuse this project's established JSON
-report-writing convention from `eval/decision_diff_report.py`).
+Expected: `exceptions: 0/14` (2 boards × 7 field variants; spec §4's "no exceptions" acceptance
+rule). Write the row-level output to `data/eval/accuracy-gate/gate-a-report.json` (reuse this
+project's established JSON report-writing convention from `eval/decision_diff_report.py`).
 
 - [ ] **Step 6: Commit**
 
@@ -2142,36 +2449,166 @@ git commit -m "feat(eval): Gate A smoke-test sweep script"
 - Create: `showdown_bot/tests/eval/test_accuracy_gate_b.py`
 
 Implements spec §1's Gate B, §4's acceptance rules, §5's per-diff capture schema, §6's "full
-deduplicated corpus only, INCONCLUSIVE/BLOCKED FOR COMPUTE if infeasible" policy.
+deduplicated corpus only, INCONCLUSIVE/BLOCKED FOR COMPUTE if infeasible" policy. **This is the
+core of the whole study — no placeholders, every rule below is real, executable code, verified
+against the real API this session.**
+
+Real API facts this task is built on (verified, not assumed):
+
+- `heuristic_choose_for_request(req, *, state, book, our_side, calc, oracle, speed_oracle, dex,
+  trace=None, ...) -> str` (`battle/decision.py:750-800`) accepts `trace=` directly and forwards it
+  through to the trace-population code (Task 6's wiring). Accuracy on/off is controlled **only**
+  via the `SHOWDOWN_ACCURACY_MODE` environment variable — there is no `accuracy_mode` kwarg.
+- `CandidateTrace.accuracy_details: list[AccuracyResponseDetail]` (Task 6) already carries, per
+  scored opponent response, a `accuracy_branch_cap_hits: int` that is **already tie-order-summed**
+  (Task 6's `_breakdowns_for` wiring reads `LineEvaluation.fallback_leaves`, which Task 5's
+  tie-merge already combines across both evaluated orderings). This means spec §4's "any
+  response, any tie order" cap-hit rule collapses to a single flat check:
+  `any(d.accuracy_branch_cap_hits >= 1 for d in candidate.accuracy_details)` — no separate nested
+  tie-order loop needed at this layer.
+- `eval/decision_capture.py`'s `normalize_choose(choose: str, request: BattleRequest) -> dict`
+  turns a raw `/choose ...` string into the exact `{"kind": "joint", "slots": [...]}` shape
+  `eval/decision_diff.py`'s `classify_action_diff(baseline: dict, candidate: dict, ...)` already
+  consumes (its own taxonomy: `FALLBACK > TERA > SWITCH > PROTECT > ATTACK_MOVE > ATTACK_TARGET >
+  OTHER_ACTION`, plus a `tera_changed` marker) — this task reuses both directly rather than
+  reimplementing diff classification.
+- `_label_ja`-derived `candidate_id` values are stable across `SHOWDOWN_ACCURACY_MODE` (confirmed
+  in the spec's own investigation — `_label_ja` is a pure function of `req`+`ja`, and legal-action
+  enumeration doesn't depend on accuracy scoring), so pairing off-run and on-run candidates by
+  `candidate_id` (not rank or list position) is valid.
 
 - [ ] **Step 1: Write the failing tests**
+
+These test the **exact rules** (any-response/any-tie-order cap-hit, candidate-ID pairing,
+entered/left-top-K, incomplete-event-list handling) against hand-built `DecisionTrace`/
+`CandidateTrace`/`AccuracyResponseDetail` objects — this is deliberately more rigorous than an
+end-to-end call for these specific rules, since constructing a real scripted battle that triggers
+a cap-hit in exactly one tie-order of exactly one response is fragile to script reliably, while the
+rule itself is pure data-shape logic that deserves precise, deterministic unit coverage. A lighter
+end-to-end integration test (Step 1b) proves the real wiring connects.
 
 ```python
 # showdown_bot/tests/eval/test_accuracy_gate_b.py
 from __future__ import annotations
 
-from showdown_bot.eval.accuracy_gate_b import GateBResult, run_gate_b
+from showdown_bot.battle.decision_trace import (
+    AccuracyEventTrace,
+    AccuracyResponseDetail,
+    AccuracyTieOrderTrace,
+    CandidateTrace,
+    DecisionTrace,
+)
+from showdown_bot.eval.accuracy_gate_b import (
+    GateBResult,
+    candidate_any_cap_hit,
+    candidate_events_complete,
+    pair_candidates_by_id,
+    run_gate_b,
+)
 
 
-def test_run_gate_b_on_a_tiny_synthetic_corpus_produces_diffs_and_verdict(tmp_path):
-    # Uses Task 1/2's synthetic-fixture machinery to avoid depending on real data/eval/ logs
-    # for this specific unit test -- the real-corpus run is Step 5 below, run separately.
+def _detail(*, cap_hits: int, complete: bool, tie_orders: list[AccuracyTieOrderTrace] | None = None) -> AccuracyResponseDetail:
+    return AccuracyResponseDetail(
+        accuracy_leaf_count=4, accuracy_event_count=1, accuracy_branch_cap_hits=cap_hits,
+        events_complete=complete, tie_orders=tie_orders or [], events=[],
+    )
+
+
+def _candidate(candidate_id: str, rank: int, score: float, details: list[AccuracyResponseDetail]) -> CandidateTrace:
+    return CandidateTrace(
+        candidate_id=candidate_id, joint_action=None, rank=rank, aggregate_score=score,
+        score_vector=[score] * len(details), outcome_breakdowns=[], aggregate_breakdown=None,
+        accuracy_details=details,
+    )
+
+
+def test_any_response_cap_hit_true_when_only_second_response_capped():
+    # Response 0 clean, response 1 capped -- the OR rule must still flag the candidate.
+    c = _candidate("A", 0, 1.0, [_detail(cap_hits=0, complete=True), _detail(cap_hits=1, complete=False)])
+    assert candidate_any_cap_hit(c) is True
+    assert candidate_events_complete(c) is False  # NOT complete, because response 1 isn't
+
+
+def test_any_response_cap_hit_false_when_all_responses_clean():
+    c = _candidate("A", 0, 1.0, [_detail(cap_hits=0, complete=True), _detail(cap_hits=0, complete=True)])
+    assert candidate_any_cap_hit(c) is False
+    assert candidate_events_complete(c) is True
+
+
+def test_any_tie_order_cap_hit_is_already_folded_into_accuracy_branch_cap_hits():
+    # A response whose OWN accuracy_branch_cap_hits is 2 (summed across two tie orders, one of
+    # which capped) must still trip the any-response rule -- proving the "any tie order" case
+    # is already covered by reading accuracy_branch_cap_hits directly, per Task 6's wiring.
+    tie_orders = [
+        AccuracyTieOrderTrace(tie_order="ours_first", weight=0.5, accuracy_leaf_count=2,
+                                accuracy_branch_cap_hits=0, events_complete=True),
+        AccuracyTieOrderTrace(tie_order="ours_last", weight=0.5, accuracy_leaf_count=2,
+                                accuracy_branch_cap_hits=1, events_complete=False),
+    ]
+    detail = _detail(cap_hits=1, complete=False, tie_orders=tie_orders)  # summed: 0 + 1 = 1
+    c = _candidate("A", 0, 1.0, [detail])
+    assert candidate_any_cap_hit(c) is True
+    assert any(t.accuracy_branch_cap_hits >= 1 for t in c.accuracy_details[0].tie_orders)
+
+
+def test_pair_candidates_by_id_stable_across_reordering():
+    # accuracy_mode changing scores can reorder rank -- candidate_id pairing must not care.
+    off_trace = DecisionTrace(candidates=[
+        _candidate("A", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+        _candidate("B", 1, 3.0, [_detail(cap_hits=0, complete=True)]),
+    ])
+    on_trace = DecisionTrace(candidates=[
+        _candidate("B", 0, 6.0, [_detail(cap_hits=0, complete=True)]),  # B now ranks first
+        _candidate("A", 1, 4.0, [_detail(cap_hits=1, complete=False)]),
+    ])
+    paired, entered, left = pair_candidates_by_id(off_trace, on_trace)
+    assert set(paired) == {"A", "B"}
+    off_a, on_a = paired["A"]
+    assert off_a.rank == 0 and on_a.rank == 1  # correctly paired despite rank flip
+    assert entered == [] and left == []
+
+
+def test_pair_candidates_detects_entered_and_left_top_k():
+    off_trace = DecisionTrace(candidates=[
+        _candidate("A", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+        _candidate("C", 1, 1.0, [_detail(cap_hits=0, complete=True)]),  # drops out on-run
+    ])
+    on_trace = DecisionTrace(candidates=[
+        _candidate("A", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+        _candidate("D", 1, 4.5, [_detail(cap_hits=0, complete=True)]),  # newly enters top-K
+    ])
+    paired, entered, left = pair_candidates_by_id(off_trace, on_trace)
+    assert set(paired) == {"A"}
+    assert entered == ["D"]
+    assert left == ["C"]
+
+
+def test_incomplete_event_list_never_reported_as_fully_explained():
+    """Spec Sec.4: if events_complete is False, mechanically_explained must be False -- a
+    diff whose event list is known-partial must never claim a complete explanation."""
     from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
 
-    decisions = [
-        ExtractedDecision(
-            state=None, request=None, kind=RequestKind.MOVE, side="p1", turn=1,
-            request_hash=f"req{i}", log_prefix_hash=f"prefix{i}", _debug_prefix_line_count=1,
-        )
-        for i in range(6)
-    ]
-    battle_ids = {f"req{i}": f"game{i % 2}" for i in range(6)}  # 2 synthetic games, 3 decisions each
+    class _StubTraceRun:
+        """Minimal stand-in wired through a monkeypatched _decide_with_trace in the next test;
+        this test exercises the pure row-construction helper directly."""
 
-    result = run_gate_b(decisions=decisions, battle_id_for=lambda d: battle_ids[d.request_hash])
-    assert isinstance(result, GateBResult)
-    assert result.acceptance.no_exceptions is True
-    assert result.acceptance.off_path_byte_identical in (True, False)
-    assert 0 <= result.cap_hit_verdict_detail["point_estimate"] <= 1.0
+    from showdown_bot.eval.accuracy_gate_b import _diff_row_from_traces
+
+    off_trace = DecisionTrace(chosen_candidate_id="A", candidates=[
+        _candidate("A", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+        _candidate("B", 1, 4.0, [_detail(cap_hits=0, complete=True)]),
+    ])
+    on_trace = DecisionTrace(chosen_candidate_id="B", candidates=[
+        _candidate("B", 0, 6.0, [_detail(cap_hits=1, complete=False)]),  # capped, incomplete
+        _candidate("A", 1, 4.0, [_detail(cap_hits=0, complete=True)]),
+    ])
+    row = _diff_row_from_traces(
+        request_hash="req0", off_action="/choose move 1, move 1|rqid",
+        on_action="/choose move 2, move 1|rqid", off_trace=off_trace, on_trace=on_trace,
+        request=None,
+    )
+    assert row.events_complete is False
+    assert row.mechanically_explained is False
 
 
 def test_run_gate_b_reports_dropped_or_excluded_decisions_explicitly():
@@ -2183,14 +2620,41 @@ def test_run_gate_b_reports_dropped_or_excluded_decisions_explicitly():
             request_hash="tp0", log_prefix_hash="p0", _debug_prefix_line_count=1,
         ),
         ExtractedDecision(
-            state=None, request=None, kind=RequestKind.MOVE, side="p1", turn=1,
-            request_hash="m0", log_prefix_hash="p1", _debug_prefix_line_count=1,
+            state=None, request=None, kind=RequestKind.FORCE_SWITCH, side="p1", turn=3,
+            request_hash="fs0", log_prefix_hash="p1", _debug_prefix_line_count=1,
         ),
     ]
     result = run_gate_b(decisions=decisions, battle_id_for=lambda d: "game0")
     assert result.excluded_team_preview_count == 1
-    assert result.excluded_force_switch_count == 0
+    assert result.excluded_force_switch_count == 1
+    assert result.n_decisions_compared == 0
+```
+
+- [ ] **Step 1b: Write a lighter end-to-end wiring test**
+
+```python
+# appended to showdown_bot/tests/eval/test_accuracy_gate_b.py
+def test_run_gate_b_end_to_end_on_the_conftest_fixture_board(decision_fixture, monkeypatch):
+    """Proves run_gate_b's real heuristic_choose_for_request(trace=...) wiring connects, using
+    this project's existing decision_fixture/fake-backend convention (same one
+    tests/test_accuracy_mode_wiring.py already uses) -- not a full real-calc integration run,
+    just a connectivity/shape proof."""
+    from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
+
+    req, kw = decision_fixture
+    decision = ExtractedDecision(
+        state=kw["state"], request=req, kind=RequestKind.MOVE, side="p1", turn=1,
+        request_hash="real0", log_prefix_hash="realprefix0", _debug_prefix_line_count=1,
+    )
+    result = run_gate_b(
+        decisions=[decision], battle_id_for=lambda d: "game0",
+        book=kw["book"], calc=kw["calc"], oracle_factory=lambda: kw["oracle"],
+        speed_oracle=kw["speed_oracle"], dex=kw["dex"],
+    )
     assert result.n_decisions_compared == 1
+    assert result.acceptance.no_exceptions is True
+    assert result.acceptance.exceptions == []
+    assert result.cap_hit_verdict is not None
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -2210,17 +2674,26 @@ sub-sample (spec Sec.6 item 6)."""
 
 from __future__ import annotations
 
+import copy
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from showdown_bot.battle.decision import heuristic_choose_for_request
+from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
 from showdown_bot.eval.accuracy_gate_stats import Verdict, verdict_for_cap_hit_rate
+from showdown_bot.eval.decision_capture import normalize_choose
+from showdown_bot.eval.decision_diff import classify_action_diff
 from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
 
 
 @dataclass(frozen=True)
 class AcceptanceSummary:
     no_exceptions: bool
-    off_path_byte_identical: bool
+    exceptions: list[tuple[str, str]]  # (request_hash, error message)
+    off_path_byte_identical: bool | None  # verified separately by Task 4/7's frozen-baseline
+    # diff, not recomputed here -- Gate B's own job is the off-vs-on comparison, not the
+    # unset-vs-explicit-off env-parser check.
     latency_within_budget: bool | None  # None if not measured in this run
 
 
@@ -2229,14 +2702,17 @@ class DecisionDiffRow:
     request_hash: str
     off_chosen_action: str
     on_chosen_action: str
-    off_score: float
-    on_score: float
+    off_score: float | None
+    on_score: float | None
     off_margin_to_runner_up: float | None
     on_margin_to_runner_up: float | None
     tera_changed: bool
-    action_diff_kind: str  # "none" | "move" | "target" | "switch" | "protect" | "other"
+    action_diff_kind: str  # classify_action_diff's taxonomy: FALLBACK/TERA/SWITCH/PROTECT/
+    # ATTACK_MOVE/ATTACK_TARGET/OTHER_ACTION
     events_complete: bool
-    mechanically_explained: bool
+    mechanically_explained: bool  # NEVER True when events_complete is False (spec Sec.4)
+    left_top_k: list[str]      # candidate_ids present off-run, absent on-run
+    entered_top_k: list[str]   # candidate_ids present on-run, absent off-run
 
 
 @dataclass
@@ -2250,10 +2726,109 @@ class GateBResult:
     cap_hit_verdict_detail: dict = field(default_factory=dict)
 
 
+def _by_rank(trace: DecisionTrace, rank: int) -> CandidateTrace | None:
+    """Spec Sec.5: select by rank FIELD, never list position -- candidates aren't guaranteed
+    sorted by construction alone (see decision_trace.py's own rank-sortedness test)."""
+    for c in trace.candidates:
+        if c.rank == rank:
+            return c
+    return None
+
+
+def _chosen_candidate(trace: DecisionTrace) -> CandidateTrace | None:
+    for c in trace.candidates:
+        if c.candidate_id == trace.chosen_candidate_id:
+            return c
+    return None
+
+
+def candidate_any_cap_hit(candidate: CandidateTrace) -> bool:
+    """Spec Sec.4's numerator rule: ANY of the candidate's scored opponent-response
+    accuracy_details has accuracy_branch_cap_hits >= 1. That field is already summed across
+    BOTH evaluated tie orderings when a response was scored under a genuine tie (Task 5/6's
+    wiring), so this single flat check already covers "any response, any tie order" -- no
+    separate nested tie-order loop is needed here."""
+    return any(d.accuracy_branch_cap_hits >= 1 for d in candidate.accuracy_details)
+
+
+def candidate_events_complete(candidate: CandidateTrace) -> bool:
+    """True only if EVERY scored response's event list is complete (no branch_cap truncation
+    anywhere for this candidate) -- False if any single response is incomplete."""
+    return all(d.events_complete for d in candidate.accuracy_details)
+
+
+def pair_candidates_by_id(
+    off_trace: DecisionTrace, on_trace: DecisionTrace,
+) -> tuple[dict[str, tuple[CandidateTrace, CandidateTrace]], list[str], list[str]]:
+    """Spec Sec.5: off-run and on-run candidates for the "same" nominal action are paired by
+    candidate_id, never by rank or list position -- accuracy_mode can reorder or reshuffle
+    top-K membership. Returns (paired_by_id, entered_top_k, left_top_k), both sorted lists."""
+    off_by_id = {c.candidate_id: c for c in off_trace.candidates}
+    on_by_id = {c.candidate_id: c for c in on_trace.candidates}
+    common = set(off_by_id) & set(on_by_id)
+    left_top_k = sorted(set(off_by_id) - set(on_by_id))
+    entered_top_k = sorted(set(on_by_id) - set(off_by_id))
+    paired = {cid: (off_by_id[cid], on_by_id[cid]) for cid in common}
+    return paired, entered_top_k, left_top_k
+
+
+def _diff_row_from_traces(
+    *, request_hash: str, off_action: str, on_action: str,
+    off_trace: DecisionTrace, on_trace: DecisionTrace, request,
+) -> DecisionDiffRow:
+    _paired, entered_top_k, left_top_k = pair_candidates_by_id(off_trace, on_trace)
+    off_top = _by_rank(off_trace, 0)
+    on_top = _by_rank(on_trace, 0)
+    off_runner_up = _by_rank(off_trace, 1)
+    on_runner_up = _by_rank(on_trace, 1)
+    on_chosen = _chosen_candidate(on_trace)
+    events_complete = candidate_events_complete(on_chosen) if on_chosen is not None else True
+
+    off_norm = normalize_choose(off_action.split("|", 1)[0].strip(), request) if request else {"kind": "joint", "slots": []}
+    on_norm = normalize_choose(on_action.split("|", 1)[0].strip(), request) if request else {"kind": "joint", "slots": []}
+    action_diff = classify_action_diff(off_norm, on_norm)
+
+    return DecisionDiffRow(
+        request_hash=request_hash, off_chosen_action=off_action, on_chosen_action=on_action,
+        off_score=off_top.aggregate_score if off_top else None,
+        on_score=on_top.aggregate_score if on_top else None,
+        off_margin_to_runner_up=(
+            off_top.aggregate_score - off_runner_up.aggregate_score
+            if off_top and off_runner_up else None
+        ),
+        on_margin_to_runner_up=(
+            on_top.aggregate_score - on_runner_up.aggregate_score
+            if on_top and on_runner_up else None
+        ),
+        tera_changed="tera_changed" in action_diff.markers,
+        action_diff_kind=action_diff.primary,
+        events_complete=events_complete,
+        mechanically_explained=events_complete,  # spec Sec.4: never claim a complete
+        # mechanical explanation when the underlying event list is known-partial
+        left_top_k=left_top_k, entered_top_k=entered_top_k,
+    )
+
+
+def _decide_with_trace(
+    decision: ExtractedDecision, *, accuracy_on: bool, book, calc, oracle_factory, speed_oracle, dex,
+) -> tuple[str, DecisionTrace]:
+    if accuracy_on:
+        os.environ["SHOWDOWN_ACCURACY_MODE"] = "1"
+    else:
+        os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
+    trace = DecisionTrace()
+    chosen = heuristic_choose_for_request(
+        decision.request, state=copy.deepcopy(decision.state), book=book, our_side=decision.side,
+        calc=calc, oracle=oracle_factory(), speed_oracle=speed_oracle, dex=dex, trace=trace,
+    )
+    return chosen, trace
+
+
 def run_gate_b(
     *,
     decisions: list[ExtractedDecision],
     battle_id_for: Callable[[ExtractedDecision], str],
+    book=None, calc=None, oracle_factory=None, speed_oracle=None, dex=None,
 ) -> GateBResult:
     move_decisions = [d for d in decisions if d.kind == RequestKind.MOVE]
     excluded_team_preview = sum(1 for d in decisions if d.kind == RequestKind.TEAM_PREVIEW)
@@ -2262,60 +2837,77 @@ def run_gate_b(
     diffs: list[DecisionDiffRow] = []
     per_decision_cap_hit: list[tuple[str, bool]] = []
     per_game_any_cap_hit: dict[str, bool] = {}
-    exceptions_occurred = False
-    off_path_identical = True
+    exceptions: list[tuple[str, str]] = []
 
-    for d in move_decisions:
-        game_id = battle_id_for(d)
-        per_game_any_cap_hit.setdefault(game_id, False)
-        # Implementer: wire the real off/on heuristic_choose_for_request(+trace) calls here,
-        # per spec Sec.2's CandidateTrace.accuracy_details wiring (Task 6) and Sec.4/5's exact
-        # rank-field/candidate_id-based comparison rules. This function's job is orchestration
-        # and acceptance-rule application, not re-deriving the decision pipeline call pattern --
-        # follow the same call shape Task 6's integration test already established.
-        cap_hit_this_decision = False  # replace with the real any-response-capped OR rule (Sec.4)
-        per_decision_cap_hit.append((game_id, cap_hit_this_decision))
-        if cap_hit_this_decision:
-            per_game_any_cap_hit[game_id] = True
+    try:
+        for d in move_decisions:
+            game_id = battle_id_for(d)
+            per_game_any_cap_hit.setdefault(game_id, False)
+            try:
+                off_action, off_trace = _decide_with_trace(
+                    d, accuracy_on=False, book=book, calc=calc,
+                    oracle_factory=oracle_factory, speed_oracle=speed_oracle, dex=dex,
+                )
+                on_action, on_trace = _decide_with_trace(
+                    d, accuracy_on=True, book=book, calc=calc,
+                    oracle_factory=oracle_factory, speed_oracle=speed_oracle, dex=dex,
+                )
+            except Exception as exc:  # noqa: BLE001
+                exceptions.append((d.request_hash, str(exc)))
+                continue
+
+            on_chosen = _chosen_candidate(on_trace)
+            cap_hit_this_decision = on_chosen is not None and candidate_any_cap_hit(on_chosen)
+            per_decision_cap_hit.append((game_id, cap_hit_this_decision))
+            if cap_hit_this_decision:
+                per_game_any_cap_hit[game_id] = True
+
+            if off_action != on_action:
+                diffs.append(_diff_row_from_traces(
+                    request_hash=d.request_hash, off_action=off_action, on_action=on_action,
+                    off_trace=off_trace, on_trace=on_trace, request=d.request,
+                ))
+    finally:
+        os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
 
     verdict, detail = verdict_for_cap_hit_rate(
         per_decision_cap_hit=per_decision_cap_hit,
         per_game_any_cap_hit=per_game_any_cap_hit,
-        n_decisions=len(move_decisions),
+        n_decisions=len(per_decision_cap_hit),
     )
 
     return GateBResult(
-        n_decisions_compared=len(move_decisions),
+        n_decisions_compared=len(per_decision_cap_hit),
         excluded_team_preview_count=excluded_team_preview,
         excluded_force_switch_count=excluded_force_switch,
         diffs=diffs,
         acceptance=AcceptanceSummary(
-            no_exceptions=not exceptions_occurred,
-            off_path_byte_identical=off_path_identical,
-            latency_within_budget=None,
+            no_exceptions=(len(exceptions) == 0), exceptions=exceptions,
+            off_path_byte_identical=None, latency_within_budget=None,
         ),
         cap_hit_verdict=verdict,
         cap_hit_verdict_detail=detail,
     )
 ```
 
-**Implementer note, same discipline as Task 9:** the `cap_hit_this_decision = False` placeholder
-and the diff-row construction (currently producing an empty `diffs` list) must be replaced with
-real `heuristic_choose_for_request`/`_evaluate_line_details`/`CandidateTrace.accuracy_details` calls
-before this task is done, following spec §4's exact any-response-OR cap-hit rule and §5's exact
-rank-field/`candidate_id`-based pairing rules verbatim — do not improvise a simpler rule. Flag this
-explicitly in code review; do not let a placeholder ship.
+`classify_action_diff`'s real signature (`eval/decision_diff.py:96-98`) is
+`classify_action_diff(baseline: dict, candidate: dict, *, baseline_stage=None,
+candidate_stage=None) -> ActionDiff`, returning `ActionDiff(primary: str, markers: tuple[str,
+...])` (`eval/decision_diff.py:79-81` — verified directly; note the field is `primary`, not
+`kind`, despite `DecisionDiffRow.action_diff_kind`'s own name). `normalize_choose` expects the raw
+`/choose ...` string (drop the trailing `|rqid` suffix `encode_choose` appends, as
+`_diff_row_from_traces` already does via `.split("|", 1)[0]`).
 
-- [ ] **Step 4: Replace placeholders, run tests**
+- [ ] **Step 4: Run tests**
 
 Run: `cd showdown_bot && python -m pytest tests/eval/test_accuracy_gate_b.py -v`
-Expected: PASS
+Expected: PASS (8 passed)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/accuracy_gate_b.py showdown_bot/tests/eval/test_accuracy_gate_b.py
-git commit -m "feat(eval): Gate B confirmatory-run orchestration + acceptance rules"
+git commit -m "feat(eval): Gate B confirmatory-run orchestration, real trace-based cap-hit/diff rules"
 ```
 
 ---
@@ -2340,12 +2932,12 @@ Record the extrapolated full-corpus runtime in the closeout report. If prohibiti
 Gate B run's outcome is `INCONCLUSIVE / BLOCKED FOR COMPUTE` per spec §6 item 6 — report that
 honestly rather than substituting a sample.
 
-- [ ] **Step 2: Run Gate A across the full smoke-board × field-variant matrix**
+- [ ] **Step 2: Run Gate A across both boards × all 7 field variants**
 
 ```bash
 cd showdown_bot && python -c "
 from showdown_bot.eval.accuracy_gate_a import run_gate_a
-result = run_gate_a(boards=['smoke', 'archetype1', 'archetype2'])
+result = run_gate_a()  # default: both boards (primary, single_target) x all 7 FIELD_VARIANTS
 print(result.diff_count, len(result.rows), result.exception_count)
 "
 ```
@@ -2357,25 +2949,38 @@ and explicitly labeled as a smoke test that "cannot license anything on its own"
 
 ```bash
 cd showdown_bot && python -c "
+import glob
+from pathlib import Path
 from showdown_bot.eval.room_raw_replay import deduplicate_battle_logs, extract_decisions_from_log
 from showdown_bot.eval.accuracy_gate_b import run_gate_b
-# real glob + dedup + extraction wiring, matching Task 4 Step 5's driver -- reuse it
+# Reuses Task 4 Step 5's real dedup wiring (correct manifest paths, verified G=85) and Task 2's
+# deduplicate_battle_logs directly -- glob the same 4 room_raw directories, join against
+# data/eval/t4/rerun/t4rerun-{run1,run2,prefix}.jsonl + data/eval/t6/t6-{run1,run2}.jsonl +
+# data/eval/kaggle-validation/results.jsonl, then extract_decisions_from_log(...) on every kept
+# file and pass the flattened decision list + a battle_id_for(d) closure (keyed off which kept
+# file d came from) into run_gate_b(..., book=..., calc=..., oracle_factory=..., speed_oracle=...,
+# dex=...) using the SAME real CalcClient/DamageOracle/SpeedOracle/SpeciesDex construction Task 9
+# established, not a fresh ad-hoc one.
 "
 ```
 
 Write `data/eval/accuracy-gate/gate-b-report.md`: numerator/denominator/rate, bootstrap or
 Clopper-Pearson detail (per which branch applied), the verdict (PASS/INCONCLUSIVE/FAIL), latency
-figures, every decision diff with its full per-diff capture schema (spec §5), and the dedup
-report's separate files-found/unique-battles/excluded-duplicates/final-G breakdown (spec §6 item
-5's required separate reporting — do not fold this into a single opaque number).
+figures, every decision diff with its full per-diff capture schema (spec §5, including
+`left_top_k`/`entered_top_k`/`events_complete`/`mechanically_explained` from Task 10's
+`DecisionDiffRow`), and the dedup report's separate files-found/unique-battles/
+excluded-duplicates/final-G breakdown (spec §6 item 5's required separate reporting — do not fold
+this into a single opaque number).
 
 - [ ] **Step 4: Write the closeout report**
 
 `reports/2026-07-13-accuracy-offline-gate-verdict.md` — summarize both gates' verdicts, restate
 explicitly that **no default-on decision, strength claim, or Depth-2 Stage 3 work follows from this
-report alone** (spec §1, §8), note the final deduplicated `G` and how it compares to the spec's
-provisional ~85 estimate, and flag the `AccuracyDiagnostics.accuracy_required` naming-bug follow-up
-as still open and untouched (spec §3, §8).
+report alone** (spec §1, §8), confirm the final deduplicated `G` equals the verified `85` (or, if
+it doesn't, explain precisely why the corpus changed and that every downstream number in the plan
+and spec was re-derived, not just this report), and flag the
+`AccuracyDiagnostics.accuracy_required` naming-bug follow-up as still open and untouched (spec §3,
+§8).
 
 - [ ] **Step 5: Run the full test suite as a final regression gate**
 
@@ -2403,8 +3008,8 @@ own separate, explicit next steps, not something this plan schedules.
 ## Self-Review
 
 **1. Spec coverage:**
-- §1 (Gate A/B split, provisional-G framing) → Task 9, 10, and the Task 2 integration test's
-  `[80, 90]` real-corpus assertion.
+- §1 (Gate A/B split, verified-G framing) → Task 9, 10, and the Task 2 integration test's exact
+  `report.final_g == 85` real-corpus assertion.
 - §2.1-2.3 (`LineEvaluation`/`_evaluate_line_details`, event-union fix, tie-averaging merge,
   determinism proof) → Task 5.
 - §2.4 (`CandidateTrace.accuracy_details` wiring) → Task 6.
@@ -2412,12 +3017,15 @@ own separate, explicit next steps, not something this plan schedules.
   4's closeout report; no task modifies `AccuracyDiagnostics`.
 - §4 (acceptance rules: byte-identical twice, cap-hit rate + bootstrap + zero-event Clopper-Pearson,
   latency, mechanically-plausible-cause + events_complete) → Task 4/7 (byte-identical twice), Task
-  8 (statistics), Task 10/11 (applied in the real run).
-- §5 (per-diff capture schema: rank-field lookup, candidate_id pairing, events_complete flagging) →
-  Task 10's `DecisionDiffRow` + its implementer-note requiring the exact rules from spec, not an
-  improvised simpler one.
+  8 (statistics), Task 10 (`candidate_any_cap_hit`/`candidate_events_complete`/
+  `mechanically_explained`, unit-tested directly against the exact any-response/any-tie-order rule),
+  Task 11 (applied in the real run).
+- §5 (per-diff capture schema: rank-field lookup via `_by_rank`, `candidate_id` pairing via
+  `pair_candidates_by_id` with dedicated entered/left-top-K tests, events_complete flagging) →
+  Task 10's `DecisionDiffRow`/`_diff_row_from_traces`, real code against the real
+  `heuristic_choose_for_request(trace=...)`/`DecisionTrace`/`CandidateTrace` API — no placeholder.
 - §6 items 1-4 (causality, reconnect dedup, hero side, request classification) → Task 1.
-- §6 item 5 (global dedup) → Task 2.
+- §6 item 5 (global dedup, corrected identity key and manifest sources) → Task 2.
 - §6 item 6 (full-corpus-only policy, INCONCLUSIVE/BLOCKED FOR COMPUTE, G>=59 fallback floor) →
   Task 4 Step 5, Task 10/11, Task 8's `minimum_g_for_zero_event_pass`.
 - §6 items 7-8 (manifest, game clustering) → Task 4 Step 5's dedup-report output, Task 8's
@@ -2430,16 +3038,30 @@ own separate, explicit next steps, not something this plan schedules.
   default-on/strength/Depth-2) → none of Tasks 1-11 touch any of these; Task 11 Step 4 states this
   explicitly in the closeout report.
 
-**2. Placeholder scan:** Two intentional, explicitly-flagged placeholders exist (Task 9 Step 3,
-Task 10 Step 3) for board/field-variant-construction and live decision-pipeline call wiring that
-depend on reading two files (`scratchpad/bench_accuracy_latency.py`, the Depth-2 Stage 2 script)
-and Task 6's own freshly-written integration pattern that don't exist as importable functions until
-those tasks run — both are called out with explicit "must be replaced before done, do not ship"
-implementer notes and dedicated follow-up steps that assert against the placeholder string, rather
-than being silently left in. This is a narrower, more defensible use of a placeholder than the
-skill's blanket prohibition anticipates (a genuine dependency on reading sibling files at
-implementation time, not a shortcut around writing real logic) — flagged for the executing
-agent/reviewer to treat as a hard gate, not skipped.
+**2. Placeholder scan (re-run after the round-7 correction that removed the two placeholders
+originally in Tasks 9 and 10):** grepping this plan for `PLACEHOLDER`, `TBD`, and semantically
+empty stand-ins (`pass  # TODO`, hardcoded `False`/`""` standing in for real logic) finds **zero**
+remaining instances. Both tasks that previously carried an explicit "must be replaced before done"
+placeholder are now fully concrete:
+- Task 9 (Gate A) builds its 7 `FieldState` variants directly against the real dataclass, reuses
+  `bench_accuracy_latency.py`'s real board verbatim, and adds one additional real hand-built board
+  — no team-file loader was invented or stubbed; the "1-2 panel archetypes" spec wording is
+  explicitly and honestly reinterpreted (stated inline in Task 9, not silently) given no
+  team-file-to-`BattleState` loader exists for offline direct calls.
+- Task 10 (Gate B) computes the cap-hit rule, candidate pairing, and diff classification against
+  the real `CandidateTrace.accuracy_details`/`DecisionTrace`/`heuristic_choose_for_request(
+  trace=...)` API, reusing `eval/decision_capture.py`'s `normalize_choose` and
+  `eval/decision_diff.py`'s `classify_action_diff` rather than reimplementing diff logic. Every
+  rule the user's review specifically named (any-response/any-tie-order cap-hit, candidate-ID
+  pairing stable across rank reordering, entered/left-top-K, incomplete-event-list handling) has
+  its own dedicated unit test against hand-built trace objects (Task 10 Step 1), plus one lighter
+  end-to-end wiring test (Step 1b) using this project's existing `decision_fixture` fake-backend
+  convention.
+- **Executing agent/reviewer: re-run this exact scan** (`grep -riE "PLACEHOLDER|\bTBD\b"` across
+  every file this plan creates) as part of Task 10's own code-quality review before marking it
+  complete — this is a standing requirement for this specific plan, not a one-time check done
+  while writing it, since a subagent re-implementing these tasks from the plan's prose could
+  reintroduce a stub without noticing.
 
 **3. Type consistency:** `AccuracyEventDetail`/`TieOrderEvaluation`/`LineEvaluation` (Task 5,
 `evaluate.py`) and `AccuracyEventTrace`/`AccuracyTieOrderTrace`/`AccuracyResponseDetail` (Task 6,
@@ -2450,8 +3072,24 @@ Task 5's construction code and Task 6's `_breakdowns_for` consumption code (same
 `tie_order`, `weight`, `accuracy_leaf_count`, `accuracy_branch_cap_hits`, `events_complete`).
 `ExtractedDecision` (Task 1) is consumed identically by Task 4 (`freeze_baseline`), Task 9/10 (Gate
 A/B orchestration) — same field names (`request_hash`, `log_prefix_hash`, `side`, `turn`, `kind`,
-`state`, `request`) throughout. `DedupReport`/`ScheduleIdentity` (Task 2) are consumed by Task 4
-Step 5's driver script with matching field names (`kept`, `excluded`, `final_g`).
+`state`, `request`) throughout. `DedupReport`/`SeedIdentity` (Task 2, renamed from the first
+draft's `ScheduleIdentity` to reflect the corrected `(seed_base, seed_index)`-only key) are
+consumed by Task 4 Step 5's driver script with matching field names (`kept`, `excluded`,
+`final_g`). `Task 10`'s `candidate_any_cap_hit`/`candidate_events_complete`/
+`pair_candidates_by_id` are pure functions over `CandidateTrace`/`DecisionTrace` (Task 6's real
+types, not a parallel ad-hoc shape) — verified their field accesses
+(`c.accuracy_details[i].accuracy_branch_cap_hits`, `.events_complete`, `c.candidate_id`, `c.rank`)
+match Task 6's dataclass definitions exactly.
+
+**4. Round-7 correction summary** (for the reviewer's context — this plan went through one
+real-data-verification correction cycle after its first draft): the first draft's Task 2 joined
+`data/eval/t4/rerun/room_raw/{run1,run2,prefix}` against the wrong manifest files (0/112 t4 files
+matched) and used a `schedule_hash`-inclusive identity key that would have under-counted
+`prefix`/`kaggle-validation` as a third independent group (95 instead of the correct 85). Both are
+fixed in this version — see the plan's provenance-facts section for the exact verification
+performed. Tasks 9 and 10 also went from placeholder-driven drafts to fully real implementations
+against the actual `heuristic_choose_for_request`/`FieldState`/`DecisionTrace` APIs, verified this
+session rather than assumed from the spec's prose.
 
 Execution choice, per this project's established pattern for plans this size (the merged
 accuracy-hit-probability slice used subagent-driven-development with two-stage review per task,
@@ -2461,7 +3099,10 @@ extra scrutiny on the two highest-risk `battle/` tasks):
 code-quality review between tasks, matching exactly how the prior accuracy slice was executed this
 session. Given Tasks 5 and 6 touch the live decision pipeline (same risk class as that slice's Task
 4/5), and Task 2's dedup logic is similarly high-stakes for this plan's own statistical validity,
-recommend the same "two-stage review, no batching, extra scrutiny on the flagged tasks" discipline.
+recommend the same "two-stage review, no batching, extra scrutiny on the flagged tasks" discipline
+— with Task 2 specifically getting an additional provenance/dedup-focused review pass, and Task 9/10
+getting a review pass that checks their reported numbers against a real (even if small-scale) run,
+not just code inspection, per the user's explicit request this round.
 
 **2. Inline Execution** — batch execution in this session with checkpoints.
 
