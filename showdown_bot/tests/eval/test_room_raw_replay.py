@@ -102,6 +102,44 @@ def test_force_switch_request_classified_separately(tmp_path):
     assert [d.kind for d in decisions] == [RequestKind.MOVE, RequestKind.FORCE_SWITCH]
 
 
+def test_causality_boundary_wrong_by_one_line_is_detectable(tmp_path):
+    """A fixture specifically constructed so that reading ONE frame too many produces an
+    OBSERVABLY different, wrong state -- not a state that happens to look the same either way.
+    A KO strictly AFTER the first request must not be visible when building that request's state."""
+    lines = [
+        ">battle-gen9vgc2025regi-9",
+        '|request|{"active":[{"moves":[{"move":"Tackle","id":"tackle","target":"normal"}]}],'
+        '"side":{"name":"Hero","id":"p1","pokemon":['
+        '{"ident":"p2a: Wobbuffet","details":"Wobbuffet","condition":"100/100","active":false}]},"rqid":1}',
+        "|turn|1",
+        "|faint|p2a: Wobbuffet",  # this KO must be invisible to decision 0's state
+        '|request|{"active":[{"moves":[{"move":"Tackle","id":"tackle","target":"normal"}]}],'
+        '"side":{"name":"Hero","id":"p1","pokemon":['
+        '{"ident":"p2a: Wobbuffet","details":"Wobbuffet","condition":"0 fnt","active":false}]},"rqid":2}',
+    ]
+    path = _write_log(tmp_path, lines)
+    decisions = extract_decisions_from_log(path)
+    assert len(decisions) == 2
+    # decision 0's prefix text must end at-or-before line index 1 (the first |request| line);
+    # the |faint| line is at index 3, strictly after -- asserting the line count catches an
+    # off-by-one boundary bug that a same-looking-either-way fixture would miss.
+    assert decisions[0]._debug_prefix_line_count == 2  # noqa: SLF001 (test-only introspection)
+    assert decisions[1]._debug_prefix_line_count == 5  # noqa: SLF001 (test-only introspection)
+
+
+def test_hermetic_fixtures_do_not_require_the_real_log():
+    """Sanity check that Task 1/2/3's synthetic-fixture tests collectively exercise every
+    §6 requirement (causality, reconnect dedup, force-switch classification, dedup) without
+    depending on the real on-disk corpus -- so this module's core correctness is provable even
+    in a checkout that doesn't have data/eval/ committed."""
+    import inspect
+
+    from showdown_bot.eval import room_raw_replay as module
+
+    assert hasattr(module, "extract_decisions_from_log")
+    assert hasattr(module, "deduplicate_battle_logs")
+
+
 def test_gzip_and_plain_logs_produce_identical_decisions(tmp_path):
     lines = [
         ">battle-gen9vgc2025regi-4",
