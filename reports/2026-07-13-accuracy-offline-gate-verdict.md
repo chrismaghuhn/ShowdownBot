@@ -120,6 +120,21 @@ Full results in `data/eval/accuracy-gate/gate-b-report.json` /
 - **exception_count: 63** (63/944 = 6.7% of MOVE decisions)
 - **n_decisions_compared: 881** (= 944 − 63, exact)
 
+**Third acceptance-rule component ("no invalid actions", spec §4) — explicitly re-accepted as an
+open, low-risk gap, not silently dropped:** `AcceptanceSummary` (`eval/accuracy_gate_b.py`, Task
+10) implements `no_exceptions` and `no_nans` directly, but validates action well-formedness (via
+`normalize_choose`) only for decisions where `off_action != on_action` — a non-diverging
+decision's chosen action string is never independently checked here. This is a known gap, flagged
+in `AcceptanceSummary`'s own docstring at Task 10 for Task 11 to close or re-accept. Re-accepting
+it here rather than closing it: every replayed action originates from the same live
+`heuristic_choose_for_request` chooser that produces the real bot's actual `/choose` strings on
+the live server — there is no code path in this offline replay that could construct a
+syntactically invalid action independently of what the live bot would itself send, so an
+"invalid action" is not a realistically reachable failure mode for this specific replay, unlike
+`no_exceptions`/`no_nans`, which guard against genuinely reachable failure modes (the
+candidate-id-ambiguity `RuntimeError`s above, and float arithmetic producing NaN). This does not
+change the FAIL verdict.
+
 **Every one of the 63 exceptions is the exact, already-documented, already-expected
 `RuntimeError`** from `_chosen_candidate` (`eval/accuracy_gate_b.py`) on an ambiguous
 `candidate_id`: `decision.py`'s `_label_ja` renders every non-move slot action as the bare string
