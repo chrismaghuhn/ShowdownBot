@@ -19,7 +19,9 @@ from showdown_bot.eval.room_raw_replay import ExtractedDecision
 def canonical_float(value: float, *, ndigits: int = 10) -> str:
     """Fixed serialization so a harmless formatting/precision difference can never be
     misread as a scoring regression when diffing against this frozen baseline."""
-    return f"{round(value, ndigits):.{ndigits}f}"
+    # `+ 0.0` normalizes -0.0 -> 0.0 before formatting; without it round(-0.0, n) stays -0.0 and
+    # formats as "-0.000..." even though -0.0 == 0.0, which would misread as a spurious diff.
+    return f"{round(value, ndigits) + 0.0:.{ndigits}f}"
 
 
 @dataclass(frozen=True)

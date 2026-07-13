@@ -10,6 +10,7 @@ def test_canonical_float_representation_is_stable():
     assert canonical_float(1.0) == canonical_float(1.00000000)
     assert canonical_float(0.1 + 0.2) == canonical_float(0.3)  # rounds away fp noise
     assert isinstance(canonical_float(1.5), str)
+    assert canonical_float(-0.0) == canonical_float(0.0)  # -0.0 == 0.0; must not look like a diff
 
 
 def test_freeze_baseline_produces_one_row_per_decision(tmp_path, monkeypatch):
