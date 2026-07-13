@@ -405,7 +405,11 @@ def resolve_turn_branches(
             if attacker_mon is None or target_mon is None:
                 continue
             p = hit_probability(attacker_action.move, attacker_mon, target_mon, field)
-            if p is not None and 0.0 < p < 1.0:
+            # p == 1.0 needs no branching (resolve_turn already defaults unforced pairs to a
+            # hit). p == 0.0 DOES need branching -- it's a guaranteed miss, and without forking
+            # it here it would never enter any miss_set, silently defaulting to a hit instead.
+            # hit_probability guarantees p >= 0.0, so no lower-bound check is needed (or correct).
+            if p is not None and p < 1.0:
                 pending.append((pair, p))
         if not pending:
             return [(weight, out)]
@@ -413,6 +417,10 @@ def resolve_turn_branches(
             fallback_leaves += 1
             return [(weight, out)]
         pair, p = pending[0]  # deterministic: first attempted-hit order
+        # decided_hit is bookkeeping-only: it is never passed to resolve_turn's forced_miss
+        # (only miss_set is). A pair moves into decided_hit purely so this loop stops treating
+        # it as still-pending; resolve_turn's own default (anything not in forced_miss hits)
+        # is what actually makes the hit-branch's outcome resolve that pair as a hit.
         hit_leaves = expand(miss_set, decided_hit | {pair}, weight * p, on_hit_path)
         miss_leaves = expand(miss_set | {pair}, decided_hit, weight * (1.0 - p), False)
         if on_hit_path:

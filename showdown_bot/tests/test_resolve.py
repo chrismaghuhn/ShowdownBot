@@ -481,6 +481,81 @@ def test_resolve_turn_branches_two_independent_events_four_leaves():
                        [0.6 * 0.4, 0.6 * 0.6, 0.4 * 0.4, 0.4 * 0.6])
     assert weights == expected
 
+    # fork_records for the two-fork case: the inner fork (discovered second, on the (p1,b)
+    # event, while still on the all-hit path) is appended first (post-order -- its recursive
+    # call completes before the outer fork's own append runs); the outer fork (the (p1,a)
+    # event, forked first at the root) is appended last. Values verified via a direct run of
+    # resolve_turn_branches with this exact scenario, not hand-derived.
+    assert len(fork_records) == 2
+    inner_pair, inner_subtree = fork_records[0]
+    outer_pair, outer_subtree = fork_records[1]
+    assert inner_pair == (("p1", "b"), ("p2", "b"))
+    assert len(inner_subtree) == 1
+    assert abs(sum(w for w, _ in inner_subtree) - 0.36) < 1e-9
+    assert outer_pair == (("p1", "a"), ("p2", "a"))
+    assert len(outer_subtree) == 2
+    assert abs(sum(w for w, _ in outer_subtree) - 0.4) < 1e-9
+
+
+def test_resolve_turn_branches_zero_probability_event_forces_miss_not_default_hit():
+    """Regression test: hit_probability can return exactly 0.0 (e.g. very low base accuracy
+    stacked against max evasion). The pending filter must NOT exclude p==0.0 -- excluding it
+    would mean the pair never enters any miss_set, so it would silently default to a
+    guaranteed HIT (resolve_turn's default for anything not in forced_miss) instead of the
+    guaranteed MISS the probability actually demands."""
+    st = _state()
+    zero_acc = MoveMeta(id="zeroacc", name="ZeroAcc", accuracy=1, base_power=100,
+                         category="physical", target="normal")
+    atk = PlannedAction("p1", "a", "move", speed=100, move=zero_acc, target=("p2", "a"), is_ours=True)
+    tgt_mon = st.sides["p2"]["a"]
+    tgt_mon.boosts["evasion"] = 6  # pushes hit_probability to exactly 0.0 (verified separately)
+
+    def dmg(action, target):
+        return 0.5
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, [atk], dmg, our_side="p1", field=FieldState(), tie_break="ours_last", branch_cap=4,
+    )
+    assert fallback_leaves == 0
+    assert len(leaves) == 2  # forked: hit-branch (weight 0.0) + miss-branch (weight 1.0)
+    total = sum(w for w, _ in leaves)
+    assert abs(total - 1.0) < 1e-9
+    # No leaf with positive weight may show damage landing -- the event must be a guaranteed
+    # miss, not silently resolved as a guaranteed hit.
+    hit_weight = sum(w for w, out in leaves if out.hp_delta.get(("p2", "a"), 0.0) < 0.0)
+    assert abs(hit_weight) < 1e-9
+    miss_weight = sum(w for w, out in leaves if out.hp_delta.get(("p2", "a"), 0.0) == 0.0)
+    assert abs(miss_weight - 1.0) < 1e-9
+
+
+def test_resolve_turn_branches_cap_bounds_total_leaves():
+    """The single largest named risk for this function is exponential blowup on many
+    independent uncertain events. Lock in that branch_cap actually bounds len(leaves),
+    regardless of how many genuinely-independent uncertain events exist."""
+    st = BattleState()
+    st.sides["p2"]["a"] = PokemonState(species="Bag", hp=100, max_hp=100)
+    actions = []
+    for i in range(12):
+        st.sides["p1"][f"s{i}"] = PokemonState(species=f"Att{i}", hp=100, max_hp=100)
+        mv = MoveMeta(id=f"u{i}", name=f"U{i}", accuracy=50, base_power=10,
+                      category="physical", target="normal")
+        actions.append(
+            PlannedAction("p1", f"s{i}", "move", speed=100 - i, move=mv,
+                          target=("p2", "a"), is_ours=True)
+        )
+
+    def dmg(action, target):
+        return 0.01  # tiny, non-lethal even if all 12 land
+
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        st, actions, dmg, our_side="p1", field=FieldState(), tie_break="ours_last",
+        branch_cap=3,
+    )
+    assert len(leaves) <= 3
+    assert fallback_leaves >= 1  # 12 uncertain events can't fully resolve under cap=3
+    total = sum(w for w, _ in leaves)
+    assert abs(total - 1.0) < 1e-9
+
 
 def test_resolve_turn_branches_cap_produces_per_branch_fallback_not_whole_line():
     st = _doubles_state()
