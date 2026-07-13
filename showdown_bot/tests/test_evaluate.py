@@ -675,29 +675,38 @@ def _tie_scripted_state():
     """A genuine speed tie between p1a (an uncertain-accuracy move at an unrelated target) and
     p2a (a guaranteed-hit KO move aimed straight at p1a). Under ours_first, p1a acts before p2a
     can KO it, so p1a's own uncertain-accuracy event fires; under ours_last, p2a acts first and
-    KOs p1a before it ever gets a turn, so that event never appears at all."""
+    KOs p1a before it ever gets a turn, so that event never appears at all.
+
+    p1b/move_y is a THIRD action, outside the tied pair (distinct speed, unaffected by which of
+    p1a/p2a goes first), whose own uncertain-accuracy move fires identically under both
+    orderings -- this is the shared event the dedup fix needs: it must appear exactly ONCE in
+    the tie-merged accuracy_events, not once per evaluated ordering."""
     st = BattleState()
     st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p1"]["b"] = PokemonState(species="Grimmsnarl", hp=100, max_hp=100)
     st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
     st.sides["p2"]["b"] = PokemonState(species="Amoonguss", hp=100, max_hp=100)
     move_x = MoveMeta(id="movex", name="MoveX", accuracy=70, base_power=80,
                        category="physical", target="normal")
     ko_strike = MoveMeta(id="ko_strike", name="KOStrike", base_power=120,
                           category="physical", target="normal")
+    move_y = MoveMeta(id="movey", name="MoveY", accuracy=60, base_power=90,
+                       category="physical", target="normal")
     p1a = PlannedAction("p1", "a", "move", speed=100, move=move_x, target=("p2", "b"), is_ours=True)
+    p1b = PlannedAction("p1", "b", "move", speed=200, move=move_y, target=("p2", "a"), is_ours=True)
     p2a = PlannedAction("p2", "a", "move", speed=100, move=ko_strike, target=("p1", "a"), is_ours=False)
 
     def dmg(action, target):
         return 1.0 if action.move.id == "ko_strike" else 0.5
 
-    return st, [p1a], [p2a], dmg
+    return st, [p1a, p1b], [p2a], dmg
 
 
 def test_tie_averaging_preserves_asymmetric_cap_hit_and_event():
     """Round-4 fix regression: a genuine tie where ours_first's KO-before-act ordering makes an
     attacker act (attempting an accuracy event) before ours_last's ordering removes that same
     action via an earlier KO. The merged result must retain it even though ours_last alone
-    wouldn't have it."""
+    wouldn't have it -- checked as real set containment, not just a cardinality count."""
     state, my_actions, opp_actions, damage_fn = _tie_scripted_state()
     detail = _evaluate_line_details(
         state, my_actions, opp_actions, damage_fn,
@@ -708,14 +717,80 @@ def test_tie_averaging_preserves_asymmetric_cap_hit_and_event():
         our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
         _force_tie_break="ours_last",
     )
-    assert len(detail.accuracy_events) > len(ours_last_only.accuracy_events), (
-        "merged tie telemetry must be a strict superset of ours_last-alone for this fixture"
+    ours_first_only = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+        _force_tie_break="ours_first",
     )
+
+    def keys(events):
+        return {(e.attacker, e.target, e.move_id) for e in events}
+
+    merged_keys = keys(detail.accuracy_events)
+    ours_last_keys = keys(ours_last_only.accuracy_events)
+    ours_first_keys = keys(ours_first_only.accuracy_events)
+
+    assert ours_last_keys <= merged_keys, (
+        "every event ours_last alone discovers must survive the merge"
+    )
+    assert (("p1", "a"), ("p2", "b"), "movex") in merged_keys, (
+        "the ours_first-only event (p1a's move, never attempted under ours_last) must survive the merge"
+    )
+    assert (("p1", "a"), ("p2", "b"), "movex") not in ours_last_keys, (
+        "fixture sanity: this event must genuinely be absent from ours_last alone"
+    )
+    # ours_first alone already discovers everything ours_last does for this fixture (p1b's
+    # move_y fires under both orderings, p1a's move_x only under ours_first) -- so the merge
+    # should add nothing beyond ours_first_keys here; this is what makes the dedup assertion
+    # below meaningful rather than vacuous.
+    assert merged_keys == ours_first_keys
+
     assert detail.representative_outcome == ours_last_only.representative_outcome, (
         "representative_outcome must stay on the unchanged ours_last-only convention"
     )
     tie_orders = {t.tie_order for t in detail.tie_order_details}
     assert tie_orders == {"ours_first", "ours_last"}
+
+
+def test_tie_averaging_dedups_shared_event_across_orderings():
+    """Round-5 fix regression: p1b's move_y is uncertain and fires identically under BOTH
+    ours_first and ours_last (it's outside the tied pair, so tie-break doesn't affect whether it
+    executes). A naive concatenation of d_first.accuracy_events + d_last.accuracy_events would
+    list it twice -- once per evaluated ordering -- silently breaking the
+    len(accuracy_events) == distinct-event-count contract downstream callers (Task 6's
+    AccuracyResponseDetail.accuracy_event_count) rely on."""
+    state, my_actions, opp_actions, damage_fn = _tie_scripted_state()
+    detail = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+    )
+    ours_first_only = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+        _force_tie_break="ours_first",
+    )
+    ours_last_only = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+        _force_tie_break="ours_last",
+    )
+    shared_key = (("p1", "b"), ("p2", "a"), "movey")
+    # Sanity: the fixture must actually exercise a genuinely shared event under both orderings,
+    # otherwise this test would pass vacuously.
+    assert shared_key in {(e.attacker, e.target, e.move_id) for e in ours_first_only.accuracy_events}
+    assert shared_key in {(e.attacker, e.target, e.move_id) for e in ours_last_only.accuracy_events}
+
+    keys_list = [(e.attacker, e.target, e.move_id) for e in detail.accuracy_events]
+    assert keys_list.count(shared_key) == 1, (
+        "a genuinely tie-order-independent uncertain event must appear exactly once in the "
+        "merged accuracy_events, not once per evaluated tie ordering"
+    )
+    assert len(keys_list) == len(set(keys_list)), (
+        "no duplicate (attacker, target, move_id) keys anywhere in the merged accuracy_events"
+    )
+    # len(accuracy_events) must equal the distinct-event count exactly -- this is the contract
+    # Task 6's AccuracyResponseDetail.accuracy_event_count relies on.
+    assert len(detail.accuracy_events) == len(set(keys_list))
 
 
 def _capped_accuracy_state():

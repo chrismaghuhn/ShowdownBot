@@ -389,6 +389,14 @@ class TieOrderEvaluation:
 
 @dataclass
 class LineEvaluation:
+    """On a genuine tie, ``leaves``/``fork_records``/``representative_outcome`` reflect the
+    ``ours_last`` evaluation ONLY (the unchanged pre-refactor convention -- ``representative_
+    outcome.accuracy_branch_cap_hits`` is ours_last's own count, not merged). ``fallback_leaves``/
+    ``accuracy_events``/``tie_order_details`` are the tie-merged/tie-order-aware fields instead --
+    a future caller that needs a tie-merged view must use those three, not the representative
+    outcome.
+    """
+
     score: float
     representative_outcome: TurnOutcome
     leaves: list[tuple[float, TurnOutcome]] | None = None
@@ -410,6 +418,12 @@ def _accuracy_events_from_leaves(
     leaf normally cancels its own later action -- still surfaces here. See resolve_turn_branches'
     leaves[0]-only pitfall documented on that function."""
     actions_by_key = {a.key: a for a in actions}
+    # First-writer-wins by (attacker, target, move_id) is only value-correct because
+    # hit_probability is currently a pure function of the pre-turn `state`/`field` passed in
+    # here (no mid-turn-state-dependent accuracy modifier exists yet) -- every leaf would compute
+    # the identical probability for the same key regardless of which leaf discovers it first. A
+    # future accuracy modifier keyed on mid-turn state (e.g. a boost applied earlier in the same
+    # turn) would need this revisited.
     seen: dict[tuple[SlotId, SlotId, str], float] = {}
     for _weight, out in leaves:
         for ah in out.attempted_hits:
@@ -428,6 +442,24 @@ def _accuracy_events_from_leaves(
                 continue
             seen[key3] = p
     return [AccuracyEventDetail(a, t, m, p, tie_order) for (a, t, m), p in seen.items()]
+
+
+def _union_accuracy_events(
+    first: list[AccuracyEventDetail], last: list[AccuracyEventDetail],
+) -> list[AccuracyEventDetail]:
+    """True union by (attacker, target, move_id) across both evaluated tie orderings --
+    first-occurrence-wins (``first`` -- i.e. ``ours_first`` -- wins any overlap). Safe because
+    hit_probability is computed from the shared pre-turn state/field in
+    ``_accuracy_events_from_leaves``, so the value for a given key is identical regardless of
+    which tie ordering it was discovered under -- a plain concatenation here would double-count
+    any event uncertain under both orderings and break the ``len(accuracy_events)`` ==
+    distinct-event-count contract downstream callers rely on."""
+    seen: dict[tuple[SlotId, SlotId, str], AccuracyEventDetail] = {}
+    for e in first + last:
+        key3 = (e.attacker, e.target, e.move_id)
+        if key3 not in seen:
+            seen[key3] = e
+    return list(seen.values())
 
 
 def _evaluate_line_details(
@@ -490,7 +522,7 @@ def _evaluate_line_details(
             representative_outcome=d_last.representative_outcome,
             leaves=d_last.leaves, fork_records=d_last.fork_records,
             fallback_leaves=d_first.fallback_leaves + d_last.fallback_leaves,
-            accuracy_events=d_first.accuracy_events + d_last.accuracy_events,
+            accuracy_events=_union_accuracy_events(d_first.accuracy_events, d_last.accuracy_events),
             tie_order_details=[
                 TieOrderEvaluation(
                     tie_order="ours_first", weight=0.5,
