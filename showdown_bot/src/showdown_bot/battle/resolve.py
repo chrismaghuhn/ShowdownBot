@@ -3,7 +3,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
-from showdown_bot.engine.moves import MoveMeta, blocks_move, can_redirect, move_priority
+from showdown_bot.engine.moves import (
+    MoveMeta,
+    blocks_move,
+    can_redirect,
+    hit_probability,
+    move_priority,
+)
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 SPREAD_MULT = 0.75  # doubles damage reduction for spread moves
@@ -62,6 +68,20 @@ class RedirectedHit:
 
 
 @dataclass
+class AttemptedHit:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+
+
+@dataclass
+class MissedHit:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+
+
+@dataclass
 class SpeedEvent:
     side: str
     slot: str
@@ -79,6 +99,9 @@ class TurnOutcome:
     prevented_actions: list[PreventedAction] = field(default_factory=list)
     protected_hits: list[ProtectedHit] = field(default_factory=list)
     redirected_hits: list[RedirectedHit] = field(default_factory=list)
+    attempted_hits: list[AttemptedHit] = field(default_factory=list)
+    missed_hits: list[MissedHit] = field(default_factory=list)
+    accuracy_branch_cap_hits: int = 0
     speed_events: list[SpeedEvent] = field(default_factory=list)
     tera_used_by_me: bool = False
     tera_used_by_opp: bool = False
@@ -123,6 +146,7 @@ def resolve_turn(
     our_side: str = "p1",
     field: FieldState | None = None,
     tie_break: str = "ours_last",
+    forced_miss: frozenset[tuple[SlotId, SlotId]] = frozenset(),
 ) -> TurnOutcome:
     """Approximate one-ply tactical resolution (layers 2A + 2B).
 
@@ -136,6 +160,9 @@ def resolve_turn(
       filter), spread moves (x0.75 to every adjacent target), single-target
       failed-target retargeting, switch-before-move ordering.
     - Speed ties stay pessimistic (our mon acts last).
+    - forced_miss: an explicit (attacker, target) pair set that overrides the
+      hit into a miss (no damage/hit-effects), recorded in missed_hits; every
+      attempted hit is recorded in attempted_hits regardless.
     """
     field = field or state.field
     outcome = TurnOutcome()
@@ -177,6 +204,10 @@ def resolve_turn(
             return
         tgt_mon = state.sides.get(tgt_key[0], {}).get(tgt_key[1])
         if tgt_mon is None:
+            return
+        outcome.attempted_hits.append(AttemptedHit(attacker_key, tgt_key, move.id))
+        if (attacker_key, tgt_key) in forced_miss:
+            outcome.missed_hits.append(MissedHit(attacker_key, tgt_key, move.id))
             return
         act_for_dmg = (
             attacker_action
@@ -311,3 +342,91 @@ def resolve_turn(
         outcome.hp_delta[key] = cur_frac[key] - start_frac[key]
 
     return outcome
+
+
+ForkRecord = tuple[tuple[SlotId, SlotId], list[tuple[float, TurnOutcome]]]
+
+
+def resolve_turn_branches(
+    state: BattleState,
+    actions: list[PlannedAction],
+    damage_fn: DamageFn,
+    *,
+    our_side: str = "p1",
+    field: FieldState | None = None,
+    tie_break: str = "ours_last",
+    branch_cap: int = 4,
+) -> tuple[list[tuple[float, TurnOutcome]], int, list[ForkRecord]]:
+    """Recursively fork ``resolve_turn`` on genuinely uncertain accuracy events, re-discovering
+    newly-revealed events after every partial resolve (spec Sec.5).
+
+    A fixed, one-shot "discover events from a single all-hit resolve_turn call" list is WRONG
+    whenever a hit/miss outcome changes who gets to act at all (KO-before-act) or who gets
+    targeted (redirection): an action that never reaches ``apply_hit`` in one branch's resolve
+    is invisible to a list built from that branch alone, so a sibling branch that revives it
+    would otherwise be silently scored as if that action always hits.
+
+    Returns ``(leaves, fallback_leaves, fork_records)``:
+
+    - ``leaves``: a probability-weighted list of ``(weight, TurnOutcome)`` pairs whose weights
+      sum to 1.0 exactly; ``leaves[0]`` is always the fully-resolved "everything hits" leaf
+      (hit-branches are explored before miss-branches, and recursion is depth-first).
+    - ``fallback_leaves``: how many recursion paths hit ``branch_cap`` before fully resolving --
+      each such leaf keeps its own remaining pending events implicitly hit (today's legacy
+      resolution), affecting only that specific subtree.
+    - ``fork_records``: for every fork point encountered ON THE PATH TO ``leaves[0]`` (i.e. while
+      every earlier decision along the way was the "hit" side), the ``(pair, miss_subtree)`` pair
+      where ``miss_subtree`` is that fork's own miss-sibling's full leaf list. This is exactly
+      the input a later ``miss_punish_value`` diagnostic (spec Sec.7) needs -- the tree structure
+      a flat leaf list alone cannot reconstruct after the fact.
+    """
+    actions_by_key = {a.key: a for a in actions}
+    calls = 0
+    fallback_leaves = 0
+    fork_records: list[ForkRecord] = []
+
+    def expand(miss_set, decided_hit, weight, on_hit_path):
+        nonlocal calls, fallback_leaves
+        calls += 1
+        out = resolve_turn(
+            state, actions, damage_fn, our_side=our_side, field=field,
+            tie_break=tie_break, forced_miss=miss_set,
+        )
+        decided = miss_set | decided_hit
+        pending: list[tuple[tuple[SlotId, SlotId], float]] = []
+        for ah in out.attempted_hits:
+            pair = (ah.attacker, ah.target)
+            if pair in decided:
+                continue
+            attacker_action = actions_by_key.get(ah.attacker)
+            if attacker_action is None or attacker_action.move is None:
+                continue
+            attacker_mon = state.sides.get(ah.attacker[0], {}).get(ah.attacker[1])
+            target_mon = state.sides.get(ah.target[0], {}).get(ah.target[1])
+            if attacker_mon is None or target_mon is None:
+                continue
+            p = hit_probability(attacker_action.move, attacker_mon, target_mon, field)
+            # p == 1.0 needs no branching (resolve_turn already defaults unforced pairs to a
+            # hit). p == 0.0 DOES need branching -- it's a guaranteed miss, and without forking
+            # it here it would never enter any miss_set, silently defaulting to a hit instead.
+            # hit_probability guarantees p >= 0.0, so no lower-bound check is needed (or correct).
+            if p is not None and p < 1.0:
+                pending.append((pair, p))
+        if not pending:
+            return [(weight, out)]
+        if calls >= branch_cap:
+            fallback_leaves += 1
+            return [(weight, out)]
+        pair, p = pending[0]  # deterministic: first attempted-hit order
+        # decided_hit is bookkeeping-only: it is never passed to resolve_turn's forced_miss
+        # (only miss_set is). A pair moves into decided_hit purely so this loop stops treating
+        # it as still-pending; resolve_turn's own default (anything not in forced_miss hits)
+        # is what actually makes the hit-branch's outcome resolve that pair as a hit.
+        hit_leaves = expand(miss_set, decided_hit | {pair}, weight * p, on_hit_path)
+        miss_leaves = expand(miss_set | {pair}, decided_hit, weight * (1.0 - p), False)
+        if on_hit_path:
+            fork_records.append((pair, miss_leaves))
+        return hit_leaves + miss_leaves
+
+    leaves = expand(frozenset(), frozenset(), 1.0, True)
+    return leaves, fallback_leaves, fork_records

@@ -16,7 +16,7 @@ from showdown_bot.battle.resolve import (
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.calc.models import DamageResult
 from showdown_bot.engine.format_config import load_format_config
-from showdown_bot.engine.moves import get_move_meta
+from showdown_bot.engine.moves import MoveMeta, get_move_meta
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 
@@ -391,3 +391,173 @@ def test_uncurated_opponent_stays_worstcase():
     base = DamageModel(st, "p1", "p2", book=book)
     real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
     assert real.hyps[("p2", "a")].as_defender().nature == base.hyps[("p2", "a")].as_defender().nature
+
+
+# --- accuracy_mode / accuracy_branch_cap (accuracy-slice Task 5) -----------------------
+
+def _doubles_state_for_eval():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
+    return st
+
+
+def test_evaluate_line_accuracy_mode_off_is_byte_identical_to_default():
+    st = _doubles_state_for_eval()
+    moon = get_move_meta("Moonblast")  # accuracy 100, still deterministic here
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.4
+
+    s_default, out_default = evaluate_line(st, [mine], [], dmg, our_side="p1")
+    s_explicit_off, out_explicit_off = evaluate_line(
+        st, [mine], [], dmg, our_side="p1", accuracy_mode=False,
+    )
+    assert s_default == s_explicit_off
+    assert out_default.hp_delta == out_explicit_off.hp_delta
+
+
+def test_evaluate_line_accuracy_mode_on_weights_hit_and_miss():
+    st = _doubles_state_for_eval()
+    risky = MoveMeta(id="risky", name="Risky", accuracy=70, base_power=100,
+                      category="physical", target="normal")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=risky, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.5
+
+    w = EvalWeights()
+    s_on, _out_on = evaluate_line(st, [mine], [], dmg, our_side="p1", accuracy_mode=True, weights=w)
+
+    # hand-computed: hit branch (p=0.7) deals 0.5 dmg dealt; miss branch (p=0.3) deals 0 dmg.
+    hit_score = w.dmg_dealt * 0.5
+    miss_score = 0.0
+    expected = 0.7 * hit_score + 0.3 * miss_score
+    assert abs(s_on - expected) < 1e-9
+
+
+def test_evaluate_line_tight_accuracy_branch_cap_increments_telemetry():
+    st = _doubles_state_for_eval()
+    st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
+    st.sides["p2"]["b"] = PokemonState(species="Amoonguss", hp=100, max_hp=100)
+    u1 = MoveMeta(id="u1", name="U1", accuracy=50, base_power=100, category="physical", target="normal")
+    u2 = MoveMeta(id="u2", name="U2", accuracy=50, base_power=100, category="physical", target="normal")
+    a1 = PlannedAction("p1", "a", "move", speed=150, move=u1, target=("p2", "a"), is_ours=True)
+    a2 = PlannedAction("p1", "b", "move", speed=140, move=u2, target=("p2", "b"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.1
+
+    _s, out_capped = evaluate_line(
+        st, [a1, a2], [], dmg, our_side="p1", accuracy_mode=True, accuracy_branch_cap=1,
+    )
+    assert out_capped.accuracy_branch_cap_hits >= 1
+
+
+# --- AccuracyDiagnostics / accuracy_diagnostics (accuracy-slice Task 6) ----------------
+
+from showdown_bot.battle.evaluate import AccuracyDiagnostics, accuracy_diagnostics
+from showdown_bot.battle.resolve import ForkRecord, TurnOutcome
+
+
+def _diag_state_full_hp():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Attacker", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Target", hp=100, max_hp=100)
+    return st
+
+
+def test_accuracy_diagnostics_ko_and_survival_probability():
+    target = ("p2", "a")
+    st = _diag_state_full_hp()
+    leaves = [
+        (0.7, TurnOutcome(opp_kos=1, hp_delta={target: -1.0})),
+        (0.3, TurnOutcome(opp_kos=0, hp_delta={target: 0.0})),
+    ]
+    diag = accuracy_diagnostics(leaves, targets=[target], state=st, actions=[], field=None)
+    assert isinstance(diag, AccuracyDiagnostics)
+    assert abs(diag.ko_probability[target] - 0.7) < 1e-9
+    assert abs(diag.survival_probability[target] - 0.3) < 1e-9
+
+
+def test_accuracy_diagnostics_single_leaf_is_certain():
+    target = ("p2", "a")
+    st = _diag_state_full_hp()
+    leaves = [(1.0, TurnOutcome(opp_kos=1, hp_delta={target: -1.0}))]
+    diag = accuracy_diagnostics(leaves, targets=[target], state=st, actions=[], field=None)
+    assert diag.ko_probability[target] == 1.0
+    assert diag.survival_probability[target] == 0.0
+
+
+def test_accuracy_diagnostics_ko_probability_uses_starting_hp_not_flat_minus_one():
+    """Regression test: a target at 30% starting HP is KO'd by hp_delta=-0.3, not -1.0. A
+    naive `hp_delta <= -1.0` check silently reports 0% KO probability for this real, already-
+    happened KO -- this is the exact bug an earlier draft had."""
+    target = ("p2", "a")
+    st = BattleState()
+    st.sides["p2"]["a"] = PokemonState(species="Weak", hp=30, max_hp=100)  # 30% HP
+    leaves = [(1.0, TurnOutcome(opp_kos=1, hp_delta={target: -0.3}))]
+    diag = accuracy_diagnostics(leaves, targets=[target], state=st, actions=[], field=None)
+    assert diag.ko_probability[target] == 1.0
+    assert diag.survival_probability[target] == 0.0
+
+
+def test_accuracy_diagnostics_ko_probability_not_triggered_by_partial_damage():
+    # Same starting HP as above, but damage this time leaves the target alive (10% HP left).
+    target = ("p2", "a")
+    st = BattleState()
+    st.sides["p2"]["a"] = PokemonState(species="Weak", hp=30, max_hp=100)  # 30% HP
+    leaves = [(1.0, TurnOutcome(hp_delta={target: -0.2}))]  # 30% -> 10%, survives
+    diag = accuracy_diagnostics(leaves, targets=[target], state=st, actions=[], field=None)
+    assert diag.ko_probability[target] == 0.0
+    assert diag.survival_probability[target] == 1.0
+
+
+def test_accuracy_diagnostics_accuracy_required_and_miss_punish_value():
+    from showdown_bot.battle.evaluate import EvalWeights
+    from showdown_bot.battle.resolve import AttemptedHit, PlannedAction
+    from showdown_bot.engine.moves import MoveMeta
+
+    st = _diag_state_full_hp()
+    risky = MoveMeta(id="risky", name="Risky", accuracy=70, base_power=100,
+                      category="physical", target="normal")
+    action = PlannedAction("p1", "a", "move", speed=100, move=risky, target=("p2", "a"), is_ours=True)
+    pair = (("p1", "a"), ("p2", "a"))
+    w = EvalWeights()
+
+    hit_out = TurnOutcome(hp_delta={("p2", "a"): -0.5}, attempted_hits=[AttemptedHit(*pair, "risky")])
+    miss_out = TurnOutcome(hp_delta={("p2", "a"): 0.0}, attempted_hits=[AttemptedHit(*pair, "risky")])
+    leaves = [(0.7, hit_out), (0.3, miss_out)]
+    fork_records: list[ForkRecord] = [(pair, [(0.3, miss_out)])]
+
+    diag = accuracy_diagnostics(
+        leaves, targets=[("p2", "a")], state=st, actions=[action], field=FieldState(),
+        fork_records=fork_records, weights=w, our_side="p1",
+    )
+    assert abs(diag.accuracy_required[pair] - 0.70) < 1e-9
+    # miss_punish_value = score(miss subtree) - score(leaves[0]) = (0 - w.dmg_dealt*0.5) < 0
+    expected = 0.0 - (w.dmg_dealt * 0.5)
+    assert abs(diag.miss_punish_value[pair] - expected) < 1e-9
+
+
+def test_accuracy_diagnostics_duplicate_targets_do_not_double_count():
+    """Regression test: a duplicate slot in `targets` (e.g. two of our attackers targeting the
+    same weakened opposing slot -- an ordinary Doubles pattern) must not double-count that
+    leaf's weight into ko_probability."""
+    target = ("p2", "a")
+    st = _diag_state_full_hp()
+    leaves = [
+        (0.7, TurnOutcome(hp_delta={target: -1.0})),
+        (0.3, TurnOutcome(hp_delta={target: 0.0})),
+    ]
+    diag = accuracy_diagnostics(leaves, targets=[target, target], state=st, actions=[], field=None)
+    assert abs(diag.ko_probability[target] - 0.7) < 1e-9
+    assert abs(diag.survival_probability[target] - 0.3) < 1e-9
+
+
+def test_accuracy_diagnostics_empty_leaves_raises_value_error():
+    import pytest
+
+    with pytest.raises(ValueError):
+        accuracy_diagnostics([], targets=[("p2", "a")], state=_diag_state_full_hp(), actions=[], field=None)

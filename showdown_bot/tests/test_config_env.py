@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import showdown_bot.eval.config_env as config_env
 from showdown_bot.eval.config_env import (
     BEHAVIOR_AFFECTING,
@@ -298,3 +300,81 @@ def test_search_depth_is_behavior_affecting_and_clamped(monkeypatch):
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "x"); assert _search_depth() == 1
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
     assert make_config_hash(_manifest(behavior_env({"SHOWDOWN_SEARCH_DEPTH": "2"}))) != base   # set -> hash changes
+
+
+# --- accuracy mode + branch cap (accuracy-slice) ----------------------------------------
+
+def test_accuracy_mode_is_behavior_affecting_and_classified():
+    assert "SHOWDOWN_ACCURACY_MODE" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_ACCURACY_MODE" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_ACCURACY_MODE")
+
+
+def test_accuracy_branch_cap_is_behavior_affecting_and_classified():
+    assert "SHOWDOWN_ACCURACY_BRANCH_CAP" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_ACCURACY_BRANCH_CAP" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_ACCURACY_BRANCH_CAP")
+
+
+def test_config_hash_changes_when_accuracy_mode_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_ACCURACY_MODE": "1"})))
+    assert h_off != h_on
+
+
+def test_config_hash_changes_when_accuracy_branch_cap_differs_with_mode_on():
+    h_cap4 = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_ACCURACY_MODE": "1", "SHOWDOWN_ACCURACY_BRANCH_CAP": "4"})))
+    h_cap8 = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_ACCURACY_MODE": "1", "SHOWDOWN_ACCURACY_BRANCH_CAP": "8"})))
+    assert h_cap4 != h_cap8
+
+
+# --- _accuracy_mode() explicit boolean parser -------------------------------------------
+# Regression coverage: bool(os.environ.get(...)) would treat the STRINGS "0" and "false" as
+# truthy. These six cases are the exact matrix that must hold for the off-path (which is
+# verified elsewhere by explicitly setting "0"/"false") to mean anything.
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    (None, False),      # unset
+    ("", False),
+    ("0", False),
+    ("false", False),
+    ("False", False),   # case-insensitive
+    ("1", True),
+    ("true", True),
+])
+def test_accuracy_mode_parser_matrix(monkeypatch, raw, expected):
+    from showdown_bot.battle.decision import _accuracy_mode
+
+    if raw is None:
+        monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+    else:
+        monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", raw)
+    assert _accuracy_mode() is expected
+
+
+# --- movedata_hash provenance (accuracy-slice Task 7) -----------------------------------
+
+def test_build_config_manifest_includes_movedata_hash_when_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s",
+        movedata_hash="mv1", env={},
+    )
+    assert m["movedata_hash"] == "mv1"
+
+
+def test_build_config_manifest_movedata_hash_absent_when_not_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s", env={},
+    )
+    assert "movedata_hash" not in m
+
+
+def test_config_hash_changes_when_movedata_hash_differs():
+    m1 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv1", env={})
+    m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv2", env={})
+    assert make_config_hash(m1) != make_config_hash(m2)

@@ -8,11 +8,17 @@ from pathlib import Path
 
 import yaml
 
-from showdown_bot.engine.state import FieldState
+from showdown_bot.engine.state import FieldState, PokemonState
 
 _CONFIG = Path(__file__).resolve().parents[3] / "config"
 _MOVEDATA = _CONFIG / "moves" / "movedata.json"
 _EFFECT_CLASSES = _CONFIG / "moves" / "effect_classes.yaml"
+
+
+def movedata_path() -> Path:
+    """Public accessor for the generated move-data file path, for provenance hashing
+    (config_hash) -- avoids reaching across modules for the private _MOVEDATA constant."""
+    return _MOVEDATA
 
 # Gen-9 terrain-priority moves (the one field @pkmn/dex does not expose as a
 # simple value). Grassy Glide gains +1 priority in Grassy Terrain.
@@ -48,6 +54,7 @@ class MoveMeta:
     category: str = "physical"  # physical | special | status
     target: str = "normal"
     base_power: int = 0
+    accuracy: int | None = None
     move_type: str | None = None
     flags: frozenset[str] = field(default_factory=frozenset)
     terrain_priority: str | None = None
@@ -82,6 +89,9 @@ class MoveMeta:
 
 
 def _meta_from_record(rec: dict) -> MoveMeta:
+    if "accuracy" not in rec:
+        raise KeyError(f"move record {rec.get('id', '<unknown>')} is missing 'accuracy' — "
+                        f"regenerate movedata.json (tools/gen/gen_movedata.mjs)")
     return MoveMeta(
         id=rec["id"],
         name=rec["name"],
@@ -89,6 +99,7 @@ def _meta_from_record(rec: dict) -> MoveMeta:
         category=(rec.get("category") or "Physical").lower(),
         target=rec.get("target") or "normal",
         base_power=int(rec.get("basePower") or 0),
+        accuracy=rec["accuracy"],
         move_type=rec.get("type"),
         flags=frozenset(rec.get("flags") or ()),
         terrain_priority=_TERRAIN_PRIORITY.get(rec["id"]),
@@ -157,6 +168,42 @@ def move_priority(meta: MoveMeta, field: FieldState | None = None) -> int:
         if meta.terrain_priority.lower() in field.terrain.lower():
             pr += 1
     return pr
+
+
+def hit_probability(
+    meta: MoveMeta, attacker: PokemonState, target: PokemonState, field: FieldState | None = None,
+) -> float | None:
+    """Probability this move connects. ``None`` means unconditionally guaranteed to hit
+    (no branching needed): either ``meta.accuracy is None`` (the normalized @pkmn/dex
+    always-hit sentinel) or a weather rule that bypasses the stage pipeline entirely
+    (Blizzard in Snow, Thunder/Hurricane in Rain).
+
+    v1 scope only: base accuracy, accuracy/evasion boost stages, and exactly the two weather
+    rules below -- verified against the pinned pokemon-showdown server commit
+    (config/eval/provenance.yaml), not assumed. Ability/item/field modifiers beyond these are
+    a documented v1.1 limitation (spec Sec.3), not silently ignored.
+    """
+    if meta.accuracy is None:
+        return None
+    weather = (field.weather or "").lower() if field is not None else ""
+    base = meta.accuracy
+    if meta.id in ("thunder", "hurricane"):
+        if "rain" in weather:
+            return None  # move.accuracy = true in PS -> stage pipeline bypassed entirely
+        if "sun" in weather:
+            base = 50  # move.accuracy = 50 in PS -> a NUMBER, still goes through stages below
+    elif meta.id == "blizzard" and "snow" in weather:
+        return None
+    acc_stage = max(-6, min(6, attacker.boosts.get("accuracy", 0)))
+    stage = max(-6, min(6, acc_stage - target.boosts.get("evasion", 0)))
+    if stage > 0:
+        raw = base * (3 + stage) / 3
+    elif stage < 0:
+        raw = base * 3 / (3 - stage)
+    else:
+        raw = base
+    p = int(raw) / 100.0  # sim/battle-actions.ts truncates the intermediate accuracy to an int
+    return max(0.0, min(1.0, p))
 
 
 def blocks_move(meta: MoveMeta, field: FieldState | None = None) -> bool:

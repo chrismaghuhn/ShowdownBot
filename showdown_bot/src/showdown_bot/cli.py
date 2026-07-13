@@ -133,6 +133,8 @@ def run_schedule(args) -> None:
         def _config_hash_for(agent, format_id):
             key = (agent, format_id)
             if key not in _cfg_hash_cache:
+                from showdown_bot.engine.moves import movedata_path
+
                 priors_hash = spreads_hash = None
                 try:
                     from showdown_bot.engine.format_config import load_format_config
@@ -142,10 +144,12 @@ def run_schedule(args) -> None:
                     spreads_hash = _file_content_hash(cfg.meta_path("default_spreads"))
                 except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
                     pass
+                movedata_hash = _file_content_hash(movedata_path())
                 manifest = build_config_manifest(
                     agent=agent, format_id=format_id,
                     priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
                     model_hash=_model_hash, model_manifest_hash=_model_manifest_hash,
+                    movedata_hash=movedata_hash,
                 )
                 _cfg_hash_cache[key] = make_config_hash(manifest)
             return _cfg_hash_cache[key]
