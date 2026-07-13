@@ -125,19 +125,48 @@ def test_causality_boundary_wrong_by_one_line_is_detectable(tmp_path):
     # off-by-one boundary bug that a same-looking-either-way fixture would miss.
     assert decisions[0]._debug_prefix_line_count == 2  # noqa: SLF001 (test-only introspection)
     assert decisions[1]._debug_prefix_line_count == 5  # noqa: SLF001 (test-only introspection)
+    # The line count is only a proxy for what actually matters: the built BattleState itself.
+    # Assert on the real state objects directly -- p2 never gets a |switch| line in this
+    # fixture, so decision 0 (built from a prefix that ends before the |faint| line) must see
+    # an untouched, empty p2 side, while decision 1 (built from a prefix that includes the
+    # |faint| line) must see p2's slot "a" synthesized and marked fainted.
+    assert decisions[0].state is not None
+    assert decisions[0].state.sides["p2"] == {}
+    assert decisions[1].state is not None
+    assert decisions[1].state.sides["p2"]["a"].fainted is True
 
 
-def test_hermetic_fixtures_do_not_require_the_real_log():
+def test_hermetic_fixtures_do_not_require_the_real_log(monkeypatch, tmp_path):
     """Sanity check that Task 1/2/3's synthetic-fixture tests collectively exercise every
     §6 requirement (causality, reconnect dedup, force-switch classification, dedup) without
     depending on the real on-disk corpus -- so this module's core correctness is provable even
-    in a checkout that doesn't have data/eval/ committed."""
-    import inspect
+    in a checkout that doesn't have data/eval/ committed.
 
-    from showdown_bot.eval import room_raw_replay as module
+    Proof, not just an import check: point this module's REAL_LOG constant (the same constant
+    the @pytest.mark.skipif guards above key off of) at a path that provably does not exist,
+    then directly re-invoke every hermetic (non-real-log) test function defined in this file
+    under that condition. None of those functions reference REAL_LOG in their bodies -- if they
+    all still pass with no real corpus reachable, that demonstrates their correctness claims
+    hold independent of data/eval/, which is the actual thing this test is supposed to prove.
+    """
+    import sys
 
-    assert hasattr(module, "extract_decisions_from_log")
-    assert hasattr(module, "deduplicate_battle_logs")
+    this_module = sys.modules[__name__]
+    fake_real_log = tmp_path / "no-such-corpus" / "unreachable.log.gz"
+    monkeypatch.setattr(this_module, "REAL_LOG", fake_real_log)
+    assert not this_module.REAL_LOG.exists()
+
+    hermetic_tests = [
+        test_causality_excludes_frames_after_the_request,
+        test_reconnect_duplicate_request_kept_once,
+        test_force_switch_request_classified_separately,
+        test_gzip_and_plain_logs_produce_identical_decisions,
+        test_causality_boundary_wrong_by_one_line_is_detectable,
+    ]
+    for i, test_fn in enumerate(hermetic_tests):
+        sub_dir = tmp_path / f"hermetic-{i}-{test_fn.__name__}"
+        sub_dir.mkdir()
+        test_fn(sub_dir)  # raises AssertionError (failing this test) if the claim doesn't hold
 
 
 def test_gzip_and_plain_logs_produce_identical_decisions(tmp_path):
