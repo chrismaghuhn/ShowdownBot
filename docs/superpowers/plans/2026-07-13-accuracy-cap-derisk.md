@@ -55,17 +55,24 @@ to this document).
   wrong on any off-path label collision — per spec §2.3, off-vs-cap score comparisons are **skipped**
   in this plan (Task 8), not attempted, given this verified lack of an ambiguity guarantee.
 - **Verified real provenance-computation pattern** (`scripts/run_accuracy_baseline_freeze.py`,
-  Step 6): `source_commit` via `subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)`;
-  `config_hash` via `make_config_hash(build_config_manifest(agent="heuristic", format_id=FORMAT_ID,
-  priors_hash=..., spreads_hash=..., env=behavior_env(), movedata_hash=...))` (both
-  `make_config_hash`/`build_config_manifest` imported from `showdown_bot.eval.result_jsonl` —
-  **re-verify their exact current signatures before use, this plan cites them from a prior read, not
-  a fresh one this task**); `python_version = sys.version`; `dependency_lock_hash` via sha256 of
+  Step 6, re-verified fresh this session against the actual current source): `source_commit` via
+  `subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)`; `config_hash` via
+  `make_config_hash(build_config_manifest(agent="heuristic", format_id=FORMAT_ID, priors_hash=...,
+  spreads_hash=..., env=behavior_env(), movedata_hash=...))`, where `behavior_env(environ=None) ->
+  dict[str, str]` and `build_config_manifest(*, agent, format_id, priors_hash, spreads_hash,
+  env=None, model_hash=None, model_manifest_hash=None, movedata_hash=None) -> dict` are both in
+  `showdown_bot.eval.config_env` (**not** `result_jsonl` — corrected after a fresh read; an earlier
+  draft of this plan cited the wrong module), while `make_config_hash(manifest: dict) -> str` is in
+  `showdown_bot.eval.result_jsonl`, and `movedata_path()` is in `showdown_bot.engine.moves`.
+  `behavior_env`'s `environ` param is directly injectable (defaults to live `os.environ` when
+  omitted) — Task 5 passes an explicitly-constructed dict rather than relying on live process env
+  state, so its `config_hash` is correct regardless of when in the script it's computed relative to
+  setting/popping `SHOWDOWN_ACCURACY_MODE`/`SHOWDOWN_ACCURACY_BRANCH_CAP`. Both of those vars are
+  confirmed present in `config_env.BEHAVIOR_AFFECTING` (i.e. already correctly included in
+  `config_hash` when set). `python_version = sys.version`; `dependency_lock_hash` via sha256 of
   `pyproject.toml` (this repo has no `requirements*.txt`/`poetry.lock`/`uv.lock` — `pyproject.toml`
   is the pinned-deps source of truth, confirmed by the original script's own comment). Task 4/5 below
-  reuse this exact pattern for their own provenance fields, capturing the environment AFTER setting
-  the relevant `SHOWDOWN_ACCURACY_MODE`/`SHOWDOWN_ACCURACY_BRANCH_CAP` for that specific run (not the
-  off-path env the original script captured), since `config_hash` should reflect what actually ran.
+  reuse this exact pattern for their own provenance fields.
 - `JointAction` (`battle/actions.py`) is `@dataclass(frozen=True)` with default (all-field) equality
   over `slot0, slot1: SlotAction`. `SlotAction` (`models/actions.py`): `kind, move_index, target,
   terastallize, target_ident`. **Verified: object/dataclass equality DOES discriminate different
@@ -772,8 +779,10 @@ decision's own real request (never a shared/default request).
 
 Writes data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl + a small provenance sidecar
 (decision-id-manifest-meta.json). The frozen baseline file itself is read-only and untouched.
-Refuses to overwrite an existing manifest (hard checkpoint, matches this project's established
-freeze-once convention) -- delete it explicitly first if a genuine rebuild is intended.
+Refuses to overwrite an existing manifest OR an existing meta sidecar (checked independently --
+either one present blocks the run) and writes both files ATOMICALLY (temp file + os.replace) only
+after all computation has succeeded, so a mid-run crash can never leave a half-written, blocking
+artifact behind -- delete both explicitly first if a genuine rebuild is intended.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/build_decision_id_manifest.py
 """
@@ -782,6 +791,7 @@ from __future__ import annotations
 
 import glob
 import json
+import os
 import subprocess
 import sys
 import time
@@ -802,11 +812,24 @@ EXPECTED_FINAL_G = 85
 EXPECTED_DECISION_COUNT = 944
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write content to path atomically: full write to a sibling temp file, then os.replace
+    (atomic on both POSIX and Windows) -- a crash mid-write leaves only an orphaned .tmp file,
+    never a half-written file at the real path that would trip the existence guard above on the
+    next run without ever having actually succeeded."""
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(content, encoding="utf-8", newline="\n")
+    os.replace(tmp_path, path)
+
+
 def main() -> None:
-    if OUT_PATH.exists():
+    existing = [p for p in (OUT_PATH, META_PATH) if p.exists()]
+    if existing:
         raise SystemExit(
-            f"BLOCKED: {OUT_PATH} already exists. This script does not silently overwrite an "
-            f"existing manifest -- delete it explicitly first if a genuine rebuild is intended."
+            f"BLOCKED: {[str(p) for p in existing]} already exist. This script does not "
+            f"silently overwrite an existing manifest or meta sidecar (checked independently, "
+            f"either one present blocks the run) -- delete both explicitly first if a genuine "
+            f"rebuild is intended."
         )
 
     from showdown_bot.eval.accuracy_cap_derisk import (
@@ -940,22 +963,32 @@ def main() -> None:
     print(f"frozen-baseline enrichment: {enriched}/{len(frozen_rows)} rows matched "
           f"exactly one decision_id (fail-closed on any other outcome, none occurred)")
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    with open(OUT_PATH, "w", encoding="utf-8", newline="\n") as fh:
-        for r in sorted(manifest_rows, key=lambda x: x["decision_id"]):
-            fh.write(json.dumps(r, sort_keys=True) + "\n")
-    print(f"wrote {OUT_PATH} ({len(manifest_rows)} rows)")
-
+    # --- all computation is done; get provenance, then write BOTH files atomically. Doing this
+    # write step LAST (rather than writing OUT_PATH first and only computing/writing META_PATH
+    # afterward, as an earlier draft of this script did) means a failure anywhere above -- or in
+    # source_commit's own subprocess call -- can never leave OUT_PATH present without META_PATH,
+    # a half-finished state that would trip the existence guard on every future run without this
+    # run ever having actually succeeded. ---
     try:
         source_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
         ).strip()
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"could not determine source_commit via git rev-parse HEAD: {exc}")
-    META_PATH.write_text(json.dumps({
+
+    manifest_content = "".join(
+        json.dumps(r, sort_keys=True) + "\n"
+        for r in sorted(manifest_rows, key=lambda x: x["decision_id"])
+    )
+    meta_content = json.dumps({
         "source_commit": source_commit, "python_version": sys.version,
         "row_count": len(manifest_rows), "generated_at_epoch": time.time(),
-    }, indent=2, sort_keys=True), encoding="utf-8")
+    }, indent=2, sort_keys=True)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(OUT_PATH, manifest_content)
+    print(f"wrote {OUT_PATH} ({len(manifest_rows)} rows)")
+    _atomic_write_text(META_PATH, meta_content)
     print(f"wrote {META_PATH}")
 
 
@@ -1048,6 +1081,21 @@ EXPECTED_FINAL_G = 85
 LABEL_TO_CAP = {"cap4_auxiliary": 4, "cap6": 6, "cap8": 8}
 
 
+def _file_content_hash(path) -> str | None:
+    """sha1[:16] of a file's bytes (mirrors run_accuracy_baseline_freeze.py's own local copy of
+    cli.py's private config-hash provenance helper)."""
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
+        return None
+
+
+def _atomic_write_text(path: Path, content: str) -> None:
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(content, encoding="utf-8", newline="\n")
+    os.replace(tmp_path, path)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cap", type=int, required=True, choices=[4, 6, 8])
@@ -1063,9 +1111,11 @@ def main() -> None:
 
     out_path = OUT_DIR / f"{args.label}-action-capture.jsonl"
     meta_path = OUT_DIR / f"{args.label}-action-capture-meta.json"
-    if out_path.exists():
+    existing = [p for p in (out_path, meta_path) if p.exists()]
+    if existing:
         raise SystemExit(
-            f"BLOCKED: {out_path} already exists. Refusing to silently overwrite -- delete it "
+            f"BLOCKED: {[str(p) for p in existing]} already exist (checked independently, "
+            f"either one present blocks the run). Refusing to silently overwrite -- delete both "
             f"explicitly first if a genuine re-run is intended."
         )
 
@@ -1082,10 +1132,13 @@ def main() -> None:
     from showdown_bot.engine.belief.hypotheses import load_spread_book
     from showdown_bot.engine.calc.client import CalcClient
     from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.moves import movedata_path
     from showdown_bot.engine.speed import SpeedOracle
     from showdown_bot.eval.accuracy_cap_derisk import (
         DecisionIdComponents, build_action_table_row, compute_decision_id,
     )
+    from showdown_bot.eval.config_env import behavior_env, build_config_manifest
+    from showdown_bot.eval.result_jsonl import make_config_hash
     from showdown_bot.eval.room_raw_replay import (
         RequestKind, deduplicate_battle_logs, extract_decisions_from_log,
     )
@@ -1146,8 +1199,6 @@ def main() -> None:
     print(f"cap={args.cap} action-capture complete in {elapsed:.1f}s "
           f"({(elapsed / len(all_decisions)) * 1000:.1f} ms/decision)")
 
-    os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
-    os.environ.pop("SHOWDOWN_ACCURACY_BRANCH_CAP", None)
     try:
         calc.close()
     except Exception:  # noqa: BLE001
@@ -1162,49 +1213,68 @@ def main() -> None:
             f"(counts: manifest={len(expected_decision_ids)} this_run={len(actual_decision_ids)})"
         )
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
-        for r in sorted(rows, key=lambda x: x.decision_id):
-            fh.write(json.dumps(asdict(r), sort_keys=True) + "\n")
-    print(f"wrote {out_path} ({len(rows)} rows)")
-
     status_counts: dict[str, int] = {}
     for r in rows:
         status_counts[r.candidate_resolution_status] = status_counts.get(r.candidate_resolution_status, 0) + 1
     print(f"candidate_resolution_status breakdown: {status_counts}")
 
-    # --- provenance sidecar: cap, label, source_commit, config-ish/dependency provenance,
-    # matching this project's established convention (scripts/run_accuracy_baseline_freeze.py) ---
+    # --- provenance: cap, label, source_commit, real config_hash, dependency provenance,
+    # matching this project's established convention (scripts/run_accuracy_baseline_freeze.py).
+    # config_hash is computed from an EXPLICITLY built env dict (SHOWDOWN_ACCURACY_MODE=1,
+    # SHOWDOWN_ACCURACY_BRANCH_CAP=<cap> forced onto a snapshot of the current process env) --
+    # NOT from behavior_env()'s no-arg default (which reads live os.environ at call time). This
+    # makes config_hash correct regardless of whether the two accuracy env vars are still set on
+    # the process at this point in the script; an earlier draft of this script computed
+    # provenance strictly AFTER popping them, which would have silently hashed the OFF-mode
+    # environment instead of the mode this run actually used. ---
     try:
         source_commit = subprocess.check_output(
             ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
         ).strip()
     except Exception as exc:  # noqa: BLE001
         raise SystemExit(f"could not determine source_commit via git rev-parse HEAD: {exc}")
+
+    explicit_env = dict(os.environ)
+    explicit_env["SHOWDOWN_ACCURACY_MODE"] = "1"
+    explicit_env["SHOWDOWN_ACCURACY_BRANCH_CAP"] = str(args.cap)
+    priors_hash = _file_content_hash(load_format_config(FORMAT_ID).meta_path("protect_priors"))
+    spreads_hash = _file_content_hash(load_format_config(FORMAT_ID).meta_path("default_spreads"))
+    movedata_hash = _file_content_hash(movedata_path())
+    manifest = build_config_manifest(
+        agent="heuristic", format_id=FORMAT_ID, priors_hash=priors_hash, spreads_hash=spreads_hash,
+        env=behavior_env(environ=explicit_env), movedata_hash=movedata_hash,
+    )
+    config_hash = make_config_hash(manifest)
     lock_file = SHOWDOWN_BOT_ROOT / "pyproject.toml"
     dependency_lock_hash = hashlib.sha256(lock_file.read_bytes()).hexdigest()
-    meta_path.write_text(json.dumps({
+
+    os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
+    os.environ.pop("SHOWDOWN_ACCURACY_BRANCH_CAP", None)
+
+    # --- all computation done; write BOTH files atomically now, last, so a failure anywhere
+    # above (including the provenance block) can never leave the main table present without its
+    # meta sidecar, or vice versa. ---
+    capture_content = "".join(
+        json.dumps(asdict(r), sort_keys=True) + "\n" for r in sorted(rows, key=lambda x: x.decision_id)
+    )
+    meta_content = json.dumps({
         "cap": args.cap, "label": args.label, "source_commit": source_commit,
-        "python_version": sys.version, "dependency_lock_hash": dependency_lock_hash,
+        "config_hash": config_hash, "python_version": sys.version,
+        "dependency_lock_hash": dependency_lock_hash,
         "row_count": len(rows), "elapsed_seconds": round(elapsed, 1),
         "candidate_resolution_status_counts": status_counts,
-    }, indent=2, sort_keys=True), encoding="utf-8")
-    print(f"wrote {meta_path}")
+    }, indent=2, sort_keys=True)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(out_path, capture_content)
+    print(f"wrote {out_path} ({len(rows)} rows)")
+    _atomic_write_text(meta_path, meta_content)
+    print(f"wrote {meta_path} (config_hash={config_hash})")
 
 
 if __name__ == "__main__":
     main()
 ```
-
-Note on `config_hash`: the original `run_accuracy_baseline_freeze.py` also computes a
-`config_hash` via `make_config_hash(build_config_manifest(...))` (see this plan's "Real API facts"
-section) capturing the *behavioral* config (priors/spreads/movedata hashes + env). This script
-deliberately omits it in the template above for brevity — **before implementing, verify
-`build_config_manifest`/`make_config_hash`/`behavior_env`'s real current signatures (import from
-`showdown_bot.eval.result_jsonl`) and add the same `config_hash` field**, captured AFTER setting
-`SHOWDOWN_ACCURACY_MODE=1`/`SHOWDOWN_ACCURACY_BRANCH_CAP=<cap>` (not before), so it reflects this
-specific run's actual behavioral configuration rather than the off-path config the original script
-captured.
 
 - [ ] **Step 2: Run for real, three times**
 
@@ -1256,6 +1326,20 @@ differs to `"/choose move 5"` — a different wrong action, yet still "differs f
 set-only check would wrongly call this a pass). Stage 1 now requires, for each of the 20, that the
 auxiliary run's raw action **exactly equals** the historical `on_chosen_action` value from
 `gate-b-report.json`'s `diffs`.
+
+**Correction: `manifest_by_request_hash` must be built fail-closed, not via a bare dict
+comprehension.** `gate-b-report.json`'s `diffs`/`acceptance.exceptions` are keyed by
+`request_hash` (they predate `decision_id`), so this script needs a `request_hash -> manifest row`
+lookup to translate them into `decision_id` space. A plain `{r["request_hash"]: r for r in
+manifest_rows}` comprehension would silently keep only the last row for a duplicated
+`request_hash` and drop the other, quietly breaking every downstream "decision_id-joined" claim
+this script makes -- with no error, no log line, nothing. This task adds a `build_request_hash_index`
+helper that asserts `len(index) == len(manifest_rows)` and raises `DuplicateRequestHashError`
+naming every colliding hash otherwise; `validate_cap4_auxiliary.py` uses it instead of the bare
+comprehension. (Task 7 of the accuracy-offline-gate plan found `request_hash` empirically unique
+across this corpus's 944 decisions, so this check is expected to pass every time it actually runs
+-- but the claim "decision_id-joined" is only true because it is now verified, not because it was
+never wrong in practice.)
 
 - [ ] **Step 1: Write the failing unit tests for the two-stage logic**
 
@@ -1329,6 +1413,31 @@ def test_stage2_smaller_normalized_set_than_raw_20_is_not_a_failure():
     # id1: genuinely different canonical action -> action_changed True; id2: same canonical -> False
     changed = {r.decision_id for r in result.rows if r.action_changed}
     assert changed == {"id1"}
+
+
+from showdown_bot.eval.accuracy_cap_derisk import DuplicateRequestHashError, build_request_hash_index
+
+
+def test_build_request_hash_index_passes_when_unique():
+    rows = [{"request_hash": "rh1", "decision_id": "id1"}, {"request_hash": "rh2", "decision_id": "id2"}]
+    index = build_request_hash_index(rows)
+    assert index["rh1"]["decision_id"] == "id1"
+    assert index["rh2"]["decision_id"] == "id2"
+
+
+def test_build_request_hash_index_raises_on_duplicate():
+    """The core correction: a bare {r['request_hash']: r for r in rows} dict comprehension would
+    silently keep only the LAST row for a duplicated request_hash and drop the other -- any
+    driver script translating gate-b-report.json's request_hash-keyed data into decision_id space
+    must use this fail-closed index instead, exactly matching len(index) == len(rows)."""
+    rows = [
+        {"request_hash": "rh1", "decision_id": "id1"},
+        {"request_hash": "rh1", "decision_id": "id2"},  # same request_hash, different decision
+        {"request_hash": "rh2", "decision_id": "id3"},
+    ]
+    with pytest.raises(DuplicateRequestHashError) as exc_info:
+        build_request_hash_index(rows)
+    assert "rh1" in str(exc_info.value)
 ```
 
 - [ ] **Step 2: Run to verify failure**
@@ -1418,6 +1527,35 @@ def run_stage2_semantic_diff(
         score_comparable=False,
         score_incompatible_reason="legacy_frozen_score not proven equivalent (see Task 4's verified finding)",
     )
+
+
+class DuplicateRequestHashError(Exception):
+    pass
+
+
+def build_request_hash_index(manifest_rows: list[dict]) -> dict[str, dict]:
+    """Fail-closed request_hash -> manifest-row index. This plan's actual join key is
+    decision_id (Sec.2.2) -- this helper exists ONLY to translate EXTERNAL request_hash-keyed
+    inputs (gate-b-report.json's diffs/acceptance.exceptions, which predate decision_id) into
+    decision_id space. A bare `{r["request_hash"]: r for r in manifest_rows}` dict comprehension
+    would silently keep only the last row for a duplicated request_hash and drop the other,
+    quietly breaking the "decision_id-joined" claim this plan makes throughout -- so this helper
+    asserts `len(index) == len(manifest_rows)` and names every colliding request_hash before
+    returning, rather than silently constructing a lossy index. Reused by Task 6's
+    validate_cap4_auxiliary.py and Task 11's run_ambiguous_candidate_diagnostic.py -- both driver
+    scripts that need to look up a manifest row by request_hash."""
+    index = {r["request_hash"]: r for r in manifest_rows}
+    if len(index) != len(manifest_rows):
+        counts: dict[str, int] = {}
+        for r in manifest_rows:
+            counts[r["request_hash"]] = counts.get(r["request_hash"], 0) + 1
+        dupes = {rh: n for rh, n in counts.items() if n > 1}
+        raise DuplicateRequestHashError(
+            f"{len(dupes)} duplicate request_hash value(s) across {len(manifest_rows)} manifest "
+            f"rows -- a bare request_hash-keyed dict would silently collapse these to one row, "
+            f"breaking decision_id-based joining: {dupes}"
+        )
+    return index
 ```
 
 ```python
@@ -1451,7 +1589,7 @@ def main() -> None:
         raise SystemExit(f"BLOCKED: {OUT_PATH} already exists -- delete it explicitly first if a genuine re-validation is intended.")
 
     from showdown_bot.eval.accuracy_cap_derisk import (
-        ActionTableRow, run_stage1_raw_reproduction, run_stage2_semantic_diff,
+        ActionTableRow, build_request_hash_index, run_stage1_raw_reproduction, run_stage2_semantic_diff,
     )
 
     gate_b = json.loads(GATE_B_REPORT.read_text(encoding="utf-8"))
@@ -1459,7 +1597,10 @@ def main() -> None:
     aux_rows_raw = [json.loads(l) for l in AUX_PATH.read_text(encoding="utf-8").splitlines() if l]
     aux_rows = [ActionTableRow(**r) for r in aux_rows_raw]
 
-    manifest_by_request_hash = {r["request_hash"]: r for r in manifest_rows}
+    # fail-closed request_hash -> manifest-row index (Task 6 correction): a bare dict
+    # comprehension here would silently collapse a duplicated request_hash to one row, breaking
+    # this script's decision_id-based joining claim without any visible error.
+    manifest_by_request_hash = build_request_hash_index(manifest_rows)
     excluded_request_hashes = {e["request_hash"] for e in gate_b["acceptance"]["exceptions"]}
     if len(excluded_request_hashes) != 63:
         raise SystemExit(f"BLOCKED: expected 63 historical exceptions, found {len(excluded_request_hashes)}")
@@ -1874,33 +2015,51 @@ git commit -m "feat(eval): real cross-cap/cross-mode action diffs via compare_ac
 - Create: `showdown_bot/scripts/run_cap_latency_sweep.py`
 
 Implements spec §2.6. Full 944-decision corpus, `cap4_auxiliary`/cap6/cap8, trace-none and
-trace-enabled measured separately, **both cap order AND trace-mode order rotated** (not fixed), the
-persistent calc backend enforced fail-closed (not `setdefault`), exceptions tracked per
-`(cap, trace_mode)` pair, and each series' measured-row count asserted against its own exact
-expected denominator.
+trace-enabled measured separately, **both cap order AND trace-mode order counterbalanced by
+construction** (not just randomized), the persistent calc backend enforced fail-closed (not
+`setdefault`), exceptions tracked per `(cap, trace_mode)` pair, and each series' measured-row
+count asserted against its own exact expected denominator.
 
-**Corrections applied here (both were real bugs in an earlier draft):**
+**Corrections applied here (all were real bugs in an earlier draft):**
 1. **Trace-mode order was always `trace_none` then `trace_enabled`, for every single decision** —
    this systematically confounds the trace-mode comparison with cache/JIT/backend-state effects that
    accrue between the two calls, biasing `trace_enabled` (always measured second) in the same
-   direction across all 944×3 decisions. Trace-mode order is now rotated the same way cap order
-   already was.
+   direction across all 944×3 decisions.
 2. **`os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")` silently inherits whatever the
    CALLER's environment already has set** — if a caller's shell already has
    `SHOWDOWN_CALC_BACKEND=oneshot` (a completely different latency profile: spawns a fresh Node
    process per call instead of reusing one), this script would silently measure the wrong thing with
    no warning. Now fail-closed: if already set to something other than `persistent`, raise; if
    unset, force it to `persistent`.
+3. **A first fix used `random.Random(seed).shuffle` for both cap order and trace-mode order.**
+   Randomizing order is not the same claim as counterbalancing it: a shuffle only makes bias
+   *unpredictable*, it does not bound it -- nothing stops one cap from landing in cap-order
+   position 0 (measured first every time, before any run-specific warm state accrues) more often
+   than the others just by chance, and "counterbalanced" would be an unverified assertion, not a
+   checked property. Replaced with a **cyclic Latin square** over the 3 caps, keyed by the sorted
+   game index (`cap_order = CAPS[i % 3:] + CAPS[:i % 3]`) -- a real combinatorial design that
+   guarantees each cap lands in each of the 3 cap-order positions an equal (±1) number of times
+   across all games, not merely "probably close on average". Trace-mode order alternates off a
+   single monotonic counter incremented once per `(game, cap)` slot (not reseeded per game), so it
+   strictly alternates `[trace_none, trace_enabled]` / `[trace_enabled, trace_none]` — guaranteed
+   exact 50/50 (±1), not merely likely. Both realized position-frequency counts are recorded and
+   **fail-closed asserted to differ by at most 1** before the script ever reports latency numbers,
+   so "counterbalanced" is a verified property of the actual run, not just the intended design.
 
 - [ ] **Step 1: Write the script**
 
 ```python
 # showdown_bot/scripts/run_cap_latency_sweep.py
 """Real run: full-corpus latency, both trace modes (none / DecisionTrace()), for
-SHOWDOWN_ACCURACY_BRANCH_CAP in {4 (cap4_auxiliary), 6, 8}, spec Sec.2.6. BOTH cap order and
-trace-mode order are rotated per game (not fixed 4->6->8 / none-then-enabled every time) to avoid
-confounding cap/trace effects with warm-up/ordering/backend-state effects; the persistent calc
-backend is enforced fail-closed and warmed once, up front, before any timed measurement.
+SHOWDOWN_ACCURACY_BRANCH_CAP in {4 (cap4_auxiliary), 6, 8}, spec Sec.2.6. Cap order uses a cyclic
+Latin square over the sorted game index (guarantees each cap lands in each cap-order position an
+equal +/-1 number of times); trace-mode order alternates off a single monotonic (game, cap)-slot
+counter (guarantees exact +/-1 balance between trace_enabled-first and trace_none-first). Both are
+DETERMINISTIC combinatorial designs, not randomized -- see this task's "Corrections applied here"
+note for why a random.shuffle-based design was replaced. Realized position-frequency counts are
+recorded and fail-closed asserted to differ by at most 1 before any latency number is reported.
+The persistent calc backend is enforced fail-closed and warmed once, up front, before any timed
+measurement.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/run_cap_latency_sweep.py
 """
@@ -1908,10 +2067,8 @@ from __future__ import annotations
 
 import copy
 import glob
-import itertools
 import json
 import os
-import random
 import sys
 import time
 from pathlib import Path
@@ -1938,12 +2095,20 @@ FORMAT_ID = "gen9vgc2025regi"
 EXPECTED_FINAL_G = 85
 CAPS = [4, 6, 8]  # cap=4 here is cap4_auxiliary latency, per spec Sec.2.3's explicit allowance
 TRACE_MODES = [False, True]  # False=trace_none, True=trace_enabled
-ORDER_SEED = 20260713  # pre-pinned, matches this plan's other pinned seeds' convention
 
 
 def _percentile(sorted_ms: list[float], q: float) -> float:
     idx = min(len(sorted_ms) - 1, max(0, int(round(q * (len(sorted_ms) - 1)))))
     return sorted_ms[idx]
+
+
+def _cap_order_for_game(game_index: int) -> list[int]:
+    """Cyclic Latin square: rotate CAPS by game_index mod len(CAPS). Over any len(CAPS)
+    consecutive games this guarantees each cap appears in each cap-order position exactly once --
+    a real combinatorial guarantee, not a probabilistic one."""
+    n = len(CAPS)
+    r = game_index % n
+    return CAPS[r:] + CAPS[:r]
 
 
 def main() -> None:
@@ -1983,7 +2148,7 @@ def main() -> None:
     if dedup_report.final_g != EXPECTED_FINAL_G:
         raise SystemExit(f"BLOCKED: expected final_g == {EXPECTED_FINAL_G}, got {dedup_report.final_g}")
 
-    # group decisions by game (source file) for per-game cap/trace-mode-order rotation
+    # group decisions by game (source file) for per-game cap/trace-mode-order counterbalancing
     by_game: dict[str, list] = {}
     for p in sorted(dedup_report.kept, key=str):
         decisions = [d for d in extract_decisions_from_log(p) if d.kind == RequestKind.MOVE]
@@ -2016,20 +2181,24 @@ def main() -> None:
         decide(d, cap=4, with_trace=False)
     print("warm-up complete")
 
-    # --- deterministic per-game cap AND trace-mode order rotation, not a fixed sequence ---
-    rng = random.Random(ORDER_SEED)
+    # --- deterministic cap-order Latin square + monotonic trace-mode alternation ---
     game_ids = sorted(by_game)
     series_keys = [f"cap{c}_{'trace_enabled' if t else 'trace_none'}" for c in CAPS for t in TRACE_MODES]
     results: dict[str, list[float]] = {k: [] for k in series_keys}
     exception_counts: dict[str, int] = {k: 0 for k in series_keys}
     measured_counts: dict[str, int] = {k: 0 for k in series_keys}
+    cap_position_counts: dict[int, list[int]] = {c: [0] * len(CAPS) for c in CAPS}
+    trace_order_counts = {"trace_enabled_first": 0, "trace_none_first": 0}
 
-    for game_id in game_ids:
-        cap_order = CAPS[:]
-        rng.shuffle(cap_order)  # per-game cap rotation, deterministic given ORDER_SEED
-        for cap in cap_order:
-            trace_order = TRACE_MODES[:]
-            rng.shuffle(trace_order)  # per-(game, cap) trace-mode rotation, deterministic
+    combined_index = 0  # increments once per (game, cap) slot across the WHOLE sweep -- this is
+    # what makes the trace-mode alternation exact regardless of len(game_ids) or len(CAPS) parity.
+    for game_index, game_id in enumerate(game_ids):
+        cap_order = _cap_order_for_game(game_index)
+        for cap_position, cap in enumerate(cap_order):
+            cap_position_counts[cap][cap_position] += 1
+            trace_order = TRACE_MODES if combined_index % 2 == 0 else list(reversed(TRACE_MODES))
+            trace_order_counts["trace_enabled_first" if trace_order[0] else "trace_none_first"] += 1
+            combined_index += 1
             for with_trace in trace_order:
                 series_key = f"cap{cap}_{'trace_enabled' if with_trace else 'trace_none'}"
                 for d in by_game[game_id]:
@@ -2047,6 +2216,28 @@ def main() -> None:
         calc.close()
     except Exception:  # noqa: BLE001
         pass
+
+    # --- counterbalancing is a CHECKED property of this actual run, not just the intended
+    # design: fail-closed before reporting any latency number if either invariant is violated. ---
+    for cap, positions in cap_position_counts.items():
+        spread = max(positions) - min(positions)
+        if spread > 1:
+            raise SystemExit(
+                f"BLOCKED: cap={cap} cap-order position counts {positions} (index = cap-order "
+                f"position 0/1/2) span {spread} across {len(game_ids)} games -- the Latin-square "
+                f"counterbalancing invariant (max-min <= 1) was violated, investigate "
+                f"_cap_order_for_game before trusting any latency number below."
+            )
+    te_first = trace_order_counts["trace_enabled_first"]
+    tn_first = trace_order_counts["trace_none_first"]
+    if abs(te_first - tn_first) > 1:
+        raise SystemExit(
+            f"BLOCKED: trace-mode order counts (enabled_first={te_first}, none_first={tn_first}) "
+            f"differ by {abs(te_first - tn_first)} across {combined_index} (game, cap) slots -- "
+            f"the trace-mode alternation invariant (differ by <= 1) was violated."
+        )
+    print(f"counterbalancing verified: cap_position_counts={cap_position_counts} "
+          f"trace_order_counts={trace_order_counts}")
 
     for series_key in series_keys:
         actual = measured_counts[series_key] + exception_counts[series_key]
@@ -2070,8 +2261,11 @@ def main() -> None:
         }
 
     out_path.write_text(json.dumps({
-        "order_seed": ORDER_SEED, "total_decisions": total_decisions,
-        "sampled": False, "results": summary,
+        "total_decisions": total_decisions, "sampled": False,
+        "counterbalancing": {
+            "cap_position_counts": cap_position_counts, "trace_order_counts": trace_order_counts,
+        },
+        "results": summary,
     }, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote {out_path}")
     for series_key, s in summary.items():
@@ -2092,14 +2286,17 @@ calls — expect several minutes. **Full corpus, no sampling, per spec §2.6's "
 by default" rule** — if this proves genuinely infeasible (many hours, not minutes), STOP, do not
 silently switch to sampling; report the real elapsed time and escalate rather than deciding
 unilaterally to sample. Report the actual p50/p95/max/exception-count numbers per `(cap, trace_mode)`
-series — do not pre-guess them. **If the `SHOWDOWN_CALC_BACKEND` fail-closed check raises**, the
-calling shell has a conflicting value set — resolve that first, do not bypass the check.
+series — do not pre-guess them. Expect a printed `counterbalancing verified: cap_position_counts=...
+trace_order_counts=...` line before the per-series results — **if either fail-closed counterbalancing
+assertion raises instead, STOP; that means the Latin-square/alternation design itself has a bug,
+investigate before trusting any latency number.** **If the `SHOWDOWN_CALC_BACKEND` fail-closed check
+raises**, the calling shell has a conflicting value set — resolve that first, do not bypass the check.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add showdown_bot/scripts/run_cap_latency_sweep.py data/eval/accuracy-cap-derisk/latency-results.json
-git commit -m "feat(eval): real full-corpus latency sweep, cap AND trace-mode order rotated, fail-closed backend"
+git commit -m "feat(eval): real full-corpus latency sweep, cyclic-Latin-square cap order + alternating trace order, verified counterbalancing, fail-closed backend"
 ```
 
 ---
@@ -2442,7 +2639,29 @@ found `request_hash` empirically unique across all 944 decisions in this specifi
 silently keep only one and drop the other with no error. This script now re-extracts with full
 `decision_id` computation (same per-file `SeedIdentity` + `compute_decision_id` pattern as Tasks
 4/5) and joins on `decision_id`, never on bare `request_hash` — matching this plan's own
-`decision_id`-is-the-join-key principle throughout.
+`decision_id`-is-the-join-key principle throughout. It also translates the manifest's own
+`request_hash`-keyed rows into `decision_id` space via Task 6's fail-closed
+`build_request_hash_index` (not a second bare dict comprehension repeating that same bug here).
+
+**Correction 3: a successfully-reconstructed structural ambiguity is not, by itself, proof the
+ORIGINAL exclusion was that ambiguity.** An earlier draft classified any decision whose live re-run
+produced a genuinely ambiguous trace (0 or ≥2 structural matches) as `label_collision`/
+`chosen_candidate_missing`, regardless of what the ORIGINAL gate exception actually said. But
+`run_gate_b`'s per-decision `except Exception` catches EVERYTHING (a calc timeout, a NaN, an
+unrelated crash) into `acceptance.exceptions` — if the original failure was, say, a transient calc
+error, and the live re-run HAPPENS to also produce an ambiguous-looking trace for some unrelated
+reason, force-classifying it as `label_collision` would misattribute the original exclusion's cause.
+`accuracy_gate_b._chosen_candidate` (verified directly against the current source this session)
+raises `RuntimeError` with one of exactly two fixed, distinctive message prefixes —
+`"ambiguous chosen_candidate_id="` or `"no candidate matches chosen_candidate_id="` — and
+`run_gate_b` records exceptions as `f"{type(exc).__name__}: {exc}"` (verified against
+`run_gate_b`'s own exception-recording line), so the recorded string is checkable. A structural
+ambiguity classification (`label_collision`/`chosen_candidate_missing`) is now only permitted when
+the ORIGINAL recorded exception string is confirmed to start with `"RuntimeError: ambiguous
+chosen_candidate_id="` or `"RuntimeError: no candidate matches chosen_candidate_id="`. Any other
+original exception routes to `other_pipeline_error`, citing BOTH the original exception AND
+whatever the live re-run actually observed (a clean single match, a different exception, or —
+even if it happens to look ambiguous — a coincidental non-reproduction of the real original cause).
 
 - [ ] **Step 1: Write the script**
 
@@ -2456,7 +2675,11 @@ into the same report -- investigation only, no decision.py code change.
 Joins on decision_id throughout (never bare request_hash) and classifies each re-run's ACTUAL
 resolution outcome rather than assuming every historical exception is a label-collision/missing-
 match case -- a re-run that resolves to exactly one match, or raises a different exception, is
-routed to other_pipeline_error with a concrete rationale, not force-classified as ambiguous.
+routed to other_pipeline_error with a concrete rationale, not force-classified as ambiguous. A
+structural ambiguity classification is ADDITIONALLY gated on the ORIGINAL exception being
+confirmed to come from accuracy_gate_b._chosen_candidate's own ambiguous/no-match RuntimeError
+paths -- a live re-run that coincidentally looks ambiguous does not, by itself, prove that was the
+original decision's actual exclusion cause.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/run_ambiguous_candidate_diagnostic.py
 """
@@ -2479,6 +2702,21 @@ sys.path.insert(0, str(SHOWDOWN_BOT_ROOT / "src"))
 DATA_EVAL = REPO_ROOT / "data" / "eval"
 OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 FORMAT_ID = "gen9vgc2025regi"
+
+
+def _original_exception_is_chosen_candidate_ambiguity(original_message: str) -> bool:
+    """True only if the ORIGINAL gate exception is confirmed to come from
+    accuracy_gate_b._chosen_candidate's own ambiguous/no-match RuntimeError paths -- both raise
+    RuntimeError with a fixed, distinctive message prefix (verified directly against
+    accuracy_gate_b.py this session: "ambiguous chosen_candidate_id=..." / "no candidate matches
+    chosen_candidate_id=..."), and run_gate_b records exceptions as f"{type(exc).__name__}:
+    {exc}" (verified against run_gate_b's own exception-recording line: `exceptions.append((
+    d.request_hash, f"{type(exc).__name__}: {exc}"))`). Any other exception type/message -- a
+    calc timeout, a NaN, an unrelated crash that happens to ALSO be a RuntimeError with a
+    different message -- must not be treated as a reproducible structural ambiguity, even if a
+    live re-run happens to produce an ambiguous-looking trace by coincidence."""
+    return original_message.startswith("RuntimeError: ambiguous chosen_candidate_id=") or \
+        original_message.startswith("RuntimeError: no candidate matches chosen_candidate_id=")
 
 
 def _classify_from_trace(trace):
@@ -2571,14 +2809,17 @@ def main() -> None:
     from showdown_bot.engine.calc.client import CalcClient
     from showdown_bot.engine.format_config import load_format_config
     from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.eval.accuracy_cap_derisk import build_request_hash_index
 
     gate_b_cap4 = json.loads((DATA_EVAL / "accuracy-gate" / "gate-b-report.json").read_text(encoding="utf-8"))
     cap6 = json.loads((OUT_DIR / "cap6-report.json").read_text(encoding="utf-8"))
     cap8 = json.loads((OUT_DIR / "cap8-report.json").read_text(encoding="utf-8"))
-    manifest_by_request_hash = {
-        r["request_hash"]: r
-        for r in (json.loads(l) for l in (OUT_DIR / "decision-id-manifest.jsonl").read_text(encoding="utf-8").splitlines() if l)
-    }
+    manifest_rows = [
+        json.loads(l) for l in (OUT_DIR / "decision-id-manifest.jsonl").read_text(encoding="utf-8").splitlines() if l
+    ]
+    # fail-closed request_hash -> manifest-row index (same helper as Task 6, same reason: a bare
+    # dict comprehension here would silently collapse a duplicated request_hash to one row).
+    manifest_by_request_hash = build_request_hash_index(manifest_rows)
 
     per_cap_exceptions = {
         "cap4": gate_b_cap4["acceptance"]["exceptions"],
@@ -2620,6 +2861,10 @@ def main() -> None:
                     "rationale": f"decision_id not found in re-extraction; original exception: {original_message}",
                 })
                 continue
+
+            # Always attempt the live re-run first, regardless of the original exception's type --
+            # both branches below need "the new observation" for their rationale (Correction 3).
+            classification, is_ambiguous, new_observation = None, False, None
             try:
                 trace = DecisionTrace()
                 heuristic_choose_for_request(
@@ -2627,22 +2872,39 @@ def main() -> None:
                     calc=calc, oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=dex, trace=trace,
                 )
                 classification, is_ambiguous = _classify_from_trace(trace)
+                new_observation = (
+                    f"re-run produced a genuinely ambiguous trace (would classify as "
+                    f"{classification.primary_cause})" if is_ambiguous
+                    else "re-run resolved to exactly ONE match"
+                )
             except Exception as exc:  # noqa: BLE001
+                new_observation = f"re-run raised {type(exc).__name__}: {exc}"
+
+            # Correction 3: a structural ambiguity classification is only permitted when the
+            # ORIGINAL exception is confirmed to come from _chosen_candidate's own ambiguous/
+            # no-match RuntimeError paths -- a re-run that coincidentally looks ambiguous does
+            # not, by itself, prove that was the original decision's real exclusion cause.
+            if not _original_exception_is_chosen_candidate_ambiguity(original_message):
                 cases.append({
                     "decision_id": did, "primary_cause": "other_pipeline_error",
                     "label_collision_subtype": None, "companion_flags": [],
-                    "rationale": f"re-run raised a DIFFERENT exception than the original "
-                                 f"({original_message!r}): {type(exc).__name__}: {exc}",
+                    "rationale": f"original exception is not a _chosen_candidate ambiguity/"
+                                 f"no-match RuntimeError (original: {original_message!r}); "
+                                 f"{new_observation} -- not treated as a reproducible structural "
+                                 f"ambiguity regardless of the re-run's own outcome.",
                 })
                 continue
+
             if not is_ambiguous:
                 cases.append({
                     "decision_id": did, "primary_cause": "other_pipeline_error",
                     "label_collision_subtype": None, "companion_flags": [],
-                    "rationale": f"re-run resolved to exactly ONE match (did not reproduce as a "
-                                 f"structural ambiguity); original exception: {original_message}",
+                    "rationale": f"original exception confirmed as a _chosen_candidate ambiguity/"
+                                 f"no-match RuntimeError, but did not reproduce on re-run "
+                                 f"({new_observation}); original exception: {original_message}",
                 })
                 continue
+
             cases.append({
                 "decision_id": did,
                 "primary_cause": classification.primary_cause,
@@ -2690,7 +2952,10 @@ Expected: classifies every case across cap4 (63)/cap6/cap8, writes
 `data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.json` with per-cap primary-cause/
 companion-flag breakdowns and cross-cap overlap. Report the real `primary_cause` distribution — do
 not assume `label_collision` dominates without checking the actual output, and do not be surprised
-if some cases land in `other_pipeline_error` (that's the correction working as intended, not a bug).
+if some cases land in `other_pipeline_error` (that's Correction 1/3 working as intended, not a bug)
+— in particular, a case whose original exception was NOT a `_chosen_candidate` ambiguity/no-match
+`RuntimeError` now always lands in `other_pipeline_error`, even if its live re-run happens to look
+ambiguous; the rationale field will say so explicitly.
 
 - [ ] **Step 3: Write the fix-feasibility investigation**
 
@@ -2728,7 +2993,7 @@ as its own separate follow-up, distinct from the label-collision/Tera-overlay st
 
 ```bash
 git add showdown_bot/scripts/run_ambiguous_candidate_diagnostic.py data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.json data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.md
-git commit -m "feat(eval): real ambiguous-candidate classification (cap4/6/8, decision_id-joined) + fix-feasibility investigation"
+git commit -m "feat(eval): real ambiguous-candidate classification (cap4/6/8, decision_id-joined, origin-gated on _chosen_candidate's own exception) + fix-feasibility investigation"
 ```
 
 ---
@@ -2815,12 +3080,11 @@ plan does any task touch `decision.py`/`evaluate.py`/`accuracy_gate_b.py`/`accur
 `accuracy_baseline_diff.py`, recompute the cap=4 verdict, or implement a fallback-strategy change.
 
 **2. Placeholder scan:** no TBD/TODO/"add appropriate handling" found in the above — every step has
-real, complete code or an exact real command with expected real-run behavior described. One
-explicit exception, clearly flagged as such (not a silent gap): Task 5's `config_hash` computation
-is left as a verify-then-add note rather than fully inlined code, since it depends on
-`build_config_manifest`/`make_config_hash`/`behavior_env`'s exact current signatures, which this
-plan cites from a prior read rather than a fresh one this task — the implementer must verify before
-writing, per that note's own instruction.
+real, complete code or an exact real command with expected real-run behavior described. Task 5's
+`config_hash` computation is now fully inlined (real imports, real explicit-env construction,
+real `build_config_manifest`/`make_config_hash` call) rather than left as a verify-then-add note —
+an earlier draft deferred it pending a fresh signature check; that check has since been done this
+session (see the "Real API facts" section) and the result is written directly into Task 5.
 
 **3. Type consistency:** `ActionTableRow`'s fields (Task 3, now `chosen_action_raw` +
 `chosen_action_canonical`) match `compare_action_tables`'s usage (Task 2) and every real-run
@@ -2857,3 +3121,28 @@ measured-plus-excepted count against its exact expected denominator before trust
 source_commit, python_version, dependency_lock_hash), validate cap↔label consistency before writing
 anything, require their output's decision_id set to exactly equal the manifest's, and every
 real-run script in this plan now refuses to silently overwrite a pre-existing output file.
+
+**6. Four further corrections from a second review round (against real code, all now integrated):**
+(1) `manifest_by_request_hash = {r["request_hash"]: r for r in manifest_rows}` in Task 6 and Task
+11 was a silent-overwrite risk if two decisions ever shared a `request_hash` — both now go through
+a new fail-closed `build_request_hash_index` helper (Task 6, with its own unit tests) that asserts
+`len(index) == len(manifest_rows)` and names every colliding hash otherwise, so "decision_id-joined"
+is now a verified property, not an assumed one. (2) Task 11 no longer classifies a live-re-run's
+genuinely-ambiguous trace as `label_collision`/`chosen_candidate_missing` unless the ORIGINAL
+recorded exception is confirmed (via its exact message prefix, verified directly against
+`accuracy_gate_b._chosen_candidate`'s and `run_gate_b`'s real source this session) to come from
+`_chosen_candidate`'s own ambiguous/no-match `RuntimeError` paths — any other original exception
+routes to `other_pipeline_error`, citing both the original exception and the new re-run observation,
+even when the re-run happens to look ambiguous by coincidence. (3) Task 9's cap/trace-mode ordering
+was upgraded from `random.Random(seed).shuffle` (randomized, but not *guaranteed* balanced) to a
+deterministic cyclic Latin square for cap order and a monotonic-counter alternation for trace-mode
+order — both real combinatorial designs, not probabilistic ones — with realized position-frequency
+counts recorded and fail-closed asserted (max-min ≤ 1) before any latency number is reported, so
+"counterbalanced" is now a checked property of the actual run. (4) Task 5's `config_hash` is now
+computed from an EXPLICITLY constructed env dict (`SHOWDOWN_ACCURACY_MODE`/`SHOWDOWN_ACCURACY_BRANCH_CAP`
+forced onto a snapshot of `os.environ`) rather than depending on live process env state at the point
+of computation — the earlier draft popped those two vars before the provenance block ran, which
+would have silently hashed the OFF-mode environment; Task 4 and Task 5 also now check for BOTH the
+main artifact and its meta sidecar before starting (not just the main file) and write both files
+atomically (temp file + `os.replace`) only after all computation succeeds, so a mid-run crash can
+never leave a half-written artifact that blocks every future run without ever having succeeded.
