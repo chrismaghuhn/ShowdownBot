@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 
 from showdown_bot.eval.accuracy_gate_stats import (
+    PASS_THRESHOLD,
     Verdict,
     clopper_pearson_zero_upper_bound,
     game_clustered_bootstrap_upper_bound,
@@ -73,3 +74,52 @@ def test_nonzero_events_fails_above_five_percent():
     )
     assert detail["point_estimate"] == 0.10
     assert verdict == Verdict.FAIL
+
+
+def test_nonzero_events_spread_across_games_uses_local_rate_not_binary_indicator():
+    # 30 games x 20 decisions each = 600 decisions. 10 cap-hit decisions, exactly one per game,
+    # spread across the first 10 games -- the realistic "rare event spread across many games"
+    # shape. point_estimate = 10/600 ~= 1.67%, safely under 5%. The bootstrap must use each
+    # game's own LOCAL decision-level rate (1/20 = 5% for a hit game, 0% otherwise), not the
+    # coarse "did this game have ANY cap-hit" binary indicator (which would make every hit game
+    # contribute 1.0 instead of 0.05 and inflate the CI far past 5%, making PASS unreachable).
+    per_decision: list[tuple[str, bool]] = []
+    per_game_any_cap_hit: dict[str, bool] = {}
+    per_game_binary_rate: dict[str, float] = {}
+    for g in range(30):
+        game_id = f"game{g}"
+        is_hit_game = g < 10
+        per_game_any_cap_hit[game_id] = is_hit_game
+        per_game_binary_rate[game_id] = 1.0 if is_hit_game else 0.0
+        for d in range(20):
+            per_decision.append((game_id, is_hit_game and d == 0))
+
+    verdict, detail = verdict_for_cap_hit_rate(
+        per_decision_cap_hit=per_decision, per_game_any_cap_hit=per_game_any_cap_hit,
+        n_decisions=600, rng_seed=20260713,
+    )
+    assert math.isclose(detail["point_estimate"], 10 / 600, rel_tol=1e-9)
+    assert verdict == Verdict.PASS
+    assert detail["bootstrap_ci_upper"] < 0.10
+
+    # Local sanity check: the OLD (buggy) binary-indicator computation on this same fixture
+    # produces a much larger, practically-unreachable-for-PASS upper bound -- proving the fix
+    # changed the actual quantity being bootstrapped, not just tightened a constant.
+    old_style_upper = game_clustered_bootstrap_upper_bound(per_game_binary_rate, seed=20260713)
+    assert old_style_upper > detail["bootstrap_ci_upper"]
+    assert old_style_upper > PASS_THRESHOLD
+
+
+def test_zero_decisions_is_inconclusive_even_with_seeded_games():
+    # Every decision raised/failed (e.g. `_chosen_candidate`'s RuntimeError, per Task 10) --
+    # n_decisions=0 but per_game_any_cap_hit can still be nonempty since game IDs are
+    # pre-seeded before the per-decision try/except. Must fail closed to INCONCLUSIVE, never PASS.
+    per_game_any_cap_hit = {f"game{i}": False for i in range(85)}
+    verdict, detail = verdict_for_cap_hit_rate(
+        per_decision_cap_hit=[], per_game_any_cap_hit=per_game_any_cap_hit,
+        n_decisions=0, rng_seed=20260713,
+    )
+    assert verdict == Verdict.INCONCLUSIVE
+    assert detail["n_decisions"] == 0
+    assert detail["numerator"] == 0
+    assert detail["reason"] == "no_decisions"

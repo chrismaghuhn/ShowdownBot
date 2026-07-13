@@ -13,8 +13,6 @@ branch instead uses the exact one-sided 95% Clopper-Pearson upper bound on a gam
 from __future__ import annotations
 
 import random
-from collections import Counter
-from dataclasses import dataclass
 from enum import Enum
 
 BOOTSTRAP_RESAMPLES = 10_000
@@ -70,6 +68,21 @@ def verdict_for_cap_hit_rate(
     n_decisions: int,
     rng_seed: int = BOOTSTRAP_SEED,
 ) -> tuple[Verdict, dict]:
+    if n_decisions <= 0:
+        # No decisions were actually replayed/compared (e.g. every decision raised in
+        # `_chosen_candidate`, per Task 10) even though `per_game_any_cap_hit` can still be
+        # nonempty (game IDs are pre-seeded before the per-decision try/except). Neither the
+        # zero-event Clopper-Pearson branch nor the bootstrap branch below is meaningful with
+        # zero measured decisions -- fail closed to INCONCLUSIVE rather than risk a spurious
+        # PASS from a run that measured nothing.
+        return Verdict.INCONCLUSIVE, {
+            "point_estimate": 0.0,
+            "numerator": 0,
+            "n_decisions": 0,
+            "g": len(per_game_any_cap_hit),
+            "reason": "no_decisions",
+        }
+
     numerator = sum(
         1 for row in per_decision_cap_hit
         if (row[1] if isinstance(row, tuple) else row)
@@ -91,9 +104,43 @@ def verdict_for_cap_hit_rate(
         verdict = Verdict.PASS if cp_upper <= PASS_THRESHOLD else Verdict.INCONCLUSIVE
         return verdict, detail
 
+    # Nonzero branch: the bootstrap must resample each game's own LOCAL decision-level
+    # cap-hit rate (hits_in_game / decisions_in_game), NOT the coarse binary "did this game
+    # have any cap-hit at all" indicator from `per_game_any_cap_hit` -- that indicator is
+    # scoped to the zero-event Clopper-Pearson branch above only (spec Sec.4, line ~490). Reusing
+    # it here conflates "P(a resampled game has >=1 cap-hit decision)" with "P(a decision
+    # cap-hits)", which are different quantities and makes the nonzero PASS band effectively
+    # unreachable whenever cap-hits are spread one-per-game across many games (the realistic
+    # case for a rare event over a corpus with many decisions per game).
+    per_game_hits: dict[str, int] = {}
+    per_game_total: dict[str, int] = {}
+    has_game_ids = False
+    for i, row in enumerate(per_decision_cap_hit):
+        if isinstance(row, tuple):
+            game_id, is_hit = row
+            has_game_ids = True
+        else:
+            # Bare `list[bool]` input carries no per-decision game grouping. No real caller
+            # (Task 10's `_diff_row_from_traces` builds the tuple form exclusively) is expected
+            # to hit this path for the nonzero case; as a graceful, non-crashing fallback,
+            # treat each ungrouped decision as its own singleton "game" so the bootstrap still
+            # runs (conservatively -- this just means no within-game clustering correction is
+            # possible for this input shape).
+            game_id, is_hit = f"__ungrouped_decision_{i}", row
+        per_game_total[game_id] = per_game_total.get(game_id, 0) + 1
+        per_game_hits[game_id] = per_game_hits.get(game_id, 0) + (1 if is_hit else 0)
+
     per_game_rate = {
-        game: (1.0 if any_hit else 0.0) for game, any_hit in per_game_any_cap_hit.items()
+        game: (per_game_hits.get(game, 0) / per_game_total[game])
+        for game in per_game_total
     }
+    if has_game_ids:
+        # Games present in `per_game_any_cap_hit` but with zero recorded decisions (e.g. every
+        # decision in that game raised) contribute a 0.0 rate rather than being silently
+        # dropped, so the resampled denominator (number of games) still matches `g`.
+        for game in per_game_any_cap_hit:
+            per_game_rate.setdefault(game, 0.0)
+
     bootstrap_upper = game_clustered_bootstrap_upper_bound(per_game_rate, seed=rng_seed)
     detail = {
         "point_estimate": point_estimate,
