@@ -179,3 +179,76 @@ def test_compare_action_tables_requires_reason_when_score_incompatible():
     cand = [_row("id1", "/choose move 1")]
     with pytest.raises(ValueError, match="score_incompatible_reason"):
         compare_action_tables(ref, cand, direction="off -> cap6", score_comparable=False)
+
+
+from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
+from showdown_bot.eval.accuracy_cap_derisk import build_action_table_row
+
+
+def _candidate(candidate_id, rank, score):
+    return CandidateTrace(
+        candidate_id=candidate_id, joint_action=None, rank=rank, aggregate_score=score,
+        score_vector=[score], outcome_breakdowns=[], aggregate_breakdown=None,
+    )
+
+
+def test_build_action_table_row_exact_match_rank_zero(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="A", candidates=[
+        _candidate("A", 0, 5.0), _candidate("B", 1, 3.0),
+    ])
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
+    assert row.candidate_resolution_status == "exact"
+    assert row.chosen_candidate_rank == 0
+    assert row.chosen_rank_mismatch is False
+    assert row.top_rank_score == 5.0
+    assert row.chosen_candidate_score == 5.0
+    assert row.chosen_action_raw == "/choose move 1"
+    assert row.chosen_action_canonical  # non-empty; exact shape depends on normalize_choose
+
+
+def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously(scripted_request):
+    """Both facts survive independently -- neither status collapses the other (spec Sec.2.3)."""
+    trace = DecisionTrace(chosen_candidate_id="(protect, moonblast->1 tera)", candidates=[
+        _candidate("(protect, shadowball->1)", 0, 6.0),
+        _candidate("(protect, moonblast->1)", 1, 5.0),  # the real chosen line, at rank 1
+    ])
+    row = build_action_table_row("d1", "/choose move 1, move 2", trace, scripted_request)
+    assert row.candidate_resolution_status == "tera_stripped"
+    assert row.chosen_candidate_rank == 1
+    assert row.chosen_rank_mismatch is True  # BOTH tera_stripped and rank_mismatch present
+    assert row.top_rank_score == 6.0  # rank-0's score, independent of which one is chosen
+    assert row.chosen_candidate_score == 5.0
+
+
+def test_build_action_table_row_ambiguous_label_has_null_chosen_candidate_score(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="(switch, pass)", candidates=[
+        _candidate("(switch, pass)", 0, 4.0), _candidate("(switch, pass)", 1, 2.0),
+    ])
+    row = build_action_table_row("d1", "/choose switch 2, pass", trace, scripted_request)
+    assert row.candidate_resolution_status == "ambiguous_label"
+    assert row.chosen_candidate_rank is None
+    assert row.chosen_rank_mismatch is None
+    assert row.chosen_candidate_score is None
+    assert row.top_rank_score == 4.0  # top_rank_score still populated -- independent of resolution
+
+
+def test_build_action_table_row_chosen_missing(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="(nothing matches)", candidates=[
+        _candidate("A", 0, 5.0),
+    ])
+    row = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    assert row.candidate_resolution_status == "chosen_missing"
+    assert row.chosen_candidate_score is None
+    assert row.top_rank_score == 5.0
+
+
+def test_build_action_table_row_empty_trace_keeps_the_action_row(scripted_request):
+    """An empty/rank-corrupt trace must not make the whole decision (and its chosen_action_raw)
+    disappear -- only the score fields go null, with the status visibly reflecting why."""
+    trace = DecisionTrace(chosen_candidate_id=None, candidates=[])
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
+    assert row.chosen_action_raw == "/choose move 1"  # action always present
+    assert row.top_rank_score is None
+    assert row.chosen_candidate_score is None
+    assert row.chosen_candidate_rank is None
+    assert row.candidate_resolution_status in ("chosen_missing", "other_resolution_error")

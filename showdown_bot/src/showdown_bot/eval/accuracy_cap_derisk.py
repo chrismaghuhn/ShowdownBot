@@ -170,3 +170,67 @@ def compare_action_tables(
         ))
 
     return ActionTableDiff(direction=direction, rows=rows)
+
+
+def _strip_tera(candidate_id: str) -> str:
+    # Mirrors accuracy_gate_b.py's _strip_tera_suffix exactly -- Tera is never itself a dimension
+    # of the enumerated candidate space, so stripping " tera" is a safe, non-lossy normalization.
+    return candidate_id.replace(" tera", "")
+
+
+def _canonical_action(chosen_action: str, request) -> str:
+    from showdown_bot.eval.decision_capture import DecisionCaptureError, normalize_choose
+
+    try:
+        normalized = normalize_choose(chosen_action, request)
+    except DecisionCaptureError as exc:
+        # This table's whole point is to keep a row -- with the real chosen_action_raw -- for
+        # EVERY decision, including ones whose raw action string normalize_choose's stricter
+        # doubles-shape parser rejects (e.g. a single-slot action, or any other malformed
+        # /choose body). Falling back to a deterministic, still-JSON-serializable marker keeps
+        # chosen_action_canonical non-empty and comparable (two identically-malformed raw
+        # actions still canonicalize identically) without ever raising out of this function.
+        normalized = {"kind": "unparseable", "raw": chosen_action, "error": str(exc)}
+    return json.dumps(normalized, sort_keys=True)
+
+
+def build_action_table_row(decision_id: str, chosen_action: str, trace, request) -> ActionTableRow:
+    """Spec Sec.2.3: resolve the structurally-chosen candidate the SAME way
+    accuracy_gate_b.py::_chosen_candidate does (exact match, then tera-suffix-stripped fallback),
+    but NEVER raise -- report a status instead, since this table must still carry a row (with its
+    real chosen_action_raw) for decisions where trace-based resolution fails, unlike run_gate_b's
+    own exception path. `request` MUST be the real BattleRequest this specific decision was answered
+    against -- normalize_choose is request-specific, never a shared/default value across rows."""
+    canonical = _canonical_action(chosen_action, request)
+    candidates = list(trace.candidates)
+    top = next((c for c in candidates if c.rank == 0), None)
+    top_rank_score = top.aggregate_score if top is not None else None
+
+    def _row(status: str, rank=None, rank_mismatch=None, cc_score=None) -> ActionTableRow:
+        return ActionTableRow(
+            decision_id=decision_id, chosen_action_raw=chosen_action, chosen_action_canonical=canonical,
+            candidate_resolution_status=status,
+            chosen_candidate_rank=rank, chosen_rank_mismatch=rank_mismatch,
+            top_rank_score=top_rank_score, chosen_candidate_score=cc_score,
+        )
+
+    chosen_id = trace.chosen_candidate_id
+    if chosen_id is None:
+        return _row("chosen_missing")
+
+    exact = [c for c in candidates if c.candidate_id == chosen_id]
+    if len(exact) == 1:
+        resolved, status = exact[0], "exact"
+    elif len(exact) > 1:
+        return _row("ambiguous_label")
+    else:
+        stripped_target = _strip_tera(chosen_id)
+        fallback = [c for c in candidates if _strip_tera(c.candidate_id) == stripped_target]
+        if len(fallback) == 1:
+            resolved, status = fallback[0], "tera_stripped"
+        elif len(fallback) > 1:
+            return _row("ambiguous_label")
+        else:
+            return _row("chosen_missing")
+
+    return _row(status, rank=resolved.rank, rank_mismatch=(resolved.rank != 0), cc_score=resolved.aggregate_score)
