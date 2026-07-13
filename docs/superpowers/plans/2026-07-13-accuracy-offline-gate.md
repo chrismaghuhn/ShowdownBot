@@ -2636,6 +2636,20 @@ Real API facts this task is built on (verified, not assumed):
   in the spec's own investigation — `_label_ja` is a pure function of `req`+`ja`, and legal-action
   enumeration doesn't depend on accuracy scoring), so pairing off-run and on-run candidates by
   `candidate_id` (not rank or list position) is valid.
+- **`trace.chosen_candidate_id` is not always found verbatim in `trace.candidates` — a real,
+  confirmed pre-existing bug, not a hypothetical.** Found and independently verified during Task 4:
+  `_maybe_tera` (`decision.py:536`) can overlay a Tera flag onto the chosen line **after**
+  `trace.candidates` was already built from the pre-Tera candidate set (`items`/`plans`, computed
+  earlier). `_label_ja` appends `" tera"` per-slot when that slot terastallizes, so
+  `trace.chosen_candidate_id` can carry a `" tera"` suffix matching no `candidate_id` in
+  `trace.candidates` verbatim. This is not scope creep to fix here — Task 4's own driver hit this
+  for real (1/944 decisions) and proved the fix: try an exact match first, then a match with `"
+  tera"` stripped from both sides (guaranteed unique when it exists, since Tera is never itself a
+  dimension of the enumerated candidate space — at most one slot of the *chosen* line can carry
+  it). `_chosen_candidate` below implements this and **raises**, rather than silently returning
+  `None`, when even the fallback can't resolve — a silent `None` here would make the cap-hit rule
+  quietly default to "not capped" for exactly the decisions this bug affects, biasing the gate's
+  own verdict without anyone noticing.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2651,6 +2665,8 @@ end-to-end integration test (Step 1b) proves the real wiring connects.
 # showdown_bot/tests/eval/test_accuracy_gate_b.py
 from __future__ import annotations
 
+import pytest
+
 from showdown_bot.battle.decision_trace import (
     AccuracyEventTrace,
     AccuracyResponseDetail,
@@ -2660,6 +2676,7 @@ from showdown_bot.battle.decision_trace import (
 )
 from showdown_bot.eval.accuracy_gate_b import (
     GateBResult,
+    _chosen_candidate,
     candidate_any_cap_hit,
     candidate_events_complete,
     pair_candidates_by_id,
@@ -2709,6 +2726,39 @@ def test_any_tie_order_cap_hit_is_already_folded_into_accuracy_branch_cap_hits()
     c = _candidate("A", 0, 1.0, [detail])
     assert candidate_any_cap_hit(c) is True
     assert any(t.accuracy_branch_cap_hits >= 1 for t in c.accuracy_details[0].tie_orders)
+
+
+def test_chosen_candidate_falls_back_across_tera_suffix_mismatch():
+    """Regression test for a real, confirmed pre-existing decision.py bug (found during Task 4):
+    _maybe_tera can overlay a Tera flag onto the chosen line AFTER trace.candidates was already
+    built from the pre-Tera candidate set, so trace.chosen_candidate_id can carry a ' tera' suffix
+    matching no candidate_id verbatim. _chosen_candidate must recover via the tera-stripped
+    fallback match (the same proven pattern Task 4's accuracy_baseline.py driver already
+    validated against a real occurrence), not silently misbehave."""
+    trace = DecisionTrace(
+        chosen_candidate_id="(protect, moonblast->1 tera)",  # note the ' tera' suffix
+        candidates=[
+            _candidate("(protect, moonblast->1)", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+            _candidate("(protect, shadowball->1)", 1, 3.0, [_detail(cap_hits=0, complete=True)]),
+        ],
+    )
+    resolved = _chosen_candidate(trace)
+    assert resolved.candidate_id == "(protect, moonblast->1)"
+
+
+def test_chosen_candidate_raises_when_unresolvable():
+    """Fail loud, never silently None -- a silent miss here would make run_gate_b's cap-hit
+    rule default to "not capped" for exactly the decisions where this occurs, silently biasing
+    the gate's own verdict. This must surface as an exception (caught by run_gate_b's existing
+    per-decision try/except and reported), not disappear into a false negative."""
+    trace = DecisionTrace(
+        chosen_candidate_id="(this matches nothing, not even stripped)",
+        candidates=[
+            _candidate("(protect, moonblast->1)", 0, 5.0, [_detail(cap_hits=0, complete=True)]),
+        ],
+    )
+    with pytest.raises(RuntimeError):
+        _chosen_candidate(trace)
 
 
 def test_pair_candidates_by_id_stable_across_reordering():
@@ -2895,11 +2945,37 @@ def _by_rank(trace: DecisionTrace, rank: int) -> CandidateTrace | None:
     return None
 
 
-def _chosen_candidate(trace: DecisionTrace) -> CandidateTrace | None:
+def _strip_tera_suffix(candidate_id: str) -> str:
+    """`_label_ja` (decision.py) appends ' tera' per-slot when that slot terastallizes. Needed
+    because of a confirmed pre-existing bug (found and independently verified during Task 4):
+    `_maybe_tera` can overlay a Tera flag onto the chosen line AFTER `trace.candidates` was
+    already built from the pre-Tera candidate set, so `trace.chosen_candidate_id` can legitimately
+    contain a ' tera' suffix that matches no `candidate_id` in `trace.candidates` verbatim. Tera is
+    never part of the enumerated candidate space itself, so at most one slot's suffix needs
+    stripping and the stripped match is guaranteed unique when it exists -- same proof Task 4's
+    `accuracy_baseline.py` driver already established and validated against a real occurrence
+    (1/944 real decisions)."""
+    return candidate_id.replace(" tera", "")
+
+
+def _chosen_candidate(trace: DecisionTrace) -> CandidateTrace:
+    """Raises RuntimeError (not silently returns None) if no candidate matches -- a silent
+    None here would make `run_gate_b`'s cap-hit rule default to "not capped" for exactly the
+    decisions where a Tera-related mismatch occurred, silently biasing the gate's own verdict.
+    Fail loud instead; `run_gate_b`'s existing per-decision try/except already turns this into
+    a reported exception rather than crashing the whole run."""
     for c in trace.candidates:
         if c.candidate_id == trace.chosen_candidate_id:
             return c
-    return None
+    stripped_target = _strip_tera_suffix(trace.chosen_candidate_id)
+    fallback = [c for c in trace.candidates if _strip_tera_suffix(c.candidate_id) == stripped_target]
+    if len(fallback) == 1:
+        return fallback[0]
+    raise RuntimeError(
+        f"no candidate matches chosen_candidate_id={trace.chosen_candidate_id!r} "
+        f"(exact or tera-stripped); found {len(fallback)} stripped matches, expected exactly 1 -- "
+        f"candidate_ids present: {[c.candidate_id for c in trace.candidates]}"
+    )
 
 
 def candidate_any_cap_hit(candidate: CandidateTrace) -> bool:
@@ -2941,8 +3017,8 @@ def _diff_row_from_traces(
     on_top = _by_rank(on_trace, 0)
     off_runner_up = _by_rank(off_trace, 1)
     on_runner_up = _by_rank(on_trace, 1)
-    on_chosen = _chosen_candidate(on_trace)
-    events_complete = candidate_events_complete(on_chosen) if on_chosen is not None else True
+    on_chosen = _chosen_candidate(on_trace)  # raises if unresolvable; never silently None
+    events_complete = candidate_events_complete(on_chosen)
 
     off_norm = normalize_choose(off_action.split("|", 1)[0].strip(), request) if request else {"kind": "joint", "slots": []}
     on_norm = normalize_choose(on_action.split("|", 1)[0].strip(), request) if request else {"kind": "joint", "slots": []}
@@ -3012,21 +3088,28 @@ def run_gate_b(
                     d, accuracy_on=True, book=book, calc=calc,
                     oracle_factory=oracle_factory, speed_oracle=speed_oracle, dex=dex,
                 )
+                # _chosen_candidate can raise RuntimeError (a real, confirmed possibility --
+                # see its own docstring on the tera/trace mismatch) -- deliberately kept INSIDE
+                # this try block so such a decision is recorded as a per-decision exception,
+                # not an uncaught crash that would lose every already-accumulated result.
+                on_chosen = _chosen_candidate(on_trace)
+                cap_hit_this_decision = candidate_any_cap_hit(on_chosen)
+                if off_action != on_action:
+                    diff_row = _diff_row_from_traces(
+                        request_hash=d.request_hash, off_action=off_action, on_action=on_action,
+                        off_trace=off_trace, on_trace=on_trace, request=d.request,
+                    )
+                else:
+                    diff_row = None
             except Exception as exc:  # noqa: BLE001
                 exceptions.append((d.request_hash, str(exc)))
                 continue
 
-            on_chosen = _chosen_candidate(on_trace)
-            cap_hit_this_decision = on_chosen is not None and candidate_any_cap_hit(on_chosen)
             per_decision_cap_hit.append((game_id, cap_hit_this_decision))
             if cap_hit_this_decision:
                 per_game_any_cap_hit[game_id] = True
-
-            if off_action != on_action:
-                diffs.append(_diff_row_from_traces(
-                    request_hash=d.request_hash, off_action=off_action, on_action=on_action,
-                    off_trace=off_trace, on_trace=on_trace, request=d.request,
-                ))
+            if diff_row is not None:
+                diffs.append(diff_row)
     finally:
         os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
 
@@ -3061,7 +3144,11 @@ candidate_stage=None) -> ActionDiff`, returning `ActionDiff(primary: str, marker
 - [ ] **Step 4: Run tests**
 
 Run: `cd showdown_bot && python -m pytest tests/eval/test_accuracy_gate_b.py -v`
-Expected: PASS (8 passed)
+Expected: PASS (10 passed — 8 from the original design plus
+`test_chosen_candidate_falls_back_across_tera_suffix_mismatch` and
+`test_chosen_candidate_raises_when_unresolvable`, added to harden `_chosen_candidate` against a
+real, confirmed pre-existing `decision.py` bug found during Task 4 — see that helper's own
+docstring)
 
 - [ ] **Step 5: Commit**
 
