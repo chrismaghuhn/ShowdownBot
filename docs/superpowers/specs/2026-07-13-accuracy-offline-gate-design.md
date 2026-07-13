@@ -1,8 +1,9 @@
 # Accuracy Off/On Offline Decision-Diff Gate — Design
 
-**Status:** spec-ready (incorporates 3 rounds of corrections; round 3 fixed two real architecture
+**Status:** spec-ready (incorporates 4 rounds of corrections; round 3 fixed two real architecture
 errors — an event-discovery bug re-introduced at the diagnostic layer, and an unverified "same
-pass" claim — plus 7 smaller precision fixes)
+pass" claim; round 4 fixed a tie-averaging telemetry gap, a degenerate-bootstrap statistical gap,
+and 2 smaller precision fixes)
 **Scope:** an evaluation/measurement task, not a new bot feature. Gates three downstream
 decisions — flipping `SHOWDOWN_ACCURACY_MODE`'s default, a new strength baseline, and Depth-2
 Stage 3 — none of which start until this gate's numbers exist and are reviewed. No default-on,
@@ -96,7 +97,7 @@ with identical arguments and asserts every field that participates in scoring or
 is equal — turning "no drift by construction" (false) into "no drift, verified by a determinism
 test" (true and checked).
 
-### 2.3 `LineEvaluation` and the event-union fix (round-3 correction #1: the discovery bug)
+### 2.3 `LineEvaluation`: the event-union fix (round-3) and the tie-averaging merge (round-4)
 
 ```python
 @dataclass
@@ -105,16 +106,41 @@ class AccuracyEventDetail:
     target: SlotId
     move_id: str
     hit_probability: float
+    tie_order: str  # "ours_first" | "ours_last" -- which evaluated tie ordering discovered this
+
+
+@dataclass
+class TieOrderEvaluation:
+    """One evaluated tie ordering's own accuracy telemetry (round-4 fix, see below)."""
+    tie_order: str            # "ours_first" | "ours_last"
+    weight: float              # 0.5/0.5 for a genuine tie; 1.0 when there is no tie
+    accuracy_leaf_count: int
+    accuracy_branch_cap_hits: int
+    events_complete: bool      # accuracy_branch_cap_hits == 0 for THIS ordering alone
 
 
 @dataclass
 class LineEvaluation:
     score: float
     representative_outcome: TurnOutcome
-    leaves: list[tuple[float, TurnOutcome]] | None = None    # None when accuracy_mode is off
-    fork_records: list[ForkRecord] | None = None              # None when accuracy_mode is off
-    fallback_leaves: int = 0
-    accuracy_events: list[AccuracyEventDetail] = field(default_factory=list)  # [] when off
+    leaves: list[tuple[float, TurnOutcome]] | None = None    # None when accuracy_mode is off;
+    # d_last's own tree when tied -- unchanged "representative" convention, NOT tie-merged.
+    fork_records: list[ForkRecord] | None = None              # None when accuracy_mode is off;
+    # same d_last-only convention as `leaves` -- informational (ko_probability/miss_punish_value
+    # inputs), not safety-gating, so it is deliberately NOT part of the round-4 tie-merge fix.
+    fallback_leaves: int = 0   # SUM across all evaluated tie orderings (0, 1, or 2 of them) --
+    # a raw work/cap-hit COUNT, not a probability-weighted rate. When tied, this is NOT the same
+    # quantity as `representative_outcome.accuracy_branch_cap_hits` (round-4 fix below) -- that field keeps
+    # its existing merged-slice meaning (d_last's own count only); THIS field is the new,
+    # safety-relevant, tie-merged count. Callers needing the tie-merged number must read this
+    # field, not the TurnOutcome-embedded one.
+    accuracy_events: list[AccuracyEventDetail] = field(default_factory=list)  # UNION across all
+    # evaluated tie orderings, deduplicated by (attacker, target, move_id, tie_order) -- an event
+    # only reachable under one specific tie ordering stays visible even though the other
+    # ordering's tree is what `leaves`/`fork_records` reflect.
+    tie_order_details: list[TieOrderEvaluation] = field(default_factory=list)  # one entry (no
+    # tie / forced) or two entries (genuine tie), always summing to `fallback_leaves` and unioning
+    # to `accuracy_events` -- exposed for per-ordering explainability in the diff report.
 ```
 
 Round 2 of this spec populated the (then dict-shaped) event field from
@@ -139,6 +165,7 @@ def _accuracy_events_from_leaves(
     state: BattleState,
     leaves: list[tuple[float, TurnOutcome]],
     field: FieldState | None,
+    tie_order: str,
 ) -> list[AccuracyEventDetail]:
     actions_by_key = {a.key: a for a in actions}
     seen: dict[tuple[SlotId, SlotId, str], float] = {}
@@ -158,7 +185,7 @@ def _accuracy_events_from_leaves(
             if p is None or p >= 1.0:
                 continue  # guaranteed-hit moves aren't accuracy-uncertain events
             seen[key3] = p
-    return [AccuracyEventDetail(a, t, m, p) for (a, t, m), p in seen.items()]
+    return [AccuracyEventDetail(a, t, m, p, tie_order) for (a, t, m), p in seen.items()]
 ```
 
 Deduplication by `(attacker, target, move_id)` is safe **within one `resolve_turn_branches`
@@ -168,7 +195,9 @@ triple yields the same probability regardless of which branch discovers it first
 property of `hit_probability`'s actual implementation (`resolve.py:408`), not an assumption. This
 adds one extra `hit_probability` call per **distinct** event (cheap, pure — the same function
 `expand()` already calls internally) — **no additional `resolve_turn`/`resolve_turn_branches`
-calls**, so the expensive part of the work does not grow.
+calls**, so the expensive part of the work does not grow. `_accuracy_events_from_leaves` does
+**not** dedupe across tie orderings — that happens (deliberately, as a union not a further
+dedup) at the tie-merge step below, since `tie_order` is part of an event's exported identity.
 
 `resolve.py` itself is **not modified** by this design — `resolve_turn_branches`'s existing,
 already-merged, already-tested 3-tuple return contract (`leaves, fallback_leaves, fork_records`)
@@ -207,10 +236,14 @@ def _evaluate_line_details(
         total = sum(w * _scored(out) for w, out in leaves)
         representative = leaves[0][1]
         representative.accuracy_branch_cap_hits = fallback_leaves  # unchanged existing side effect
-        events = _accuracy_events_from_leaves(all_actions, state, leaves, field)
+        events = _accuracy_events_from_leaves(all_actions, state, leaves, field, tie_order=tb)
         return LineEvaluation(
             score=total, representative_outcome=representative, leaves=leaves,
             fork_records=fork_records, fallback_leaves=fallback_leaves, accuracy_events=events,
+            tie_order_details=[TieOrderEvaluation(
+                tie_order=tb, weight=1.0, accuracy_leaf_count=len(leaves),
+                accuracy_branch_cap_hits=fallback_leaves, events_complete=(fallback_leaves == 0),
+            )],
         )
 
     if _force_tie_break is not None:
@@ -218,13 +251,34 @@ def _evaluate_line_details(
     if _has_genuine_tie(all_actions, field):
         d_first = _one("ours_first")
         d_last = _one("ours_last")
-        # Matches evaluate_line's existing tie-EV convention exactly: only ours_last's
-        # outcome/leaves/events survive into the result; ours_first only contributes its score.
+        # Round-4 fix: the score is a genuine 50/50 blend of BOTH orderings, so a
+        # cap-hit or event visible only under ours_first must not disappear from the
+        # telemetry just because only ours_last is kept as the representative outcome.
+        # representative_outcome/leaves/fork_records: UNCHANGED convention, d_last-only --
+        # these are informational trees (ko_probability/miss_punish_value inputs), not
+        # safety-gating, so they deliberately stay exactly as before this fix.
+        # fallback_leaves/accuracy_events: conservatively merged (summed / unioned) across
+        # BOTH evaluated orderings -- these ARE safety-gating (§4's cap-hit rate).
         return LineEvaluation(
             score=0.5 * (d_first.score + d_last.score),
             representative_outcome=d_last.representative_outcome,
             leaves=d_last.leaves, fork_records=d_last.fork_records,
-            fallback_leaves=d_last.fallback_leaves, accuracy_events=d_last.accuracy_events,
+            fallback_leaves=d_first.fallback_leaves + d_last.fallback_leaves,
+            accuracy_events=d_first.accuracy_events + d_last.accuracy_events,
+            tie_order_details=[
+                TieOrderEvaluation(
+                    tie_order="ours_first", weight=0.5,
+                    accuracy_leaf_count=len(d_first.leaves) if d_first.leaves else 0,
+                    accuracy_branch_cap_hits=d_first.fallback_leaves,
+                    events_complete=(d_first.fallback_leaves == 0),
+                ),
+                TieOrderEvaluation(
+                    tie_order="ours_last", weight=0.5,
+                    accuracy_leaf_count=len(d_last.leaves) if d_last.leaves else 0,
+                    accuracy_branch_cap_hits=d_last.fallback_leaves,
+                    events_complete=(d_last.fallback_leaves == 0),
+                ),
+            ],
         )
     return _one("ours_last")
 
@@ -235,7 +289,8 @@ def evaluate_line(...) -> tuple[float, TurnOutcome]:
 ```
 
 Every existing `evaluate_line` call site (all live sites in `decision.py`) needs zero changes —
-same signature, same return shape, byte-identical behavior.
+same signature, same return shape, byte-identical behavior (`representative_outcome` is untouched
+by the round-4 tie-merge fix, so `evaluate_line`'s own return value is unaffected).
 
 ### 2.4 Trace wiring (round-3 correction #2: per-response granularity, not a flat dict)
 
@@ -254,14 +309,33 @@ class AccuracyEventTrace:
     move_id: str
     hit_probability: float
     response_index: int  # index into rep_resps / DecisionTrace.opponent_responses
+    tie_order: str        # "ours_first" | "ours_last" -- which evaluated ordering saw this
+
+
+@dataclass
+class AccuracyTieOrderTrace:
+    tie_order: str
+    weight: float
+    accuracy_leaf_count: int
+    accuracy_branch_cap_hits: int
+    events_complete: bool
 
 
 @dataclass
 class AccuracyResponseDetail:
-    accuracy_leaf_count: int         # len(leaves) for this (candidate, response) -- real branch count
-    accuracy_event_count: int        # len(events) -- distinct uncertain events, NOT a leaf count
-    accuracy_branch_cap_hits: int    # fallback_leaves for this (candidate, response)
-    events: list[AccuracyEventTrace]
+    accuracy_leaf_count: int         # SUM across this response's evaluated tie orderings --
+    # a raw branch-count total across BOTH orderings when tied (not a single tree's leaf count;
+    # see `tie_orders` below for the per-ordering breakdown).
+    accuracy_event_count: int        # len(events) -- distinct uncertain events (unioned across
+    # tie orderings), NOT a leaf count.
+    accuracy_branch_cap_hits: int    # SUM across this response's evaluated tie orderings -- the
+    # safety-relevant quantity: >= 1 if EITHER evaluated ordering capped, since both orderings
+    # genuinely contributed to the score whenever this response was scored under a tie.
+    events_complete: bool            # accuracy_branch_cap_hits == 0 -- False means the exported
+    # `events` list is a KNOWN-PARTIAL view (branch_cap truncated discovery in at least one
+    # evaluated tie ordering) -- see §4 and §5 for how the diff report must handle this.
+    tie_orders: list[AccuracyTieOrderTrace]  # one entry (no tie) or two (genuine tie)
+    events: list[AccuracyEventTrace]         # union across tie orderings, each tagged tie_order
 
 
 @dataclass
@@ -271,14 +345,11 @@ class CandidateTrace:
     # score_vector/outcome_breakdowns, one entry per opponent response; [] when accuracy_mode off
 ```
 
-`accuracy_branch_cap_hits` already equals the capped-leaf count by construction (every `expand()`
-call that hits the cap immediately returns exactly one leaf — `resolve.py:417-419`), so no
-separate "fallback leaf count" field is added; `AccuracyResponseDetail.accuracy_branch_cap_hits`
-already is that count.
-
 `decision.py`'s `_breakdowns_for` (the one, pre-existing, already-separate call site described in
 §2.1) is modified to build both outputs from the same `_evaluate_line_details` call it already
-makes per response:
+makes per response — `LineEvaluation`'s own `fallback_leaves`/`accuracy_events`/
+`tie_order_details` are already tie-merged (§2.3), so `_breakdowns_for` just copies them across,
+no additional tie-handling logic needed here:
 
 ```python
 def _breakdowns_for(plan):
@@ -297,11 +368,22 @@ def _breakdowns_for(plan):
             )[1]
         )
         acc_details.append(AccuracyResponseDetail(
-            accuracy_leaf_count=len(d.leaves) if d.leaves is not None else 0,
+            accuracy_leaf_count=sum(t.accuracy_leaf_count for t in d.tie_order_details),
             accuracy_event_count=len(d.accuracy_events),
             accuracy_branch_cap_hits=d.fallback_leaves,
+            events_complete=(d.fallback_leaves == 0),
+            tie_orders=[
+                AccuracyTieOrderTrace(
+                    t.tie_order, t.weight, t.accuracy_leaf_count,
+                    t.accuracy_branch_cap_hits, t.events_complete,
+                )
+                for t in d.tie_order_details
+            ],
             events=[
-                AccuracyEventTrace(e.attacker, e.target, e.move_id, e.hit_probability, response_index=ri)
+                AccuracyEventTrace(
+                    e.attacker, e.target, e.move_id, e.hit_probability,
+                    response_index=ri, tie_order=e.tie_order,
+                )
                 for e in d.accuracy_events
             ],
         ))
@@ -362,16 +444,50 @@ docstring) — tracked, not fixed here, and not blocking this gate.
     (resample at the game level, matching §6's stratification and this project's established
     game-clustered-bootstrap convention from the value-calibration work) — not a naive
     per-decision CI, since multiple decisions from the same game are correlated, not independent.
+    **Pinned bootstrap parameters, not chosen after seeing results:** `B = 10,000` resamples,
+    one-sided 95% upper bound (the 95th percentile of the resampled rate distribution — not the
+    97.5th; a two-sided CI's upper endpoint is a different, more conservative quantity than a
+    proper one-sided bound, and only the upper bound is used for the PASS decision), a dedicated
+    RNG stream seeded `20260713` (the same numeric seed as §6's sampling seed, but instantiated as
+    a separate generator for this distinct purpose — sampling which games to use, and bootstrap
+    resampling from the already-fixed collected data, must not share one RNG stream).
+  - **Degenerate zero-event case, pinned now because a plain cluster bootstrap fails silently
+    here:** if the observed chosen-line cap-hit numerator is exactly `0` across the *entire*
+    replayed sample, every possible bootstrap resample can only ever redraw from all-zero games —
+    the percentile bootstrap distribution is a point mass at `0`, so its "upper bound" is `0` by
+    construction, not because the true rate is provably `0`. **This degenerate bootstrap number
+    must not be reported as evidence of a PASS.** Report it anyway, explicitly labeled
+    `[0%, 0%] (degenerate — not an upper bound; see game-level bound below)`, for format
+    consistency across runs, and additionally compute a real, non-degenerate bound: define
+    `game_has_cap_hit = 1` for a game if *any* replayed decision in that game triggered a
+    chosen-line cap-hit, else `0`; treat the `G` replayed games as (approximately) independent
+    draws (a materially weaker, more defensible assumption than "decisions are independent," since
+    within-game decisions are correlated but different games are not); compute the **exact
+    one-sided 95% Clopper-Pearson upper bound at 0 observed successes out of `G` trials**,
+    `p_upper = 1 - 0.05^(1/G)` (closed form; equivalent to the "rule of three" approximation
+    `≈ 3/G` for large `G`, but exact rather than approximate). At the full corpus's ~197 games this
+    is ≈1.5% (verified numerically); at a ~30-game fallback sample it would be ≈9.5% — **already
+    failing to reach a PASS even with zero observed cap-hits**, which is itself a concrete,
+    quantified reason (beyond runtime) to use the full corpus rather than a small sample (§6).
   - **Verdict bands, pinned now, not chosen after seeing results, and dependent on BOTH the point
-    estimate and the confidence interval — not the point estimate alone:**
-    - **PASS:** point estimate ≤5% **and** the game-clustered bootstrap CI's upper bound ≤5%.
-    - **INCONCLUSIVE:** point estimate ≤5% but the CI upper bound >5% — the sample is too
-      small/noisy to license a PASS. Report this honestly as a power limitation, not a soft pass.
-      Do not loosen the 5% threshold after seeing this outcome, whichever direction it points.
-    - **FAIL:** point estimate >5%, regardless of CI width.
+    estimate and the confidence interval — not the point estimate alone — with the zero-event case
+    handled separately from the nonzero case:**
+    - **If the observed numerator is 0:** PASS only if the game-level Clopper-Pearson upper bound
+      (above) is ≤5%; otherwise INCONCLUSIVE (not FAIL — zero observed events is not evidence of a
+      high true rate, just of an underpowered sample if `G` is small).
+    - **If the observed numerator is ≥1:** use the decision-level point estimate and the
+      game-clustered bootstrap's one-sided 95% upper bound.
+      - **PASS:** point estimate ≤5% **and** the bootstrap upper bound ≤5%.
+      - **INCONCLUSIVE:** point estimate ≤5% but the bootstrap upper bound >5% — the sample is too
+        small/noisy to license a PASS. Report this honestly as a power limitation, not a soft
+        pass. Do not loosen the 5% threshold after seeing this outcome, whichever direction it
+        points.
+      - **FAIL:** point estimate >5%, regardless of CI width.
     - This mirrors the already-learned lesson (`teacher-agreement-winrate-inversion`, this
       project's memory) that a point estimate alone, without respecting sampling uncertainty, can
-      produce a false sense of confidence.
+      produce a false sense of confidence — the zero-event branch is the sharpest form of that
+      lesson, since a naive reading of "0 observed" as "clean pass" is exactly the failure mode
+      that lesson warns about.
     - For an eventual production default-on decision (separate, later, not this gate), the target
       should sit meaningfully closer to 0% than this gate's 5% bar — 5% is this diagnostic gate's
       threshold, not the production bar.
@@ -384,7 +500,11 @@ docstring) — tracked, not fixed here, and not blocking this gate.
   **and have a mechanically plausible accuracy cause** — traceable to a specific
   `AccuracyEventTrace` entry for one of the diffing candidates, not an unexplained score wobble. A
   diff that can't be explained this way is a red flag to investigate separately, not to silently
-  fold into the accuracy-effect count.
+  fold into the accuracy-effect count. **If the relevant `AccuracyResponseDetail.events_complete`
+  is `False`** (branch_cap truncated discovery in at least one evaluated tie ordering — §2.4/§5),
+  the diff report must say so explicitly and report the discovered events as a **partial,
+  contributing** explanation only — never claim a complete mechanical explanation for a diff whose
+  event list is known-incomplete.
 
 ## 5. Per-diff capture schema (both gates)
 
@@ -406,14 +526,20 @@ For every decision where the chosen action differs between accuracy off and on, 
   run's top-K is absent from the other's, report it explicitly as "left/entered top-K" rather than
   silently excluding it from the comparison denominator.
 - `AccuracyEventTrace` entries (`attacker`, `target`, `move_id`, `hit_probability`,
-  `response_index`) for every accuracy-uncertain event, read from
+  `response_index`, `tie_order`) for every accuracy-uncertain event, read from
   `trace.candidates[i].accuracy_details[*].events` for whichever candidate is the off-chosen or
-  on-chosen one — the full per-response list, not a flattened dict (§2.4).
-- Per-candidate `accuracy_leaf_count` (real branch count), `accuracy_event_count` (distinct
-  uncertain-event count — **not** the same quantity as leaf count: two independent binary events
-  can produce 4 leaves; KO/Protect pruning can produce fewer), and `accuracy_branch_cap_hits`
-  (already the capped-leaf count by construction) — all read directly off
-  `CandidateTrace.accuracy_details`, summed/maxed across responses per §4's numerator rule.
+  on-chosen one — the full per-response, per-tie-order-tagged list, not a flattened dict (§2.4).
+  When a captured decision was a genuine tie, also capture `accuracy_details[*].tie_orders` (the
+  per-ordering `AccuracyTieOrderTrace` breakdown) so the diff report can say *which* evaluated
+  ordering an event or cap-hit came from, not just that one existed somewhere in the union.
+- Per-candidate, per-response `accuracy_leaf_count` (real branch count, summed across evaluated
+  tie orderings when tied — §2.4), `accuracy_event_count` (distinct uncertain-event count — **not**
+  the same quantity as leaf count: two independent binary events can produce 4 leaves; KO/Protect
+  pruning can produce fewer), `accuracy_branch_cap_hits` (summed across tie orderings; the
+  safety-relevant quantity — see §4's numerator rule), and `events_complete` (`False` means the
+  exported event list for that response is a known-partial view — §4 requires the diff report to
+  flag this, not claim full mechanical explanation) — all read directly off
+  `CandidateTrace.accuracy_details`.
 - Full diff taxonomy (move/target/switch/protect/other), **with Tera reported as its own explicit
   separate flag**, not folded into a generic "action changed" bucket.
 
@@ -492,30 +618,64 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
 - `_evaluate_line_details`/`LineEvaluation`: TDD, mirrors the existing `evaluate_line` test
   patterns from the merged accuracy slice.
   - Off-path byte-identical to today's `evaluate_line` output.
-  - On-path `leaves`/`fork_records`/`fallback_leaves` match what a direct `resolve_turn_branches`
-    call on the same inputs produces; tie-averaging case explicitly tested (only `ours_last`'s
-    `leaves`/`fork_records`/`accuracy_events` survive into the result, matching §2.3's code).
+  - On-path, no-tie case: `leaves`/`fork_records`/`fallback_leaves` match what a direct
+    `resolve_turn_branches` call on the same inputs produces.
+  - On-path, tie case: `representative_outcome`/`leaves`/`fork_records` come from `ours_last` only
+    (unchanged convention — a regression test pins this explicitly), while `fallback_leaves` is
+    the **sum** and `accuracy_events` is the **union** across both evaluated orderings (round-4
+    fix — see the next test).
   - `test_accuracy_events_use_full_leaf_union`: the regression test for round-3's discovery-bug
     fix — a scripted scenario (same shape as the merged slice's Task 4 KO-dependent regression
     test) where an event is only attempted in a miss-branch, asserting it **is** present in
     `LineEvaluation.accuracy_events` even though it is absent from `leaves[0][1].attempted_hits`.
+  - `test_tie_averaging_preserves_asymmetric_cap_hit_and_event` (round-4 fix, §2.3): a scripted
+    scenario with a genuine speed/priority tie where the `ours_first` action-queue ordering makes
+    an attacker act (and its accuracy event become attempted) before a KO removes the opportunity,
+    while the `ours_last` ordering's KO-before-act order removes that action before it ever
+    attempts — i.e. an event and/or a branch-cap hit that exists under exactly one of the two
+    evaluated tie orderings. Assert: (a) it **is** present in the merged `LineEvaluation.
+    accuracy_events`/counted in `fallback_leaves` even though it is absent from `ours_last` alone;
+    (b) `representative_outcome` is unchanged from what `ours_last` alone would produce (the fix
+    must not leak into the untouched representative-outcome convention); (c)
+    `tie_order_details` correctly attributes the event/cap-hit to its actual originating ordering.
   - `test_evaluate_line_details_repeat_call_identical` (§2.2): call `_evaluate_line_details` twice
     with byte-identical arguments and assert the two `LineEvaluation` results are equal on every
     field that participates in scoring or trace population — the determinism proof that replaces
     the false "same pass" claim.
-- **Frozen pre-refactor baseline (prerequisite step, before `_evaluate_line_details` lands):**
+  - `test_events_complete_reflects_branch_cap` (round-4 fix, §2.4): a scripted scenario forcing
+    `fallback_leaves >= 1` for one evaluated tie ordering asserts that ordering's
+    `TieOrderEvaluation.events_complete` is `False` and the merged `AccuracyResponseDetail.
+    events_complete` (§2.4) is `False`; a scenario with `fallback_leaves == 0` on every evaluated
+    ordering asserts `events_complete` is `True`.
+- **Frozen pre-refactor baseline — a hard checkpoint, exact sequencing pinned:**
   unset-vs-explicit-off comparison alone is insufficient once `evaluate_line` becomes a wrapper
   around `_evaluate_line_details` — both paths then route through the *same new code*, so a bug in
   the wrapper affects both equally and the two stay "equal to each other" while both silently
-  diverge from pre-refactor behavior. Before the refactor lands: run the **current, unmodified**
-  `heuristic_choose_for_request`/`evaluate_line` against a representative slice of the Gate B
-  corpus (recommend: one stratum from each turn-tercile × source-directory cell, or the full
-  corpus if runtime allows — see §6) and freeze the results (chosen action, score, request hash,
-  prefix hash) to a committed artifact. After the refactor, replay the identical slice and diff
-  against this frozen artifact — any difference is a refactor regression, full stop, independent
-  of the unset-vs-off env-parser test (which stays, as a narrower, different check: does env-var
-  parsing itself correctly treat unset/`"0"`/`"false"` as equivalent — a unit-level concern, not a
-  behavioral-regression one).
+  diverge from pre-refactor behavior. Exact order, to be reflected directly in the implementation
+  plan's task sequencing:
+  1. Finish and land the `room_raw_replay` extraction module (§6) first.
+  2. **Before any `_evaluate_line_details`/`LineEvaluation` code lands:** run the **current,
+     unmodified** `heuristic_choose_for_request`/`evaluate_line` in `SHOWDOWN_ACCURACY_MODE=off`
+     against the **full valid corpus** (§6's ~2775-decision primary plan) and freeze the results
+     (chosen action, score, request hash, prefix hash) to a committed artifact. If the full corpus
+     is empirically too expensive for this specific step (measured, not assumed), fall back to the
+     **exact same** deterministic game-level sample already pinned in §6 (seed `20260713`, same
+     stratification/selection rule) — not a different, separately-chosen slice.
+  3. This baseline artifact is a **hard checkpoint**: the `_evaluate_line_details` refactor task
+     must not start until it exists and is committed, and once frozen, it is **never regenerated**
+     — if a later comparison against it looks wrong, that is itself a signal to investigate (a
+     refactor bug, or a baseline-collection bug), not a reason to silently re-run and replace it.
+  4. After the refactor lands, replay the identical corpus/sample and diff against the frozen
+     artifact — any difference is a refactor regression, full stop, independent of the
+     unset-vs-off env-parser test (which stays, as a narrower, different check: does env-var
+     parsing itself correctly treat unset/`"0"`/`"false"` as equivalent — a unit-level concern,
+     not a behavioral-regression one).
+- `test_bootstrap_zero_events_uses_game_level_bound` (round-4 fix, §4): given a synthetic result
+  set with zero chosen-line cap-hit decisions across `G` games, assert the report (a) labels the
+  plain bootstrap CI as degenerate rather than presenting it as evidence, (b) computes the
+  game-level Clopper-Pearson upper bound via the pinned closed form, and (c) reaches the correct
+  verdict (PASS only if that bound is ≤5%, else INCONCLUSIVE) — plus a second case with `G` small
+  enough that the bound exceeds 5%, asserting INCONCLUSIVE rather than a false PASS or FAIL.
 - `test_decision_trace_candidates_rank_sorted` (§5's point-8 fix): asserts
   `[c.rank for c in trace.candidates] == list(range(len(trace.candidates)))` on a real decision
   trace, so any future change to `decision.py`'s candidate-construction code that breaks this
