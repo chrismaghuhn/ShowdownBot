@@ -1,12 +1,14 @@
 # Accuracy Off/On Offline Decision-Diff Gate — Design
 
-**Status:** spec-ready (incorporates 5 rounds of corrections; round 3 fixed two real architecture
+**Status:** plan-ready (incorporates 6 rounds of corrections; round 3 fixed two real architecture
 errors — an event-discovery bug re-introduced at the diagnostic layer, and an unverified "same
 pass" claim; round 4 fixed a tie-averaging telemetry gap, a degenerate-bootstrap statistical gap,
 and 2 smaller precision fixes; round 5 fixed a real corpus-independence error — the ~197-file
-corpus is confirmed, not assumed, to contain massive reproduction-rerun duplication, corrected to
-a provisional ~85-unique-battle count pending a systematic dedup step — plus removed an
-ill-defined game-level sampling stratum)
+corpus is confirmed, not assumed, to contain massive reproduction-rerun duplication — plus removed
+an ill-defined game-level sampling stratum; round 6, found during plan-writing, fixed the dedup
+design's own identity key — `schedule_hash` doesn't belong in it, only `(seed_base, seed_index)`
+does — and pinned an explicit a-priori exclusion for `room_raw_divergent`. `G = 85` is now
+**verified** directly against the real committed manifests, not provisional)
 **Scope:** an evaluation/measurement task, not a new bot feature. Gates three downstream
 decisions — flipping `SHOWDOWN_ACCURACY_MODE`'s default, a new strength baseline, and Depth-2
 Stage 3 — none of which start until this gate's numbers exist and are reviewed. No default-on,
@@ -48,11 +50,13 @@ reference). `t6/room_raw/run2` is, the same way, a confirmed reproduction re-run
 34-seed schedule (`schedule_hash 3076a71aa6841c8c`, seed logs byte-identical at all 34 indices).
 
 **Net effect: at most two genuinely independent seed schedules exist across all 197 files** —
-`t4`'s 51 seeds (canonically `run1`) and `t6`'s 34 seeds (canonically `run1`) — giving a
-**provisional G ≈ 85 unique battles**, not 197. This number is provisional, not final: it is
-strong directional evidence from reading committed provenance manifests, not yet the output of
-the systematic dedup step §6 requires before Gate B runs. Every "~2775 decisions" / "197 games" /
-"1.5% zero-event bound" figure anywhere in an earlier round of this spec was computed against the
+`t4`'s 51 seeds (canonically `run1`) and `t6`'s 34 seeds (canonically `run1`) — giving **G = 85
+unique battles**, not 197. This is now **verified**, not provisional: directly confirmed by joining
+all 190 regular-directory files (excluding `room_raw_divergent`'s 7) against their real results
+manifests and collapsing on `(seed_base, seed_index)` — see §6 point 5 for the exact join sources
+and the identity-key correction (`schedule_hash` does not belong in the key) found while writing
+the implementation plan. Every "~2775 decisions" / "197 games" / "1.5% zero-event bound" figure
+anywhere in an earlier round of this spec was computed against the
 wrong denominator and must be treated as superseded by §6's corrected, dedup-first numbers.
 
 **Gate B's own scope boundary, stated explicitly in the TL;DR of its report:** the corpus's hero
@@ -601,32 +605,65 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
    reproduction re-runs or literal copies of two underlying seed schedules (t4's 51, t6's 34), not
    197 independent battles. This step turns that finding into a systematic, reproducible procedure
    rather than a one-off manual exclusion list:
-   - **Primary key: `(schedule_hash, seed_base, seed_index)` cross-referenced against each
-     directory's own committed provenance manifest** (`*-seedlog.jsonl`, `provenance.json`) — NOT
-     the battle/room ID visible in filenames. This correction matters and is evidence-based, not a
-     style preference: Showdown assigns a **fresh, effectively arbitrary room-id slug at
-     battle-creation time regardless of whether the underlying seed is a replay** — confirmed
-     directly in §1's investigation, where `t4/rerun/room_raw/run1` and `run2` carry entirely
-     different `battle-gen9vgc2025regi-NNN` filenames for what their own seed logs prove are the
-     *same* seeded scenario. A room/battle-ID-keyed dedup would silently miss every one of these
-     real duplicates. Two files with matching `(schedule_hash, seed_base, seed_index)` are the same
-     underlying battle; keep exactly one (prefer the lowest-numbered/canonical run — e.g. `run1`
-     over `run2`, full runs over `prefix`) and record the rest as excluded duplicates.
+   - **Primary key: `(seed_base, seed_index)` — NOT `schedule_hash`, and NOT the battle/room ID
+     visible in filenames.** Two corrections here, both evidence-based, verified directly against
+     the real committed manifests, not assumed:
+     - Room/battle ID doesn't work: confirmed directly in §1's investigation, Showdown assigns a
+       **fresh, effectively arbitrary room-id slug at battle-creation time regardless of whether
+       the underlying seed is a replay** — `t4/rerun/room_raw/run1` and `run2` carry entirely
+       different `battle-gen9vgc2025regi-NNN` filenames for what their own seed logs prove are the
+       *same* seeded scenario.
+     - **`schedule_hash` also doesn't belong in the key — including it silently under-counts
+       duplicates.** `schedule_hash` is a hash of the *schedule YAML file's content*, not a
+       component of battle identity: `derive_battle_seed(seed_base, seed_index)`
+       (`eval/seeding.py`) is a pure function of `seed_base`+`seed_index` alone. Verified directly:
+       `t4/rerun/t4rerun-prefix.jsonl`'s rows carry a *different* `schedule_hash` from
+       `t4rerun-run1.jsonl`'s (different YAML file — `t4_smoke_v001_prefix.yaml` vs
+       `t4_smoke_v001.yaml`) despite sharing the same `seed_base` (`t4rerun2026`), and their actual
+       `seed` **values** at matching `seed_index` 0-9 are byte-identical to `t4rerun-run1.jsonl`'s
+       and to `kaggle-validation/results.jsonl`'s. A `schedule_hash`-inclusive key would treat
+       `prefix`/`kaggle-validation` as a third independent 10-battle group; they are actually
+       duplicates of `run1`'s own first 10 battles. Cross-referenced against each directory's own
+       committed **results manifest** (`t4-run1.jsonl`-shaped rows carrying `room_raw_path`,
+       `seed_base`, `seed_index` per battle — not the separate, sparser `*-seedlog.jsonl` files,
+       which lack `seed_index`/`schedule_hash` entirely). Two files with matching `(seed_base,
+       seed_index)` are the same underlying battle; keep exactly one (prefer the lowest-numbered/
+       canonical run — e.g. `run1` over `run2`, full runs over `prefix`/`kaggle-validation`) and
+       record the rest as excluded duplicates.
    - **Secondary, defense-in-depth: content-level dedup via `(request_hash, log_prefix_hash,
      side)`** for any file lacking a clean provenance-manifest match, or to catch coincidental
      overlap the manifest-based pass didn't anticipate — this is the mechanism originally proposed
      as primary; it remains valid, just demoted to a fallback/cross-check since the manifest-based
      key is the one actually proven (§1) to catch this corpus's real duplication pattern.
+   - **`t4/room_raw_divergent`'s 7 files are excluded outright — never manifest-joined, never
+     admitted via the content-hash fallback, regardless of content divergence.** Their filenames
+     directly encode already-known run/index references (`run1-idx09`, `run2-idx19`,
+     `prefix-idx09`, ...) — they are diagnostic captures of specific, already-counted schedule
+     positions that happened to diverge between `run1`/`run2` due to a since-fixed determinism bug,
+     not new independent battles. Because they were deliberately preserved *as evidence of
+     divergence*, their content can legitimately differ from their source file's — a content-hash
+     fallback would then wrongly admit them as "new" independent content and inflate `G`. Recognize
+     and exclude them by directory/filename pattern before either the manifest-join or
+     content-hash path runs; they may optionally be used as a separately-labeled stress/extractor
+     test set, but never counted toward Gate B's confirmatory corpus or `G`.
    - Prefix/partial-copy files (any file whose full request sequence is a strict prefix of an
      already-kept file's sequence) are never counted as separate battles, regardless of which key
      caught them.
    - **`G`, used for both the bootstrap and the Clopper-Pearson bound (§4), is the number of
      unique battles remaining after this dedup — not the number of `.gz` files.**
    - Report, as separate numbers, not folded together: files found (197), unique battles kept,
-     duplicates/partial-copies excluded (with which key caught each), and the final `G`.
-   - §1's ~85-unique-battle figure is **provisional** — directional evidence from reading
-     provenance manifests, not yet this step's actual output. Treat it as a planning estimate only;
-     the real `G` comes from running this procedure.
+     duplicates/partial-copies excluded (with which key caught each, including the divergent-set's
+     explicit a-priori exclusion as its own reason), and the final `G`.
+   - **`G = 85` is now verified, not provisional** — directly confirmed against the real committed
+     manifests (`t4/rerun/t4rerun-{run1,run2,prefix}.jsonl`, `t6/t6-run1.jsonl`, `t6/t6-run2.jsonl`,
+     `kaggle-validation/results.jsonl`): 190 regular-directory files (the 197-file corpus minus
+     `room_raw_divergent`'s 7) collapse to exactly 85 unique `(seed_base, seed_index)` identities —
+     `t4`'s 51 (`run1`'s own seeds) + `t6`'s 34 (`run1`'s own seeds); `t4`'s `run2` (51),
+     `prefix`(10), and `kaggle-validation`(10) are each fully redundant with `run1`'s seeds (t4) or
+     `prefix`'s own first-10 seeds (kaggle), and `t6`'s `run2` (34) is fully redundant with `t6`
+     `run1`'s seeds. §4's `≈3.46%` zero-event bound at `G=85` (already computed there) stands
+     unchanged — this correction fixes *how* 85 is derived and which files the implementation must
+     join against, not the number itself.
 6. **Gate B (the confirmatory run) uses the full deduplicated corpus only — no fallback sampling
    by default.** A 50-decision timed dry-run is run **purely to estimate total runtime** (at the
    Task 8 latency benchmark's per-decision cost, the full deduplicated corpus × 2 (off + on) is
@@ -753,13 +790,16 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
 - `test_global_dedup_uses_seed_schedule_not_room_id` (round-5 fix, §6 point 5): the concrete,
   already-known-true regression case — feed the extractor's dedup pass a scenario shaped exactly
   like `t4/rerun/room_raw/run1` vs `run2` (two files with different filename/room-id patterns but
-  matching `(schedule_hash, seed_base, seed_index)` from their provenance manifests) and assert
-  only one is kept, with the other recorded as an excluded duplicate — proving the primary key is
-  actually the seed/schedule identity, not the room-id string a naive dedup could be tempted to use
-  instead (§6 explains why room-id alone provably misses this corpus's real duplicates). Run this
-  against the actual `t4`/`t6` provenance manifests as an integration-level check, not only a
-  synthetic unit fixture, since the real dedup ratio (~197 files → ~85 unique battles, provisional)
-  is itself a claim this gate's credibility depends on.
+  matching `(seed_base, seed_index)` from their results manifests) and assert only one is kept,
+  with the other recorded as an excluded duplicate — proving the primary key is actually the
+  seed identity, not the room-id string a naive dedup could be tempted to use instead (§6 explains
+  why room-id alone provably misses this corpus's real duplicates), and not the over-strict
+  `schedule_hash`-inclusive key that would under-count `prefix`/`kaggle-validation`'s overlap with
+  `run1`. Also assert `t4/room_raw_divergent`'s 7 files never enter this pass at all (excluded
+  a-priori, not merely "no match found"). Run this against the actual `t4`/`t6` provenance
+  manifests as an integration-level check, not only a synthetic unit fixture, since the real dedup
+  ratio (197 files → 85 unique battles, verified — §6) is itself a claim this gate's credibility
+  depends on.
 - Gate A and Gate B scripts themselves: not TDD (measurement/report tasks, following the Task 8
   precedent within the merged slice) — real, honest numbers, no fabrication, explicit reporting of
   any cap/sampling/exclusion so nothing is silently dropped.
