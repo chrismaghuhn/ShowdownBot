@@ -33,6 +33,14 @@ SHOWDOWN_BOT_ROOT = SCRIPT_DIR.parent
 REPO_ROOT = SHOWDOWN_BOT_ROOT.parent
 sys.path.insert(0, str(SHOWDOWN_BOT_ROOT / "src"))
 
+# Pinned statistics constants, imported (not hand-typed) so this permanent, reusable renderer
+# can never silently drift from accuracy_gate_stats.py's actual pinned values.
+from showdown_bot.eval.accuracy_gate_stats import (  # noqa: E402
+    BOOTSTRAP_RESAMPLES,
+    BOOTSTRAP_SEED,
+    PASS_THRESHOLD,
+)
+
 OUT_DIR = REPO_ROOT / "data" / "eval" / "accuracy-gate"
 GATE_A_JSON = OUT_DIR / "gate-a-report.json"
 GATE_B_JSON = OUT_DIR / "gate-b-report.json"
@@ -47,6 +55,26 @@ def _fmt(value) -> str:
 
 
 def render_gate_a_markdown(obj: dict) -> str:
+    field_variant_count = len(obj["field_variants"])
+    all_clean = obj["exception_count"] == 0 and obj["diff_count"] == 0
+    if all_clean:
+        result_prose = (
+            f"Zero exceptions, zero action diffs across all {obj['row_count']} "
+            f"(board x field-variant) combinations -- `SHOWDOWN_ACCURACY_MODE=1` runs cleanly "
+            f"and does not change the chosen action on any of the {obj['board_count']} boards "
+            f"swept under any of the {field_variant_count} field variants swept. This is a "
+            f"necessary precondition for a real Gate B run, not a substitute for one."
+        )
+    else:
+        result_prose = (
+            f"**{obj['exception_count']} exception(s) and {obj['diff_count']} action diff(s)** "
+            f"occurred across the {obj['row_count']} (board x field-variant) combinations -- "
+            f"this run is NOT clean; see the rows table below for exactly which "
+            f"(board, field_variant) pairs raised or changed action. Per spec Sec.1 this "
+            f"remains only a smoke test either way (it cannot license anything on its own), but "
+            f"a nonzero count here means the clean-run precondition a Gate B run would ideally "
+            f"want does not hold for this particular sweep."
+        )
     lines = [
         "# Gate A Report -- Smoke Test", "",
         "**This is a smoke test. Per spec Sec.1, Gate A cannot license anything on its own** "
@@ -59,7 +87,7 @@ def render_gate_a_markdown(obj: dict) -> str:
         f"- source commit: `{obj['source_commit']}`",
         f"- boards swept: {obj['board_count']} (`primary`, `single_target`)",
         f"- field variants swept: {', '.join(obj['field_variants'])} "
-        f"({len(obj['field_variants'])} variants)",
+        f"({field_variant_count} variants)",
         f"- total rows (boards x variants): {obj['row_count']}",
         f"- elapsed seconds: {obj['elapsed_seconds']}",
         f"- **exception count: {obj['exception_count']}**",
@@ -67,10 +95,7 @@ def render_gate_a_markdown(obj: dict) -> str:
         "",
         "## Result",
         "",
-        "Zero exceptions, zero action diffs across all 14 (board x field-variant) combinations "
-        "-- `SHOWDOWN_ACCURACY_MODE=1` runs cleanly and does not change the chosen action on "
-        "either fixed board under any of the 7 field variants swept. This is a necessary "
-        "precondition for a real Gate B run, not a substitute for one.",
+        result_prose,
         "",
         "## All rows", "",
         "| board | field_variant | action_changed | exception | off_chosen_action | on_chosen_action |",
@@ -88,6 +113,49 @@ def render_gate_a_markdown(obj: dict) -> str:
         "accuracy-offline-gate plan's Task 11 instructions).", "",
     ]
     return "\n".join(lines) + "\n"
+
+
+def _exclusion_bias_bound_sentence(
+    *, numerator: int, exception_count: int, total_move: int, pass_threshold: float,
+) -> str:
+    """Spec-honest exclusion-bias bound: the excluded (exception-raising) decisions are not part
+    of the cap-hit numerator/denominator at all, so state explicitly how far the rate could move
+    under the most extreme hypothetical treatment of them, rather than leaving a reader to derive
+    it themselves. Computed fresh from the real counts every render -- never hand-typed, so it
+    can't silently go stale if a future re-run's numbers differ from today's. Deliberately does
+    NOT assume the verdict is always FAIL (today's data): the robustness conclusion is derived
+    from where the two bounds actually fall relative to `pass_threshold`, so this stays correct
+    if a future re-run's numbers move the point estimate near/below the threshold."""
+    if total_move <= 0 or exception_count == 0:
+        return (
+            "No decisions were excluded by an exception this run, so no exclusion-bias bound "
+            "applies -- the reported rate already reflects the full corpus."
+        )
+    low = numerator / total_move
+    high = (numerator + exception_count) / total_move
+    threshold_pct = pass_threshold * 100
+    if low > pass_threshold and high > pass_threshold:
+        robustness = (
+            f"both bounds are still decisively above the {threshold_pct:.0f}% threshold -- the "
+            f"verdict is robust to how this exclusion is treated"
+        )
+    elif low <= pass_threshold and high <= pass_threshold:
+        robustness = (
+            f"both bounds stay at or below the {threshold_pct:.0f}% threshold -- the verdict is "
+            f"robust to how this exclusion is treated"
+        )
+    else:
+        robustness = (
+            f"the bounds straddle the {threshold_pct:.0f}% threshold -- the verdict IS sensitive "
+            f"to how this exclusion is treated and should not be read as settled without "
+            f"resolving the {exception_count} exclusions"
+        )
+    return (
+        f"Even under the most extreme hypothetical treatment of the {exception_count} excluded "
+        f"decisions (all resolve as cap-hits, or none do), the rate ranges "
+        f"{low * 100:.1f}%-{high * 100:.1f}% ({numerator}/{total_move} to "
+        f"{numerator + exception_count}/{total_move}): {robustness}."
+    )
 
 
 def render_gate_b_markdown(obj: dict) -> str:
@@ -162,6 +230,11 @@ def render_gate_b_markdown(obj: dict) -> str:
         "non-move slot action as the bare kind string, e.g. 'switch', dropping the target mon) "
         "makes candidate_id ambiguous here; refusing to guess which one was actually chosen`",
         "",
+        "**Exclusion-bias bound:** " + _exclusion_bias_bound_sentence(
+            numerator=detail.get("numerator", 0), exception_count=acc["exception_count"],
+            total_move=obj["decision_kind_counts"].get("move", 0), pass_threshold=PASS_THRESHOLD,
+        ),
+        "",
         "Full list (request_hash, ambiguous label, candidate match count):", "",
         "| request_hash | ambiguous candidate_id | matches |",
         "| --- | --- | ---: |",
@@ -185,22 +258,24 @@ def render_gate_b_markdown(obj: dict) -> str:
         lines += [
             f"- branch used: **nonzero -- game-clustered bootstrap** "
             f"(numerator > 0, so the zero-event Clopper-Pearson branch does not apply)",
-            f"- bootstrap upper bound (one-sided 95%, B=10,000 resamples, game-clustered): "
+            f"- bootstrap upper bound (one-sided 95%, B={BOOTSTRAP_RESAMPLES:,} resamples, "
+            f"seed {BOOTSTRAP_SEED}, game-clustered): "
             f"{_fmt(detail.get('bootstrap_ci_upper'))}",
-            f"- PASS threshold: 0.05",
-            f"- verdict logic: point_estimate ({_fmt(detail.get('point_estimate'))}) > 0.05 "
-            f"-> **FAIL is asserted directly from the point estimate**, without even needing "
-            f"the bootstrap upper bound (which is still reported above for completeness)."
+            f"- PASS threshold: {PASS_THRESHOLD}",
+            f"- verdict logic: point_estimate ({_fmt(detail.get('point_estimate'))}) > "
+            f"{PASS_THRESHOLD} -> **FAIL is asserted directly from the point estimate**, "
+            f"without even needing the bootstrap upper bound (which is still reported above "
+            f"for completeness)."
             if obj["cap_hit_verdict"] == "FAIL" else
-            f"- verdict logic: point_estimate <= 0.05 and bootstrap_ci_upper vs 0.05 "
-            f"determines PASS/INCONCLUSIVE.",
+            f"- verdict logic: point_estimate <= {PASS_THRESHOLD} and bootstrap_ci_upper vs "
+            f"{PASS_THRESHOLD} determines PASS/INCONCLUSIVE.",
         ]
     elif detail.get("bootstrap_ci_degenerate") is True:
         lines += [
             "- branch used: **zero-event Clopper-Pearson** (numerator == 0)",
             f"- Clopper-Pearson one-sided 95% upper bound: "
             f"{_fmt(detail.get('clopper_pearson_upper_bound'))}",
-            "- PASS threshold: 0.05",
+            f"- PASS threshold: {PASS_THRESHOLD}",
         ]
     else:
         lines.append(f"- raw detail: `{json.dumps(detail, sort_keys=True)}`")

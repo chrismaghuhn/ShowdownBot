@@ -13,7 +13,7 @@
 
 ## Result
 
-Zero exceptions, zero action diffs across all 14 (board x field-variant) combinations -- `SHOWDOWN_ACCURACY_MODE=1` runs cleanly and does not change the chosen action on either fixed board under any of the 7 field variants swept. This is a necessary precondition for a real Gate B run, not a substitute for one.
+Zero exceptions, zero action diffs across all 14 (board x field-variant) combinations -- `SHOWDOWN_ACCURACY_MODE=1` runs cleanly and does not change the chosen action on any of the 2 boards swept under any of the 7 field variants swept. This is a necessary precondition for a real Gate B run, not a substitute for one.
 
 ## All rows
 

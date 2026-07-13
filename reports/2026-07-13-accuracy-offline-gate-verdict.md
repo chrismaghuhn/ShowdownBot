@@ -133,6 +133,16 @@ bug in this run — it is documented, expected, correctly-caught behavior, repor
 excluded/reported exception set, not something "fixed" here.** The full 63-row table
 (`request_hash`, ambiguous label, match count) is in `gate-b-report.md`.
 
+**Exclusion-bias bound (recomputed directly from `gate-b-report.json`, not assumed):** the 63
+excluded decisions are not part of the 881/114 cap-hit numerator/denominator above, so it's worth
+stating explicitly how much they could move the rate under the most extreme hypothetical
+treatment, rather than leaving a reader to derive it. Treating all 63 as non-cap-hits (folding
+them into the denominator with zero additional hits) gives 114/944 = 12.1%; treating all 63 as
+cap-hits (folding them into both numerator and denominator) gives 177/944 = 18.8%. **Even under
+this most extreme hypothetical treatment of the 63 excluded decisions, the rate ranges
+12.1%-18.8%, still decisively above the 5% threshold — the FAIL verdict is robust to how this
+exclusion is treated.**
+
 ### Cap-hit verdict (spec §4)
 
 | field | value |
@@ -212,7 +222,9 @@ per this task's explicit instructions.
 
 **Still open. Not touched by this task, this plan, or any task in this plan.** Per the design
 spec §3: the already-merged `AccuracyDiagnostics.accuracy_required` field
-(`battle/evaluate.py:376, 414-426`) is misnamed — its docstring calls it "a derived threshold
+(`battle/evaluate.py`, `AccuracyDiagnostics` class / `accuracy_diagnostics()` function — cited by
+name, not line number, since line numbers drift and the design spec's own cited lines were
+already stale by this task) is misnamed — its docstring calls it "a derived threshold
 above which a risky line becomes advantageous," but the actual implementation just assigns
 `hit_probability(...)`'s raw return value to it, with no threshold derivation at all. This gate
 does not use or touch `AccuracyDiagnostics.accuracy_required` anywhere — Gate A/B's own types

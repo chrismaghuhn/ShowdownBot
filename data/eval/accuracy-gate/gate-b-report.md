@@ -41,6 +41,8 @@ All exceptions this run are `RuntimeError` raised by `_chosen_candidate` (`eval/
 
 > `RuntimeError: ambiguous chosen_candidate_id='<label>' matches 2 candidates -- _label_ja's non-injective switch-slot labeling (decision.py's _label_ja renders every non-move slot action as the bare kind string, e.g. 'switch', dropping the target mon) makes candidate_id ambiguous here; refusing to guess which one was actually chosen`
 
+**Exclusion-bias bound:** Even under the most extreme hypothetical treatment of the 63 excluded decisions (all resolve as cap-hits, or none do), the rate ranges 12.1%-18.8% (114/944 to 177/944): both bounds are still decisively above the 5% threshold -- the verdict is robust to how this exclusion is treated.
+
 Full list (request_hash, ambiguous label, candidate match count):
 
 | request_hash | ambiguous candidate_id | matches |
@@ -117,7 +119,7 @@ Full list (request_hash, ambiguous label, candidate match count):
 - point estimate (rate): 0.129398
 - g (distinct games / battles): 85
 - branch used: **nonzero -- game-clustered bootstrap** (numerator > 0, so the zero-event Clopper-Pearson branch does not apply)
-- bootstrap upper bound (one-sided 95%, B=10,000 resamples, game-clustered): 0.161331
+- bootstrap upper bound (one-sided 95%, B=10,000 resamples, seed 20260713, game-clustered): 0.161331
 - PASS threshold: 0.05
 - verdict logic: point_estimate (0.129398) > 0.05 -> **FAIL is asserted directly from the point estimate**, without even needing the bootstrap upper bound (which is still reported above for completeness).
 
