@@ -14,6 +14,12 @@ _CONFIG = Path(__file__).resolve().parents[3] / "config"
 _MOVEDATA = _CONFIG / "moves" / "movedata.json"
 _EFFECT_CLASSES = _CONFIG / "moves" / "effect_classes.yaml"
 
+
+def movedata_path() -> Path:
+    """Public accessor for the generated move-data file path, for provenance hashing
+    (config_hash) -- avoids reaching across modules for the private _MOVEDATA constant."""
+    return _MOVEDATA
+
 # Gen-9 terrain-priority moves (the one field @pkmn/dex does not expose as a
 # simple value). Grassy Glide gains +1 priority in Grassy Terrain.
 _TERRAIN_PRIORITY: dict[str, str] = {"grassyglide": "Grassy"}

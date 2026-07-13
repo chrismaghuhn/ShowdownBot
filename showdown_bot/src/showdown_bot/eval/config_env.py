@@ -175,12 +175,16 @@ def behavior_env(environ=None) -> dict[str, str]:
 
 
 def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=None,
-                          model_hash=None, model_manifest_hash=None) -> dict:
+                          model_hash=None, model_manifest_hash=None, movedata_hash=None) -> dict:
     """Assemble the effective-config manifest that ``make_config_hash`` hashes.
 
     ``env`` defaults to ``behavior_env()``. ``model_hash``/``model_manifest_hash`` are
     included ONLY when provided (i.e. when the reranker is enabled), so a reranker-off run
-    and a reranker-on run never collide."""
+    and a reranker-on run never collide. ``movedata_hash`` is a content hash of
+    ``config/moves/movedata.json`` -- included whenever provided (unconditionally by the
+    caller, mirroring ``priors_hash``/``spreads_hash``, not gated behind
+    ``SHOWDOWN_ACCURACY_MODE``), so two runs with different accuracy data never share a
+    config lineage even when the accuracy feature itself is off."""
     manifest = {
         "agent": agent,
         "format_id": format_id,
@@ -192,4 +196,6 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
         manifest["model_hash"] = model_hash
     if model_manifest_hash is not None:
         manifest["model_manifest_hash"] = model_manifest_hash
+    if movedata_hash is not None:
+        manifest["movedata_hash"] = movedata_hash
     return manifest

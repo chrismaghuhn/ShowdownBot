@@ -353,3 +353,28 @@ def test_accuracy_mode_parser_matrix(monkeypatch, raw, expected):
     else:
         monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", raw)
     assert _accuracy_mode() is expected
+
+
+# --- movedata_hash provenance (accuracy-slice Task 7) -----------------------------------
+
+def test_build_config_manifest_includes_movedata_hash_when_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s",
+        movedata_hash="mv1", env={},
+    )
+    assert m["movedata_hash"] == "mv1"
+
+
+def test_build_config_manifest_movedata_hash_absent_when_not_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s", env={},
+    )
+    assert "movedata_hash" not in m
+
+
+def test_config_hash_changes_when_movedata_hash_differs():
+    m1 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv1", env={})
+    m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv2", env={})
+    assert make_config_hash(m1) != make_config_hash(m2)
