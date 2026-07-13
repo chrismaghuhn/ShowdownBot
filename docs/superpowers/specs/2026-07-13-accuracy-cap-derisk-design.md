@@ -50,76 +50,152 @@ key, same `G=85`. The frozen `data/eval/accuracy-gate/pre-refactor-baseline.json
 cap-independent by construction — the off-path never consults `SHOWDOWN_ACCURACY_BRANCH_CAP` at
 all) is read-only and cited by content hash, never re-run, never modified.
 
-`accuracy_gate_b.py::run_gate_b`, `accuracy_gate_stats.py::verdict_for_cap_hit_rate`, and
-`accuracy_baseline_diff.py::diff_against_baseline` are used **unmodified**. The only new code is
-new scripts under `showdown_bot/scripts/` and a new eval module for the decision-key/diagnostic
-logic described below.
+`accuracy_gate_b.py::run_gate_b` and `accuracy_gate_stats.py::verdict_for_cap_hit_rate` are used
+**unmodified**. `accuracy_baseline_diff.py` is **also left unmodified**, but is *not* this study's
+main comparator (see §2.4 — its `request_hash`-only pairing and `chosen_action OR score` regression
+rule don't fit this study's needs; it may run at most as an optional legacy cross-check on its
+original off-refactor use case). The only new code is new scripts under `showdown_bot/scripts/`
+and a new eval module (`showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py` or similar,
+exact name decided during plan-writing) for the decision-key/comparator/diagnostic logic below.
 
-### 2.2 `decision_id` — stable multi-field key, not bare `request_hash`
+### 2.2 `decision_id` — fixed now, one schema for every table
 
-`request_hash` alone is not assumed to be a safe primary key across four different tables (frozen
-off, cap4-auxiliary, cap6, cap8) built at different times by different runs. Every table in this
-study keys on a composite `decision_id`:
+Confirmed against the current code (not deferred): `ExtractedDecision` already carries
+`request_hash`, `log_prefix_hash`, `side`, `turn`, and `request.rqid`; the dedup layer's manifest
+join already carries `seed_base`, `seed_index` per kept file. The canonical identity, fixed now,
+used for every table in this study with no alternative schema:
 
 ```
-(seed_base, seed_index_or_canonical_battle_id, request_hash, log_prefix_hash, side, rqid_or_turn)
+decision_id = sha256(canonical_json([seed_base, seed_index, request_hash, log_prefix_hash, side, rqid, turn]))
 ```
 
-The exact field sourcing (which of these already exist on `ExtractedDecision`/the dedup manifest
-vs. need threading through at extraction time) is verified against the real current code as the
-first implementation step — do not assume field names/paths without checking, per this project's
-established discipline for every prior task in this lineage.
+**Before any table is used for anything:**
+- Compute `decision_id` for all 944 extracted decisions and assert exactly 944 unique values —
+  fail closed (raise) on any collision, do not proceed past this check.
+- The frozen `pre-refactor-baseline.jsonl` predates this scheme and has no `decision_id` column —
+  pairing it into this study's `decision_id` space is a **one-time enrichment**, not a repeated
+  join: for each frozen baseline row, join on `request_hash` to find its candidate `decision_id`,
+  then additionally cross-check `log_prefix_hash`, `side`, and `turn` against that same row before
+  accepting the match (guards against a `request_hash` collision silently pairing the wrong
+  decision). Zero matches or more than one match after this cross-check is fail-closed — raise, do
+  not guess or drop.
+- The frozen baseline file itself is never modified by this enrichment. The result is a new,
+  derived, read-only mapping artifact stored under `data/eval/accuracy-cap-derisk/`
+  (`decision-id-manifest.jsonl`, §4) — the frozen file's own directory stays untouched.
 
-**Fail-closed uniqueness, asserted before any comparison runs**: before extracting/replaying,
-assert `decision_id` is unique across all 944 extracted decisions. Before pairing any two tables
-(off/cap4/cap6/cap8) by `decision_id`, assert every key present in one table that's expected in the
-other actually is — a decision present in one table and silently absent from another is a fail-closed
-error (raise, do not drop), not a silently-shrunk denominator. This mirrors the fail-closed pattern
-already established in `room_raw_replay.py`'s `SeedIdentityConflictError` and
+**Fail-closed pairing for every subsequent comparison**: before pairing any two tables
+(off/cap4/cap6/cap8) by `decision_id`, assert every key expected in one table that should be in the
+other actually is — a decision present in one table and silently absent from another is a
+fail-closed error (raise, do not drop), not a silently-shrunk denominator. This mirrors the
+fail-closed pattern already established in `room_raw_replay.py`'s `SeedIdentityConflictError` and
 `accuracy_baseline_diff.py`'s request-hash collision guard (both from this same lineage).
 
-### 2.3 Cap=4 auxiliary action-capture — validation-gated, explicitly not a new verdict
+### 2.3 Cap=4 auxiliary action-capture (+ latency) — validation-gated against the true eligible set, never a new verdict
 
 The existing `gate-b-report.json` stores only the 20 rows where cap4-on differed from off — not a
 full 944-row "chosen action per decision" table, which is needed to compute cap6-vs-cap4 and
 cap8-vs-cap4 diffs. Closing this gap requires **one narrowly-scoped auxiliary run**, explicitly
-distinguished from a new gate run:
+distinguished from a new gate run, permitted for **both action-capture and latency measurement**:
 
-- Named and tagged throughout code/artifacts as **`cap4_auxiliary_action_capture`** — never referred
-  to as a new cap=4 gate run or verdict anywhere in code, comments, or reports.
-- Produces exactly one artifact: a full `{decision_id, chosen_action, score}` table for all 944
-  decisions at `SHOWDOWN_ACCURACY_BRANCH_CAP=4`, `SHOWDOWN_ACCURACY_MODE=1` — modeled on
-  `accuracy_baseline.py`'s existing `BaselineRow`/`freeze_baseline` shape (reused as a pattern, not
-  by calling that function directly, since it's hard-wired to the frozen off-path file and must stay
-  untouched).
-- Written **only** under `data/eval/accuracy-cap-derisk/` — never touches
+- Named and tagged throughout code/artifacts as **`cap4_auxiliary`** (action-capture and latency
+  variants) — never referred to as a new cap=4 gate run or verdict anywhere in code, comments, or
+  reports.
+- Action-capture produces one artifact: a full per-decision table for all 944 decisions at
+  `SHOWDOWN_ACCURACY_BRANCH_CAP=4`, `SHOWDOWN_ACCURACY_MODE=1` (exact row shape in the next
+  subsection) — modeled on `accuracy_baseline.py`'s existing `BaselineRow`/`freeze_baseline` shape
+  as a pattern, not by calling that function directly, since it's hard-wired to the frozen off-path
+  file and must stay untouched.
+- Latency measurement (§2.6) may also include a fresh cap=4 pass on the real corpus, under the same
+  `cap4_auxiliary` labeling discipline, for an apples-to-apples comparison with cap=6/8's latency
+  figures.
+- Both written **only** under `data/eval/accuracy-cap-derisk/` — never touch
   `data/eval/accuracy-gate/`.
 
-**Hard validation gate, must pass before this table is used for anything:** diff the auxiliary
-table against the frozen off-path baseline (via `diff_against_baseline`, canonicalizing actions
-through `normalize_choose` first) and confirm it **exactly reproduces** the frozen 20 cap4-vs-off
-decision diffs already in `gate-b-report.json` — at minimum, the same 20 `decision_id`s and the
-same normalized chosen actions. If a score comparison is also done, use `canonical_float`
-representation (reused from `accuracy_baseline.py`) or a pre-pinned numeric tolerance, decided
-before the run, not after seeing a mismatch.
+**Why the historical 63 must be handled as their own eligible-vs-excluded split, not folded into one blanket check:**
+`run_gate_b` calls `_chosen_candidate(on_trace)` *before* cap-hit and diff capture; for the 63
+ambiguous decisions this raises and jumps straight to the exception path — those 63 decisions never
+reliably entered either the 881-decision denominator or the stored 20 diff rows. The auxiliary
+action-capture table, however, still gets a `chosen_action` for **all 944** decisions
+(`heuristic_choose_for_request` itself always returns a valid `/choose` string — it's only the
+*trace-based candidate/score resolution* that fails for the 63, not the action itself). This means
+the validation gate below must be scoped precisely to the set the frozen 20 diffs were actually
+computed over, not blindly to all 944:
 
-**If this validation fails** (different diff count, different decision_ids, or different actions):
-STOP, do not proceed to cap6/cap8 comparison, and root-cause the discrepancy before doing anything
-else. Cap=6/8 must never be compared against an unvalidated cap=4 auxiliary table.
+- Define the historical **881-decision eligible set** as the 944 decisions minus the 63
+  `request_hash`es stored in `gate-b-report.json`'s `acceptance.exceptions`.
+- **Hard validation gate, on the 881 only:** diff the auxiliary table's rows restricted to the 881
+  eligible set against the frozen off-path baseline (via the new `compare_action_tables` comparator,
+  §2.4 — not `diff_against_baseline`) and confirm the normalized diff-`decision_id` set and actions
+  **exactly reproduce** the frozen 20 cap4-vs-off decision diffs. If a score comparison is also
+  done, use `canonical_float` representation (reused from `accuracy_baseline.py`) or a pre-pinned
+  numeric tolerance, decided before the run, not after seeing a mismatch.
+- **The 63 historical exclusion cases are evaluated separately, never folded into the 881 check.**
+  Any action diffs newly visible among these 63 in the auxiliary table are diagnostic bonus
+  information (feeds §3.3), not a deviation from the 20-reproduction and not a backfill of the
+  frozen verdict.
+- **If the 881-eligible-set check fails** (different diff count, different `decision_id`s, or
+  different actions on the 881): STOP, do not proceed to cap6/cap8 comparison, and root-cause the
+  discrepancy before doing anything else.
+- **If additional diffs appear only among the 63** (expected, informative): report them under §3.3,
+  leave the frozen gate and its 20-diff reproduction status completely unchanged.
 
-### 2.4 Cross-cap diffs via `diff_against_baseline` — directionality verified first, not assumed
+Cap=6/8 must never be compared against a cap=4 auxiliary table that hasn't cleared the 881-eligible
+validation gate.
 
-Before relying on `diff_against_baseline` for cap6-vs-cap4/cap8-vs-cap4 (a symmetric-looking
-function originally built for off-vs-on comparison), write a small isolated test proving it carries
-no baked-in "first argument is always accuracy-off" semantic — that passing cap4's table as the
-first argument and cap6's as the second produces `Regression.baseline_action`/`replay_action` in
-the cap4→cap6 direction, correctly, and that the reporting code built on top of it labels this
-correctly for a reader (not literally displaying "baseline"/"replay" column headers for a
-cap-vs-cap comparison where that terminology is misleading). All actions are canonicalized via
-`normalize_choose` before comparison in every direction.
+**Honest score-resolution split — `{chosen_action, score}` is not uniformly well-defined for all 944:**
+`heuristic_choose_for_request` reliably returns the chosen action, but the trace does not guarantee
+a uniquely-resolved "score of the actually-chosen structural candidate" for every decision: the 63
+label-collision cases are exactly where candidate resolution is ambiguous by construction;
+`_maybe_tera` can change the chosen line *after* `trace.candidates` is built; and the known
+`pick_best`-vs-`scored.sort` tie-break mismatch (Task 10's review) can mean the chosen `JointAction`
+isn't at rank 0. The action-capture row schema reflects this honestly rather than papering over it:
 
-Four diffs computed per cap-6/cap-8 pair: cap6-vs-cap4, cap6-vs-off, cap8-vs-cap4, cap8-vs-off (the
-vs-off diffs are also available as a byproduct of each cap's own `run_gate_b` call — Section 2.5 —
+| field | required? | meaning |
+|---|---|---|
+| `decision_id` | always | §2.2 |
+| `chosen_action` | always | direct from `heuristic_choose_for_request`, canonicalized via `normalize_choose` |
+| `top_rank_score` | always | the `rank==0` candidate's score, whether or not it's the chosen one |
+| `chosen_candidate_score` | nullable | only populated when the structurally-chosen candidate is unambiguously resolved |
+| `score_resolution_status` | always | one of `exact`, `tera_overlay`, `ambiguous_label`, `chosen_missing`, `rank_mismatch` (extend if a genuinely distinct case is found) |
+
+**Action-diff validation (the 881-eligible-set check above, and every cap-vs-cap/cap-vs-off
+comparison) never fails or excludes a decision because of a missing `chosen_candidate_score`** —
+`chosen_action` is always present and is what action diffs are computed from. Score-based analyses
+(§2.7) get their own, separately visible denominator (however many decisions have a non-null
+`chosen_candidate_score` at that cap), never silently reused as if it covered all 944/881.
+
+### 2.4 Cross-cap and cross-mode action diffs — a new comparator, not `diff_against_baseline`
+
+`accuracy_baseline_diff.py::diff_against_baseline` is not a fit for this study's main comparison,
+confirmed by reading its current implementation: it pairs rows by bare `request_hash` only, flags a
+`Regression` when `chosen_action` **or** `score` differs (conflating pure fidelity/EV score drift
+under a different cap with an actual decision change — a real, expected, and uninteresting effect
+this study must not miscount as a decision diff), and only carries `request_hash` in its output
+rows. It stays **unmodified**, per §2.1, and may run at most as an additional legacy cross-check on
+its original off-refactor use case — it is not this study's comparator.
+
+Instead, the new eval module defines its own comparator:
+
+```
+compare_action_tables(reference_rows, candidate_rows) -> ActionTableDiff
+```
+
+with:
+- Pairing exclusively via `decision_id` (§2.2), fail-closed on duplicate, missing, or extra IDs on
+  either side (raise, never silently drop a row).
+- `action_changed` computed **only** from `normalize_choose`-canonicalized `chosen_action` on both
+  sides — never influenced by score.
+- Score change reported **separately**, as `score_delta`/`score_changed` fields, never folded into
+  the action-diff counter (uses `top_rank_score` by default; a `chosen_candidate_score`-based
+  variant is reported alongside with its own, separately visible denominator per §2.3).
+- Correctly-named `reference_*`/`candidate_*` fields on every output row — not `baseline`/`replay`,
+  which would misleadingly imply an off-vs-on relationship for a cap-vs-cap comparison.
+- Explicit, named directions: `cap4 → cap6`, `cap4 → cap8`, `off → cap6`, `off → cap8` — the
+  direction is part of the comparator's output/report labeling, never left implicit from argument
+  order alone.
+
+Four such diffs computed per cap-6/cap-8 pair: cap6-vs-cap4, cap6-vs-off, cap8-vs-cap4, cap8-vs-off
+(the vs-off diffs are also available as a byproduct of each cap's own `run_gate_b` call — §2.5 —
 and both sources should agree, a useful internal cross-check, not a required blocking gate).
 
 ### 2.5 Cap-hit verdicts — cap4 cited, cap6/8 freshly run, denominators always visible
@@ -166,9 +242,13 @@ truncation.
 ### 2.7 Report contents (per cap: 6, 8; cap=4 cited throughout as the reference row)
 
 - Cap-hit numerator/denominator/rate + bootstrap-or-Clopper-Pearson detail + PASS/INCONCLUSIVE/FAIL.
-- Decision diffs vs cap=4 and vs accuracy-off (both directions correctly labeled per §2.4).
+- Decision diffs vs cap=4 and vs accuracy-off (both directions correctly labeled per §2.4, via
+  `compare_action_tables`, not `diff_against_baseline`).
 - Leaf-count/event-count distributions and the fraction of incomplete (`events_complete=False`)
-  event lists.
+  event lists — reported **with their own actual telemeterable denominator per cap**, never claimed
+  to cover all 944 decisions. Ambiguous/excluded decisions at that cap contribute no telemetry to
+  these distributions by construction (§2.3's `chosen_missing`/`ambiguous_label` resolution
+  statuses) — the denominator must say so explicitly, not silently imply full coverage.
 - Tera-diffs isolated as their own subset, not folded into the general diff count.
 - Latency: p50/p95/max, trace-none and trace-enabled separately, per §2.6.
 - No strength or winrate claim anywhere in this report — pure measurement, matching the existing
@@ -280,9 +360,16 @@ report.
 ## 4. Deliverables / file layout
 
 - `data/eval/accuracy-cap-derisk/` (new directory, everything from this study lives here):
-  - `cap4-auxiliary-action-capture.json` (§2.3, explicitly tagged, validation-gated)
+  - `decision-id-manifest.jsonl` (§2.2 — the one-time frozen-baseline enrichment mapping)
+  - `cap4-auxiliary-action-capture.jsonl` (§2.3, explicitly tagged, validation-gated against the
+    881-eligible set)
+  - `cap6-action-capture.jsonl`, `cap8-action-capture.jsonl` (§2.3's row shape, at cap=6/8)
+  - `latency-results.json` (§2.6, all caps/trace-modes, including any `cap4_auxiliary` latency pass)
   - `cap6-report.json` / `cap6-report.md`, `cap8-report.json` / `cap8-report.md` (§2.5–2.7)
   - `ambiguous-candidate-diagnostic.json` / `.md` (§3, covering cap4/6/8)
+
+  JSONL (not JSON) for every per-decision table, matching the frozen baseline's own convention and
+  enabling straightforward row-wise provenance checking across all 944 rows.
 - `reports/2026-07-13-accuracy-cap-derisk-verdict.md` (closeout, cites cap=4 from
   `data/eval/accuracy-gate/` by content hash, never duplicates or restates it as newly computed)
 - `showdown_bot/scripts/` — new driver script(s) for the cap sweep and the diagnostic; exact
@@ -295,17 +382,21 @@ report.
 ## 5. Testing approach
 
 TDD throughout, matching every prior task in this lineage: unit tests for `decision_id` uniqueness
-assertion and fail-closed pairing, a dedicated test proving `diff_against_baseline`'s directionality
-(§2.4) before it's relied on for cap-vs-cap comparisons, a test proving the cap4-auxiliary
-validation gate actually catches a deliberately-broken reproduction (not just that it passes on
-real data), and unit tests for the two-tier classification scheme against hand-built
-label-collision/missing-candidate/tie fixtures. Real-corpus runs (§2.5, §2.6, §3.3) are integration
-checks with real numbers reported honestly, same discipline as the original gate's Tasks 9–11.
+assertion and fail-closed pairing (including the one-time frozen-baseline enrichment's zero/multiple
+-match fail-closed cases), unit tests for `compare_action_tables`'s directionality and correct
+`action_changed`/`score_changed` separation (§2.4) before it's relied on for cap-vs-cap comparisons,
+a test proving the 881-eligible-set validation gate (§2.3) actually catches a deliberately-broken
+reproduction (not just that it passes on real data) and correctly separates the 881-check from the
+63's own diagnostic-only reporting, and unit tests for the two-tier classification scheme against
+hand-built label-collision/missing-candidate/tie fixtures. Real-corpus runs (§2.5, §2.6, §3.3) are
+integration checks with real numbers reported honestly, same discipline as the original gate's
+Tasks 9–11.
 
 ## 6. Open items deferred to the implementation plan, not resolved here
 
-- Exact field sourcing for `decision_id`'s components against the real current `ExtractedDecision`/
-  dedup-manifest code (verify, don't assume, per §2.2).
-- Exact script/module boundaries under `showdown_bot/scripts/`.
+- Exact script/module boundaries under `showdown_bot/scripts/` and the new eval module's file name.
 - Whether `JointAction` already defines `__eq__` and what it covers (§3.2, Variant 2) — verified
   during implementation, not assumed here.
+- Exact `canonical_json` serialization convention for `decision_id`'s hash input (e.g. key
+  ordering/separator conventions) — pick one, pin it, and document it in the implementation, matching
+  this project's `canonical_float` precedent for reproducible hashing.
