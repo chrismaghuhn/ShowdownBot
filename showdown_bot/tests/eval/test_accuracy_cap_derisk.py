@@ -1,6 +1,8 @@
 # showdown_bot/tests/eval/test_accuracy_cap_derisk.py
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from showdown_bot.eval.accuracy_cap_derisk import (
@@ -203,7 +205,8 @@ def test_build_action_table_row_exact_match_rank_zero(scripted_request):
     assert row.top_rank_score == 5.0
     assert row.chosen_candidate_score == 5.0
     assert row.chosen_action_raw == "/choose move 1"
-    assert row.chosen_action_canonical  # non-empty; exact shape depends on normalize_choose
+    assert row.chosen_action_canonical  # non-empty; this single-slot action hits the
+    # unparseable fallback, see the dedicated fallback test below for its exact shape
 
 
 def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously(scripted_request):
@@ -252,3 +255,18 @@ def test_build_action_table_row_empty_trace_keeps_the_action_row(scripted_reques
     assert row.chosen_candidate_score is None
     assert row.chosen_candidate_rank is None
     assert row.candidate_resolution_status in ("chosen_missing", "other_resolution_error")
+
+
+def test_build_action_table_row_unparseable_action_falls_back_to_deterministic_marker(scripted_request):
+    """The genuinely new behavior beyond the plan's literal code: _canonical_action's
+    try/except DecisionCaptureError fallback for chosen_action strings normalize_choose can't
+    parse (e.g. single-slot instead of the required two comma-separated slots)."""
+    trace = DecisionTrace(chosen_candidate_id="A", candidates=[_candidate("A", 0, 5.0)])
+    row = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    parsed = json.loads(row.chosen_action_canonical)
+    assert parsed["kind"] == "unparseable"
+    assert parsed["raw"] == "/choose move 3"
+    assert "error" in parsed
+
+    row2 = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    assert row.chosen_action_canonical == row2.chosen_action_canonical  # determinism
