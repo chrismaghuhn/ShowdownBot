@@ -347,5 +347,5 @@ def test_real_corpus_dedup_collapses_190_regular_files_to_85():
         f"verification in the plan's own provenance-facts section and update every downstream "
         f"number (this test, Task 4/9/11, and the spec's §1/§4/§6) together, don't just widen this"
     )
-    unique_identities = {(i.seed_base, i.seed_index) for i in report.kept_identities}
+    unique_identities = {(i.seed_base, i.seed_index) for i in report.kept_identities.values()}
     assert len(unique_identities) == 85

@@ -168,7 +168,8 @@ class ExcludedBattle:
 class DedupReport:
     files_found: int
     kept: list[Path]
-    kept_identities: list[SeedIdentity]  # parallel-ish, only for files with a manifest match
+    kept_identities: dict[Path, SeedIdentity]  # only present for files with a manifest match --
+    # absent (not None) for content-hash-fallback-kept files
     excluded: list[ExcludedBattle]
     final_g: int
 
@@ -187,7 +188,7 @@ def _load_manifest_rows(manifest_files: list[Path]) -> dict[str, SeedIdentity]:
     by_basename: dict[str, SeedIdentity] = {}
     for manifest_path in manifest_files:
         if not manifest_path.exists():
-            continue
+            raise FileNotFoundError(f"manifest file not found: {manifest_path}")
         with open(manifest_path, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -284,7 +285,7 @@ def deduplicate_battle_logs(
             groups.setdefault(key, []).append((path, identity))
 
     kept: list[Path] = []
-    kept_identities: list[SeedIdentity] = []
+    kept_identities: dict[Path, SeedIdentity] = {}
     content_hash_cache: dict[Path, str] = {}
 
     for key, entries in groups.items():
@@ -295,7 +296,7 @@ def deduplicate_battle_logs(
         winner = paths_sorted[0]
         winner_identity = next(i for p, i in entries if p == winner)
         kept.append(winner)
-        kept_identities.append(winner_identity)
+        kept_identities[winner] = winner_identity
         for loser in paths_sorted[1:]:
             excluded.append(ExcludedBattle(loser, "duplicate_seed_identity", winner))
 
