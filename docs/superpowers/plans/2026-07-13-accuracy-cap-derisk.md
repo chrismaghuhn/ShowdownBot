@@ -9,11 +9,14 @@ measurement/diagnosis, no production code change, no default flip, no strength c
 
 **Architecture:** One new eval module (`accuracy_cap_derisk.py`) holds pure, unit-tested logic
 (`decision_id`, `compare_action_tables`, the candidate-resolution row-builder, the two-tier
-ambiguous-case classifier). A chain of small driver scripts under `showdown_bot/scripts/` reuses
-this module plus the ALREADY-UNCHANGED `room_raw_replay.py`/`accuracy_gate_b.py`/
-`accuracy_gate_stats.py` to produce real artifacts under `data/eval/accuracy-cap-derisk/`, strictly
-read-only against `data/eval/accuracy-gate/`. The cap=4 auxiliary run is validation-gated (two
-stages: raw reproduction, then semantic diff) before any cap=6/8 comparison may use it.
+ambiguous-case classifier, the structural-collision helpers). A chain of small driver scripts under
+`showdown_bot/scripts/` reuses this module plus the ALREADY-UNCHANGED
+`room_raw_replay.py`/`accuracy_gate_b.py`/`accuracy_gate_stats.py` to produce real artifacts under
+`data/eval/accuracy-cap-derisk/`, strictly read-only against `data/eval/accuracy-gate/`. The cap=4
+auxiliary run is validation-gated (two stages: raw reproduction of the exact historical 20 on/off
+action pairs, then semantic diff) before any cap=6/8 comparison may use it. Every action-comparison
+table stores its canonical (`normalize_choose`) action **per row, computed at capture time against
+that row's own real request** — never via a single shared request passed into a comparator.
 
 **Tech Stack:** Python 3.14, pytest, existing `showdown_bot` package (`room_raw_replay`,
 `accuracy_gate_b`, `accuracy_gate_stats`, `accuracy_baseline`, `decision_capture`, `decision_diff`).
@@ -51,6 +54,18 @@ to this document).
   later and was never applied to this driver). This means `legacy_frozen_score` could be silently
   wrong on any off-path label collision — per spec §2.3, off-vs-cap score comparisons are **skipped**
   in this plan (Task 8), not attempted, given this verified lack of an ambiguity guarantee.
+- **Verified real provenance-computation pattern** (`scripts/run_accuracy_baseline_freeze.py`,
+  Step 6): `source_commit` via `subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)`;
+  `config_hash` via `make_config_hash(build_config_manifest(agent="heuristic", format_id=FORMAT_ID,
+  priors_hash=..., spreads_hash=..., env=behavior_env(), movedata_hash=...))` (both
+  `make_config_hash`/`build_config_manifest` imported from `showdown_bot.eval.result_jsonl` —
+  **re-verify their exact current signatures before use, this plan cites them from a prior read, not
+  a fresh one this task**); `python_version = sys.version`; `dependency_lock_hash` via sha256 of
+  `pyproject.toml` (this repo has no `requirements*.txt`/`poetry.lock`/`uv.lock` — `pyproject.toml`
+  is the pinned-deps source of truth, confirmed by the original script's own comment). Task 4/5 below
+  reuse this exact pattern for their own provenance fields, capturing the environment AFTER setting
+  the relevant `SHOWDOWN_ACCURACY_MODE`/`SHOWDOWN_ACCURACY_BRANCH_CAP` for that specific run (not the
+  off-path env the original script captured), since `config_hash` should reflect what actually ran.
 - `JointAction` (`battle/actions.py`) is `@dataclass(frozen=True)` with default (all-field) equality
   over `slot0, slot1: SlotAction`. `SlotAction` (`models/actions.py`): `kind, move_index, target,
   terastallize, target_ident`. **Verified: object/dataclass equality DOES discriminate different
@@ -66,17 +81,32 @@ to this document).
 - `CandidateTrace.joint_action: JointAction` already stores the real object per candidate (set at
   `decision.py:687`, `cands.append(CandidateTrace(candidate_id=_label_ja(req, ja), joint_action=ja,
   ...))`). `DecisionTrace.chosen_candidate_id: str | None` is the ONLY chosen-candidate pointer at
-  the trace level — there is **no** `chosen_joint_action` field exposing `best_ja` itself. This is
-  the concrete structural gap Task 11's fix-feasibility investigation (§3.2, spec) must report on.
+  the trace level — there is **no** `chosen_joint_action` field exposing `best_ja` itself, and no
+  structural pointer identifying WHICH of several label-colliding `CandidateTrace` entries is the
+  one actually chosen. This is the concrete structural gap Task 11's fix-feasibility investigation
+  (§3.2, spec) must report on — and it's also why any per-case diagnostic statistic computed across
+  *all* colliding candidates (e.g. "do the colliding candidates' ranks span nonzero") must be named
+  for what it actually measures (a property of the collision set), never phrased as if it identifies
+  a property of "the chosen candidate" specifically, since that candidate cannot be structurally
+  singled out from the label-collision data alone.
 - `TOP_K_TRACE_CANDIDATES = 6` (`decision.py:34`).
 - `normalize_choose(choose: str, request: BattleRequest) -> dict` (`eval/decision_capture.py:141`),
   `classify_action_diff(baseline: dict, candidate: dict, *, baseline_stage=None,
   candidate_stage=None) -> ActionDiff` (`ActionDiff(primary: str, markers: tuple[str, ...])`,
-  `eval/decision_diff.py:79-98`) — reused as-is.
+  `eval/decision_diff.py:79-98`) — reused as-is. **`normalize_choose` needs the SPECIFIC
+  `BattleRequest` that produced a given action** (move-index-to-move resolution, slot mapping, etc.)
+  — across 944 different decisions there are 944 different requests, so a comparator that accepts
+  one shared `request` argument cannot correctly canonicalize a whole table. Every row in this plan's
+  tables therefore stores its own pre-computed canonical action (`chosen_action_canonical`),
+  computed once at build time against that decision's real request — comparators never call
+  `normalize_choose` themselves.
 - `gate-b-report.json`'s real schema (`data/eval/accuracy-gate/gate-b-report.json`):
   `acceptance.exceptions` is a list of `{"request_hash": ..., "exception": "ExceptionType:
-  message"}` objects (63 entries — the historical ambiguous-candidate exclusions), `diffs` is the 20
-  cap4-vs-off decision-diff rows, `dedup.unique_battles_final_g == 85`.
+  message"}` objects (63 entries — the historical ambiguous-candidate exclusions, **not all
+  necessarily label-collisions specifically** — this plan does not assume every exception is an
+  ambiguity case without re-verifying it against a live re-run, see Task 11), `diffs` is the 20
+  cap4-vs-off decision-diff rows (each carrying both `off_chosen_action` and `on_chosen_action`),
+  `dedup.unique_battles_final_g == 85`.
 - Real corpus-extraction pattern (glob dirs, manifest files, keep_priority, calc/oracle
   construction, `PYTHONPATH`-shadowing, `SHOWDOWN_CALC_BACKEND=persistent`) copied verbatim from
   `showdown_bot/scripts/run_accuracy_gate_b.py` (Task 11 of the accuracy-offline-gate plan) —
@@ -132,10 +162,10 @@ def test_compute_decision_id_changes_with_any_field():
         log_prefix_hash="lp1", side="p1", rqid=5, turn=3,
     )
     variants = [
-        DecisionIdComponents(seed_base="XXX", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="other_seed", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
         DecisionIdComponents(seed_base="abc123", seed_index=99, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
-        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="XXX", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
-        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="XXX", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="other_hash", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="other_prefix", side="p1", rqid=5, turn=3),
         DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p2", rqid=5, turn=3),
         DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=99, turn=3),
         DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=99),
@@ -252,6 +282,17 @@ git commit -m "feat(eval): decision_id composite key + fail-closed uniqueness as
 Implements spec §2.4. `accuracy_baseline_diff.py` stays completely untouched (verify with
 `git diff` after this task — it must show zero changes to that file).
 
+**Correction, verified against the real `normalize_choose` signature before this task was written:**
+`normalize_choose(choose: str, request: BattleRequest) -> dict` needs the SPECIFIC request that
+produced a given action. A comparator that takes one shared `request` argument cannot correctly
+canonicalize a table of 944 rows spanning 944 different requests — passing `request=None` (as an
+earlier draft of this plan did) silently degrades to a no-op whitespace-strip, never exercising real
+`normalize_choose` semantics at all. The fix: `ActionTableRow` carries a **pre-computed**
+`chosen_action_canonical` field (built once, per row, against that row's own real request, in Task
+3's `build_action_table_row`) alongside `chosen_action_raw` (the untouched raw string, needed
+separately for Task 6's Stage-1 raw check). `compare_action_tables` compares ONLY the stored
+canonical fields — it takes no `request` parameter at all and never calls `normalize_choose` itself.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
@@ -263,10 +304,11 @@ from showdown_bot.eval.accuracy_cap_derisk import (
 )
 
 
-def _row(decision_id, action, *, top_rank_score=1.0, chosen_candidate_score=1.0,
-         candidate_resolution_status="exact"):
+def _row(decision_id, action_raw, action_canonical=None, *, top_rank_score=1.0,
+         chosen_candidate_score=1.0, candidate_resolution_status="exact"):
     return ActionTableRow(
-        decision_id=decision_id, chosen_action=action,
+        decision_id=decision_id, chosen_action_raw=action_raw,
+        chosen_action_canonical=action_canonical if action_canonical is not None else action_raw,
         candidate_resolution_status=candidate_resolution_status,
         chosen_candidate_rank=0, chosen_rank_mismatch=False,
         top_rank_score=top_rank_score, chosen_candidate_score=chosen_candidate_score,
@@ -282,11 +324,22 @@ def test_compare_action_tables_pairs_by_decision_id_not_position():
     assert all(not r.action_changed for r in result.rows)
 
 
-def test_compare_action_tables_detects_action_change_via_normalize_choose():
+def test_compare_action_tables_detects_action_change_via_stored_canonical_field():
     ref = [_row("id1", "/choose move 1")]
     cand = [_row("id1", "/choose move 2")]
-    result = compare_action_tables(ref, cand, direction="cap4 -> cap6", request=None)
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
     assert result.rows[0].action_changed is True
+
+
+def test_compare_action_tables_uses_canonical_not_raw_for_action_changed():
+    """Two raw strings that differ byte-for-byte but share the same PRE-COMPUTED canonical form
+    (simulating what normalize_choose would fold together, e.g. a trailing-space encoding quirk)
+    must NOT be reported as an action change -- proving the comparator reads the stored canonical
+    field, not the raw one."""
+    ref = [_row("id1", "/choose move 1", "canonical:move1")]
+    cand = [_row("id1", "/choose move 1 ", "canonical:move1")]  # raw differs, canonical doesn't
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert result.rows[0].action_changed is False
 
 
 def test_compare_action_tables_does_not_count_pure_score_change_as_action_diff():
@@ -327,8 +380,8 @@ def test_compare_action_tables_uses_correctly_named_reference_candidate_fields_n
     cand = [_row("id1", "/choose move 2")]
     result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
     row = result.rows[0]
-    assert row.reference_action == "/choose move 1"
-    assert row.candidate_action == "/choose move 2"
+    assert row.reference_action_raw == "/choose move 1"
+    assert row.candidate_action_raw == "/choose move 2"
     assert not hasattr(row, "baseline_action")
     assert not hasattr(row, "replay_action")
 
@@ -342,8 +395,8 @@ def test_compare_action_tables_direction_is_not_inferred_from_argument_order():
     assert r2.direction == "cap6 -> cap4"
     # swapping which table is "reference" flips reference/candidate labeling on the SAME
     # underlying decision, proving the function has no baked-in "first arg is always off" bias
-    assert r1.rows[0].reference_action == r2.rows[0].candidate_action
-    assert r1.rows[0].candidate_action == r2.rows[0].reference_action
+    assert r1.rows[0].reference_action_raw == r2.rows[0].candidate_action_raw
+    assert r1.rows[0].candidate_action_raw == r2.rows[0].reference_action_raw
 
 
 def test_compare_action_tables_refuses_incompatible_score_semantics():
@@ -358,16 +411,6 @@ def test_compare_action_tables_refuses_incompatible_score_semantics():
     assert row.top_rank_score_delta is None  # never silently computed
     assert "not proven equivalent" in row.score_incompatible_reason
 ```
-
-`normalize_choose` requires a real `BattleRequest` in general, but for these unit tests the actions
-are already in canonical `/choose move N` form and don't exercise team-preview/default-string
-special cases, so `request=None` with a pass-through canonicalization is acceptable for this
-module's own tests (the real driver scripts, Task 5/8, always pass a real request). Confirm
-`normalize_choose`'s actual behavior on `request=None` before relying on this — if it raises, adapt
-`compare_action_tables` to accept a `canonicalize: Callable[[str], str]` injection point instead of
-calling `normalize_choose` directly, defaulting to the real `normalize_choose` in production call
-sites (Task 5/8) and a trivial identity/strip function in these unit tests. Verify against the real
-current `normalize_choose` source before deciding which approach to take.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -387,9 +430,16 @@ class ActionTableRow:
     """One row of a per-decision action-capture table (spec Sec.2.3's row schema). Resolution
     status, rank, and score are intentionally orthogonal fields, not one collapsed enum -- a
     candidate can resolve only via Tera-suffix stripping AND independently sit at a non-zero rank;
-    collapsing these into a single status would force losing one fact to keep the other."""
+    collapsing these into a single status would force losing one fact to keep the other.
+
+    chosen_action_raw is the untouched string from heuristic_choose_for_request (needed for Task
+    6's byte-level Stage-1 reproduction check). chosen_action_canonical is normalize_choose(
+    chosen_action_raw, <this decision's own real request>), computed ONCE at build time -- never
+    recomputed by a comparator, which would require passing in a request and risks silently using
+    the WRONG request for a different decision's action."""
     decision_id: str
-    chosen_action: str  # raw string from heuristic_choose_for_request, never mutated here
+    chosen_action_raw: str
+    chosen_action_canonical: str
     candidate_resolution_status: str  # exact | tera_stripped | ambiguous_label | chosen_missing | other_resolution_error
     chosen_candidate_rank: int | None
     chosen_rank_mismatch: bool | None  # True when chosen_candidate_rank not in (0, None)
@@ -400,8 +450,8 @@ class ActionTableRow:
 @dataclass(frozen=True)
 class ActionDiffRow:
     decision_id: str
-    reference_action: str
-    candidate_action: str
+    reference_action_raw: str
+    candidate_action_raw: str
     action_changed: bool
     top_rank_score_delta: float | None
     top_rank_score_changed: bool | None
@@ -425,24 +475,17 @@ class DecisionIdPairingError(Exception):
     pass
 
 
-def _canonical_action(action: str, request) -> str:
-    if request is None:
-        return action.strip()
-    from showdown_bot.eval.decision_capture import normalize_choose
-    return json.dumps(normalize_choose(action, request), sort_keys=True)
-
-
 def compare_action_tables(
     reference_rows: list[ActionTableRow],
     candidate_rows: list[ActionTableRow],
     *,
     direction: str,
-    request=None,
     score_comparable: bool = True,
     score_incompatible_reason: str | None = None,
 ) -> ActionTableDiff:
     """Spec Sec.2.4's comparator -- decision_id-paired, fail-closed, action_changed computed only
-    from normalize_choose-canonicalized chosen_action (never influenced by score), score changes
+    from each row's PRE-COMPUTED chosen_action_canonical field (never influenced by score, never
+    calling normalize_choose itself -- see ActionTableRow's docstring for why). Score changes
     reported separately and only when score_comparable=True (spec Sec.2.3's score-semantics rule --
     the caller decides comparability, this function enforces it rather than silently subtracting
     incompatible values). `direction` is a required, explicit label -- never inferred from which
@@ -470,10 +513,7 @@ def compare_action_tables(
     rows: list[ActionDiffRow] = []
     for decision_id, ref in sorted(ref_by_id.items()):
         cand = cand_by_id[decision_id]
-        action_changed = (
-            _canonical_action(ref.chosen_action, request)
-            != _canonical_action(cand.chosen_action, request)
-        )
+        action_changed = ref.chosen_action_canonical != cand.chosen_action_canonical
 
         def _delta(a: float | None, b: float | None):
             if not score_comparable or a is None or b is None:
@@ -486,7 +526,7 @@ def compare_action_tables(
 
         rows.append(ActionDiffRow(
             decision_id=decision_id,
-            reference_action=ref.chosen_action, candidate_action=cand.chosen_action,
+            reference_action_raw=ref.chosen_action_raw, candidate_action_raw=cand.chosen_action_raw,
             action_changed=action_changed,
             top_rank_score_delta=top_delta, top_rank_score_changed=top_changed,
             chosen_candidate_score_delta=cc_delta, chosen_candidate_score_changed=cc_changed,
@@ -500,7 +540,7 @@ def compare_action_tables(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v`
-Expected: PASS (13 passed — 5 from Task 1 + 8 from this task)
+Expected: PASS (14 passed — 5 from Task 1 + 9 from this task)
 
 - [ ] **Step 5: Confirm `accuracy_baseline_diff.py` is untouched**
 
@@ -511,7 +551,7 @@ Expected: empty output (zero changes)
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py showdown_bot/tests/eval/test_accuracy_cap_derisk.py
-git commit -m "feat(eval): compare_action_tables comparator, decision_id-paired, score-semantic-guarded"
+git commit -m "feat(eval): compare_action_tables comparator, canonical-field-based, score-semantic-guarded"
 ```
 
 ---
@@ -523,13 +563,16 @@ git commit -m "feat(eval): compare_action_tables comparator, decision_id-paired,
 - Modify: `showdown_bot/tests/eval/test_accuracy_cap_derisk.py`
 
 Implements spec §2.3's row-schema construction from a real `DecisionTrace`. This is the function
-Task 5's real driver calls per decision to build an `ActionTableRow`.
+Task 5's real driver calls per decision to build an `ActionTableRow` — now also responsible for
+computing that row's `chosen_action_canonical` via `normalize_choose`, using the SAME real request
+the decision itself was answered against (per Task 2's correction).
 
 Before writing this: read `showdown_bot/src/showdown_bot/eval/accuracy_gate_b.py`'s
 `_chosen_candidate`/`_strip_tera_suffix` in full — this function follows the SAME exact/tera-fallback
 resolution logic, but must NEVER raise (unlike `_chosen_candidate`) — on ambiguity or a missing
 match, it returns a status-flagged row instead, since the whole point of this table is to still have
-a `chosen_action` row for every decision, including the 63 that `run_gate_b` excludes via exception.
+a `chosen_action_raw` row for every decision, including the 63 that `run_gate_b` excludes via
+exception.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -546,25 +589,27 @@ def _candidate(candidate_id, rank, score):
     )
 
 
-def test_build_action_table_row_exact_match_rank_zero():
+def test_build_action_table_row_exact_match_rank_zero(scripted_request):
     trace = DecisionTrace(chosen_candidate_id="A", candidates=[
         _candidate("A", 0, 5.0), _candidate("B", 1, 3.0),
     ])
-    row = build_action_table_row("d1", "/choose move 1", trace)
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
     assert row.candidate_resolution_status == "exact"
     assert row.chosen_candidate_rank == 0
     assert row.chosen_rank_mismatch is False
     assert row.top_rank_score == 5.0
     assert row.chosen_candidate_score == 5.0
+    assert row.chosen_action_raw == "/choose move 1"
+    assert row.chosen_action_canonical  # non-empty; exact shape depends on normalize_choose
 
 
-def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously():
+def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously(scripted_request):
     """Both facts survive independently -- neither status collapses the other (spec Sec.2.3)."""
     trace = DecisionTrace(chosen_candidate_id="(protect, moonblast->1 tera)", candidates=[
         _candidate("(protect, shadowball->1)", 0, 6.0),
         _candidate("(protect, moonblast->1)", 1, 5.0),  # the real chosen line, at rank 1
     ])
-    row = build_action_table_row("d1", "/choose move 1, move 2", trace)
+    row = build_action_table_row("d1", "/choose move 1, move 2", trace, scripted_request)
     assert row.candidate_resolution_status == "tera_stripped"
     assert row.chosen_candidate_rank == 1
     assert row.chosen_rank_mismatch is True  # BOTH tera_stripped and rank_mismatch present
@@ -572,11 +617,11 @@ def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously()
     assert row.chosen_candidate_score == 5.0
 
 
-def test_build_action_table_row_ambiguous_label_has_null_chosen_candidate_score():
+def test_build_action_table_row_ambiguous_label_has_null_chosen_candidate_score(scripted_request):
     trace = DecisionTrace(chosen_candidate_id="(switch, pass)", candidates=[
         _candidate("(switch, pass)", 0, 4.0), _candidate("(switch, pass)", 1, 2.0),
     ])
-    row = build_action_table_row("d1", "/choose switch 2, pass", trace)
+    row = build_action_table_row("d1", "/choose switch 2, pass", trace, scripted_request)
     assert row.candidate_resolution_status == "ambiguous_label"
     assert row.chosen_candidate_rank is None
     assert row.chosen_rank_mismatch is None
@@ -584,27 +629,34 @@ def test_build_action_table_row_ambiguous_label_has_null_chosen_candidate_score(
     assert row.top_rank_score == 4.0  # top_rank_score still populated -- independent of resolution
 
 
-def test_build_action_table_row_chosen_missing():
+def test_build_action_table_row_chosen_missing(scripted_request):
     trace = DecisionTrace(chosen_candidate_id="(nothing matches)", candidates=[
         _candidate("A", 0, 5.0),
     ])
-    row = build_action_table_row("d1", "/choose move 3", trace)
+    row = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
     assert row.candidate_resolution_status == "chosen_missing"
     assert row.chosen_candidate_score is None
     assert row.top_rank_score == 5.0
 
 
-def test_build_action_table_row_empty_trace_keeps_the_action_row():
-    """An empty/rank-corrupt trace must not make the whole decision (and its chosen_action)
+def test_build_action_table_row_empty_trace_keeps_the_action_row(scripted_request):
+    """An empty/rank-corrupt trace must not make the whole decision (and its chosen_action_raw)
     disappear -- only the score fields go null, with the status visibly reflecting why."""
     trace = DecisionTrace(chosen_candidate_id=None, candidates=[])
-    row = build_action_table_row("d1", "/choose move 1", trace)
-    assert row.chosen_action == "/choose move 1"  # action always present
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
+    assert row.chosen_action_raw == "/choose move 1"  # action always present
     assert row.top_rank_score is None
     assert row.chosen_candidate_score is None
     assert row.chosen_candidate_rank is None
     assert row.candidate_resolution_status in ("chosen_missing", "other_resolution_error")
 ```
+
+`scripted_request` here is a real `BattleRequest` fixture — reuse whatever fixture this project's
+existing `test_evaluate.py`/`test_decision_trace.py`/`test_accuracy_mode_wiring.py` already use for
+this purpose (they all construct real requests from `tests/fixtures/request_doubles_moves.json` —
+find the exact existing fixture name/shape before inventing a new one; a `conftest.py` fixture
+under `tests/eval/` may need adding if none of the existing ones are directly importable into this
+test file, matching this project's established test-fixture conventions).
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -623,61 +675,51 @@ def _strip_tera(candidate_id: str) -> str:
     return candidate_id.replace(" tera", "")
 
 
-def build_action_table_row(decision_id: str, chosen_action: str, trace) -> ActionTableRow:
+def _canonical_action(chosen_action: str, request) -> str:
+    from showdown_bot.eval.decision_capture import normalize_choose
+    return json.dumps(normalize_choose(chosen_action, request), sort_keys=True)
+
+
+def build_action_table_row(decision_id: str, chosen_action: str, trace, request) -> ActionTableRow:
     """Spec Sec.2.3: resolve the structurally-chosen candidate the SAME way
     accuracy_gate_b.py::_chosen_candidate does (exact match, then tera-suffix-stripped fallback),
     but NEVER raise -- report a status instead, since this table must still carry a row (with its
-    real chosen_action) for decisions where trace-based resolution fails, unlike run_gate_b's own
-    exception path."""
+    real chosen_action_raw) for decisions where trace-based resolution fails, unlike run_gate_b's
+    own exception path. `request` MUST be the real BattleRequest this specific decision was answered
+    against -- normalize_choose is request-specific, never a shared/default value across rows."""
+    canonical = _canonical_action(chosen_action, request)
     candidates = list(trace.candidates)
     top = next((c for c in candidates if c.rank == 0), None)
     top_rank_score = top.aggregate_score if top is not None else None
 
+    def _row(status: str, rank=None, rank_mismatch=None, cc_score=None) -> ActionTableRow:
+        return ActionTableRow(
+            decision_id=decision_id, chosen_action_raw=chosen_action, chosen_action_canonical=canonical,
+            candidate_resolution_status=status,
+            chosen_candidate_rank=rank, chosen_rank_mismatch=rank_mismatch,
+            top_rank_score=top_rank_score, chosen_candidate_score=cc_score,
+        )
+
     chosen_id = trace.chosen_candidate_id
     if chosen_id is None:
-        return ActionTableRow(
-            decision_id=decision_id, chosen_action=chosen_action,
-            candidate_resolution_status="chosen_missing",
-            chosen_candidate_rank=None, chosen_rank_mismatch=None,
-            top_rank_score=top_rank_score, chosen_candidate_score=None,
-        )
+        return _row("chosen_missing")
 
     exact = [c for c in candidates if c.candidate_id == chosen_id]
     if len(exact) == 1:
         resolved, status = exact[0], "exact"
     elif len(exact) > 1:
-        return ActionTableRow(
-            decision_id=decision_id, chosen_action=chosen_action,
-            candidate_resolution_status="ambiguous_label",
-            chosen_candidate_rank=None, chosen_rank_mismatch=None,
-            top_rank_score=top_rank_score, chosen_candidate_score=None,
-        )
+        return _row("ambiguous_label")
     else:
         stripped_target = _strip_tera(chosen_id)
         fallback = [c for c in candidates if _strip_tera(c.candidate_id) == stripped_target]
         if len(fallback) == 1:
             resolved, status = fallback[0], "tera_stripped"
         elif len(fallback) > 1:
-            return ActionTableRow(
-                decision_id=decision_id, chosen_action=chosen_action,
-                candidate_resolution_status="ambiguous_label",
-                chosen_candidate_rank=None, chosen_rank_mismatch=None,
-                top_rank_score=top_rank_score, chosen_candidate_score=None,
-            )
+            return _row("ambiguous_label")
         else:
-            return ActionTableRow(
-                decision_id=decision_id, chosen_action=chosen_action,
-                candidate_resolution_status="chosen_missing",
-                chosen_candidate_rank=None, chosen_rank_mismatch=None,
-                top_rank_score=top_rank_score, chosen_candidate_score=None,
-            )
+            return _row("chosen_missing")
 
-    return ActionTableRow(
-        decision_id=decision_id, chosen_action=chosen_action,
-        candidate_resolution_status=status,
-        chosen_candidate_rank=resolved.rank, chosen_rank_mismatch=(resolved.rank != 0),
-        top_rank_score=top_rank_score, chosen_candidate_score=resolved.aggregate_score,
-    )
+    return _row(status, rank=resolved.rank, rank_mismatch=(resolved.rank != 0), cc_score=resolved.aggregate_score)
 ```
 
 Note: the `test_build_action_table_row_empty_trace_keeps_the_action_row` fixture has
@@ -690,13 +732,13 @@ the test's `in ("chosen_missing", "other_resolution_error")` assertion.
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v`
-Expected: PASS (18 passed)
+Expected: PASS (19 passed)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py showdown_bot/tests/eval/test_accuracy_cap_derisk.py
-git commit -m "feat(eval): build_action_table_row -- orthogonal resolution/rank/score, never raises"
+git commit -m "feat(eval): build_action_table_row -- orthogonal resolution/rank/score, per-row canonical action, never raises"
 ```
 
 ---
@@ -710,8 +752,12 @@ Implements spec §2.2's real run: extracts all 944 decisions with per-file `Seed
 `decision_id` for each, asserts 944 unique, then does the ONE-TIME enrichment of the frozen
 `pre-refactor-baseline.jsonl` into `decision_id` space (join on `request_hash`, cross-check
 `log_prefix_hash`/`side`/`turn`, fail-closed on 0 or 2+ matches), preserving the legacy score
-verbatim as `legacy_frozen_score`. Writes `data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl`
-— never touches the frozen baseline file itself.
+verbatim as `legacy_frozen_score` and computing `legacy_frozen_action_canonical` via
+`normalize_choose` against that SAME decision's real request (not a shared/default request — the
+loop below keeps each decision's real request in memory specifically to make this correct). Writes
+`data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl` — never touches the frozen baseline file
+itself. Includes real run provenance (`source_commit`, `python_version`) in a small metadata
+sidecar, matching this project's established provenance convention.
 
 - [ ] **Step 1: Write the script**
 
@@ -720,10 +766,14 @@ verbatim as `legacy_frozen_score`. Writes `data/eval/accuracy-cap-derisk/decisio
 """Real run: extract all 944 decisions from the full deduplicated corpus, compute decision_id
 (spec Sec.2.2) for each, assert uniqueness, then do the ONE-TIME enrichment of the frozen
 data/eval/accuracy-gate/pre-refactor-baseline.jsonl into decision_id space (join on request_hash,
-cross-checked against log_prefix_hash/side/turn, fail-closed on ambiguous/missing matches).
+cross-checked against log_prefix_hash/side/turn, fail-closed on ambiguous/missing matches). Each
+enriched row's legacy chosen action is ALSO canonicalized via normalize_choose against that exact
+decision's own real request (never a shared/default request).
 
-Writes data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl. The frozen baseline file itself
-is read-only and untouched.
+Writes data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl + a small provenance sidecar
+(decision-id-manifest-meta.json). The frozen baseline file itself is read-only and untouched.
+Refuses to overwrite an existing manifest (hard checkpoint, matches this project's established
+freeze-once convention) -- delete it explicitly first if a genuine rebuild is intended.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/build_decision_id_manifest.py
 """
@@ -732,7 +782,9 @@ from __future__ import annotations
 
 import glob
 import json
+import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -745,13 +797,21 @@ DATA_EVAL = REPO_ROOT / "data" / "eval"
 FROZEN_BASELINE = DATA_EVAL / "accuracy-gate" / "pre-refactor-baseline.jsonl"
 OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 OUT_PATH = OUT_DIR / "decision-id-manifest.jsonl"
+META_PATH = OUT_DIR / "decision-id-manifest-meta.json"
 EXPECTED_FINAL_G = 85
 EXPECTED_DECISION_COUNT = 944
 
 
 def main() -> None:
+    if OUT_PATH.exists():
+        raise SystemExit(
+            f"BLOCKED: {OUT_PATH} already exists. This script does not silently overwrite an "
+            f"existing manifest -- delete it explicitly first if a genuine rebuild is intended."
+        )
+
     from showdown_bot.eval.accuracy_cap_derisk import (
         DecisionIdComponents,
+        _canonical_action,
         assert_decision_ids_unique,
         compute_decision_id,
     )
@@ -802,8 +862,12 @@ def main() -> None:
             f"re-verify before proceeding. Files: {missing_identity}"
         )
 
-    # --- extract, computing decision_id per row as we go (needs each file's SeedIdentity) ---
+    # --- extract, computing decision_id per row as we go (needs each file's SeedIdentity), and
+    # keeping each decision's real request alongside its decision_id for the enrichment step below
+    # (canonicalizing the LEGACY action requires the SAME real request the live decision used, not
+    # a shared/default one) ---
     manifest_rows: list[dict] = []
+    request_by_decision_id: dict[str, object] = {}
     kind_counts: Counter = Counter()
     for p in sorted(dedup_report.kept, key=str):
         identity = dedup_report.kept_identities[p]
@@ -817,6 +881,7 @@ def main() -> None:
                 request_hash=d.request_hash, log_prefix_hash=d.log_prefix_hash,
                 side=d.side, rqid=d.request.rqid, turn=d.turn,
             ))
+            request_by_decision_id[did] = d.request
             manifest_rows.append({
                 "decision_id": did,
                 "seed_base": identity.seed_base, "seed_index": identity.seed_index,
@@ -844,12 +909,13 @@ def main() -> None:
     frozen_rows = [json.loads(line) for line in FROZEN_BASELINE.read_text(encoding="utf-8").splitlines() if line]
     print(f"frozen baseline: {len(frozen_rows)} rows read (read-only)")
 
-    enriched = 0
     for r in manifest_rows:
         r["legacy_frozen_score"] = None
         r["legacy_frozen_chosen_action"] = None
+        r["legacy_frozen_action_canonical"] = None
 
     manifest_by_did = {r["decision_id"]: r for r in manifest_rows}
+    enriched = 0
     for frow in frozen_rows:
         candidates = [
             r for r in by_request_hash.get(frow["request_hash"], [])
@@ -866,6 +932,9 @@ def main() -> None:
         did = candidates[0]["decision_id"]
         manifest_by_did[did]["legacy_frozen_score"] = frow["score"]
         manifest_by_did[did]["legacy_frozen_chosen_action"] = frow["chosen_action"]
+        manifest_by_did[did]["legacy_frozen_action_canonical"] = _canonical_action(
+            frow["chosen_action"], request_by_decision_id[did]
+        )
         enriched += 1
 
     print(f"frozen-baseline enrichment: {enriched}/{len(frozen_rows)} rows matched "
@@ -876,6 +945,18 @@ def main() -> None:
         for r in sorted(manifest_rows, key=lambda x: x["decision_id"]):
             fh.write(json.dumps(r, sort_keys=True) + "\n")
     print(f"wrote {OUT_PATH} ({len(manifest_rows)} rows)")
+
+    try:
+        source_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
+        ).strip()
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"could not determine source_commit via git rev-parse HEAD: {exc}")
+    META_PATH.write_text(json.dumps({
+        "source_commit": source_commit, "python_version": sys.version,
+        "row_count": len(manifest_rows), "generated_at_epoch": time.time(),
+    }, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"wrote {META_PATH}")
 
 
 if __name__ == "__main__":
@@ -888,8 +969,9 @@ Run (from `showdown_bot/`): `PYTHONPATH="$(pwd)/src" python scripts/build_decisi
 
 Expected: `dedup: kept=85 final_g=85`, `decision_id uniqueness confirmed: 944 unique ids`,
 `frozen-baseline enrichment: 944/944 rows matched exactly one decision_id`, and
-`data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl` written with 944 rows. **If uniqueness
-assertion or the enrichment fail-closed check raises: STOP, do not proceed to Task 5, investigate.**
+`data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl` (944 rows) +
+`decision-id-manifest-meta.json` written. **If uniqueness assertion or the enrichment fail-closed
+check raises: STOP, do not proceed to Task 5, investigate.**
 
 - [ ] **Step 3: Confirm the frozen baseline was not touched**
 
@@ -899,7 +981,7 @@ Expected: empty (no changes)
 - [ ] **Step 4: Commit**
 
 ```bash
-git add showdown_bot/scripts/build_decision_id_manifest.py data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl
+git add showdown_bot/scripts/build_decision_id_manifest.py data/eval/accuracy-cap-derisk/decision-id-manifest.jsonl data/eval/accuracy-cap-derisk/decision-id-manifest-meta.json
 git commit -m "feat(eval): real decision_id manifest for all 944 decisions + frozen-baseline enrichment"
 ```
 
@@ -912,16 +994,19 @@ git commit -m "feat(eval): real decision_id manifest for all 944 decisions + fro
 
 Implements spec §2.3's real action-capture tables. Parametrized by `SHOWDOWN_ACCURACY_BRANCH_CAP`;
 run three times (4, 6, 8). The cap=4 run is explicitly tagged `cap4_auxiliary` throughout — never a
-new gate verdict.
+new gate verdict. Each run's output carries real provenance (cap, label, source_commit,
+config_hash, python_version, dependency_lock_hash), validates its own cap↔label consistency,
+requires its output's `decision_id` set to exactly equal the manifest's, and refuses to silently
+overwrite an existing artifact.
 
 - [ ] **Step 1: Write the script**
 
 ```python
 # showdown_bot/scripts/run_cap_action_capture.py
 """Real run: for a given SHOWDOWN_ACCURACY_BRANCH_CAP value, replay all 944 MOVE decisions through
-heuristic_choose_for_request(trace=...) with SHOWDOWN_ACCURACY_MODE=1, and build a full
-{decision_id, chosen_action, candidate_resolution_status, chosen_candidate_rank,
-chosen_rank_mismatch, top_rank_score, chosen_candidate_score} table (spec Sec.2.3).
+heuristic_choose_for_request(trace=...) with SHOWDOWN_ACCURACY_MODE=1, and build a full action
+table (spec Sec.2.3) via build_action_table_row -- each row's chosen_action_canonical computed
+against that decision's own real request.
 
 cap=4's run is an AUXILIARY action-capture -- explicitly labeled as such, never a new gate verdict
 (data/eval/accuracy-gate/gate-b-report.json stays the sole authoritative cap=4 result). cap=6/cap=8
@@ -938,14 +1023,17 @@ from __future__ import annotations
 import argparse
 import copy
 import glob
+import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from dataclasses import asdict
 from pathlib import Path
 
-os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")
+os.environ["SHOWDOWN_CALC_BACKEND"] = "persistent"  # forced, not setdefault -- see Task 9's note
+# on why silently inheriting a caller's different backend value would badly skew results.
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHOWDOWN_BOT_ROOT = SCRIPT_DIR.parent
@@ -954,15 +1042,38 @@ sys.path.insert(0, str(SHOWDOWN_BOT_ROOT / "src"))
 
 DATA_EVAL = REPO_ROOT / "data" / "eval"
 OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
+MANIFEST_PATH = OUT_DIR / "decision-id-manifest.jsonl"
 FORMAT_ID = "gen9vgc2025regi"
 EXPECTED_FINAL_G = 85
+LABEL_TO_CAP = {"cap4_auxiliary": 4, "cap6": 6, "cap8": 8}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cap", type=int, required=True, choices=[4, 6, 8])
-    parser.add_argument("--label", type=str, required=True)  # e.g. "cap4_auxiliary", "cap6", "cap8"
+    parser.add_argument("--label", type=str, required=True, choices=sorted(LABEL_TO_CAP))
     args = parser.parse_args()
+
+    expected_cap = LABEL_TO_CAP[args.label]
+    if expected_cap != args.cap:
+        raise SystemExit(
+            f"BLOCKED: --label {args.label!r} implies cap={expected_cap}, but --cap {args.cap} "
+            f"was passed -- refusing to write a mismatched artifact."
+        )
+
+    out_path = OUT_DIR / f"{args.label}-action-capture.jsonl"
+    meta_path = OUT_DIR / f"{args.label}-action-capture-meta.json"
+    if out_path.exists():
+        raise SystemExit(
+            f"BLOCKED: {out_path} already exists. Refusing to silently overwrite -- delete it "
+            f"explicitly first if a genuine re-run is intended."
+        )
+
+    if not MANIFEST_PATH.exists():
+        raise SystemExit(f"BLOCKED: {MANIFEST_PATH} not found -- run Task 4 first.")
+    expected_decision_ids = {
+        json.loads(l)["decision_id"] for l in MANIFEST_PATH.read_text(encoding="utf-8").splitlines() if l
+    }
 
     from showdown_bot.battle.decision import heuristic_choose_for_request
     from showdown_bot.battle.decision_trace import DecisionTrace
@@ -1030,7 +1141,7 @@ def main() -> None:
             d.request, state=copy.deepcopy(d.state), book=book, our_side=d.side,
             calc=calc, oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=dex, trace=trace,
         )
-        rows.append(build_action_table_row(decision_id, chosen, trace))
+        rows.append(build_action_table_row(decision_id, chosen, trace, d.request))
     elapsed = time.perf_counter() - t0
     print(f"cap={args.cap} action-capture complete in {elapsed:.1f}s "
           f"({(elapsed / len(all_decisions)) * 1000:.1f} ms/decision)")
@@ -1042,8 +1153,16 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    actual_decision_ids = {r.decision_id for r in rows}
+    if actual_decision_ids != expected_decision_ids:
+        raise SystemExit(
+            f"BLOCKED: this run's decision_id set does not exactly match the manifest -- "
+            f"missing={sorted(expected_decision_ids - actual_decision_ids)[:5]}... "
+            f"extra={sorted(actual_decision_ids - expected_decision_ids)[:5]}... "
+            f"(counts: manifest={len(expected_decision_ids)} this_run={len(actual_decision_ids)})"
+        )
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"{args.label}-action-capture.jsonl"
     with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
         for r in sorted(rows, key=lambda x: x.decision_id):
             fh.write(json.dumps(asdict(r), sort_keys=True) + "\n")
@@ -1054,10 +1173,38 @@ def main() -> None:
         status_counts[r.candidate_resolution_status] = status_counts.get(r.candidate_resolution_status, 0) + 1
     print(f"candidate_resolution_status breakdown: {status_counts}")
 
+    # --- provenance sidecar: cap, label, source_commit, config-ish/dependency provenance,
+    # matching this project's established convention (scripts/run_accuracy_baseline_freeze.py) ---
+    try:
+        source_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT), text=True
+        ).strip()
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(f"could not determine source_commit via git rev-parse HEAD: {exc}")
+    lock_file = SHOWDOWN_BOT_ROOT / "pyproject.toml"
+    dependency_lock_hash = hashlib.sha256(lock_file.read_bytes()).hexdigest()
+    meta_path.write_text(json.dumps({
+        "cap": args.cap, "label": args.label, "source_commit": source_commit,
+        "python_version": sys.version, "dependency_lock_hash": dependency_lock_hash,
+        "row_count": len(rows), "elapsed_seconds": round(elapsed, 1),
+        "candidate_resolution_status_counts": status_counts,
+    }, indent=2, sort_keys=True), encoding="utf-8")
+    print(f"wrote {meta_path}")
+
 
 if __name__ == "__main__":
     main()
 ```
+
+Note on `config_hash`: the original `run_accuracy_baseline_freeze.py` also computes a
+`config_hash` via `make_config_hash(build_config_manifest(...))` (see this plan's "Real API facts"
+section) capturing the *behavioral* config (priors/spreads/movedata hashes + env). This script
+deliberately omits it in the template above for brevity — **before implementing, verify
+`build_config_manifest`/`make_config_hash`/`behavior_env`'s real current signatures (import from
+`showdown_bot.eval.result_jsonl`) and add the same `config_hash` field**, captured AFTER setting
+`SHOWDOWN_ACCURACY_MODE=1`/`SHOWDOWN_ACCURACY_BRANCH_CAP=<cap>` (not before), so it reflects this
+specific run's actual behavioral configuration rather than the off-path config the original script
+captured.
 
 - [ ] **Step 2: Run for real, three times**
 
@@ -1069,7 +1216,8 @@ PYTHONPATH="$(pwd)/src" python scripts/run_cap_action_capture.py --cap 8 --label
 
 Expected: each run reports `944 MOVE decisions to replay`, completes, writes
 `data/eval/accuracy-cap-derisk/cap4_auxiliary-action-capture.jsonl` /
-`cap6-action-capture.jsonl` / `cap8-action-capture.jsonl` with 944 rows each, and prints a
+`cap6-action-capture.jsonl` / `cap8-action-capture.jsonl` (944 rows each, exact decision_id set
+verified against the manifest) plus a `*-action-capture-meta.json` sidecar each, and prints a
 `candidate_resolution_status` breakdown (expect `ambiguous_label` counts roughly in the ballpark of
 the historical 63 for cap=4, though not necessarily identical — that comparison is Task 6's job, not
 this one).
@@ -1077,8 +1225,8 @@ this one).
 - [ ] **Step 3: Commit**
 
 ```bash
-git add showdown_bot/scripts/run_cap_action_capture.py data/eval/accuracy-cap-derisk/*-action-capture.jsonl
-git commit -m "feat(eval): real cap=4/6/8 action-capture runs, full 944-decision tables"
+git add showdown_bot/scripts/run_cap_action_capture.py data/eval/accuracy-cap-derisk/*-action-capture.jsonl data/eval/accuracy-cap-derisk/*-action-capture-meta.json
+git commit -m "feat(eval): real cap=4/6/8 action-capture runs, provenance + cap-label validation + overwrite guard"
 ```
 
 ---
@@ -1098,10 +1246,16 @@ cap=4 auxiliary table until this passes** — this task is a hard checkpoint for
 `testpaths = ["tests"]` only. So the testable Stage-1/Stage-2 logic lives in
 `showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py` (an already-importable, already-tested
 module from Tasks 1-3), and `validate_cap4_auxiliary.py` is a thin, untested-by-pytest real-run
-wrapper around it — exactly the same "pure logic in the eval module, real-run driver in scripts/"
-split every other task in this plan already follows. The test file therefore lives at
-`showdown_bot/tests/eval/test_accuracy_cap_derisk.py` (appended to the existing file from Tasks
-1-3), not a separate `tests/eval/test_validate_cap4_auxiliary.py`.
+wrapper around it. The test file lives at `showdown_bot/tests/eval/test_accuracy_cap_derisk.py`.
+
+**Correction: Stage 1 must check the actual historical ON-action value, not merely the diff-ID
+set.** An earlier draft of this task only checked "does the auxiliary run ALSO differ on the same
+20 decision_ids the frozen report flagged" — that passes even if the auxiliary run reproduces the
+diff at the WRONG new value (e.g. historically `on_chosen_action="/choose move 2"`, but the new run
+differs to `"/choose move 5"` — a different wrong action, yet still "differs from off", so the old
+set-only check would wrongly call this a pass). Stage 1 now requires, for each of the 20, that the
+auxiliary run's raw action **exactly equals** the historical `on_chosen_action` value from
+`gate-b-report.json`'s `diffs`.
 
 - [ ] **Step 1: Write the failing unit tests for the two-stage logic**
 
@@ -1115,47 +1269,64 @@ from showdown_bot.eval.accuracy_cap_derisk import (
 )
 
 
-def _aux_row(decision_id, action):
+def _aux_row(decision_id, action_raw, action_canonical=None):
     return ActionTableRow(
-        decision_id=decision_id, chosen_action=action, candidate_resolution_status="exact",
+        decision_id=decision_id, chosen_action_raw=action_raw,
+        chosen_action_canonical=action_canonical if action_canonical is not None else action_raw,
+        candidate_resolution_status="exact",
         chosen_candidate_rank=0, chosen_rank_mismatch=False, top_rank_score=1.0, chosen_candidate_score=1.0,
     )
 
 
-def test_stage1_passes_when_raw_diff_set_matches_frozen_exactly():
-    aux = [_aux_row("id1", "/choose move 1"), _aux_row("id2", "/choose move 2")]
-    frozen_actions = {"id1": "/choose move 1", "id2": "/choose move 3"}  # id2 differs -> 1 known diff
-    frozen_20_decision_ids = {"id2"}
-    result = run_stage1_raw_reproduction(aux, frozen_actions, frozen_20_decision_ids)
+def test_stage1_passes_when_raw_diff_set_and_on_actions_match_frozen_exactly():
+    aux = [_aux_row("id1", "/choose move 1"), _aux_row("id2", "/choose move 3")]
+    frozen_off_actions = {"id1": "/choose move 1", "id2": "/choose move 2"}
+    frozen_on_actions_for_20 = {"id2": "/choose move 3"}  # the exact historical on-value for id2
+    result = run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
     assert result.passed is True
     assert result.raw_diff_decision_ids == {"id2"}
 
 
 def test_stage1_raises_on_unexpected_raw_diff():
     aux = [_aux_row("id1", "/choose move 99")]  # unexpectedly differs
-    frozen_actions = {"id1": "/choose move 1"}
-    frozen_20_decision_ids = set()  # id1 was NOT one of the frozen 20
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {}  # id1 was NOT one of the frozen 20
     with pytest.raises(Stage1ReproductionError) as exc_info:
-        run_stage1_raw_reproduction(aux, frozen_actions, frozen_20_decision_ids)
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
     assert "id1" in str(exc_info.value)
 
 
 def test_stage1_raises_on_missing_expected_diff():
-    aux = [_aux_row("id1", "/choose move 1")]  # now matches, but frozen report said it should diff
-    frozen_actions = {"id1": "/choose move 1"}
-    frozen_20_decision_ids = {"id1"}  # expected a diff here
+    aux = [_aux_row("id1", "/choose move 1")]  # now matches off, but frozen report said it should diff
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # expected a diff here
     with pytest.raises(Stage1ReproductionError):
-        run_stage1_raw_reproduction(aux, frozen_actions, frozen_20_decision_ids)
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+
+
+def test_stage1_raises_when_diff_id_set_matches_but_on_action_value_does_not():
+    """The core correction: reproducing the SAME set of differing decision_ids is not enough --
+    the auxiliary run's actual differing action must equal the historical on_chosen_action value,
+    not just be different from off (spec Sec.2.3 Stage 1)."""
+    aux = [_aux_row("id1", "/choose move 5")]  # differs from off (matches the *set*)...
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # ...but NOT the historical on-value
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id1" in str(exc_info.value)
 
 
 def test_stage2_smaller_normalized_set_than_raw_20_is_not_a_failure():
-    """If Stage 1 passed (raw matches the historical 20) but two of those raw diffs turn out to
-    be pure representational differences (normalize_choose folds them to the same action), Stage 2
-    reports 18 semantic diffs -- honestly, not as a validation failure."""
-    aux = [_aux_row("id1", "/choose move 1"), _aux_row("id2", "/choose move 2 ")]  # trailing space
-    frozen_actions = {"id1": "/choose move 9", "id2": "/choose move 2"}  # id2: raw differs, normalized doesn't
-    result = run_stage2_semantic_diff(aux, frozen_actions, request=None)
-    # id1: genuinely different action -> action_changed True; id2: pure whitespace -> False
+    """If Stage 1 passed (raw matches the historical 20, including exact on-values) but two of
+    those raw diffs turn out to be pure representational differences (their PRE-COMPUTED canonical
+    forms happen to match), Stage 2 reports fewer semantic diffs -- honestly, not as a failure."""
+    aux = [
+        _aux_row("id1", "/choose move 1", "canonical:move1"),
+        _aux_row("id2", "/choose move 2 ", "canonical:move2"),  # raw differs from frozen, canonical doesn't
+    ]
+    frozen_actions_canonical = {"id1": "canonical:move9", "id2": "canonical:move2"}
+    result = run_stage2_semantic_diff(aux, frozen_actions_canonical)
+    # id1: genuinely different canonical action -> action_changed True; id2: same canonical -> False
     changed = {r.decision_id for r in result.rows if r.action_changed}
     assert changed == {"id1"}
 ```
@@ -1167,11 +1338,6 @@ Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v -k stage1_or_st
 Expected: FAIL with `ImportError: cannot import name 'Stage1ReproductionError'`
 
 - [ ] **Step 3: Implement the two-stage logic**
-
-Put the pure, testable Stage-1/Stage-2 functions in `accuracy_cap_derisk.py` (reusing the module
-from Tasks 1-3), and make `validate_cap4_auxiliary.py` a thin real-run driver that reads the real
-artifacts and calls them — this avoids the `scripts/`-as-package import question entirely and
-matches this module's existing "pure logic here, real-run driver separately" split.
 
 ```python
 # appended to showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py
@@ -1188,52 +1354,68 @@ class Stage1ReproductionError(Exception):
 
 def run_stage1_raw_reproduction(
     auxiliary_rows: list[ActionTableRow],
-    frozen_actions_by_decision_id: dict[str, str],
-    frozen_20_decision_ids: set[str],
+    frozen_off_actions_by_decision_id: dict[str, str],
+    frozen_on_actions_for_the_20: dict[str, str],
 ) -> Stage1Result:
     """Spec Sec.2.3 Stage 1: raw (un-normalized) string comparison only, restricted to the
     historical 881-eligible set (callers must pre-filter both inputs to that set before calling).
-    Must exactly reproduce the frozen 20 -- any deviation raises immediately."""
+    Must exactly reproduce the frozen 20 -- both WHICH decision_ids differ AND the exact historical
+    on_chosen_action value for each -- any deviation raises immediately. Reproducing only the diff
+    SET (without checking the actual on-value) is explicitly insufficient and was a real bug caught
+    in this plan's own review."""
     aux_by_id = {r.decision_id: r for r in auxiliary_rows}
-    if set(aux_by_id) != set(frozen_actions_by_decision_id):
+    if set(aux_by_id) != set(frozen_off_actions_by_decision_id):
         raise Stage1ReproductionError(
-            f"decision_id set mismatch between auxiliary rows and frozen actions: "
-            f"only-in-auxiliary={set(aux_by_id) - set(frozen_actions_by_decision_id)} "
-            f"only-in-frozen={set(frozen_actions_by_decision_id) - set(aux_by_id)}"
+            f"decision_id set mismatch between auxiliary rows and frozen off-actions: "
+            f"only-in-auxiliary={set(aux_by_id) - set(frozen_off_actions_by_decision_id)} "
+            f"only-in-frozen={set(frozen_off_actions_by_decision_id) - set(aux_by_id)}"
         )
     raw_diff_ids = {
-        did for did, frozen_action in frozen_actions_by_decision_id.items()
-        if aux_by_id[did].chosen_action != frozen_action
+        did for did, off_action in frozen_off_actions_by_decision_id.items()
+        if aux_by_id[did].chosen_action_raw != off_action
     }
-    if raw_diff_ids != frozen_20_decision_ids:
+    expected_diff_ids = set(frozen_on_actions_for_the_20)
+    if raw_diff_ids != expected_diff_ids:
         raise Stage1ReproductionError(
-            f"raw reproduction FAILED: expected diff set {sorted(frozen_20_decision_ids)}, "
-            f"got {sorted(raw_diff_ids)} -- unexpected={sorted(raw_diff_ids - frozen_20_decision_ids)} "
-            f"missing={sorted(frozen_20_decision_ids - raw_diff_ids)}"
+            f"raw reproduction FAILED (diff-ID set): expected {sorted(expected_diff_ids)}, "
+            f"got {sorted(raw_diff_ids)} -- unexpected={sorted(raw_diff_ids - expected_diff_ids)} "
+            f"missing={sorted(expected_diff_ids - raw_diff_ids)}"
+        )
+    wrong_on_value = {
+        did: (aux_by_id[did].chosen_action_raw, expected_on)
+        for did, expected_on in frozen_on_actions_for_the_20.items()
+        if aux_by_id[did].chosen_action_raw != expected_on
+    }
+    if wrong_on_value:
+        raise Stage1ReproductionError(
+            f"raw reproduction FAILED (on-action value): the diff-ID set matches, but "
+            f"{len(wrong_on_value)} decision(s) reproduced a DIFFERENT wrong action than the "
+            f"historically recorded one -- {wrong_on_value}"
         )
     return Stage1Result(passed=True, raw_diff_decision_ids=raw_diff_ids)
 
 
 def run_stage2_semantic_diff(
     auxiliary_rows: list[ActionTableRow],
-    frozen_actions_by_decision_id: dict[str, str],
-    *,
-    request=None,
+    frozen_actions_canonical_by_decision_id: dict[str, str],
 ) -> ActionTableDiff:
-    """Spec Sec.2.3 Stage 2: only meaningful after Stage 1 passes. normalize_choose-based semantic
+    """Spec Sec.2.3 Stage 2: only meaningful after Stage 1 passes. Canonical-field-based semantic
     diff via compare_action_tables -- answers "how many semantically distinct decisions", not "is
-    this the same run"."""
+    this the same run". `frozen_actions_canonical_by_decision_id` must already be pre-computed
+    canonical forms (see decision-id-manifest.jsonl's legacy_frozen_action_canonical field, Task 4)
+    -- this function never calls normalize_choose itself."""
     frozen_rows = [
         ActionTableRow(
-            decision_id=did, chosen_action=action, candidate_resolution_status="exact",
+            decision_id=did, chosen_action_raw=canonical, chosen_action_canonical=canonical,
+            candidate_resolution_status="exact",
             chosen_candidate_rank=0, chosen_rank_mismatch=False, top_rank_score=None, chosen_candidate_score=None,
         )
-        for did, action in frozen_actions_by_decision_id.items()
+        for did, canonical in frozen_actions_canonical_by_decision_id.items()
     ]
-    aux_by_id = {r.decision_id: r for r in auxiliary_rows if r.decision_id in frozen_actions_by_decision_id}
+    aux_by_id = {r.decision_id: r for r in auxiliary_rows if r.decision_id in frozen_actions_canonical_by_decision_id}
     return compare_action_tables(
         frozen_rows, list(aux_by_id.values()), direction="off -> cap4_auxiliary",
-        request=request, score_comparable=False,
+        score_comparable=False,
         score_incompatible_reason="legacy_frozen_score not proven equivalent (see Task 4's verified finding)",
     )
 ```
@@ -1265,6 +1447,9 @@ OUT_PATH = DATA_EVAL / "accuracy-cap-derisk" / "cap4-auxiliary-validation-report
 
 
 def main() -> None:
+    if OUT_PATH.exists():
+        raise SystemExit(f"BLOCKED: {OUT_PATH} already exists -- delete it explicitly first if a genuine re-validation is intended.")
+
     from showdown_bot.eval.accuracy_cap_derisk import (
         ActionTableRow, run_stage1_raw_reproduction, run_stage2_semantic_diff,
     )
@@ -1286,24 +1471,29 @@ def main() -> None:
     if len(eligible_881_decision_ids) != 881:
         raise SystemExit(f"BLOCKED: expected 881 eligible decision_ids, got {len(eligible_881_decision_ids)}")
 
-    frozen_20_by_request_hash = {d["request_hash"]: d["on_chosen_action"] for d in gate_b["diffs"]}
-    frozen_20_decision_ids = {
-        manifest_by_request_hash[rh]["decision_id"] for rh in frozen_20_by_request_hash
+    # historical on_chosen_action for exactly the frozen 20, keyed by decision_id
+    frozen_20_on_actions = {
+        manifest_by_request_hash[d["request_hash"]]["decision_id"]: d["on_chosen_action"]
+        for d in gate_b["diffs"]
     }
 
-    frozen_actions_881 = {
+    frozen_off_actions_881 = {
         manifest_by_request_hash[rh]["decision_id"]: manifest_by_request_hash[rh]["legacy_frozen_chosen_action"]
         for rh in manifest_by_request_hash if rh not in excluded_request_hashes
     }
     aux_881 = [r for r in aux_rows if r.decision_id in eligible_881_decision_ids]
 
     print(f"Stage 1: raw reproduction check on {len(aux_881)} eligible decisions "
-          f"(expecting exactly {len(frozen_20_decision_ids)} raw diffs)...")
-    stage1 = run_stage1_raw_reproduction(aux_881, frozen_actions_881, frozen_20_decision_ids)
-    print(f"Stage 1 PASSED: raw diff set exactly matches the frozen 20.")
+          f"(expecting exactly {len(frozen_20_on_actions)} raw diffs, exact on-action values)...")
+    stage1 = run_stage1_raw_reproduction(aux_881, frozen_off_actions_881, frozen_20_on_actions)
+    print(f"Stage 1 PASSED: raw diff set AND exact on-action values reproduce the frozen 20.")
 
+    frozen_canonical_881 = {
+        manifest_by_request_hash[rh]["decision_id"]: manifest_by_request_hash[rh]["legacy_frozen_action_canonical"]
+        for rh in manifest_by_request_hash if rh not in excluded_request_hashes
+    }
     print("Stage 2: normalized semantic diff on the same 881...")
-    stage2 = run_stage2_semantic_diff(aux_881, frozen_actions_881)
+    stage2 = run_stage2_semantic_diff(aux_881, frozen_canonical_881)
     print(f"Stage 2: {stage2.action_changed_count} semantically distinct action changes "
           f"(raw Stage-1 diff count was {len(stage1.raw_diff_decision_ids)} -- if smaller, "
           f"the difference is pre-existing representational diffs, not a failure).")
@@ -1316,7 +1506,7 @@ def main() -> None:
         for rh in excluded_request_hashes
     }
     diffs_among_63 = sum(
-        1 for r in aux_63 if r.chosen_action != frozen_actions_63.get(r.decision_id)
+        1 for r in aux_63 if r.chosen_action_raw != frozen_actions_63.get(r.decision_id)
     )
     print(f"Among the 63 historical exclusions: {diffs_among_63} raw action diffs found "
           f"(diagnostic bonus info for Task 10/11 -- NOT part of Stage 1/2, frozen gate unchanged).")
@@ -1340,21 +1530,22 @@ if __name__ == "__main__":
 ```bash
 python -m pytest tests/eval/test_accuracy_cap_derisk.py -v
 ```
-Expected: PASS (all tests from Tasks 1-3 plus the 4 new Stage-1/Stage-2 tests from this task)
+Expected: PASS (all tests from Tasks 1-3 plus the 5 new Stage-1/Stage-2 tests from this task)
 
 ```bash
 PYTHONPATH="$(pwd)/src" python scripts/validate_cap4_auxiliary.py
 ```
 Expected: `Stage 1 PASSED`, a Stage 2 semantic-diff count printed, a diffs-among-63 count printed,
 `data/eval/accuracy-cap-derisk/cap4-auxiliary-validation-report.json` written, ending with
-`VALIDATION GATE PASSED`. **If Stage 1 raises: STOP. Do not proceed to Task 7 or Task 8. Root-cause
-the discrepancy — do not weaken the gate to force a pass.**
+`VALIDATION GATE PASSED`. **If Stage 1 raises (either the diff-ID-set check or the new exact
+on-action-value check): STOP. Do not proceed to Task 7 or Task 8. Root-cause the discrepancy — do
+not weaken the gate to force a pass.**
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py showdown_bot/scripts/validate_cap4_auxiliary.py showdown_bot/tests/eval/test_accuracy_cap_derisk.py data/eval/accuracy-cap-derisk/cap4-auxiliary-validation-report.json
-git commit -m "feat(eval): two-stage cap4-auxiliary validation gate (raw then semantic), real run PASSED"
+git commit -m "feat(eval): two-stage cap4-auxiliary validation gate, now checking exact historical on-action values"
 ```
 
 ---
@@ -1365,7 +1556,10 @@ git commit -m "feat(eval): two-stage cap4-auxiliary validation gate (raw then se
 - Create: `showdown_bot/scripts/run_cap_gate_verdicts.py`
 
 Implements spec §2.5. Directly mirrors `run_accuracy_gate_b.py` (Task 11 of the accuracy-offline-gate
-plan) but parametrized by cap, run for cap=6 and cap=8 (never cap=4 — that verdict stays frozen).
+plan) but parametrized by cap, run for cap=6 and cap=8 (never cap=4 — that verdict stays frozen). No
+corrections from this review apply to this task's own logic (it reuses `run_gate_b` unchanged); add
+the same forced `SHOWDOWN_CALC_BACKEND` and pre-existing-output guard conventions established in
+Tasks 4-6 for consistency.
 
 - [ ] **Step 1: Write the script**
 
@@ -1392,7 +1586,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")
+os.environ["SHOWDOWN_CALC_BACKEND"] = "persistent"  # forced, not setdefault
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHOWDOWN_BOT_ROOT = SCRIPT_DIR.parent
@@ -1416,6 +1610,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cap", type=int, required=True, choices=[6, 8])
     args = parser.parse_args()
+
+    out_path = OUT_DIR / f"cap{args.cap}-report.json"
+    if out_path.exists():
+        raise SystemExit(f"BLOCKED: {out_path} already exists -- delete it explicitly first if a genuine re-run is intended.")
 
     from showdown_bot.battle.oracle import DamageOracle
     from showdown_bot.battle.opponent import SpeciesDex
@@ -1522,7 +1720,6 @@ def main() -> None:
         ],
     }
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"cap{args.cap}-report.json"
     out_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote {out_path}")
     print(f"n_decisions_compared={result.n_decisions_compared} exceptions={len(result.acceptance.exceptions)} "
@@ -1560,7 +1757,11 @@ git commit -m "feat(eval): real cap=6/cap=8 Gate B verdicts, unchanged run_gate_
 
 Implements spec §2.4's four real diffs (cap6-vs-cap4, cap6-vs-off, cap8-vs-cap4, cap8-vs-off),
 respecting the score-semantic rules from Task 3/§2.3 (off-vs-cap score comparisons skipped, per the
-verified `legacy_frozen_score` non-equivalence finding at the top of this plan).
+verified `legacy_frozen_score` non-equivalence finding at the top of this plan). **Correction: this
+script no longer calls `normalize_choose` or passes a `request` anywhere** — every table it reads
+already carries its own pre-computed `chosen_action_canonical` (action-capture rows from Task 5,
+`legacy_frozen_action_canonical` from the manifest built in Task 4), so `compare_action_tables` (now
+`request`-free per Task 2's correction) can be called directly.
 
 - [ ] **Step 1: Write the script**
 
@@ -1568,9 +1769,10 @@ verified `legacy_frozen_score` non-equivalence finding at the top of this plan).
 # showdown_bot/scripts/run_cap_cross_diffs.py
 """Real run: cap6-vs-cap4, cap6-vs-off, cap8-vs-cap4, cap8-vs-off action diffs, via
 compare_action_tables (Task 2), reading the action-capture tables from Task 5 and the
-decision-id-manifest from Task 4. off-vs-cap score comparisons are explicitly SKIPPED (spec
-Sec.2.3 -- legacy_frozen_score's construction is verified non-equivalent to chosen_candidate_score,
-see this plan's "Real API facts" section).
+decision-id-manifest from Task 4. Every row already carries a pre-computed chosen_action_canonical
+-- this script performs no live normalize_choose calls. off-vs-cap score comparisons are
+explicitly SKIPPED (spec Sec.2.3 -- legacy_frozen_score's construction is verified non-equivalent
+to chosen_candidate_score, see this plan's "Real API facts" section).
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/run_cap_cross_diffs.py
 """
@@ -1595,6 +1797,10 @@ def _load_rows(path: Path):
 
 
 def main() -> None:
+    out_path = OUT_DIR / "cross-cap-diffs.json"
+    if out_path.exists():
+        raise SystemExit(f"BLOCKED: {out_path} already exists -- delete it explicitly first if a genuine re-run is intended.")
+
     from dataclasses import asdict
 
     from showdown_bot.eval.accuracy_cap_derisk import ActionTableRow, compare_action_tables
@@ -1604,7 +1810,9 @@ def main() -> None:
     ]
     off_rows = [
         ActionTableRow(
-            decision_id=r["decision_id"], chosen_action=r["legacy_frozen_chosen_action"],
+            decision_id=r["decision_id"],
+            chosen_action_raw=r["legacy_frozen_chosen_action"],
+            chosen_action_canonical=r["legacy_frozen_action_canonical"],
             candidate_resolution_status="exact", chosen_candidate_rank=0, chosen_rank_mismatch=False,
             top_rank_score=None, chosen_candidate_score=None,
         )
@@ -1635,7 +1843,6 @@ def main() -> None:
             "rows": [asdict(r) for r in diff.rows if r.action_changed],  # only the changed rows, full table is large
         }
 
-    out_path = OUT_DIR / "cross-cap-diffs.json"
     out_path.write_text(json.dumps(results, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote {out_path}")
 
@@ -1656,7 +1863,7 @@ back, do not run this against an unvalidated cap4 auxiliary table.
 
 ```bash
 git add showdown_bot/scripts/run_cap_cross_diffs.py data/eval/accuracy-cap-derisk/cross-cap-diffs.json
-git commit -m "feat(eval): real cross-cap/cross-mode action diffs via compare_action_tables"
+git commit -m "feat(eval): real cross-cap/cross-mode action diffs via compare_action_tables, no live normalize_choose"
 ```
 
 ---
@@ -1667,18 +1874,33 @@ git commit -m "feat(eval): real cross-cap/cross-mode action diffs via compare_ac
 - Create: `showdown_bot/scripts/run_cap_latency_sweep.py`
 
 Implements spec §2.6. Full 944-decision corpus, `cap4_auxiliary`/cap6/cap8, trace-none and
-trace-enabled measured separately, cap order rotated per game rather than fixed 4→6→8, backend
-warmed once up front.
+trace-enabled measured separately, **both cap order AND trace-mode order rotated** (not fixed), the
+persistent calc backend enforced fail-closed (not `setdefault`), exceptions tracked per
+`(cap, trace_mode)` pair, and each series' measured-row count asserted against its own exact
+expected denominator.
+
+**Corrections applied here (both were real bugs in an earlier draft):**
+1. **Trace-mode order was always `trace_none` then `trace_enabled`, for every single decision** —
+   this systematically confounds the trace-mode comparison with cache/JIT/backend-state effects that
+   accrue between the two calls, biasing `trace_enabled` (always measured second) in the same
+   direction across all 944×3 decisions. Trace-mode order is now rotated the same way cap order
+   already was.
+2. **`os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")` silently inherits whatever the
+   CALLER's environment already has set** — if a caller's shell already has
+   `SHOWDOWN_CALC_BACKEND=oneshot` (a completely different latency profile: spawns a fresh Node
+   process per call instead of reusing one), this script would silently measure the wrong thing with
+   no warning. Now fail-closed: if already set to something other than `persistent`, raise; if
+   unset, force it to `persistent`.
 
 - [ ] **Step 1: Write the script**
 
 ```python
 # showdown_bot/scripts/run_cap_latency_sweep.py
 """Real run: full-corpus latency, both trace modes (none / DecisionTrace()), for
-SHOWDOWN_ACCURACY_BRANCH_CAP in {4 (cap4_auxiliary), 6, 8}, spec Sec.2.6. Cap order is rotated per
-game (not fixed 4->6->8 every time) to avoid confounding cap effects with warm-up/ordering/
-backend-state effects; the persistent calc backend is warmed once, up front, before any timed
-measurement.
+SHOWDOWN_ACCURACY_BRANCH_CAP in {4 (cap4_auxiliary), 6, 8}, spec Sec.2.6. BOTH cap order and
+trace-mode order are rotated per game (not fixed 4->6->8 / none-then-enabled every time) to avoid
+confounding cap/trace effects with warm-up/ordering/backend-state effects; the persistent calc
+backend is enforced fail-closed and warmed once, up front, before any timed measurement.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/run_cap_latency_sweep.py
 """
@@ -1686,6 +1908,7 @@ from __future__ import annotations
 
 import copy
 import glob
+import itertools
 import json
 import os
 import random
@@ -1693,7 +1916,16 @@ import sys
 import time
 from pathlib import Path
 
-os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")
+_existing_backend = os.environ.get("SHOWDOWN_CALC_BACKEND")
+if _existing_backend is not None and _existing_backend != "persistent":
+    raise SystemExit(
+        f"BLOCKED: SHOWDOWN_CALC_BACKEND is already set to {_existing_backend!r} in this "
+        f"environment -- this latency sweep requires the persistent backend specifically "
+        f"(a different backend has a completely different latency profile and would silently "
+        f"invalidate every measurement below). Unset it or explicitly set it to 'persistent' "
+        f"before running."
+    )
+os.environ["SHOWDOWN_CALC_BACKEND"] = "persistent"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHOWDOWN_BOT_ROOT = SCRIPT_DIR.parent
@@ -1705,6 +1937,7 @@ OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 FORMAT_ID = "gen9vgc2025regi"
 EXPECTED_FINAL_G = 85
 CAPS = [4, 6, 8]  # cap=4 here is cap4_auxiliary latency, per spec Sec.2.3's explicit allowance
+TRACE_MODES = [False, True]  # False=trace_none, True=trace_enabled
 ORDER_SEED = 20260713  # pre-pinned, matches this plan's other pinned seeds' convention
 
 
@@ -1714,6 +1947,10 @@ def _percentile(sorted_ms: list[float], q: float) -> float:
 
 
 def main() -> None:
+    out_path = OUT_DIR / "latency-results.json"
+    if out_path.exists():
+        raise SystemExit(f"BLOCKED: {out_path} already exists -- delete it explicitly first if a genuine re-run is intended.")
+
     from showdown_bot.battle.decision import heuristic_choose_for_request
     from showdown_bot.battle.decision_trace import DecisionTrace
     from showdown_bot.battle.oracle import DamageOracle
@@ -1746,13 +1983,15 @@ def main() -> None:
     if dedup_report.final_g != EXPECTED_FINAL_G:
         raise SystemExit(f"BLOCKED: expected final_g == {EXPECTED_FINAL_G}, got {dedup_report.final_g}")
 
-    # group decisions by game (source file) for per-game cap-order rotation
+    # group decisions by game (source file) for per-game cap/trace-mode-order rotation
     by_game: dict[str, list] = {}
     for p in sorted(dedup_report.kept, key=str):
         decisions = [d for d in extract_decisions_from_log(p) if d.kind == RequestKind.MOVE]
         by_game[str(p)] = decisions
     total_decisions = sum(len(v) for v in by_game.values())
     print(f"{total_decisions} MOVE decisions across {len(by_game)} games")
+    expected_per_series = total_decisions  # each of the 6 (cap, trace_mode) series should measure
+    # every decision exactly once absent an exception
 
     book = load_spread_book(load_format_config(FORMAT_ID).meta_path("default_spreads"))
     calc = CalcClient()
@@ -1777,28 +2016,30 @@ def main() -> None:
         decide(d, cap=4, with_trace=False)
     print("warm-up complete")
 
-    # --- deterministic per-game cap-order rotation, not a fixed 4->6->8 sequence ---
+    # --- deterministic per-game cap AND trace-mode order rotation, not a fixed sequence ---
     rng = random.Random(ORDER_SEED)
     game_ids = sorted(by_game)
-    results: dict[str, dict[str, list[float]]] = {
-        f"cap{c}": {"trace_none": [], "trace_enabled": []} for c in CAPS
-    }
-    exception_counts: dict[str, int] = {f"cap{c}": 0 for c in CAPS}
-    measured_counts: dict[str, int] = {f"cap{c}": 0 for c in CAPS}
+    series_keys = [f"cap{c}_{'trace_enabled' if t else 'trace_none'}" for c in CAPS for t in TRACE_MODES]
+    results: dict[str, list[float]] = {k: [] for k in series_keys}
+    exception_counts: dict[str, int] = {k: 0 for k in series_keys}
+    measured_counts: dict[str, int] = {k: 0 for k in series_keys}
 
     for game_id in game_ids:
-        order = CAPS[:]
-        rng.shuffle(order)  # per-game rotation, deterministic given ORDER_SEED
-        for cap in order:
-            for d in by_game[game_id]:
-                for with_trace, key in [(False, "trace_none"), (True, "trace_enabled")]:
+        cap_order = CAPS[:]
+        rng.shuffle(cap_order)  # per-game cap rotation, deterministic given ORDER_SEED
+        for cap in cap_order:
+            trace_order = TRACE_MODES[:]
+            rng.shuffle(trace_order)  # per-(game, cap) trace-mode rotation, deterministic
+            for with_trace in trace_order:
+                series_key = f"cap{cap}_{'trace_enabled' if with_trace else 'trace_none'}"
+                for d in by_game[game_id]:
                     try:
                         ms = decide(d, cap, with_trace)
-                        results[f"cap{cap}"][key].append(ms)
-                        measured_counts[f"cap{cap}"] += 1
+                        results[series_key].append(ms)
+                        measured_counts[series_key] += 1
                     except Exception as exc:  # noqa: BLE001
-                        exception_counts[f"cap{cap}"] += 1
-                        print(f"EXCEPTION cap={cap} trace={with_trace}: {exc}")
+                        exception_counts[series_key] += 1
+                        print(f"EXCEPTION cap={cap} trace_enabled={with_trace}: {exc}")
 
     os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
     os.environ.pop("SHOWDOWN_ACCURACY_BRANCH_CAP", None)
@@ -1807,30 +2048,35 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
 
-    summary = {}
-    for cap_key, series in results.items():
-        summary[cap_key] = {}
-        for mode_key, values in series.items():
-            values_sorted = sorted(values)
-            summary[cap_key][mode_key] = {
-                "n": len(values_sorted),
-                "p50": _percentile(values_sorted, 0.50) if values_sorted else None,
-                "p95": _percentile(values_sorted, 0.95) if values_sorted else None,
-                "max": values_sorted[-1] if values_sorted else None,
-            }
-        summary[cap_key]["exceptions"] = exception_counts[cap_key]
+    for series_key in series_keys:
+        actual = measured_counts[series_key] + exception_counts[series_key]
+        if actual != expected_per_series:
+            raise SystemExit(
+                f"BLOCKED: series {series_key!r} measured+excepted {actual} decisions, expected "
+                f"exactly {expected_per_series} -- some decisions were silently skipped, "
+                f"investigate before trusting this series' p50/p95/max."
+            )
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / "latency-results.json"
+    summary = {}
+    for series_key, values in results.items():
+        values_sorted = sorted(values)
+        summary[series_key] = {
+            "n": len(values_sorted),
+            "p50": _percentile(values_sorted, 0.50) if values_sorted else None,
+            "p95": _percentile(values_sorted, 0.95) if values_sorted else None,
+            "max": values_sorted[-1] if values_sorted else None,
+            "exceptions": exception_counts[series_key],
+            "expected_denominator": expected_per_series,
+        }
+
     out_path.write_text(json.dumps({
         "order_seed": ORDER_SEED, "total_decisions": total_decisions,
         "sampled": False, "results": summary,
     }, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote {out_path}")
-    for cap_key, s in summary.items():
-        print(f"{cap_key}: trace_none p50={s['trace_none']['p50']:.1f}ms p95={s['trace_none']['p95']:.1f}ms | "
-              f"trace_enabled p50={s['trace_enabled']['p50']:.1f}ms p95={s['trace_enabled']['p95']:.1f}ms | "
-              f"exceptions={s['exceptions']}")
+    for series_key, s in summary.items():
+        print(f"{series_key}: n={s['n']}/{s['expected_denominator']} p50={s['p50']:.1f}ms "
+              f"p95={s['p95']:.1f}ms max={s['max']:.1f}ms exceptions={s['exceptions']}")
 
 
 if __name__ == "__main__":
@@ -1845,14 +2091,15 @@ This measures 944 decisions × 3 caps × 2 trace modes = 5,664 real `heuristic_c
 calls — expect several minutes. **Full corpus, no sampling, per spec §2.6's "full-corpus-first, not
 by default" rule** — if this proves genuinely infeasible (many hours, not minutes), STOP, do not
 silently switch to sampling; report the real elapsed time and escalate rather than deciding
-unilaterally to sample. Report the actual p50/p95/max/exception-count numbers — do not pre-guess
-them.
+unilaterally to sample. Report the actual p50/p95/max/exception-count numbers per `(cap, trace_mode)`
+series — do not pre-guess them. **If the `SHOWDOWN_CALC_BACKEND` fail-closed check raises**, the
+calling shell has a conflicting value set — resolve that first, do not bypass the check.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add showdown_bot/scripts/run_cap_latency_sweep.py data/eval/accuracy-cap-derisk/latency-results.json
-git commit -m "feat(eval): real full-corpus latency sweep, cap4_auxiliary/6/8, trace-none+enabled separately"
+git commit -m "feat(eval): real full-corpus latency sweep, cap AND trace-mode order rotated, fail-closed backend"
 ```
 
 ---
@@ -1864,6 +2111,14 @@ git commit -m "feat(eval): real full-corpus latency sweep, cap4_auxiliary/6/8, t
 - Modify: `showdown_bot/tests/eval/test_accuracy_cap_derisk.py`
 
 Implements spec §3.1's exclusive-primary-cause + non-exclusive-companion-flags scheme.
+
+**Correction: `chosen_rank_mismatch`/`"chosen_rank_nonzero"` renamed to
+`collision_spans_nonzero_rank`.** `classify_ambiguous_case` is only ever called on genuinely
+ambiguous cases (0 or ≥2 structural matches) — there is no single "the chosen candidate" to check a
+rank on in that situation (that's exactly what makes it ambiguous). The prior name implied a
+property of "the chosen candidate" specifically, which cannot be determined from the available data
+— only a weaker, honest property is actually computable: whether the SET of colliding/matching
+candidates collectively spans a nonzero rank. Renamed throughout to say exactly that.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1879,7 +2134,7 @@ def test_classify_label_collision_switch_target_omitted():
         matching_joint_actions_distinct_switch_targets=True,
         matching_joint_actions_distinct_tera=False,
         matching_joint_actions_distinct_move_or_target=False,
-        exact_score_tie=False, chosen_rank_mismatch=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
     )
     assert result.primary_cause == "label_collision"
     assert result.label_collision_subtype == "switch_target_omitted"
@@ -1892,7 +2147,7 @@ def test_classify_chosen_missing():
         matching_joint_actions_distinct_switch_targets=False,
         matching_joint_actions_distinct_tera=False,
         matching_joint_actions_distinct_move_or_target=False,
-        exact_score_tie=False, chosen_rank_mismatch=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
         top_k_truncated=True,
     )
     assert result.primary_cause == "chosen_candidate_missing"
@@ -1900,19 +2155,19 @@ def test_classify_chosen_missing():
 
 
 def test_classify_primary_and_companion_flags_are_independent():
-    """A label collision WITH a simultaneous exact score tie and rank mismatch -- both companion
-    facts survive, neither forces a different primary cause (spec Sec.3.1)."""
+    """A label collision WITH a simultaneous exact score tie and a collision spanning a nonzero
+    rank -- both companion facts survive, neither forces a different primary cause (spec Sec.3.1)."""
     result = classify_ambiguous_case(
         chosen_candidate_id="(switch, pass)",
         matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
         matching_joint_actions_distinct_switch_targets=True,
         matching_joint_actions_distinct_tera=False,
         matching_joint_actions_distinct_move_or_target=False,
-        exact_score_tie=True, chosen_rank_mismatch=True,
+        exact_score_tie=True, collision_spans_nonzero_rank=True,
     )
     assert result.primary_cause == "label_collision"  # unaffected by the companion facts
     assert "exact_score_tie" in result.companion_flags
-    assert "chosen_rank_nonzero" in result.companion_flags
+    assert "collision_spans_nonzero_rank" in result.companion_flags
 
 
 def test_classify_other_pipeline_error_requires_rationale():
@@ -1922,7 +2177,7 @@ def test_classify_other_pipeline_error_requires_rationale():
             matching_joint_actions_distinct_switch_targets=False,
             matching_joint_actions_distinct_tera=False,
             matching_joint_actions_distinct_move_or_target=False,
-            exact_score_tie=False, chosen_rank_mismatch=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
             force_other_pipeline_error=True,  # no rationale provided -> must raise
         )
 ```
@@ -1953,19 +2208,25 @@ def classify_ambiguous_case(
     matching_joint_actions_distinct_tera: bool,
     matching_joint_actions_distinct_move_or_target: bool,
     exact_score_tie: bool,
-    chosen_rank_mismatch: bool,
+    collision_spans_nonzero_rank: bool,
     top_k_truncated: bool = False,
     request_reconstructable: bool = True,
     force_other_pipeline_error: bool = False,
     other_pipeline_error_rationale: str | None = None,
 ) -> AmbiguousCaseClassification:
     """Spec Sec.3.1's two-tier scheme. Primary cause is exactly one of 4 (5 with the optional
-    other_resolution_error); companion flags are zero-or-more, independent of the primary cause."""
+    other_resolution_error); companion flags are zero-or-more, independent of the primary cause.
+
+    `collision_spans_nonzero_rank` deliberately does NOT claim anything about "the chosen
+    candidate"'s rank -- this function is only ever invoked on genuinely ambiguous cases (0 or >=2
+    structural matches), where there is no single candidate that can be singled out as "the chosen
+    one" from the data available. It measures a real, honest, weaker property instead: whether the
+    SET of matching/colliding candidates collectively includes at least one non-rank-0 entry."""
     flags: set[str] = set()
     if exact_score_tie:
         flags.add("exact_score_tie")
-    if chosen_rank_mismatch:
-        flags.add("chosen_rank_nonzero")
+    if collision_spans_nonzero_rank:
+        flags.add("collision_spans_nonzero_rank")
     if matching_joint_actions_distinct_switch_targets:
         flags.add("distinct_switch_targets_same_label")
     if matching_joint_actions_distinct_tera:
@@ -2016,20 +2277,140 @@ def classify_ambiguous_case(
     raise ValueError(
         f"classify_ambiguous_case called on a non-ambiguous case (1 match, "
         f"chosen_candidate_id={chosen_candidate_id!r}) -- caller should only invoke this for "
-        f"cases accuracy_gate_b's _chosen_candidate actually flagged as unresolved/ambiguous."
+        f"cases that genuinely failed to resolve to exactly one match on re-run (see Task 11's "
+        f"reproduction check, which routes exactly-one-match re-runs to other_pipeline_error "
+        f"instead of calling this function at all)."
     )
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v`
-Expected: PASS (22 passed)
+Expected: PASS (23 passed)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py showdown_bot/tests/eval/test_accuracy_cap_derisk.py
-git commit -m "feat(eval): two-tier ambiguous-case classifier -- exclusive primary cause + companion flags"
+git commit -m "feat(eval): two-tier ambiguous-case classifier -- collision_spans_nonzero_rank, not chosen_rank_mismatch"
+```
+
+---
+
+## Task 10b: Structural-collision helpers (pure, unit-tested) — fixes the None-contamination bug
+
+**Files:**
+- Modify: `showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py`
+- Modify: `showdown_bot/tests/eval/test_accuracy_cap_derisk.py`
+
+**Correction: a real bug found in an earlier draft's inline distinct-switch-target computation.**
+The earlier draft built one Python `set` unioning REAL switch-target `target_ident` values together
+with `None` placeholders contributed by every non-switch slot (move/pass) in the same colliding
+candidate set. If there is genuinely only ONE distinct real switch target across all colliding
+candidates, but at least one candidate ALSO has a non-switch other slot, the union becomes
+`{"some_target", None}` — size 2 — incorrectly reported as "distinct switch targets" even though
+there is only one real target. This task extracts the computation into a pure, unit-tested helper
+that collects ONLY genuine `(slot_index, target_ident)` pairs from switch slots, never contaminating
+that comparison with `None` from non-switch slots.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# appended to showdown_bot/tests/eval/test_accuracy_cap_derisk.py
+from showdown_bot.battle.actions import JointAction
+from showdown_bot.eval.accuracy_cap_derisk import (
+    distinct_move_or_targets,
+    distinct_switch_targets,
+    distinct_tera_states,
+)
+from showdown_bot.models.actions import SlotAction
+
+
+def _ja(slot0: SlotAction, slot1: SlotAction) -> JointAction:
+    return JointAction(slot0=slot0, slot1=slot1)
+
+
+def test_distinct_switch_targets_false_for_single_real_target_plus_a_move_slot():
+    """The core correction: exactly ONE real switch target, paired with a non-switch other slot in
+    every colliding candidate, must NOT be reported as distinct -- this is the exact bug found in
+    review (None from the move/pass slot was previously unioned together with the real target)."""
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="move", move_index=1))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False
+
+
+def test_distinct_switch_targets_true_for_genuinely_different_targets():
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="c"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is True
+
+
+def test_distinct_switch_targets_false_when_no_switch_slots_at_all():
+    ja1 = _ja(SlotAction(kind="move", move_index=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False  # no switches present -> vacuously false
+
+
+def test_distinct_tera_states_true_when_terastallize_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, terastallize=False), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    assert distinct_tera_states([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_true_when_move_index_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2, target=1), SlotAction(kind="pass"))
+    assert distinct_move_or_targets([ja1, ja2]) is True
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v -k distinct_switch_targets`
+Expected: FAIL with `ImportError: cannot import name 'distinct_switch_targets'`
+
+- [ ] **Step 3: Implement the helpers**
+
+```python
+# appended to showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py
+
+
+def distinct_switch_targets(joint_actions: list) -> bool:
+    """Collects ONLY genuine (slot_index, target_ident) pairs from slots where kind == "switch" --
+    never contaminated by None from non-switch slots in the same JointAction, which is the exact
+    bug this helper replaces (found in review: unioning real targets with None-for-non-switch-slots
+    made a single real target look like multiple)."""
+    switch_pairs: set[tuple[int, str | None]] = set()
+    for ja in joint_actions:
+        if ja.slot0.kind == "switch":
+            switch_pairs.add((0, ja.slot0.target_ident))
+        if ja.slot1.kind == "switch":
+            switch_pairs.add((1, ja.slot1.target_ident))
+    return len(switch_pairs) > 1
+
+
+def distinct_tera_states(joint_actions: list) -> bool:
+    states = {(ja.slot0.terastallize, ja.slot1.terastallize) for ja in joint_actions}
+    return len(states) > 1
+
+
+def distinct_move_or_targets(joint_actions: list) -> bool:
+    keys = {
+        (ja.slot0.move_index, ja.slot0.target, ja.slot1.move_index, ja.slot1.target)
+        for ja in joint_actions
+    }
+    return len(keys) > 1
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `python -m pytest tests/eval/test_accuracy_cap_derisk.py -v`
+Expected: PASS (28 passed)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py showdown_bot/tests/eval/test_accuracy_cap_derisk.py
+git commit -m "fix(eval): distinct_switch_targets no longer contaminated by None from non-switch slots"
 ```
 
 ---
@@ -2042,15 +2423,28 @@ git commit -m "feat(eval): two-tier ambiguous-case classifier -- exclusive prima
 Implements spec §3.3 (real classification run, overlap-by-decision_id across caps) and §3.2 (the
 fix-feasibility investigation write-up).
 
-- [ ] **Step 1: Write the script**
+**Correction 1: not every `acceptance.exceptions` entry is necessarily an ambiguity case.** An
+earlier draft assumed every exception recorded by `run_gate_b` is a label-collision/missing-match
+case and force-classified all of them via `classify_ambiguous_case`. That function now (Task 10)
+only accepts genuinely-ambiguous inputs (0 or ≥2 structural matches) — this script must actually
+**re-check the live re-run's own resolution outcome** before calling it: if the re-run resolves to
+exactly ONE match (meaning the original exception did NOT reproduce as a structural ambiguity — it
+was likely a different, unrelated error, e.g. a transient calc/environment issue), or if the re-run
+itself raises a DIFFERENT exception than expected, route that case to `other_pipeline_error` with
+the concrete original (or new) exception message as the rationale — never force it through the
+ambiguity classifier.
 
-Before writing this, re-derive (don't just copy) the trace object for each of cap4's historical 63 /
-cap6's / cap8's ambiguous cases — `run_gate_b`'s `acceptance.exceptions` only stores
-`(request_hash, message)`, not the trace itself (traces aren't persisted). This script must
-**re-run** `heuristic_choose_for_request(trace=...)` for exactly the ambiguous decision_ids at each
-cap (a small, targeted re-run — dozens of decisions, not the full 944) to get a live `DecisionTrace`
-to classify against, reusing the SAME real book/calc/oracle construction pattern as every other task
-in this plan.
+**Correction 2: no silent `request_hash`-keyed dictionary that could overwrite on a hash collision.**
+An earlier draft built `found[d.request_hash] = d` while re-extracting the target decisions — if two
+DIFFERENT decisions in the corpus ever shared a `request_hash` (a real possibility this whole plan's
+`decision_id` scheme exists to guard against, even though Task 7 of the accuracy-offline-gate plan
+found `request_hash` empirically unique across all 944 decisions in this specific corpus), this would
+silently keep only one and drop the other with no error. This script now re-extracts with full
+`decision_id` computation (same per-file `SeedIdentity` + `compute_decision_id` pattern as Tasks
+4/5) and joins on `decision_id`, never on bare `request_hash` — matching this plan's own
+`decision_id`-is-the-join-key principle throughout.
+
+- [ ] **Step 1: Write the script**
 
 ```python
 # showdown_bot/scripts/run_ambiguous_candidate_diagnostic.py
@@ -2058,6 +2452,11 @@ in this plan.
 cap=8 (spec Sec.3.3), via a small targeted re-run (only the ambiguous decision_ids, not the full
 944) to get a live trace to inspect. Also writes the fix-feasibility investigation (spec Sec.3.2)
 into the same report -- investigation only, no decision.py code change.
+
+Joins on decision_id throughout (never bare request_hash) and classifies each re-run's ACTUAL
+resolution outcome rather than assuming every historical exception is a label-collision/missing-
+match case -- a re-run that resolves to exactly one match, or raises a different exception, is
+routed to other_pipeline_error with a concrete rationale, not force-classified as ambiguous.
 
 Usage (from showdown_bot/): PYTHONPATH="$(pwd)/src" python scripts/run_ambiguous_candidate_diagnostic.py
 """
@@ -2070,7 +2469,7 @@ import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault("SHOWDOWN_CALC_BACKEND", "persistent")
+os.environ["SHOWDOWN_CALC_BACKEND"] = "persistent"
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SHOWDOWN_BOT_ROOT = SCRIPT_DIR.parent
@@ -2082,9 +2481,14 @@ OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 FORMAT_ID = "gen9vgc2025regi"
 
 
-def _classify_from_trace(trace, decision_request):
-    """Bridges a real DecisionTrace to classify_ambiguous_case's structural inputs."""
-    from showdown_bot.eval.accuracy_cap_derisk import _strip_tera, classify_ambiguous_case
+def _classify_from_trace(trace):
+    """Bridges a real DecisionTrace to classify_ambiguous_case's structural inputs. Returns
+    (classification, is_genuinely_ambiguous) -- the caller decides other_pipeline_error routing
+    when is_genuinely_ambiguous is False (exactly one match -- did not reproduce as an ambiguity)."""
+    from showdown_bot.eval.accuracy_cap_derisk import (
+        _strip_tera, classify_ambiguous_case, distinct_move_or_targets,
+        distinct_switch_targets, distinct_tera_states,
+    )
 
     chosen_id = trace.chosen_candidate_id
     exact = [c for c in trace.candidates if c.candidate_id == chosen_id]
@@ -2093,27 +2497,32 @@ def _classify_from_trace(trace, decision_request):
         stripped = _strip_tera(chosen_id) if chosen_id else None
         matches = [c for c in trace.candidates if stripped and _strip_tera(c.candidate_id) == stripped]
 
-    ja_list = [c.joint_action for c in matches if c.joint_action is not None]
-    distinct_switch = len({ja.slot0.target_ident if ja.slot0.kind == "switch" else None for ja in ja_list} | {ja.slot1.target_ident if ja.slot1.kind == "switch" else None for ja in ja_list}) > 1
-    distinct_tera = len({(ja.slot0.terastallize, ja.slot1.terastallize) for ja in ja_list}) > 1
-    distinct_move_target = len({(ja.slot0.move_index, ja.slot0.target, ja.slot1.move_index, ja.slot1.target) for ja in ja_list}) > 1
+    if len(matches) == 1:
+        return None, False  # resolves cleanly on re-run -- NOT a reproduced ambiguity
 
+    ja_list = [c.joint_action for c in matches if c.joint_action is not None]
     scores = {c.aggregate_score for c in matches}
     exact_tie = len(scores) == 1 and len(matches) > 1
     ranks = {c.rank for c in matches}
-    chosen_rank_mismatch = any(r != 0 for r in ranks) if matches else False
+    collision_spans_nonzero_rank = any(r != 0 for r in ranks) if matches else False
 
-    return classify_ambiguous_case(
+    classification = classify_ambiguous_case(
         chosen_candidate_id=chosen_id or "<none>",
         matching_candidate_ids=[c.candidate_id for c in matches],
-        matching_joint_actions_distinct_switch_targets=distinct_switch,
-        matching_joint_actions_distinct_tera=distinct_tera,
-        matching_joint_actions_distinct_move_or_target=distinct_move_target,
-        exact_score_tie=exact_tie, chosen_rank_mismatch=chosen_rank_mismatch,
+        matching_joint_actions_distinct_switch_targets=distinct_switch_targets(ja_list),
+        matching_joint_actions_distinct_tera=distinct_tera_states(ja_list),
+        matching_joint_actions_distinct_move_or_target=distinct_move_or_targets(ja_list),
+        exact_score_tie=exact_tie, collision_spans_nonzero_rank=collision_spans_nonzero_rank,
     )
+    return classification, True
 
 
-def _decisions_for_request_hashes(target_hashes: set[str]):
+def _decisions_by_decision_id(target_decision_ids: set[str]):
+    """Full per-file SeedIdentity + decision_id extraction (same pattern as Task 4/5) -- joins on
+    decision_id, never bare request_hash, so a request_hash collision (even though empirically
+    absent from this corpus per Task 7 of the accuracy-offline-gate plan) can never silently
+    overwrite one decision with another here."""
+    from showdown_bot.eval.accuracy_cap_derisk import DecisionIdComponents, compute_decision_id
     from showdown_bot.eval.room_raw_replay import (
         RequestKind, deduplicate_battle_logs, extract_decisions_from_log,
     )
@@ -2133,15 +2542,27 @@ def _decisions_for_request_hashes(target_hashes: set[str]):
         log_files=sorted(set(log_files), key=str), manifest_files=manifest_files,
         keep_priority=["run1", "run2", "prefix", "kaggle-validation"],
     )
-    found = {}
+    found: dict[str, object] = {}
     for p in sorted(dedup_report.kept, key=str):
+        identity = dedup_report.kept_identities[p]
         for d in extract_decisions_from_log(p):
-            if d.kind == RequestKind.MOVE and d.request_hash in target_hashes:
-                found[d.request_hash] = d
+            if d.kind != RequestKind.MOVE:
+                continue
+            did = compute_decision_id(DecisionIdComponents(
+                seed_base=identity.seed_base, seed_index=identity.seed_index,
+                request_hash=d.request_hash, log_prefix_hash=d.log_prefix_hash,
+                side=d.side, rqid=d.request.rqid, turn=d.turn,
+            ))
+            if did in target_decision_ids:
+                found[did] = d
     return found
 
 
 def main() -> None:
+    out_path = OUT_DIR / "ambiguous-candidate-diagnostic.json"
+    if out_path.exists():
+        raise SystemExit(f"BLOCKED: {out_path} already exists -- delete it explicitly first if a genuine re-run is intended.")
+
     from showdown_bot.battle.decision import heuristic_choose_for_request
     from showdown_bot.battle.decision_trace import DecisionTrace
     from showdown_bot.battle.oracle import DamageOracle
@@ -2154,19 +2575,30 @@ def main() -> None:
     gate_b_cap4 = json.loads((DATA_EVAL / "accuracy-gate" / "gate-b-report.json").read_text(encoding="utf-8"))
     cap6 = json.loads((OUT_DIR / "cap6-report.json").read_text(encoding="utf-8"))
     cap8 = json.loads((OUT_DIR / "cap8-report.json").read_text(encoding="utf-8"))
-    manifest = {
+    manifest_by_request_hash = {
         r["request_hash"]: r
         for r in (json.loads(l) for l in (OUT_DIR / "decision-id-manifest.jsonl").read_text(encoding="utf-8").splitlines() if l)
     }
 
-    per_cap_hashes = {
-        "cap4": {e["request_hash"] for e in gate_b_cap4["acceptance"]["exceptions"]},
-        "cap6": {e["request_hash"] for e in cap6["acceptance"]["exceptions"]},
-        "cap8": {e["request_hash"] for e in cap8["acceptance"]["exceptions"]},
+    per_cap_exceptions = {
+        "cap4": gate_b_cap4["acceptance"]["exceptions"],
+        "cap6": cap6["acceptance"]["exceptions"],
+        "cap8": cap8["acceptance"]["exceptions"],
     }
-    all_hashes = set().union(*per_cap_hashes.values())
-    print(f"re-running {len(all_hashes)} distinct ambiguous decisions across cap4/6/8 for classification...")
-    decisions_by_hash = _decisions_for_request_hashes(all_hashes)
+    per_cap_target_decision_ids = {
+        cap: {manifest_by_request_hash[e["request_hash"]]["decision_id"] for e in exceptions}
+        for cap, exceptions in per_cap_exceptions.items()
+    }
+    per_cap_original_message_by_decision_id = {
+        cap: {
+            manifest_by_request_hash[e["request_hash"]]["decision_id"]: e["exception"]
+            for e in exceptions
+        }
+        for cap, exceptions in per_cap_exceptions.items()
+    }
+    all_target_decision_ids = set().union(*per_cap_target_decision_ids.values())
+    print(f"re-running {len(all_target_decision_ids)} distinct ambiguous decisions across cap4/6/8 for classification...")
+    decisions_by_did = _decisions_by_decision_id(all_target_decision_ids)
 
     book = load_spread_book(load_format_config(FORMAT_ID).meta_path("default_spreads"))
     calc = CalcClient()
@@ -2174,24 +2606,45 @@ def main() -> None:
     dex = SpeciesDex(calc.backend)
 
     report: dict = {"per_cap": {}}
-    for cap_label, cap_value, hashes in [("cap4", 4, per_cap_hashes["cap4"]), ("cap6", 6, per_cap_hashes["cap6"]), ("cap8", 8, per_cap_hashes["cap8"])]:
+    for cap_label, cap_value in [("cap4", 4), ("cap6", 6), ("cap8", 8)]:
         os.environ["SHOWDOWN_ACCURACY_MODE"] = "1"
         os.environ["SHOWDOWN_ACCURACY_BRANCH_CAP"] = str(cap_value)
         cases = []
-        for rh in sorted(hashes):
-            d = decisions_by_hash.get(rh)
+        for did in sorted(per_cap_target_decision_ids[cap_label]):
+            d = decisions_by_did.get(did)
+            original_message = per_cap_original_message_by_decision_id[cap_label][did]
             if d is None:
-                cases.append({"request_hash": rh, "error": "decision not found in re-extraction"})
+                cases.append({
+                    "decision_id": did, "primary_cause": "other_pipeline_error",
+                    "label_collision_subtype": None, "companion_flags": [],
+                    "rationale": f"decision_id not found in re-extraction; original exception: {original_message}",
+                })
                 continue
-            trace = DecisionTrace()
-            heuristic_choose_for_request(
-                d.request, state=copy.deepcopy(d.state), book=book, our_side=d.side,
-                calc=calc, oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=dex, trace=trace,
-            )
-            classification = _classify_from_trace(trace, d.request)
-            decision_id = manifest[rh]["decision_id"]
+            try:
+                trace = DecisionTrace()
+                heuristic_choose_for_request(
+                    d.request, state=copy.deepcopy(d.state), book=book, our_side=d.side,
+                    calc=calc, oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=dex, trace=trace,
+                )
+                classification, is_ambiguous = _classify_from_trace(trace)
+            except Exception as exc:  # noqa: BLE001
+                cases.append({
+                    "decision_id": did, "primary_cause": "other_pipeline_error",
+                    "label_collision_subtype": None, "companion_flags": [],
+                    "rationale": f"re-run raised a DIFFERENT exception than the original "
+                                 f"({original_message!r}): {type(exc).__name__}: {exc}",
+                })
+                continue
+            if not is_ambiguous:
+                cases.append({
+                    "decision_id": did, "primary_cause": "other_pipeline_error",
+                    "label_collision_subtype": None, "companion_flags": [],
+                    "rationale": f"re-run resolved to exactly ONE match (did not reproduce as a "
+                                 f"structural ambiguity); original exception: {original_message}",
+                })
+                continue
             cases.append({
-                "request_hash": rh, "decision_id": decision_id,
+                "decision_id": did,
                 "primary_cause": classification.primary_cause,
                 "label_collision_subtype": classification.label_collision_subtype,
                 "companion_flags": sorted(classification.companion_flags),
@@ -2199,7 +2652,10 @@ def main() -> None:
         os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
         os.environ.pop("SHOWDOWN_ACCURACY_BRANCH_CAP", None)
         report["per_cap"][cap_label] = {"count": len(cases), "cases": cases}
-        print(f"{cap_label}: classified {len(cases)} ambiguous cases")
+        primary_causes = {}
+        for c in cases:
+            primary_causes[c["primary_cause"]] = primary_causes.get(c["primary_cause"], 0) + 1
+        print(f"{cap_label}: classified {len(cases)} cases -- primary_cause breakdown: {primary_causes}")
 
     try:
         calc.close()
@@ -2208,7 +2664,7 @@ def main() -> None:
 
     # --- overlap by decision_id across caps ---
     ids_by_cap = {
-        cap: {c["decision_id"] for c in report["per_cap"][cap]["cases"] if "decision_id" in c}
+        cap: {c["decision_id"] for c in report["per_cap"][cap]["cases"]}
         for cap in ("cap4", "cap6", "cap8")
     }
     report["overlap"] = {
@@ -2218,7 +2674,6 @@ def main() -> None:
         "all_three": sorted(ids_by_cap["cap4"] & ids_by_cap["cap6"] & ids_by_cap["cap8"]),
     }
 
-    out_path = OUT_DIR / "ambiguous-candidate-diagnostic.json"
     out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     print(f"wrote {out_path}")
 
@@ -2227,18 +2682,15 @@ if __name__ == "__main__":
     main()
 ```
 
-**Also add `_strip_tera` to `accuracy_cap_derisk.py`'s public surface** if not already (Task 3 defined
-it as a private `_strip_tera` helper — either export it or duplicate the one-liner in this script;
-prefer exporting since the logic must stay byte-identical to `accuracy_gate_b.py::_strip_tera_suffix`).
-
 - [ ] **Step 2: Run for real**
 
 Run: `PYTHONPATH="$(pwd)/src" python scripts/run_ambiguous_candidate_diagnostic.py`
 
-Expected: classifies every ambiguous case across cap4 (63)/cap6/cap8, writes
+Expected: classifies every case across cap4 (63)/cap6/cap8, writes
 `data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.json` with per-cap primary-cause/
 companion-flag breakdowns and cross-cap overlap. Report the real `primary_cause` distribution — do
-not assume `label_collision` dominates without checking the actual output.
+not assume `label_collision` dominates without checking the actual output, and do not be surprised
+if some cases land in `other_pipeline_error` (that's the correction working as intended, not a bug).
 
 - [ ] **Step 3: Write the fix-feasibility investigation**
 
@@ -2268,13 +2720,15 @@ answer spec §3.2's five questions explicitly:
 Present the three variants' verdicts explicitly (object identity: short-lived only; object
 equality: solves switch-collision, needs a Tera-aware wrapper; structural key: preferred, needs a
 new `DecisionTrace.chosen_joint_action`-style field or an assigned-at-enumeration key) — this is a
-report, not a code change to `decision.py`.
+report, not a code change to `decision.py`. Note the `other_pipeline_error` findings from Step 2
+here too, if any occurred — they may point at a genuinely different, unrelated defect worth flagging
+as its own separate follow-up, distinct from the label-collision/Tera-overlay story.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add showdown_bot/scripts/run_ambiguous_candidate_diagnostic.py showdown_bot/src/showdown_bot/eval/accuracy_cap_derisk.py data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.json data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.md
-git commit -m "feat(eval): real ambiguous-candidate classification (cap4/6/8) + fix-feasibility investigation"
+git add showdown_bot/scripts/run_ambiguous_candidate_diagnostic.py data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.json data/eval/accuracy-cap-derisk/ambiguous-candidate-diagnostic.md
+git commit -m "feat(eval): real ambiguous-candidate classification (cap4/6/8, decision_id-joined) + fix-feasibility investigation"
 ```
 
 ---
@@ -2292,12 +2746,13 @@ git commit -m "feat(eval): real ambiguous-candidate classification (cap4/6/8) + 
 Mirrors `render_accuracy_gate_reports.py`'s `build_report_object`/`render_markdown` split — read
 that file first for the exact pattern to follow (already read in the accuracy-offline-gate plan's
 Task 11). Render `cap6-report.json`/`cap8-report.json` (Task 7) plus `cross-cap-diffs.json` (Task 8)
-plus `latency-results.json` (Task 9) into `cap6-report.md`/`cap8-report.md`, each stating: cap-hit
-numerator/denominator/rate/verdict; action-changed counts vs cap=4 and vs off (off comparison
-explicitly noting the score axis is skipped, action axis is not); latency p50/p95/max for both
-trace modes; a note that leaf/event/incomplete distributions are reported against their own real
-telemeterable denominator (per spec §2.7), not claimed to cover all 944. No strength/winrate claim
-anywhere — mirror `gate-b-report.md`'s own disclaimer convention.
+plus `latency-results.json` (Task 9, now with 6 `(cap, trace_mode)` series) into
+`cap6-report.md`/`cap8-report.md`, each stating: cap-hit numerator/denominator/rate/verdict;
+action-changed counts vs cap=4 and vs off (off comparison explicitly noting the score axis is
+skipped, action axis is not); latency p50/p95/max for both trace modes, each with its own measured
+count / expected denominator shown side by side; a note that leaf/event/incomplete distributions
+are reported against their own real telemeterable denominator (per spec §2.7), not claimed to cover
+all 944. No strength/winrate claim anywhere — mirror `gate-b-report.md`'s own disclaimer convention.
 
 - [ ] **Step 2: Write the closeout report**
 
@@ -2308,12 +2763,13 @@ anywhere — mirror `gate-b-report.md`'s own disclaimer convention.
   by content hash — 114/881 = 12.9%, FAIL).
 - Cap=6/8's real cap-hit rates, verdicts, and whether either clears the 5% threshold — report the
   actual numbers from Task 7, do not pre-guess.
-- Cap=6/8's real latency figures from Task 9 and whether they clear the existing 1000ms×5-scaled
-  gate the original accuracy-hit-probability slice used (cite
+- Cap=6/8's real latency figures from Task 9 (both trace-mode series, per cap) and whether they
+  clear the existing 1000ms×5-scaled gate the original accuracy-hit-probability slice used (cite
   `reports/2026-07-12-accuracy-slice-latency-gate.md`'s own single-board cap=6/8 FAIL finding as
   prior evidence, and state whether this study's real-corpus numbers agree or disagree).
-- The ambiguous-candidate diagnostic's headline finding (primary-cause distribution, overlap across
-  caps) and the fix-feasibility investigation's bottom line.
+- The ambiguous-candidate diagnostic's headline finding (primary-cause distribution, including any
+  `other_pipeline_error` cases and what they turned out to be, and overlap across caps) and the
+  fix-feasibility investigation's bottom line.
 - **Explicitly, prominently: no default-on decision, no strength claim, no Depth-2 Stage 3 work
   follows from this report alone** — same requirement as the parent accuracy-offline-gate report,
   restated here since this is a new, separate report a future reader could encounter on its own.
@@ -2348,23 +2804,56 @@ git commit -m "docs(accuracy-cap-derisk): reports, closeout verdict, ROADMAP upd
 ## Self-Review
 
 **1. Spec coverage:** §2.1 (corpus/rule reuse) → Task 4-9's shared extraction pattern. §2.2
-(decision_id) → Task 1, 4. §2.3 (auxiliary capture, row schema, score-resolution split, two-stage
-gate) → Task 3, 5, 6. §2.4 (comparator) → Task 2, 8. §2.5 (cap-hit verdicts) → Task 7. §2.6
-(latency) → Task 9. §2.7 (report contents) → Task 12. §3.1 (classification) → Task 10. §3.2
-(fix-feasibility) → Task 11. §3.3 (scope: cap4/6/8) → Task 11. §3.4 (non-contamination) → Task 12's
-closeout confirmation. §1 (non-goals) → verified nowhere in this plan does any task touch
-`decision.py`/`evaluate.py`/`accuracy_gate_b.py`/`accuracy_gate_stats.py`/`accuracy_baseline_diff.py`,
-recompute the cap=4 verdict, or implement a fallback-strategy change.
+(decision_id) → Task 1, 4. §2.3 (auxiliary capture, row schema, per-row canonical action, score-
+resolution split, two-stage gate with exact on-action check) → Task 3, 5, 6. §2.4 (comparator,
+canonical-field-based) → Task 2, 8. §2.5 (cap-hit verdicts) → Task 7. §2.6 (latency, cap AND
+trace-mode order rotated, fail-closed backend) → Task 9. §2.7 (report contents) → Task 12. §3.1
+(classification, `collision_spans_nonzero_rank`) → Task 10. §3.2 (fix-feasibility) → Task 11. §3.3
+(scope: cap4/6/8, decision_id-joined, non-ambiguity routed to other_pipeline_error) → Task 11. §3.4
+(non-contamination) → Task 12's closeout confirmation. §1 (non-goals) → verified nowhere in this
+plan does any task touch `decision.py`/`evaluate.py`/`accuracy_gate_b.py`/`accuracy_gate_stats.py`/
+`accuracy_baseline_diff.py`, recompute the cap=4 verdict, or implement a fallback-strategy change.
 
 **2. Placeholder scan:** no TBD/TODO/"add appropriate handling" found in the above — every step has
-real, complete code or an exact real command with expected real-run behavior described.
+real, complete code or an exact real command with expected real-run behavior described. One
+explicit exception, clearly flagged as such (not a silent gap): Task 5's `config_hash` computation
+is left as a verify-then-add note rather than fully inlined code, since it depends on
+`build_config_manifest`/`make_config_hash`/`behavior_env`'s exact current signatures, which this
+plan cites from a prior read rather than a fresh one this task — the implementer must verify before
+writing, per that note's own instruction.
 
-**3. Type consistency:** `ActionTableRow`'s fields (Task 3) match `compare_action_tables`'s usage
-(Task 2) and every real-run script's construction (Task 5, 6, 8) — same field names throughout.
-`decision_id` is computed identically (via `compute_decision_id`) in Task 4 and Task 5, consumed
-identically by Task 6/8/11. `DecisionIdComponents`'s 7 fields match spec §2.2's exact schema.
+**3. Type consistency:** `ActionTableRow`'s fields (Task 3, now `chosen_action_raw` +
+`chosen_action_canonical`) match `compare_action_tables`'s usage (Task 2) and every real-run
+script's construction (Task 5, 6, 8) — same field names throughout, verified by re-reading every
+call site while writing this revision. `decision_id` is computed identically (via
+`compute_decision_id`) in Tasks 4, 5, and 11, consumed identically by Task 6/8. `DecisionIdComponents`'s
+7 fields match spec §2.2's exact schema. `classify_ambiguous_case`'s `collision_spans_nonzero_rank`
+parameter name matches its companion-flag string and Task 11's call site exactly (renamed
+consistently in all three places, not just the function signature).
 
 **4. Resolved during this plan's own writing (not left as a placeholder):** confirmed `scripts/` has
 no `__init__.py` and `pyproject.toml` scopes pytest to `testpaths = ["tests"]` — so Task 6's
 testable logic was placed in `accuracy_cap_derisk.py` (the already-established, already-importable
 module) from the start, not deferred to the implementer to discover mid-task.
+
+**5. Six corrections from this plan's own review, all now integrated (not just noted):**
+(1) per-row `chosen_action_canonical` computed against each decision's own real request, replacing
+the broken shared-`request`/`request=None` design — Tasks 2, 3, 4, 6, 8. (2) Stage 1's validation
+gate now checks the exact historical on-action VALUE for each of the 20, not merely the diff-ID
+SET — Task 6, with a dedicated negative test. (3) the rank-mismatch computation across colliding
+candidates renamed to `collision_spans_nonzero_rank`, honestly describing a property of the
+collision set rather than overclaiming a property of "the chosen candidate" — Task 10, 11. (4) the
+switch-target distinctness computation extracted into a pure, unit-tested
+`distinct_switch_targets` helper that no longer contaminates real targets with `None` from
+non-switch slots — Task 10b, with a dedicated regression test for the exact bug shape (one real
+target + a move/pass slot). (5) Task 11 now classifies each re-run's actual resolution outcome
+(routing non-reproducing/differently-failing cases to `other_pipeline_error` with a concrete
+rationale) and joins exclusively on `decision_id` (full per-file `SeedIdentity` re-extraction, never
+a bare `request_hash`-keyed dict that could silently overwrite on a collision). (6) the latency
+sweep now rotates trace-mode order (not just cap order), enforces `SHOWDOWN_CALC_BACKEND=persistent`
+fail-closed (not `setdefault`), tracks exceptions per `(cap, trace_mode)`, and asserts each series'
+measured-plus-excepted count against its exact expected denominator before trusting its p50/p95/max
+— Task 9. Additionally: Task 5's action-capture artifacts now carry real provenance (cap, label,
+source_commit, python_version, dependency_lock_hash), validate cap↔label consistency before writing
+anything, require their output's decision_id set to exactly equal the manifest's, and every
+real-run script in this plan now refuses to silently overwrite a pre-existing output file.
