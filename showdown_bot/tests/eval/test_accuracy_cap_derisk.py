@@ -172,3 +172,10 @@ def test_compare_action_tables_refuses_incompatible_score_semantics():
     assert row.score_comparable is False
     assert row.top_rank_score_delta is None  # never silently computed
     assert "not proven equivalent" in row.score_incompatible_reason
+
+
+def test_compare_action_tables_requires_reason_when_score_incompatible():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 1")]
+    with pytest.raises(ValueError, match="score_incompatible_reason"):
+        compare_action_tables(ref, cand, direction="off -> cap6", score_comparable=False)

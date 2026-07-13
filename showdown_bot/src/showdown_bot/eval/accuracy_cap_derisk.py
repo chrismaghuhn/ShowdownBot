@@ -63,7 +63,10 @@ class ActionTableRow:
     6's byte-level Stage-1 reproduction check). chosen_action_canonical is normalize_choose(
     chosen_action_raw, <this decision's own real request>), computed ONCE at build time -- never
     recomputed by a comparator, which would require passing in a request and risks silently using
-    the WRONG request for a different decision's action."""
+    the WRONG request for a different decision's action. normalize_choose returns a dict, not a
+    str, so building this field must go through a deterministic, key-order-independent
+    serialization (e.g. `json.dumps(..., sort_keys=True)`) -- two structurally-identical actions
+    must never canonicalize to different strings due to dict key order."""
     decision_id: str
     chosen_action_raw: str
     chosen_action_canonical: str
@@ -117,6 +120,11 @@ def compare_action_tables(
     the caller decides comparability, this function enforces it rather than silently subtracting
     incompatible values). `direction` is a required, explicit label -- never inferred from which
     table is passed first."""
+    if not score_comparable and not score_incompatible_reason:
+        raise ValueError(
+            "score_comparable=False requires a non-empty score_incompatible_reason -- "
+            "silently marking scores incomparable with no stated reason is not allowed"
+        )
     ref_by_id: dict[str, ActionTableRow] = {}
     for r in reference_rows:
         if r.decision_id in ref_by_id:
