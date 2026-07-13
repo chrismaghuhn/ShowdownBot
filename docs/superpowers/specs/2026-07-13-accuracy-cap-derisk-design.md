@@ -123,46 +123,86 @@ computed over, not blindly to all 944:
 
 - Define the historical **881-decision eligible set** as the 944 decisions minus the 63
   `request_hash`es stored in `gate-b-report.json`'s `acceptance.exceptions`.
-- **Hard validation gate, on the 881 only:** diff the auxiliary table's rows restricted to the 881
-  eligible set against the frozen off-path baseline (via the new `compare_action_tables` comparator,
-  §2.4 — not `diff_against_baseline`) and confirm the normalized diff-`decision_id` set and actions
-  **exactly reproduce** the frozen 20 cap4-vs-off decision diffs. If a score comparison is also
-  done, use `canonical_float` representation (reused from `accuracy_baseline.py`) or a pre-pinned
-  numeric tolerance, decided before the run, not after seeing a mismatch.
-- **The 63 historical exclusion cases are evaluated separately, never folded into the 881 check.**
-  Any action diffs newly visible among these 63 in the auxiliary table are diagnostic bonus
-  information (feeds §3.3), not a deviation from the 20-reproduction and not a backfill of the
-  frozen verdict.
-- **If the 881-eligible-set check fails** (different diff count, different `decision_id`s, or
-  different actions on the 881): STOP, do not proceed to cap6/cap8 comparison, and root-cause the
-  discrepancy before doing anything else.
-- **If additional diffs appear only among the 63** (expected, informative): report them under §3.3,
-  leave the frozen gate and its 20-diff reproduction status completely unchanged.
 
-Cap=6/8 must never be compared against a cap=4 auxiliary table that hasn't cleared the 881-eligible
-validation gate.
+**Hard validation gate, two-stage — raw byte-level reproduction first, semantic analysis second:**
+the frozen 20 cap4-vs-off diffs were originally produced by the live `run_gate_b` code via raw
+`off_action != on_action` string comparison — **not** via `normalize_choose`. A
+`normalize_choose`-based comparison could legitimately fold some raw string differences into the
+same canonical action, which would make a byte-perfect reproduction of the frozen run look,
+incorrectly, like it produced fewer than 20 diffs. The validation is therefore explicitly two-stage,
+never single-stage:
 
-**Honest score-resolution split — `{chosen_action, score}` is not uniformly well-defined for all 944:**
-`heuristic_choose_for_request` reliably returns the chosen action, but the trace does not guarantee
-a uniquely-resolved "score of the actually-chosen structural candidate" for every decision: the 63
-label-collision cases are exactly where candidate resolution is ambiguous by construction;
-`_maybe_tera` can change the chosen line *after* `trace.candidates` is built; and the known
-`pick_best`-vs-`scored.sort` tie-break mismatch (Task 10's review) can mean the chosen `JointAction`
-isn't at rank 0. The action-capture row schema reflects this honestly rather than papering over it:
+- **Stage 1 — raw reproduction gate (must pass exactly, on the 881 only):** compare the auxiliary
+  table's raw, un-normalized `chosen_action` strings, keyed by `decision_id`, against the frozen
+  baseline's raw actions (via the decision-id-manifest enrichment, §2.2). The set of `decision_id`s
+  where raw strings differ, and the raw strings themselves, must **exactly** match the frozen
+  report's 20 rows — same 20 IDs, same raw values, and the other 861 raw strings equal on both
+  sides too. This stage does **not** use `compare_action_tables`/`normalize_choose` at all — it
+  answers "is this new cap=4 auxiliary run the same run that produced the frozen result?", nothing
+  more. **Any deviation here** (different count, different `decision_id` set, or a different raw
+  string anywhere in the 881): STOP, do not proceed to cap6/cap8 comparison, root-cause before doing
+  anything else.
+- **Stage 2 — analytical action-diff metric (only after Stage 1 passes):** compute the
+  `normalize_choose`-based `compare_action_tables` diff (§2.4) on the same 881 set. If Stage 1
+  passed but the Stage-2 normalized diff set is *smaller* than 20, that is **not** a reproduction
+  failure — it means some of the frozen 20 were pre-existing pure representational differences
+  (e.g. equivalent `/choose` encodings that differ byte-for-byte but mean the same thing), and this
+  gets reported honestly as such. Stage 2 answers "how many semantically distinct decisions are
+  there?" and is the metric used throughout the rest of this study (§2.4 onward). If a score
+  comparison is also done here, use `canonical_float` representation (reused from
+  `accuracy_baseline.py`) or a pre-pinned numeric tolerance, decided before the run, not after
+  seeing a mismatch, and only where §2.3's score-semantics rules (below) permit a comparison at all.
+
+**The 63 historical exclusion cases are evaluated separately from both stages above, never folded
+into either check.** Any action diffs (raw or normalized) newly visible among these 63 in the
+auxiliary table are diagnostic bonus information (feeds §3.3), never a deviation from the
+Stage-1/Stage-2 reproduction and never a backfill of the frozen verdict — report them, leave the
+frozen gate completely unchanged.
+
+Cap=6/8 must never be compared against a cap=4 auxiliary table that hasn't cleared both validation
+stages.
+
+**Row schema — resolution status, rank, and score are orthogonal, not one collapsed field:** a
+candidate that only resolves after Tera-suffix stripping *and* lands at a non-zero rank are two
+independent, simultaneously-possible facts about the same decision (Task 10's tera-overlay fix and
+the `pick_best`-vs-`scored.sort` rank mismatch are separate mechanisms) — collapsing them into one
+`score_resolution_status` enum would force a choice that loses one or the other. The row schema
+keeps them orthogonal:
 
 | field | required? | meaning |
 |---|---|---|
 | `decision_id` | always | §2.2 |
-| `chosen_action` | always | direct from `heuristic_choose_for_request`, canonicalized via `normalize_choose` |
-| `top_rank_score` | always | the `rank==0` candidate's score, whether or not it's the chosen one |
-| `chosen_candidate_score` | nullable | only populated when the structurally-chosen candidate is unambiguously resolved |
-| `score_resolution_status` | always | one of `exact`, `tera_overlay`, `ambiguous_label`, `chosen_missing`, `rank_mismatch` (extend if a genuinely distinct case is found) |
+| `chosen_action` | always | direct from `heuristic_choose_for_request`, stored as the raw string returned; canonicalized via `normalize_choose` only at comparison time (§2.4), never mutated in the stored row |
+| `candidate_resolution_status` | always | exactly one of `exact`, `tera_stripped`, `ambiguous_label`, `chosen_missing`, `other_resolution_error` — **which** candidate (if any) structurally resolved, independent of its rank |
+| `chosen_candidate_rank` | nullable | the resolved candidate's rank, when `candidate_resolution_status` resolved one at all |
+| `chosen_rank_mismatch` | nullable | `true` when `chosen_candidate_rank != 0` — a resolved-but-not-rank-0 candidate (the known `pick_best`-vs-`scored.sort` mechanism); independent of `candidate_resolution_status` |
+| `top_rank_score` | nullable, not "always" | the rank-0 candidate's score, when the trace has one at all — nullable so an empty or rank-corrupt trace never makes the whole row (and its `chosen_action`) disappear; only the score fields go null with the status still visible |
+| `chosen_candidate_score` | nullable | only populated when `candidate_resolution_status` resolved a specific candidate |
 
-**Action-diff validation (the 881-eligible-set check above, and every cap-vs-cap/cap-vs-off
-comparison) never fails or excludes a decision because of a missing `chosen_candidate_score`** —
-`chosen_action` is always present and is what action diffs are computed from. Score-based analyses
-(§2.7) get their own, separately visible denominator (however many decisions have a non-null
-`chosen_candidate_score` at that cap), never silently reused as if it covered all 944/881.
+**Action-diff validation (both validation stages above, and every cap-vs-cap/cap-vs-off comparison)
+never fails or excludes a decision because of a missing `chosen_candidate_score` or `top_rank_score`**
+— `chosen_action` is always present and is what action diffs are computed from. Score-based analyses
+(§2.7) get their own, separately visible denominator per field (however many decisions have a
+non-null `top_rank_score`/`chosen_candidate_score` at that cap), never silently reused as if either
+covered all 944/881.
+
+**Score semantics — frozen-off vs new cap tables, never blindly equated:** `pre-refactor-baseline.jsonl`'s
+`score` field comes from the original Task-4 baseline chooser; its exact construction is verified
+against the real `accuracy_baseline.py`/`freeze_baseline` code as a first implementation step, never
+assumed to mean the same thing as this study's `top_rank_score`/`chosen_candidate_score` (which can
+themselves diverge from each other under Tera-overlay or rank-mismatch). During the frozen-baseline
+enrichment (§2.2), the legacy score is preserved verbatim as **`legacy_frozen_score`** on the
+enriched row — never silently renamed into `top_rank_score` or any new-table field. Score deltas are
+computed **only** when both compared fields have the same proven semantics:
+- cap6-vs-cap4 / cap8-vs-cap4: `top_rank_score ↔ top_rank_score` is always comparable (same
+  construction, same run family on both sides); `chosen_candidate_score ↔ chosen_candidate_score` is
+  comparable only on the separately-visible resolvable denominator.
+- off-vs-cap score comparisons: **skipped, or explicitly labeled incompatible**, unless the legacy
+  chooser's score semantics are positively verified to match `top_rank_score`'s construction — never
+  computed on an unproven assumption of equivalence.
+- Action diffs (§2.4) are **completely independent** of all of the above — computed from
+  `chosen_action` alone, continuing to cover all 944 decisions regardless of score-semantic
+  compatibility.
 
 ### 2.4 Cross-cap and cross-mode action diffs — a new comparator, not `diff_against_baseline`
 
@@ -184,10 +224,18 @@ with:
 - Pairing exclusively via `decision_id` (§2.2), fail-closed on duplicate, missing, or extra IDs on
   either side (raise, never silently drop a row).
 - `action_changed` computed **only** from `normalize_choose`-canonicalized `chosen_action` on both
-  sides — never influenced by score.
+  sides — never influenced by score. This is the Stage-2 metric §2.3 defines; a separate,
+  raw-string-only comparison (no `compare_action_tables`, no `normalize_choose`) is used solely for
+  §2.3's Stage-1 reproduction gate.
 - Score change reported **separately**, as `score_delta`/`score_changed` fields, never folded into
-  the action-diff counter (uses `top_rank_score` by default; a `chosen_candidate_score`-based
-  variant is reported alongside with its own, separately visible denominator per §2.3).
+  the action-diff counter — and **only computed when the two compared score fields have proven
+  matching semantics** per §2.3's score-semantics rules: `top_rank_score ↔ top_rank_score` for any
+  cap-vs-cap comparison; `chosen_candidate_score ↔ chosen_candidate_score` on its own separately
+  visible resolvable denominator; `legacy_frozen_score` (the frozen off-path's preserved original
+  score, §2.3) compared against a new-table field **only** if that comparison is positively verified
+  compatible, otherwise the comparator **refuses or skips it explicitly** (`score_comparable: False`
+  with a stated reason on the output row) rather than silently subtracting two differently-defined
+  numbers.
 - Correctly-named `reference_*`/`candidate_*` fields on every output row — not `baseline`/`replay`,
   which would misleadingly imply an off-vs-on relationship for a cap-vs-cap comparison.
 - Explicit, named directions: `cap4 → cap6`, `cap4 → cap8`, `off → cap6`, `off → cap8` — the
@@ -385,12 +433,28 @@ TDD throughout, matching every prior task in this lineage: unit tests for `decis
 assertion and fail-closed pairing (including the one-time frozen-baseline enrichment's zero/multiple
 -match fail-closed cases), unit tests for `compare_action_tables`'s directionality and correct
 `action_changed`/`score_changed` separation (§2.4) before it's relied on for cap-vs-cap comparisons,
-a test proving the 881-eligible-set validation gate (§2.3) actually catches a deliberately-broken
-reproduction (not just that it passes on real data) and correctly separates the 881-check from the
-63's own diagnostic-only reporting, and unit tests for the two-tier classification scheme against
-hand-built label-collision/missing-candidate/tie fixtures. Real-corpus runs (§2.5, §2.6, §3.3) are
-integration checks with real numbers reported honestly, same discipline as the original gate's
-Tasks 9–11.
+a test proving the Stage-1/Stage-2 validation gate (§2.3) actually catches a deliberately-broken
+raw reproduction (not just that it passes on real data) and correctly separates Stage-1 from Stage-2
+from the 63's own diagnostic-only reporting, and unit tests for the two-tier classification scheme
+against hand-built label-collision/missing-candidate/tie fixtures. Real-corpus runs (§2.5, §2.6,
+§3.3) are integration checks with real numbers reported honestly, same discipline as the original
+gate's Tasks 9–11.
+
+**Additional required tests, from the row-schema/validation corrections above:**
+- A fixture where a candidate resolves only via `tera_stripped` **and** simultaneously has
+  `chosen_rank_mismatch=True` — asserts both facts survive independently in the row (neither
+  clobbers the other under a single collapsed status field).
+- An empty or rank-corrupt trace fixture — asserts the action row is still produced with
+  `chosen_action` populated, `top_rank_score`/`chosen_candidate_score` both null, and
+  `candidate_resolution_status` visibly reflecting the failure (not the whole decision silently
+  disappearing from the table).
+- A fixture where the raw Stage-1 reproduction is exactly the historical 20, but a synthetic
+  normalization-equivalent string pair is included — asserts Stage-2's `compare_action_tables`
+  does **not** count that pair as an `action_changed` diff, and that this is reported as a
+  pre-existing representational difference, not a Stage-1 failure.
+- A fixture with two score fields of unproven/incompatible semantics — asserts the score comparator
+  refuses or explicitly skips the comparison (`score_comparable: False` + reason) rather than
+  silently computing a delta across incompatible definitions.
 
 ## 6. Open items deferred to the implementation plan, not resolved here
 
