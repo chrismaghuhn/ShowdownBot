@@ -6,7 +6,9 @@ from dataclasses import dataclass
 
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.resolve import (
+    ForkRecord,
     PlannedAction,
+    SlotId,
     TurnOutcome,
     resolve_turn,
     resolve_turn_branches,
@@ -18,9 +20,8 @@ from showdown_bot.engine.belief.hypotheses import (
     hypothesis_from_state,
 )
 from showdown_bot.engine.calc.models import DamageRequest
+from showdown_bot.engine.moves import hit_probability
 from showdown_bot.engine.state import BattleState, FieldState, to_id
-
-SlotId = tuple[str, str]
 
 _WEATHER_MAP = {
     "rain": "Rain", "sun": "Sun", "sand": "Sand", "snow": "Snow", "hail": "Hail",
@@ -366,6 +367,77 @@ def _has_genuine_tie(all_actions: list[PlannedAction], field: FieldState | None)
     ours = [base_key(a) for a in all_actions if a.is_ours]
     opp = [base_key(a) for a in all_actions if not a.is_ours]
     return any(k in opp for k in ours)
+
+
+@dataclass
+class AccuracyDiagnostics:
+    ko_probability: dict[SlotId, float]
+    survival_probability: dict[SlotId, float]
+    accuracy_required: dict[tuple[SlotId, SlotId], float | None]
+    miss_punish_value: dict[tuple[SlotId, SlotId], float]
+
+
+def _final_hp_fraction(state: BattleState, target: SlotId, out: TurnOutcome) -> float:
+    mon = state.sides.get(target[0], {}).get(target[1])
+    start = mon.hp_fraction if mon is not None else 0.0
+    return max(0.0, start + out.hp_delta.get(target, 0.0))
+
+
+def accuracy_diagnostics(
+    leaves: list[tuple[float, TurnOutcome]],
+    *,
+    targets: list[SlotId],
+    state: BattleState,
+    actions: list[PlannedAction],
+    field: FieldState | None,
+    fork_records: list[ForkRecord] = (),
+    weights: EvalWeights | None = None,
+    our_side: str = "p1",
+    endgame: bool = False,
+    fast_board: bool = False,
+) -> AccuracyDiagnostics:
+    """Derived from the leaf list (and fork structure) resolve_turn_branches already returns --
+    no extra resolve_turn calls. ko_probability uses each target's STARTING hp_fraction (from
+    ``state``) plus the leaf's fractional hp_delta -- a target already below full HP can be KO'd
+    by an hp_delta well above -1.0; checking against a flat -1.0 threshold silently misses that."""
+    ko_probability: dict[SlotId, float] = {t: 0.0 for t in targets}
+    for weight, out in leaves:
+        for t in targets:
+            if _final_hp_fraction(state, t, out) <= 1e-9:
+                ko_probability[t] += weight
+    survival_probability = {t: 1.0 - p for t, p in ko_probability.items()}
+
+    actions_by_key = {a.key: a for a in actions}
+    accuracy_required: dict[tuple[SlotId, SlotId], float | None] = {}
+    for ah in leaves[0][1].attempted_hits:
+        pair = (ah.attacker, ah.target)
+        if pair in accuracy_required:
+            continue
+        attacker_action = actions_by_key.get(ah.attacker)
+        if attacker_action is None or attacker_action.move is None:
+            continue
+        attacker_mon = state.sides.get(ah.attacker[0], {}).get(ah.attacker[1])
+        target_mon = state.sides.get(ah.target[0], {}).get(ah.target[1])
+        if attacker_mon is None or target_mon is None:
+            continue
+        accuracy_required[pair] = hit_probability(attacker_action.move, attacker_mon, target_mon, field)
+
+    def _scored(out: TurnOutcome) -> float:
+        return score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
+
+    leaves0_score = _scored(leaves[0][1])
+    miss_punish_value: dict[tuple[SlotId, SlotId], float] = {}
+    for pair, miss_subtree in fork_records:
+        subtree_weight = sum(w for w, _ in miss_subtree)
+        if subtree_weight <= 0.0:
+            continue
+        weighted_avg = sum(w * _scored(out) for w, out in miss_subtree) / subtree_weight
+        miss_punish_value[pair] = weighted_avg - leaves0_score
+
+    return AccuracyDiagnostics(
+        ko_probability=ko_probability, survival_probability=survival_probability,
+        accuracy_required=accuracy_required, miss_punish_value=miss_punish_value,
+    )
 
 
 def evaluate_line(
