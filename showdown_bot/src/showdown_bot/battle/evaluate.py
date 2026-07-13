@@ -400,9 +400,12 @@ def accuracy_diagnostics(
     no extra resolve_turn calls. ko_probability uses each target's STARTING hp_fraction (from
     ``state``) plus the leaf's fractional hp_delta -- a target already below full HP can be KO'd
     by an hp_delta well above -1.0; checking against a flat -1.0 threshold silently misses that."""
+    if not leaves:
+        raise ValueError("accuracy_diagnostics requires at least one leaf")
+
     ko_probability: dict[SlotId, float] = {t: 0.0 for t in targets}
     for weight, out in leaves:
-        for t in targets:
+        for t in ko_probability:  # deduped -- iterating `targets` directly double-counts dupes
             if _final_hp_fraction(state, t, out) <= 1e-9:
                 ko_probability[t] += weight
     survival_probability = {t: 1.0 - p for t, p in ko_probability.items()}

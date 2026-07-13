@@ -539,3 +539,25 @@ def test_accuracy_diagnostics_accuracy_required_and_miss_punish_value():
     # miss_punish_value = score(miss subtree) - score(leaves[0]) = (0 - w.dmg_dealt*0.5) < 0
     expected = 0.0 - (w.dmg_dealt * 0.5)
     assert abs(diag.miss_punish_value[pair] - expected) < 1e-9
+
+
+def test_accuracy_diagnostics_duplicate_targets_do_not_double_count():
+    """Regression test: a duplicate slot in `targets` (e.g. two of our attackers targeting the
+    same weakened opposing slot -- an ordinary Doubles pattern) must not double-count that
+    leaf's weight into ko_probability."""
+    target = ("p2", "a")
+    st = _diag_state_full_hp()
+    leaves = [
+        (0.7, TurnOutcome(hp_delta={target: -1.0})),
+        (0.3, TurnOutcome(hp_delta={target: 0.0})),
+    ]
+    diag = accuracy_diagnostics(leaves, targets=[target, target], state=st, actions=[], field=None)
+    assert abs(diag.ko_probability[target] - 0.7) < 1e-9
+    assert abs(diag.survival_probability[target] - 0.3) < 1e-9
+
+
+def test_accuracy_diagnostics_empty_leaves_raises_value_error():
+    import pytest
+
+    with pytest.raises(ValueError):
+        accuracy_diagnostics([], targets=[("p2", "a")], state=_diag_state_full_hp(), actions=[], field=None)
