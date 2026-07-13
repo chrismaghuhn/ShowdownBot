@@ -9,6 +9,7 @@ import pytest
 from showdown_bot.eval.room_raw_replay import (
     AmbiguousManifestMatchError,
     DedupReport,
+    SeedIdentity,
     SeedIdentityConflictError,
     deduplicate_battle_logs,
 )
@@ -49,6 +50,24 @@ def _write_manifest(path: Path, rows: list[dict]) -> None:
     with open(path, "w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row) + "\n")
+
+
+def test_seed_identity_equality_and_hash_ignore_schedule_hash_and_seed():
+    """SeedIdentity.__eq__/__hash__ intentionally compare/hash only (seed_base, seed_index) --
+    schedule_hash and seed are provenance detail, not part of identity. This is currently NOT
+    exercised by any real call site in deduplicate_battle_logs (which manually unpacks tuples
+    instead of comparing SeedIdentity objects directly) -- this test exists so a future
+    regression in the override itself would be caught even before any call site starts relying
+    on it directly."""
+    a = SeedIdentity(seed_base="X", seed_index=1, schedule_hash="HASH_A", seed="seedA")
+    b = SeedIdentity(seed_base="X", seed_index=1, schedule_hash="HASH_B_DIFFERENT", seed="seedB_DIFFERENT")
+    c = SeedIdentity(seed_base="Y", seed_index=1, schedule_hash="HASH_A", seed="seedA")
+
+    assert a == b  # same (seed_base, seed_index) -> equal, despite differing schedule_hash/seed
+    assert hash(a) == hash(b)
+    assert a != c  # different seed_index -> not equal
+    assert {a, b} == {a}  # collapse to one element in a set
+    assert len({a: 1, b: 2}) == 1  # b overwrites a's entry in a dict
 
 
 def test_manifest_join_dedups_run1_vs_run2_reproduction(tmp_path):
