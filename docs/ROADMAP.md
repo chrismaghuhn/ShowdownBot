@@ -98,6 +98,15 @@ state (depth-2 slice, value-calibration spec).
    `DecisionTrace` (populated only when `accuracy_mode` is on) or explicitly re-confirm it's
    still not needed — do not let this disappear. Natural to fold into the start of Depth-2
    Stage 3 (P1) if that lands first, since both touch the same trace-assembly code path.
+   **Update 2026-07-13 (accuracy-offline-gate plan, spec §2.4):** `CandidateTrace.accuracy_details`
+   now makes per-candidate raw accuracy telemetry (`accuracy_leaf_count`,
+   `accuracy_branch_cap_hits`, `events_complete`, tie-order breakdowns) reachable on
+   `DecisionTrace` — this **partially** addresses this item (the raw ingredients are now on the
+   trace) but does **not close it**: `accuracy_diagnostics()` itself (the
+   ko/survival-probability/`accuracy_required`/miss-punish-value function) still isn't called
+   from any live decision-code caller. See
+   `reports/2026-07-13-accuracy-offline-gate-verdict.md` and the design spec's own §2.4 framing
+   ("does not close the whole item").
 
 ## P1 — Nächster realer Stärkeversuch
 
