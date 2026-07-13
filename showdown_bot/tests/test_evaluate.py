@@ -561,3 +561,192 @@ def test_accuracy_diagnostics_empty_leaves_raises_value_error():
 
     with pytest.raises(ValueError):
         accuracy_diagnostics([], targets=[("p2", "a")], state=_diag_state_full_hp(), actions=[], field=None)
+
+
+# --- LineEvaluation / _evaluate_line_details refactor (accuracy-slice Task 5) ----------
+
+import dataclasses
+
+from showdown_bot.battle.evaluate import (
+    AccuracyEventDetail,
+    LineEvaluation,
+    TieOrderEvaluation,
+    _accuracy_events_from_leaves,
+    _evaluate_line_details,
+)
+from showdown_bot.battle.resolve import resolve_turn_branches
+
+
+def test_evaluate_line_wraps_evaluate_line_details_off_path():
+    """off-path: byte-identical to today's evaluate_line -- construct with accuracy_mode=False
+    and assert the wrapper's (score, outcome) equals _evaluate_line_details'."""
+    st = _model_state()
+
+    def dmg(action, target):
+        return 0.0  # never invoked -- there are no actions on this line
+
+    score, outcome = evaluate_line(st, [], [], dmg, our_side="p1", accuracy_mode=False)
+    detail = _evaluate_line_details(st, [], [], dmg, our_side="p1", accuracy_mode=False)
+    assert (score, outcome) == (detail.score, detail.representative_outcome)
+    assert detail.leaves is None
+    assert detail.fork_records is None
+    assert detail.fallback_leaves == 0
+    assert detail.accuracy_events == []
+
+
+def _scripted_accuracy_state():
+    """A single uncertain-accuracy move -- enough to exercise accuracy_mode branching without
+    any KO/tie interaction, for a pure determinism check."""
+    st = _doubles_state_for_eval()
+    risky = MoveMeta(id="risky2", name="Risky2", accuracy=70, base_power=100,
+                      category="physical", target="normal")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=risky, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.5
+
+    return st, [mine], [], dmg
+
+
+def test_evaluate_line_details_repeat_call_identical():
+    state, my_actions, opp_actions, damage_fn = _scripted_accuracy_state()
+    kwargs = dict(
+        state=state, my_actions=my_actions, opp_actions=opp_actions, damage_fn=damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+    )
+    d1 = _evaluate_line_details(**kwargs)
+    d2 = _evaluate_line_details(**kwargs)
+    assert d1.score == d2.score
+    assert d1.fallback_leaves == d2.fallback_leaves
+    assert [dataclasses.astuple(e) for e in d1.accuracy_events] == \
+           [dataclasses.astuple(e) for e in d2.accuracy_events]
+    assert [dataclasses.astuple(t) for t in d1.tie_order_details] == \
+           [dataclasses.astuple(t) for t in d2.tie_order_details]
+
+
+def _ko_dependent_accuracy_state():
+    """A miss-branch-only accuracy event: p1a's hit on p2a resolves as a hit by default in
+    leaves[0], KO-ing p2a before p2a's own uncertain move ever fires. Only in the sibling
+    miss-branch (p1a's hit forced to miss) does p2a survive to attempt its own move -- an event
+    absent from leaves[0].attempted_hits but present elsewhere in the full leaf union."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
+    strike1 = MoveMeta(id="strike1", name="Strike1", accuracy=70, base_power=100,
+                        category="physical", target="normal")
+    strike2 = MoveMeta(id="strike2", name="Strike2", accuracy=70, base_power=100,
+                        category="physical", target="normal")
+    p1a = PlannedAction("p1", "a", "move", speed=150, move=strike1, target=("p2", "a"), is_ours=True)
+    p2a = PlannedAction("p2", "a", "move", speed=100, move=strike2, target=("p1", "b"), is_ours=False)
+
+    def dmg(action, target):
+        return 1.0 if action.move.id == "strike1" else 0.3
+
+    return st, [p1a, p2a], dmg
+
+
+def test_accuracy_events_use_full_leaf_union_not_leaves_zero_only():
+    """Regression test for the round-3 discovery bug: an event only attempted in a miss-branch
+    must still appear in accuracy_events, even though it's absent from leaves[0]'s attempted_hits.
+    Mirrors the merged slice's Task 4 KO-dependent regression test shape."""
+    state, actions, damage_fn = _ko_dependent_accuracy_state()
+    leaves, fallback_leaves, fork_records = resolve_turn_branches(
+        state, actions, damage_fn, our_side="p1", branch_cap=8,
+    )
+    # Sanity: the scripted fixture must actually exercise the bug shape (an attempted_hit
+    # absent from leaves[0] but present in some other leaf).
+    leaves0_pairs = {(ah.attacker, ah.target, ah.move_id) for ah in leaves[0][1].attempted_hits}
+    all_pairs = {
+        (ah.attacker, ah.target, ah.move_id)
+        for _w, out in leaves for ah in out.attempted_hits
+    }
+    assert all_pairs - leaves0_pairs, "fixture doesn't exercise a miss-branch-only event"
+
+    events = _accuracy_events_from_leaves(actions, state, leaves, state.field, tie_order="ours_last")
+    found_pairs = {(e.attacker, e.target, e.move_id) for e in events}
+    missing_from_leaves0 = all_pairs - leaves0_pairs
+    assert missing_from_leaves0 <= found_pairs, (
+        "an event only reachable via a miss-branch was dropped -- leaves[0]-only bug reintroduced"
+    )
+
+
+def _tie_scripted_state():
+    """A genuine speed tie between p1a (an uncertain-accuracy move at an unrelated target) and
+    p2a (a guaranteed-hit KO move aimed straight at p1a). Under ours_first, p1a acts before p2a
+    can KO it, so p1a's own uncertain-accuracy event fires; under ours_last, p2a acts first and
+    KOs p1a before it ever gets a turn, so that event never appears at all."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
+    st.sides["p2"]["b"] = PokemonState(species="Amoonguss", hp=100, max_hp=100)
+    move_x = MoveMeta(id="movex", name="MoveX", accuracy=70, base_power=80,
+                       category="physical", target="normal")
+    ko_strike = MoveMeta(id="ko_strike", name="KOStrike", base_power=120,
+                          category="physical", target="normal")
+    p1a = PlannedAction("p1", "a", "move", speed=100, move=move_x, target=("p2", "b"), is_ours=True)
+    p2a = PlannedAction("p2", "a", "move", speed=100, move=ko_strike, target=("p1", "a"), is_ours=False)
+
+    def dmg(action, target):
+        return 1.0 if action.move.id == "ko_strike" else 0.5
+
+    return st, [p1a], [p2a], dmg
+
+
+def test_tie_averaging_preserves_asymmetric_cap_hit_and_event():
+    """Round-4 fix regression: a genuine tie where ours_first's KO-before-act ordering makes an
+    attacker act (attempting an accuracy event) before ours_last's ordering removes that same
+    action via an earlier KO. The merged result must retain it even though ours_last alone
+    wouldn't have it."""
+    state, my_actions, opp_actions, damage_fn = _tie_scripted_state()
+    detail = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+    )
+    ours_last_only = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=8,
+        _force_tie_break="ours_last",
+    )
+    assert len(detail.accuracy_events) > len(ours_last_only.accuracy_events), (
+        "merged tie telemetry must be a strict superset of ours_last-alone for this fixture"
+    )
+    assert detail.representative_outcome == ours_last_only.representative_outcome, (
+        "representative_outcome must stay on the unchanged ours_last-only convention"
+    )
+    tie_orders = {t.tie_order for t in detail.tie_order_details}
+    assert tie_orders == {"ours_first", "ours_last"}
+
+
+def _capped_accuracy_state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
+    st.sides["p2"]["b"] = PokemonState(species="Amoonguss", hp=100, max_hp=100)
+    u1 = MoveMeta(id="u1", name="U1", accuracy=50, base_power=100, category="physical", target="normal")
+    u2 = MoveMeta(id="u2", name="U2", accuracy=50, base_power=100, category="physical", target="normal")
+    a1 = PlannedAction("p1", "a", "move", speed=150, move=u1, target=("p2", "a"), is_ours=True)
+    a2 = PlannedAction("p1", "b", "move", speed=140, move=u2, target=("p2", "b"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.1
+
+    return st, [a1, a2], [], dmg
+
+
+def test_events_complete_reflects_branch_cap():
+    state, my_actions, opp_actions, damage_fn = _capped_accuracy_state()
+    detail_capped = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=1,  # force an early cap
+    )
+    assert detail_capped.fallback_leaves >= 1
+    assert any(t.events_complete is False for t in detail_capped.tie_order_details)
+
+    detail_uncapped = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn,
+        our_side="p1", accuracy_mode=True, accuracy_branch_cap=64,
+    )
+    assert detail_uncapped.fallback_leaves == 0
+    assert all(t.events_complete for t in detail_uncapped.tie_order_details)

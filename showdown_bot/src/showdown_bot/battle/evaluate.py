@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.resolve import (
@@ -370,6 +370,146 @@ def _has_genuine_tie(all_actions: list[PlannedAction], field: FieldState | None)
 
 
 @dataclass
+class AccuracyEventDetail:
+    attacker: SlotId
+    target: SlotId
+    move_id: str
+    hit_probability: float
+    tie_order: str  # "ours_first" | "ours_last"
+
+
+@dataclass
+class TieOrderEvaluation:
+    tie_order: str
+    weight: float
+    accuracy_leaf_count: int
+    accuracy_branch_cap_hits: int
+    events_complete: bool
+
+
+@dataclass
+class LineEvaluation:
+    score: float
+    representative_outcome: TurnOutcome
+    leaves: list[tuple[float, TurnOutcome]] | None = None
+    fork_records: list[ForkRecord] | None = None
+    fallback_leaves: int = 0
+    accuracy_events: list[AccuracyEventDetail] = field(default_factory=list)
+    tie_order_details: list[TieOrderEvaluation] = field(default_factory=list)
+
+
+def _accuracy_events_from_leaves(
+    actions: list[PlannedAction],
+    state: BattleState,
+    leaves: list[tuple[float, TurnOutcome]],
+    field: FieldState | None,
+    tie_order: str,
+) -> list[AccuracyEventDetail]:
+    """Unions attempted_hits across the FULL leaf list (not just leaves[0]) so an event only
+    ever attempted in a miss-branch -- e.g. an attacker whose target's death in the all-hit
+    leaf normally cancels its own later action -- still surfaces here. See resolve_turn_branches'
+    leaves[0]-only pitfall documented on that function."""
+    actions_by_key = {a.key: a for a in actions}
+    seen: dict[tuple[SlotId, SlotId, str], float] = {}
+    for _weight, out in leaves:
+        for ah in out.attempted_hits:
+            key3 = (ah.attacker, ah.target, ah.move_id)
+            if key3 in seen:
+                continue
+            attacker_action = actions_by_key.get(ah.attacker)
+            if attacker_action is None or attacker_action.move is None:
+                continue
+            attacker_mon = state.sides.get(ah.attacker[0], {}).get(ah.attacker[1])
+            target_mon = state.sides.get(ah.target[0], {}).get(ah.target[1])
+            if attacker_mon is None or target_mon is None:
+                continue
+            p = hit_probability(attacker_action.move, attacker_mon, target_mon, field)
+            if p is None or p >= 1.0:
+                continue
+            seen[key3] = p
+    return [AccuracyEventDetail(a, t, m, p, tie_order) for (a, t, m), p in seen.items()]
+
+
+def _evaluate_line_details(
+    state: BattleState,
+    my_actions: list[PlannedAction],
+    opp_actions: list[PlannedAction],
+    damage_fn,
+    *,
+    our_side: str,
+    weights: EvalWeights | None = None,
+    field: FieldState | None = None,
+    rollout_horizon: int = 0,
+    rollout_gamma: float = 0.7,
+    endgame: bool = False,
+    fast_board: bool = False,
+    accuracy_mode: bool = False,
+    accuracy_branch_cap: int = 4,
+    _force_tie_break: str | None = None,
+) -> LineEvaluation:
+    field = field or state.field
+    all_actions = my_actions + opp_actions
+
+    def _scored(out: TurnOutcome) -> float:
+        sc = score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
+        if rollout_horizon > 0:
+            sc += _rollout_value(
+                state, all_actions, out, our_side, weights or EvalWeights(),
+                field, rollout_horizon, rollout_gamma,
+            )
+        return sc
+
+    def _one(tb: str) -> LineEvaluation:
+        if not accuracy_mode:
+            out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
+            return LineEvaluation(score=_scored(out), representative_outcome=out)
+        leaves, fallback_leaves, fork_records = resolve_turn_branches(
+            state, all_actions, damage_fn, our_side=our_side, field=field,
+            tie_break=tb, branch_cap=accuracy_branch_cap,
+        )
+        total = sum(w * _scored(out) for w, out in leaves)
+        representative = leaves[0][1]
+        representative.accuracy_branch_cap_hits = fallback_leaves
+        events = _accuracy_events_from_leaves(all_actions, state, leaves, field, tie_order=tb)
+        return LineEvaluation(
+            score=total, representative_outcome=representative, leaves=leaves,
+            fork_records=fork_records, fallback_leaves=fallback_leaves, accuracy_events=events,
+            tie_order_details=[TieOrderEvaluation(
+                tie_order=tb, weight=1.0, accuracy_leaf_count=len(leaves),
+                accuracy_branch_cap_hits=fallback_leaves, events_complete=(fallback_leaves == 0),
+            )],
+        )
+
+    if _force_tie_break is not None:
+        return _one(_force_tie_break)
+    if _has_genuine_tie(all_actions, field):
+        d_first = _one("ours_first")
+        d_last = _one("ours_last")
+        return LineEvaluation(
+            score=0.5 * (d_first.score + d_last.score),
+            representative_outcome=d_last.representative_outcome,
+            leaves=d_last.leaves, fork_records=d_last.fork_records,
+            fallback_leaves=d_first.fallback_leaves + d_last.fallback_leaves,
+            accuracy_events=d_first.accuracy_events + d_last.accuracy_events,
+            tie_order_details=[
+                TieOrderEvaluation(
+                    tie_order="ours_first", weight=0.5,
+                    accuracy_leaf_count=len(d_first.leaves) if d_first.leaves else 0,
+                    accuracy_branch_cap_hits=d_first.fallback_leaves,
+                    events_complete=(d_first.fallback_leaves == 0),
+                ),
+                TieOrderEvaluation(
+                    tie_order="ours_last", weight=0.5,
+                    accuracy_leaf_count=len(d_last.leaves) if d_last.leaves else 0,
+                    accuracy_branch_cap_hits=d_last.fallback_leaves,
+                    events_complete=(d_last.fallback_leaves == 0),
+                ),
+            ],
+        )
+    return _one("ours_last")
+
+
+@dataclass
 class AccuracyDiagnostics:
     ko_probability: dict[SlotId, float]
     survival_probability: dict[SlotId, float]
@@ -460,37 +600,10 @@ def evaluate_line(
     accuracy_branch_cap: int = 4,
     _force_tie_break: str | None = None,
 ) -> tuple[float, TurnOutcome]:
-    field = field or state.field
-    all_actions = my_actions + opp_actions
-
-    def _one(tb: str) -> tuple[float, TurnOutcome]:
-        def _scored(out: TurnOutcome) -> float:
-            sc = score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
-            if rollout_horizon > 0:
-                sc += _rollout_value(
-                    state, all_actions, out, our_side, weights or EvalWeights(),
-                    field, rollout_horizon, rollout_gamma,
-                )
-            return sc
-
-        if not accuracy_mode:
-            out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
-            return _scored(out), out
-
-        leaves, fallback_leaves, _fork_records = resolve_turn_branches(
-            state, all_actions, damage_fn, our_side=our_side, field=field,
-            tie_break=tb, branch_cap=accuracy_branch_cap,
-        )
-        total = sum(w * _scored(out) for w, out in leaves)
-        representative = leaves[0][1]
-        representative.accuracy_branch_cap_hits = fallback_leaves
-        return total, representative
-
-    if _force_tie_break is not None:
-        return _one(_force_tie_break)
-    if _has_genuine_tie(all_actions, field):
-        # Tie EV: average both orderings. Same prefetched oracle cache -> no new calcs.
-        s_first, _ = _one("ours_first")
-        s_last, out_last = _one("ours_last")
-        return 0.5 * (s_first + s_last), out_last
-    return _one("ours_last")
+    d = _evaluate_line_details(
+        state, my_actions, opp_actions, damage_fn, our_side=our_side, weights=weights,
+        field=field, rollout_horizon=rollout_horizon, rollout_gamma=rollout_gamma,
+        endgame=endgame, fast_board=fast_board, accuracy_mode=accuracy_mode,
+        accuracy_branch_cap=accuracy_branch_cap, _force_tie_break=_force_tie_break,
+    )
+    return d.score, d.representative_outcome
