@@ -455,10 +455,24 @@ Three-part design:
    `(seed_base, seed_index)` identities (should never happen given each manifest's own internal
    consistency, but must not be silently resolved by picking one), raise
    `AmbiguousManifestMatchError` rather than guessing.
+5. **Fail-closed content-agreement invariant (added after real-corpus verification found this
+   exact fact holds today, but must never be assumed without checking): every file grouped under
+   the same `(seed_base, seed_index)` identity must agree on BOTH the full `seed` value (from its
+   own manifest row) AND its normalized room-log content hash
+   (`eval.room_dump.normalized_room_log_sha256`).** Verified directly against the real, frozen
+   190-file corpus before this task was greenlit: it collapses to exactly 85 groups (histogram
+   `{2: 75, 4: 10}` — no group of any other size), and every single group's members agree on both
+   the seed value and the normalized content hash. This makes `(seed_base, seed_index)` a *verified
+   valid* replicate key for *this specific, frozen corpus* — **not** a claim that the key is
+   universally sufficient without a content check. If a future corpus addition ever violates this
+   (same `(seed_base, seed_index)`, different seed or different normalized content), `
+   deduplicate_battle_logs` must **not** silently pick one and discard the rest, and must **not**
+   silently accept both as independent — it raises `SeedIdentityConflictError` and refuses to
+   proceed.
 
-Within a group of files sharing one identity, keep exactly one — priority order `run1` > `run2` >
-`prefix` > `kaggle-validation` (source-directory name, lexicographic tie-break if still ambiguous)
-— and record the rest as excluded.
+Within a group of files sharing one identity that passes step 5's invariant check, keep exactly
+one — priority order `run1` > `run2` > `prefix` > `kaggle-validation` (source-directory name,
+lexicographic tie-break if still ambiguous) — and record the rest as excluded.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -475,6 +489,7 @@ import pytest
 from showdown_bot.eval.room_raw_replay import (
     AmbiguousManifestMatchError,
     DedupReport,
+    SeedIdentityConflictError,
     deduplicate_battle_logs,
 )
 
@@ -484,9 +499,13 @@ DATA_T6 = REPO_ROOT / "data" / "eval" / "t6"
 DATA_KAGGLE = REPO_ROOT / "data" / "eval" / "kaggle-validation"
 
 
-def _make_manifest_row(room_raw_path: str, schedule_hash: str, seed_base: str, seed_index: int) -> dict:
+def _make_manifest_row(
+    room_raw_path: str, schedule_hash: str, seed_base: str, seed_index: int,
+    seed: str | None = None,
+) -> dict:
     return {
         "room_raw_path": room_raw_path,
+        "seed": seed if seed is not None else f"sodium,synthetic-{seed_base}-{seed_index}",
         "schedule_hash": schedule_hash,
         "seed_base": seed_base,
         "seed_index": seed_index,
@@ -585,6 +604,93 @@ def test_manifest_join_keeps_genuinely_distinct_seeds(tmp_path):
     report = deduplicate_battle_logs(log_files=[p1, p2], manifest_files=[manifest], keep_priority=["run1"])
     assert report.final_g == 2
     assert set(report.kept) == {p1, p2}
+
+
+def test_seed_identity_conflict_fails_closed_on_content_mismatch(tmp_path):
+    """The fail-closed hardening: two files share (seed_base, seed_index) per their manifest
+    rows AND the same full seed value, but their normalized room-log CONTENT genuinely differs
+    (simulating e.g. manifest corruption or a future corpus violating the invariant verified for
+    today's frozen 85-group corpus). Must raise, not silently pick one or accept both."""
+    lines_a = [">battle-f", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}', "|turn|1"]
+    lines_b = [  # same seed/identity claimed, but genuinely different resolved content
+        ">battle-f",
+        '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}',
+        "|turn|1",
+        "|switch|p1a: SomeOtherMon",
+    ]
+    d = tmp_path / "run1"
+    p1 = _write_synthetic_log(d, "HeuristicBot1__battle-f", lines_a)
+    p2 = _write_synthetic_log(d, "HeuristicBot2__battle-f2", lines_b)
+    manifest = tmp_path / "run1.jsonl"
+    same_seed = "sodium,deadbeefdeadbeefdeadbeefdeadbeef"
+    _write_manifest(manifest, [
+        _make_manifest_row("C:/tmp/run1/HeuristicBot1__battle-f.log", "SCHED_X", "base", 5, seed=same_seed),
+        _make_manifest_row("C:/tmp/run1/HeuristicBot2__battle-f2.log", "SCHED_X", "base", 5, seed=same_seed),
+    ])
+    with pytest.raises(SeedIdentityConflictError):
+        deduplicate_battle_logs(log_files=[p1, p2], manifest_files=[manifest], keep_priority=["run1"])
+
+
+def test_seed_identity_conflict_fails_closed_on_seed_value_mismatch(tmp_path):
+    """Same (seed_base, seed_index) but a DIFFERENT full seed value across manifest rows --
+    must also fail closed, independent of whether content happens to match."""
+    battle_lines = [">battle-g", '|request|{"active":[],"side":{"name":"H","id":"p1","pokemon":[]},"rqid":1}']
+    d = tmp_path / "run1"
+    p1 = _write_synthetic_log(d, "HeuristicBot1__battle-g", battle_lines)
+    p2 = _write_synthetic_log(d, "HeuristicBot2__battle-g2", battle_lines)
+    manifest = tmp_path / "run1.jsonl"
+    _write_manifest(manifest, [
+        _make_manifest_row("C:/tmp/run1/HeuristicBot1__battle-g.log", "SCHED_X", "base", 9,
+                            seed="sodium,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        _make_manifest_row("C:/tmp/run1/HeuristicBot2__battle-g2.log", "SCHED_X", "base", 9,
+                            seed="sodium,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),  # different seed
+    ])
+    with pytest.raises(SeedIdentityConflictError):
+        deduplicate_battle_logs(log_files=[p1, p2], manifest_files=[manifest], keep_priority=["run1"])
+
+
+@pytest.mark.skipif(
+    not (DATA_T4 / "rerun" / "t4rerun-run1.jsonl").exists(),
+    reason="real t4/t6/kaggle-validation corpus not present",
+)
+def test_real_corpus_satisfies_seed_identity_invariant_for_all_85_groups():
+    """Confirms, against the REAL frozen corpus, the exact fact the user verified independently
+    before authorizing this task: 85 groups, sizes {2: 75, 4: 10}, zero seed mismatches, zero
+    normalized-content-hash mismatches. This documents (seed_base, seed_index) as a VERIFIED
+    valid replicate key for THIS corpus specifically -- deduplicate_battle_logs itself enforces
+    this on every run (it would have raised SeedIdentityConflictError here if it didn't hold), so
+    this test's job is to prove the real corpus runs through cleanly, not to re-derive the check."""
+    import glob
+    from collections import Counter
+
+    regular_log_files = [
+        Path(p) for p in glob.glob(str(DATA_T4 / "rerun" / "room_raw" / "**" / "*.log.gz"), recursive=True)
+    ]
+    regular_log_files += [Path(p) for p in glob.glob(str(DATA_T6 / "room_raw" / "**" / "*.log.gz"), recursive=True)]
+    regular_log_files += [Path(p) for p in glob.glob(str(DATA_KAGGLE / "room_raw" / "*.log.gz"))]
+    manifests = [
+        DATA_T4 / "rerun" / "t4rerun-run1.jsonl", DATA_T4 / "rerun" / "t4rerun-run2.jsonl",
+        DATA_T4 / "rerun" / "t4rerun-prefix.jsonl",
+        DATA_T6 / "t6-run1.jsonl", DATA_T6 / "t6-run2.jsonl", DATA_KAGGLE / "results.jsonl",
+    ]
+    # No SeedIdentityConflictError means the invariant held for every one of the 85 groups --
+    # that IS the assertion; a raised exception fails this test automatically.
+    report = deduplicate_battle_logs(
+        log_files=regular_log_files, manifest_files=manifests,
+        keep_priority=["run1", "run2", "prefix", "kaggle-validation"],
+    )
+    assert report.final_g == 85
+    group_sizes = Counter()
+    # Reconstruct group sizes from files_found vs excluded reasons, matching the user's own
+    # independently-verified histogram {2: 75, 4: 10} (85 groups, 190 files, no other size).
+    dup_count_by_winner = Counter(e.duplicate_of for e in report.excluded if e.reason == "duplicate_seed_identity")
+    for winner in report.kept:
+        group_sizes[dup_count_by_winner.get(winner, 0) + 1] += 1
+    assert dict(group_sizes) == {2: 75, 4: 10}, (
+        f"expected the verified {{2: 75, 4: 10}} group-size histogram; got {dict(group_sizes)} -- "
+        f"if the corpus genuinely changed, re-verify the invariant manually before touching this "
+        f"assertion, don't just widen it"
+    )
 
 
 def test_room_raw_divergent_excluded_a_priori_never_content_hash_admitted(tmp_path):
@@ -717,11 +823,22 @@ class AmbiguousManifestMatchError(Exception):
     fail closed rather than silently picking one (spec §6 item 5's fail-closed requirement)."""
 
 
+class SeedIdentityConflictError(Exception):
+    """Raised when files sharing a (seed_base, seed_index) manifest identity do NOT agree on
+    the full seed value or normalized room-log content. (seed_base, seed_index) is a verified
+    valid replicate key for the specific, frozen corpus this module was built against (85
+    groups, sizes {2, 4}, zero conflicts -- checked directly) -- it is NOT assumed universally
+    sufficient without this content-agreement check for any future/different corpus."""
+
+
 @dataclass(frozen=True)
 class SeedIdentity:
     seed_base: str
     seed_index: int
-    schedule_hash: str  # provenance detail only -- NOT part of equality/grouping (see below)
+    schedule_hash: str  # provenance detail only -- NOT part of equality/grouping
+    seed: str           # the full seed value -- used ONLY for the fail-closed invariant check
+    # below, NOT part of equality/grouping either (grouping is (seed_base, seed_index) alone;
+    # `seed` and `schedule_hash` are verified to AGREE within a group, not used to form it).
 
     def __hash__(self) -> int:
         return hash((self.seed_base, self.seed_index))
@@ -773,7 +890,7 @@ def _load_manifest_rows(manifest_files: list[Path]) -> dict[str, SeedIdentity]:
                 basename = raw_path.rsplit("/", 1)[-1]
                 identity = SeedIdentity(
                     seed_base=row["seed_base"], seed_index=row["seed_index"],
-                    schedule_hash=row["schedule_hash"],
+                    schedule_hash=row["schedule_hash"], seed=row["seed"],
                 )
                 existing = by_basename.get(basename)
                 if existing is not None and (existing.seed_base, existing.seed_index) != (
@@ -802,6 +919,33 @@ def _source_priority(path: Path, keep_priority: list[str]) -> int:
     return len(keep_priority)  # unknown source -- lowest priority
 
 
+def _verify_seed_identity_invariant(
+    key: tuple[str, int], entries: list[tuple[Path, SeedIdentity]],
+    content_hash_cache: dict[Path, str],
+) -> None:
+    """Fail-closed check: every file claiming this (seed_base, seed_index) identity must agree
+    on BOTH the full seed value AND the normalized room-log content hash. Verified to hold for
+    every one of the real corpus's 85 groups before this check was added -- this function is
+    what ENFORCES that fact stays true on every future run, rather than trusting it silently."""
+    seeds = {identity.seed for _p, identity in entries}
+    if len(seeds) > 1:
+        raise SeedIdentityConflictError(
+            f"{key}: files claim the same (seed_base, seed_index) but disagree on the full "
+            f"seed value: {sorted((str(p), i.seed) for p, i in entries)}"
+        )
+    hashes: dict[Path, str] = {}
+    for path, _identity in entries:
+        if path not in content_hash_cache:
+            content_hash_cache[path] = _content_hash(path)
+        hashes[path] = content_hash_cache[path]
+    if len(set(hashes.values())) > 1:
+        raise SeedIdentityConflictError(
+            f"{key}: files share (seed_base, seed_index) and seed value, but normalized room-log "
+            f"content differs -- refusing to treat them as duplicates: "
+            f"{sorted((str(p), h) for p, h in hashes.items())}"
+        )
+
+
 def deduplicate_battle_logs(
     *, log_files: list[Path], manifest_files: list[Path], keep_priority: list[str],
 ) -> DedupReport:
@@ -814,8 +958,11 @@ def deduplicate_battle_logs(
         ExcludedBattle(p, "excluded_diagnostic_artifact", None) for p in diagnostic_files
     ]
 
-    # Step 1: manifest join, keyed on (seed_base, seed_index) via SeedIdentity's __eq__/__hash__.
-    groups: dict[SeedIdentity, list[Path]] = {}
+    # Step 1: manifest join, grouped on the RAW (seed_base, seed_index) tuple -- each file's
+    # OWN full SeedIdentity (with its own seed/schedule_hash) is kept alongside it, not
+    # collapsed into whichever identity object happened to be inserted first, so the fail-closed
+    # invariant check below can see every member's real seed/content, not just one.
+    groups: dict[tuple[str, int], list[tuple[Path, SeedIdentity]]] = {}
     unmatched: list[Path] = []
     for path in remaining_files:
         basename = path.name
@@ -825,23 +972,33 @@ def deduplicate_battle_logs(
         if identity is None:
             unmatched.append(path)
         else:
-            groups.setdefault(identity, []).append(path)
+            key = (identity.seed_base, identity.seed_index)
+            groups.setdefault(key, []).append((path, identity))
 
     kept: list[Path] = []
     kept_identities: list[SeedIdentity] = []
+    content_hash_cache: dict[Path, str] = {}
 
-    for identity, paths in groups.items():
-        paths_sorted = sorted(paths, key=lambda p: (_source_priority(p, keep_priority), str(p)))
+    for key, entries in groups.items():
+        _verify_seed_identity_invariant(key, entries, content_hash_cache)
+        paths_sorted = sorted(
+            (p for p, _i in entries), key=lambda p: (_source_priority(p, keep_priority), str(p))
+        )
         winner = paths_sorted[0]
+        winner_identity = next(i for p, i in entries if p == winner)
         kept.append(winner)
-        kept_identities.append(identity)
+        kept_identities.append(winner_identity)
         for loser in paths_sorted[1:]:
             excluded.append(ExcludedBattle(loser, "duplicate_seed_identity", winner))
 
     # Step 2: content-hash fallback, defense-in-depth for files with no manifest row at all.
+    # Reuses content_hash_cache where the invariant check above already computed a kept file's
+    # hash, avoiding a redundant re-read.
     hash_to_kept: dict[str, Path] = {}
     for k in kept:
-        hash_to_kept[_content_hash(k)] = k
+        if k not in content_hash_cache:
+            content_hash_cache[k] = _content_hash(k)
+        hash_to_kept[content_hash_cache[k]] = k
 
     unmatched_sorted = sorted(unmatched, key=lambda p: (_source_priority(p, keep_priority), str(p)))
     for path in unmatched_sorted:
@@ -864,17 +1021,20 @@ def deduplicate_battle_logs(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd showdown_bot && python -m pytest tests/eval/test_room_raw_dedup.py -v`
-Expected: PASS (6 passed, or 5 passed + 1 skipped if the real corpus manifests aren't present — they
-are committed, so expect all 6 to run). `test_real_corpus_dedup_collapses_190_regular_files_to_85`
-asserts an **exact** `report.final_g == 85` — this is a verified fact (see the plan's
-provenance-facts section), not an estimate; **do not loosen this to a range if it fails** —
-investigate whether the dedup logic has a bug, don't paper over it.
+Expected: PASS (9 passed; the two real-corpus tests only skip if the committed manifests are
+somehow absent from the checkout, which they are not). Both
+`test_real_corpus_dedup_collapses_190_regular_files_to_85` and
+`test_real_corpus_satisfies_seed_identity_invariant_for_all_85_groups` assert **exact** facts
+(`report.final_g == 85`, group-size histogram `{2: 75, 4: 10}`) — verified directly against the
+real corpus both when this plan was written and independently re-verified before this task was
+authorized, not estimates; **do not loosen either to a range if they fail** — investigate whether
+the dedup logic has a bug, don't paper over it.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/room_raw_replay.py showdown_bot/tests/eval/test_room_raw_dedup.py
-git commit -m "feat(eval): global battle-level dedup via (seed_base, seed_index) identity, room_raw_divergent excluded a-priori"
+git commit -m "feat(eval): global battle-level dedup via (seed_base, seed_index) identity + fail-closed content-agreement invariant"
 ```
 
 ---
