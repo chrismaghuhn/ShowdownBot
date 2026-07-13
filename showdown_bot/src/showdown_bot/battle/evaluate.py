@@ -5,7 +5,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from showdown_bot.battle.oracle import DamageOracle
-from showdown_bot.battle.resolve import PlannedAction, TurnOutcome, resolve_turn
+from showdown_bot.battle.resolve import (
+    PlannedAction,
+    TurnOutcome,
+    resolve_turn,
+    resolve_turn_branches,
+)
 from showdown_bot.engine.belief.hypotheses import (
     DEFENSE,
     OFFENSE,
@@ -376,20 +381,35 @@ def evaluate_line(
     rollout_gamma: float = 0.7,
     endgame: bool = False,
     fast_board: bool = False,
+    accuracy_mode: bool = False,
+    accuracy_branch_cap: int = 4,
     _force_tie_break: str | None = None,
 ) -> tuple[float, TurnOutcome]:
     field = field or state.field
     all_actions = my_actions + opp_actions
 
     def _one(tb: str) -> tuple[float, TurnOutcome]:
-        out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
-        sc = score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
-        if rollout_horizon > 0:
-            sc += _rollout_value(
-                state, all_actions, out, our_side, weights or EvalWeights(),
-                field, rollout_horizon, rollout_gamma,
-            )
-        return sc, out
+        def _scored(out: TurnOutcome) -> float:
+            sc = score_outcome(out, our_side, weights, endgame=endgame, fast_board=fast_board)
+            if rollout_horizon > 0:
+                sc += _rollout_value(
+                    state, all_actions, out, our_side, weights or EvalWeights(),
+                    field, rollout_horizon, rollout_gamma,
+                )
+            return sc
+
+        if not accuracy_mode:
+            out = resolve_turn(state, all_actions, damage_fn, our_side=our_side, field=field, tie_break=tb)
+            return _scored(out), out
+
+        leaves, fallback_leaves, _fork_records = resolve_turn_branches(
+            state, all_actions, damage_fn, our_side=our_side, field=field,
+            tie_break=tb, branch_cap=accuracy_branch_cap,
+        )
+        total = sum(w * _scored(out) for w, out in leaves)
+        representative = leaves[0][1]
+        representative.accuracy_branch_cap_hits = fallback_leaves
+        return total, representative
 
     if _force_tie_break is not None:
         return _one(_force_tie_break)

@@ -16,7 +16,7 @@ from showdown_bot.battle.resolve import (
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.calc.models import DamageResult
 from showdown_bot.engine.format_config import load_format_config
-from showdown_bot.engine.moves import get_move_meta
+from showdown_bot.engine.moves import MoveMeta, get_move_meta
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
 
@@ -391,3 +391,65 @@ def test_uncurated_opponent_stays_worstcase():
     base = DamageModel(st, "p1", "p2", book=book)
     real = DamageModel(st, "p1", "p2", book=book, opp_sets=_likely_incin())
     assert real.hyps[("p2", "a")].as_defender().nature == base.hyps[("p2", "a")].as_defender().nature
+
+
+# --- accuracy_mode / accuracy_branch_cap (accuracy-slice Task 5) -----------------------
+
+def _doubles_state_for_eval():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Flutter Mane", hp=100, max_hp=100)
+    return st
+
+
+def test_evaluate_line_accuracy_mode_off_is_byte_identical_to_default():
+    st = _doubles_state_for_eval()
+    moon = get_move_meta("Moonblast")  # accuracy 100, still deterministic here
+    mine = PlannedAction("p1", "a", "move", speed=100, move=moon, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.4
+
+    s_default, out_default = evaluate_line(st, [mine], [], dmg, our_side="p1")
+    s_explicit_off, out_explicit_off = evaluate_line(
+        st, [mine], [], dmg, our_side="p1", accuracy_mode=False,
+    )
+    assert s_default == s_explicit_off
+    assert out_default.hp_delta == out_explicit_off.hp_delta
+
+
+def test_evaluate_line_accuracy_mode_on_weights_hit_and_miss():
+    st = _doubles_state_for_eval()
+    risky = MoveMeta(id="risky", name="Risky", accuracy=70, base_power=100,
+                      category="physical", target="normal")
+    mine = PlannedAction("p1", "a", "move", speed=100, move=risky, target=("p2", "a"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.5
+
+    w = EvalWeights()
+    s_on, _out_on = evaluate_line(st, [mine], [], dmg, our_side="p1", accuracy_mode=True, weights=w)
+
+    # hand-computed: hit branch (p=0.7) deals 0.5 dmg dealt; miss branch (p=0.3) deals 0 dmg.
+    hit_score = w.dmg_dealt * 0.5
+    miss_score = 0.0
+    expected = 0.7 * hit_score + 0.3 * miss_score
+    assert abs(s_on - expected) < 1e-9
+
+
+def test_evaluate_line_tight_accuracy_branch_cap_increments_telemetry():
+    st = _doubles_state_for_eval()
+    st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=100, max_hp=100)
+    st.sides["p2"]["b"] = PokemonState(species="Amoonguss", hp=100, max_hp=100)
+    u1 = MoveMeta(id="u1", name="U1", accuracy=50, base_power=100, category="physical", target="normal")
+    u2 = MoveMeta(id="u2", name="U2", accuracy=50, base_power=100, category="physical", target="normal")
+    a1 = PlannedAction("p1", "a", "move", speed=150, move=u1, target=("p2", "a"), is_ours=True)
+    a2 = PlannedAction("p1", "b", "move", speed=140, move=u2, target=("p2", "b"), is_ours=True)
+
+    def dmg(action, target):
+        return 0.1
+
+    _s, out_capped = evaluate_line(
+        st, [a1, a2], [], dmg, our_side="p1", accuracy_mode=True, accuracy_branch_cap=1,
+    )
+    assert out_capped.accuracy_branch_cap_hits >= 1

@@ -69,6 +69,16 @@ BEHAVIOR_AFFECTING = frozenset({
     # SHOWDOWN_PROTECT_PENALTY -- when non-zero it changes the score of a wasted Protect
     # on a both-Tailwind board, which can flip which candidate is chosen -> config_hash.
     "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY",
+    # [accuracy-slice] On/off switch for hit/miss branching in evaluate_line -- directly
+    # changes which candidate's score is used (always-hit vs probability-weighted) -> config_hash.
+    # Off/unset = byte-identical.
+    "SHOWDOWN_ACCURACY_MODE",
+    # [accuracy-slice] Max resolve_turn_branches expansion depth. A different cap can change
+    # which lines hit the per-branch fallback and therefore which candidate scores highest --
+    # deliberately UNCONDITIONAL here (not excluded when SHOWDOWN_ACCURACY_MODE is off), to
+    # avoid repeating the SHOWDOWN_SEARCH_TOPN/TOPM conditional-exclusion bug the project's
+    # audit found.
+    "SHOWDOWN_ACCURACY_BRANCH_CAP",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the

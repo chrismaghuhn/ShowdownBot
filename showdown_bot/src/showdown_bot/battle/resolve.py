@@ -101,6 +101,7 @@ class TurnOutcome:
     redirected_hits: list[RedirectedHit] = field(default_factory=list)
     attempted_hits: list[AttemptedHit] = field(default_factory=list)
     missed_hits: list[MissedHit] = field(default_factory=list)
+    accuracy_branch_cap_hits: int = 0
     speed_events: list[SpeedEvent] = field(default_factory=list)
     tera_used_by_me: bool = False
     tera_used_by_opp: bool = False

@@ -88,6 +88,29 @@ def _search_topm() -> int:
     return max(1, v)
 
 
+def _accuracy_mode() -> bool:
+    """``SHOWDOWN_ACCURACY_MODE``: on/off switch for hit/miss branching in evaluate_line.
+    Off (default/unset/""/"0"/"false", case-insensitive) -> today's exact always-hit
+    resolve_turn path, byte-identical output. Uses an EXPLICIT off-list, not
+    ``bool(os.environ.get(...))`` -- that shortcut (used elsewhere in this codebase for
+    presence-only flags, e.g. SHOWDOWN_RERANKER_SHADOW) treats the STRING "0" or "false" as
+    truthy, which is wrong here: this flag needs "0"/"false" to explicitly mean off, not just
+    unset."""
+    raw = os.environ.get("SHOWDOWN_ACCURACY_MODE", "").strip().lower()
+    return raw not in ("", "0", "false")
+
+
+def _accuracy_branch_cap() -> int:
+    """Max resolve_turn calls per resolve_turn_branches expansion
+    (SHOWDOWN_ACCURACY_BRANCH_CAP). Default 4, clamped >=1. Only consulted when
+    _accuracy_mode() is on."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_ACCURACY_BRANCH_CAP", "4"))
+    except ValueError:
+        return 4
+    return max(1, v)
+
+
 def _applied_damage_from_outcome(outcome, state: BattleState) -> dict[tuple[str, str], float]:
     """Absolute-HP damage per (side, slot) from a turn-1 ``TurnOutcome``, for
     ``approx_turn2_state``. ``hp_delta`` is FRACTIONAL (new_frac - start_frac,
@@ -262,6 +285,8 @@ def _choose_best(
         rollout_horizon = _default_rollout_horizon()
     if risk_lambda is None:
         risk_lambda = _risk_lambda()
+    accuracy_mode = _accuracy_mode()
+    accuracy_branch_cap = _accuracy_branch_cap()
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -384,6 +409,7 @@ def _choose_best(
                         state, my_plan, opp_actions, model_k.damage_fn,
                         our_side=our_side, weights=weights, field=state.field,
                         rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                     )[0])
             return out
 
@@ -419,6 +445,7 @@ def _choose_best(
                         state, my_plan, r.actions, model.damage_fn,
                         our_side=our_side, weights=weights, field=state.field,
                         rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                     )[0]
                     for r in opp_resps
                 ]
@@ -427,6 +454,7 @@ def _choose_best(
                     state, my_plan, [], model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
                     rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                 )[0]
             ]
 
@@ -440,6 +468,7 @@ def _choose_best(
                         state, my_plan, opp_actions, model.damage_fn,
                         our_side=our_side, weights=weights, field=state.field,
                         rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                     )
                     for opp_actions in targets
                 ]
@@ -500,6 +529,7 @@ def _choose_best(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
         endgame=endgame, fast_board=fast_board,
+        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
     )
 
     if report is not None:
@@ -525,6 +555,7 @@ def _choose_best(
         _, out = evaluate_line(
             state, chosen_plan, rep_resp, model.damage_fn,
             our_side=our_side, weights=weights, field=state.field, rollout_horizon=0,
+            accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
         )
         incoming = sum(-d for k, d in out.hp_delta.items() if k[0] == our_side and d < 0)
         outgoing = sum(-d for k, d in out.hp_delta.items() if k[0] == opp_side and d < 0)
@@ -563,6 +594,7 @@ def _choose_best(
                     state, plan, ra, model.damage_fn, our_side=our_side,
                     weights=weights, field=state.field, rollout_horizon=0,
                     endgame=endgame, fast_board=fast_board,
+                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                 )
                 out.append(
                     score_outcome_with_breakdown(
@@ -764,6 +796,7 @@ def _maybe_tera(
     req, best_ja, best_val, mode, state, our_side, opp_side,
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
     *, endgame: bool = False, fast_board: bool = False,
+    accuracy_mode: bool = False, accuracy_branch_cap: int = 4,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
@@ -784,14 +817,16 @@ def _maybe_tera(
             scores = [
                 evaluate_line(state, plan, r.actions, model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame, fast_board=fast_board)[0]
+                              endgame=endgame, fast_board=fast_board,
+                              accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap)[0]
                 for r in opp_resps
             ]
         else:
             scores = [
                 evaluate_line(state, plan, [], model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame, fast_board=fast_board)[0]
+                              endgame=endgame, fast_board=fast_board,
+                              accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap)[0]
             ]
         val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
         if val > best_overlay_val and tera_decision(best_val, val, margin=tera_margin):
