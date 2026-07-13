@@ -42,7 +42,11 @@ class CandidateModelFeatures:
 class AccuracyEventTrace:
     """One uncertain (accuracy < 100%) attempted hit surfaced from a single opponent
     response's accuracy-mode evaluation. ``response_index`` ties it back to the parallel
-    ``score_vector``/``outcome_breakdowns`` position on the owning ``CandidateTrace``."""
+    ``score_vector``/``outcome_breakdowns`` position on the owning ``CandidateTrace`` --
+    single-world only; in K-world sampling (``SHOWDOWN_WORLD_SAMPLES>1``) ``score_vector``
+    is flattened across ALL sampled worlds, but ``response_index`` only indexes into the
+    most-likely world's (``world_ctx[0]``, always present) response list -- see the world-0
+    binding note in ``decision.py`` around the ``opp_resps = world_ctx[0][1]`` line."""
 
     attacker: SlotId
     target: SlotId
@@ -54,6 +58,13 @@ class AccuracyEventTrace:
 
 @dataclass
 class AccuracyTieOrderTrace:
+    """One evaluated tie ordering's accuracy-branching stats for a single opponent
+    response. ``weight`` is 0.5 for both orderings on a genuine tie (``ours_first``
+    and ``ours_last`` each contribute half the line's value) and 1.0 for the single
+    ordering evaluated on a non-tie. ``accuracy_branch_cap_hits`` is THIS ordering's
+    own ``fallback_leaves`` count (how many of its own resolve_turn_branches leaves
+    hit the branch cap) -- not summed with the other ordering's."""
+
     tie_order: str
     weight: float
     accuracy_leaf_count: int
@@ -64,11 +75,24 @@ class AccuracyTieOrderTrace:
 @dataclass
 class AccuracyResponseDetail:
     """Per-response accuracy telemetry (one per opponent response, parallel to
-    ``CandidateTrace.score_vector``/``outcome_breakdowns``). Research-only, mirrors
-    ``battle.evaluate.LineEvaluation`` -- never read to make a decision."""
+    ``CandidateTrace.score_vector``/``outcome_breakdowns`` -- single-world only; in
+    K-world sampling (``SHOWDOWN_WORLD_SAMPLES>1``) ``score_vector`` is flattened across
+    ALL sampled worlds, but this list (like ``outcome_breakdowns``) only covers the
+    most-likely world (``world_ctx[0]``, always present) -- see the world-0 binding note
+    in ``decision.py`` around the ``opp_resps = world_ctx[0][1]`` line). Research-only,
+    mirrors ``battle.evaluate.LineEvaluation`` -- never read to make a decision.
 
-    accuracy_leaf_count: int
-    accuracy_event_count: int
+    ``accuracy_leaf_count`` is a SUM across both evaluated tie orderings (a cost/effort
+    metric -- total resolve-branch leaves evaluated across the ``ours_first``/
+    ``ours_last`` trees when genuinely tied, or just the single tree's leaf count
+    otherwise), NOT a distinct-outcome count. This is the OPPOSITE convention from its
+    sibling ``accuracy_event_count``, which IS deduped/distinct across tie orderings
+    (see ``evaluate._union_accuracy_events``). The per-ordering breakdown remains
+    recoverable via ``tie_orders[i].accuracy_leaf_count``.
+    """
+
+    accuracy_leaf_count: int      # SUMMED across tie orderings -- cost metric, NOT distinct (see class docstring)
+    accuracy_event_count: int     # deduped/distinct across tie orderings (see evaluate._union_accuracy_events)
     accuracy_branch_cap_hits: int
     events_complete: bool
     tie_orders: list[AccuracyTieOrderTrace] = field(default_factory=list)
@@ -85,7 +109,7 @@ class CandidateTrace:
     outcome_breakdowns: list[OutcomeBreakdown]  # parallel to opponent responses
     aggregate_breakdown: OutcomeBreakdown
     model_features: CandidateModelFeatures = field(default_factory=CandidateModelFeatures)
-    accuracy_details: list[AccuracyResponseDetail] = field(default_factory=list)  # parallel to opponent responses
+    accuracy_details: list[AccuracyResponseDetail] = field(default_factory=list)  # parallel to opponent responses; single-world only -- see AccuracyResponseDetail docstring for the K-world (world_ctx[0]) caveat
 
 
 @dataclass
