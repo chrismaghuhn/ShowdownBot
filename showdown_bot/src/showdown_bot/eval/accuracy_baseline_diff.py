@@ -28,6 +28,25 @@ def diff_against_baseline(baseline_rows: list[dict], replay_rows: list[dict]) ->
     baseline_by_hash = {r["request_hash"]: r for r in baseline_rows}
     replay_by_hash = {r["request_hash"]: r for r in replay_rows}
 
+    # Fail closed on request_hash collisions: request_hash is a sha256 of the request JSON
+    # alone, not battle-scoped, so two different battles reaching a bit-identical early-turn
+    # state could theoretically collide. A plain dict comprehension would silently collapse
+    # such rows (last-write-wins), quietly comparing only one of two logically distinct
+    # decisions and potentially masking a real regression in the other -- the exact silent-drop
+    # failure mode this module exists to prevent (see test_missing_row_in_replay_is_flagged_
+    # not_silently_dropped). Raise loud instead, matching this plan's established fail-closed
+    # pattern (e.g. Task 2's SeedIdentityConflictError).
+    if len(baseline_by_hash) != len(baseline_rows):
+        raise ValueError(
+            f"duplicate request_hash values in baseline_rows: {len(baseline_rows)} rows collapsed "
+            f"to {len(baseline_by_hash)} unique hashes -- refusing to silently drop a row"
+        )
+    if len(replay_by_hash) != len(replay_rows):
+        raise ValueError(
+            f"duplicate request_hash values in replay_rows: {len(replay_rows)} rows collapsed "
+            f"to {len(replay_by_hash)} unique hashes -- refusing to silently drop a row"
+        )
+
     matched = 0
     regressions: list[Regression] = []
     for req_hash, brow in baseline_by_hash.items():
