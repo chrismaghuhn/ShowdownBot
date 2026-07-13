@@ -96,6 +96,50 @@ def test_chosen_candidate_raises_when_unresolvable():
         _chosen_candidate(trace)
 
 
+def test_chosen_candidate_raises_on_ambiguous_label_not_first_match_wins():
+    """Blocking finding from code review, independently confirmed against decision.py's real
+    _label_ja source: it renders every NON-move slot action as the bare string sa.kind (e.g.
+    "switch"), with NO target-mon info. Two structurally different joint actions that switch to
+    DIFFERENT benched mons in the same slot (with the same other-slot action) can therefore
+    render byte-identical candidate_id labels -- both "(switch, pass)" here. Their boards, and
+    therefore their accuracy telemetry, can genuinely differ (candidate c1 is clean, c2 is
+    capped), so a first-match-wins resolution would silently read the WRONG candidate's cap-hit
+    status into the gate's headline statistic. _chosen_candidate must raise, not silently return
+    whichever of the two happens to appear first in trace.candidates."""
+    c1 = _candidate("(switch, pass)", 0, 5.0, [_detail(cap_hits=0, complete=True)])
+    c2 = _candidate("(switch, pass)", 1, 4.0, [_detail(cap_hits=1, complete=False)])
+    trace = DecisionTrace(chosen_candidate_id="(switch, pass)", candidates=[c1, c2])
+    with pytest.raises(RuntimeError):
+        _chosen_candidate(trace)
+
+
+def test_pair_candidates_by_id_excludes_ambiguous_labels_rather_than_mispairing():
+    """The same _label_ja switch-collision the _chosen_candidate regression test covers also
+    threatens pair_candidates_by_id's dict-comprehension construction, which would otherwise
+    silently collapse a collision to whichever duplicate is last in list order -- risking a
+    wrong pairing or a spurious entered/left top-K entry in the spec Sec.5 diff schema. Unlike
+    _chosen_candidate (which raises, since it resolves the ONE headline-numerator-affecting
+    candidate), pair_candidates_by_id excludes ambiguous ids from its output instead: this
+    function's output is investigative-only, and it runs inside run_gate_b's SAME per-decision
+    try/except that the headline cap-hit numerator is recorded from, so raising here would drop
+    an otherwise-valid decision's cap-hit contribution too. The ambiguous id must appear in
+    NONE of paired/entered_top_k/left_top_k -- never silently guessed."""
+    off_trace = DecisionTrace(candidates=[
+        _candidate("(switch, pass)", 0, 5.0, [_detail(cap_hits=0, complete=True)]),  # -> mon X
+        _candidate("(switch, pass)", 1, 4.0, [_detail(cap_hits=0, complete=True)]),  # -> mon Y
+        _candidate("A", 2, 1.0, [_detail(cap_hits=0, complete=True)]),
+    ])
+    on_trace = DecisionTrace(candidates=[
+        _candidate("(switch, pass)", 0, 6.0, [_detail(cap_hits=0, complete=True)]),
+        _candidate("A", 1, 2.0, [_detail(cap_hits=0, complete=True)]),
+    ])
+    paired, entered, left = pair_candidates_by_id(off_trace, on_trace)
+    assert "(switch, pass)" not in paired
+    assert "(switch, pass)" not in entered
+    assert "(switch, pass)" not in left
+    assert set(paired) == {"A"}
+
+
 def test_pair_candidates_by_id_stable_across_reordering():
     # accuracy_mode changing scores can reorder rank -- candidate_id pairing must not care.
     off_trace = DecisionTrace(candidates=[
@@ -192,3 +236,46 @@ def test_run_gate_b_end_to_end_on_the_conftest_fixture_board(decision_fixture, m
     assert result.acceptance.no_exceptions is True
     assert result.acceptance.exceptions == []
     assert result.cap_hit_verdict is not None
+
+
+def test_trace_has_nan_score_detects_a_nan_aggregate_score():
+    """Spec Sec.4's acceptance rule's 2nd part (no NaNs) needs an explicit sweep -- NaN
+    arithmetic silently propagates through comparisons/sorting rather than raising, so it
+    would never surface via the exceptions list on its own."""
+    from showdown_bot.eval.accuracy_gate_b import _trace_has_nan_score
+
+    clean = DecisionTrace(candidates=[_candidate("A", 0, 5.0, [_detail(cap_hits=0, complete=True)])])
+    nan_trace = DecisionTrace(candidates=[
+        _candidate("A", 0, float("nan"), [_detail(cap_hits=0, complete=True)]),
+    ])
+    assert _trace_has_nan_score(clean) is False
+    assert _trace_has_nan_score(nan_trace) is True
+
+
+def test_run_gate_b_reports_no_nans_false_when_a_candidate_score_is_nan(monkeypatch):
+    """End-to-end proof that a NaN aggregate_score surfacing from the real
+    heuristic_choose_for_request wiring gets caught in AcceptanceSummary.no_nans -- not just at
+    the _trace_has_nan_score helper level. Monkeypatches accuracy_gate_b's own imported name
+    (the local binding _decide_with_trace actually calls), matching the pattern
+    test_accuracy_mode_wiring.py already documents for patching call sites that resolve names
+    via plain module-global lookup at call time."""
+    from showdown_bot.eval import accuracy_gate_b as gate_b_module
+    from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
+
+    def _fake_choose(req, *, state, book, our_side, calc, oracle, speed_oracle, dex, trace=None):
+        trace.chosen_candidate_id = "A"
+        trace.candidates = [_candidate("A", 0, float("nan"), [_detail(cap_hits=0, complete=True)])]
+        return "/choose move 1, move 1|1"
+
+    monkeypatch.setattr(gate_b_module, "heuristic_choose_for_request", _fake_choose)
+    decision = ExtractedDecision(
+        state=None, request=None, kind=RequestKind.MOVE, side="p1", turn=1,
+        request_hash="nan0", log_prefix_hash="nanprefix0", _debug_prefix_line_count=1,
+    )
+    result = run_gate_b(
+        decisions=[decision], battle_id_for=lambda d: "game0",
+        oracle_factory=lambda: None,
+    )
+    assert result.n_decisions_compared == 1
+    assert result.acceptance.no_exceptions is True
+    assert result.acceptance.no_nans is False

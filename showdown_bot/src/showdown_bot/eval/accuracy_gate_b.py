@@ -7,6 +7,7 @@ sub-sample (spec Sec.6 item 6)."""
 from __future__ import annotations
 
 import copy
+import math
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -21,8 +22,23 @@ from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
 
 @dataclass(frozen=True)
 class AcceptanceSummary:
+    """Spec Sec.4's acceptance rule has 3 parts: no exceptions, no NaNs, no invalid actions
+    (docs/superpowers/specs/2026-07-13-accuracy-offline-gate-design.md:453). ``no_exceptions``
+    and ``no_nans`` are both implemented and swept over every replayed MOVE decision (not just
+    diverging ones -- see ``run_gate_b``'s ``_trace_has_nan_score`` call). The third part,
+    "invalid actions", is a KNOWN, EXPLICITLY-FLAGGED GAP as of Task 10's code review: a
+    malformed chosen ``/choose`` string only surfaces indirectly, as an exception, on decisions
+    where ``off_action != on_action`` (the only path that calls ``normalize_choose``, the one
+    validator that would catch it) -- a non-diverging decision's action string is never
+    independently validated here. Deferred rather than bolted on under this task's time
+    pressure (see the Task 10 review discussion); Task 11 should either close it (e.g. call
+    ``normalize_choose`` unconditionally on every decision's off_action/on_action, not just
+    diverging ones) or explicitly re-accept the gap in its own report.
+    """
+
     no_exceptions: bool
-    exceptions: list[tuple[str, str]]  # (request_hash, error message)
+    no_nans: bool
+    exceptions: list[tuple[str, str]]  # (request_hash, "ExceptionType: message")
     off_path_byte_identical: bool | None  # verified separately by Task 4/7's frozen-baseline
     # diff, not recomputed here -- Gate B's own job is the off-vs-on comparison, not the
     # unset-vs-explicit-off env-parser check.
@@ -81,14 +97,43 @@ def _strip_tera_suffix(candidate_id: str) -> str:
 
 
 def _chosen_candidate(trace: DecisionTrace) -> CandidateTrace:
-    """Raises RuntimeError (not silently returns None) if no candidate matches -- a silent
-    None here would make `run_gate_b`'s cap-hit rule default to "not capped" for exactly the
-    decisions where a Tera-related mismatch occurred, silently biasing the gate's own verdict.
-    Fail loud instead; `run_gate_b`'s existing per-decision try/except already turns this into
-    a reported exception rather than crashing the whole run."""
-    for c in trace.candidates:
-        if c.candidate_id == trace.chosen_candidate_id:
-            return c
+    """Raises RuntimeError (not silently returns a possibly-wrong candidate) if the chosen
+    candidate cannot be UNAMBIGUOUSLY resolved -- a silent wrong answer here would make
+    `run_gate_b`'s cap-hit rule read a DIFFERENT candidate's accuracy telemetry into the gate's
+    one headline statistic, silently biasing the gate's own verdict. Fail loud instead;
+    `run_gate_b`'s existing per-decision try/except already turns this into a reported exception
+    rather than crashing the whole run.
+
+    Two distinct, independently confirmed reasons `chosen_candidate_id` can fail to resolve to
+    exactly one candidate via a naive first-match search:
+
+    1. (non-uniqueness) `_label_ja` (decision.py) renders every NON-move slot action as the bare
+       string `sa.kind` (e.g. `"switch"`, with NO target-mon info) -- so two structurally
+       different joint actions that switch to DIFFERENT benched mons in the same slot (with the
+       same other-slot action) can render byte-identical `candidate_id` labels, e.g. both
+       `"(switch, pass)"`. A plain first-match loop would silently return whichever of the two
+       happens to appear first in `trace.candidates`, even though their boards -- and therefore
+       their accuracy telemetry -- can genuinely differ. Found in Task 10's code review,
+       independently confirmed by reading `_label_ja`'s source directly.
+    2. (tera-suffix mismatch) `_maybe_tera` (decision.py) can overlay a Tera flag onto the
+       already-chosen best_ja AFTER `trace.candidates` was already built from the pre-Tera
+       candidate set, so `trace.chosen_candidate_id` can carry a ' tera' suffix matching no
+       `candidate_id` in `trace.candidates` verbatim. Found and independently verified during
+       Task 4 (1/944 real decisions); the tera-stripped fallback below recovers it, and is
+       guaranteed unique when it exists since Tera is never itself a dimension of the enumerated
+       candidate space.
+    """
+    exact = [c for c in trace.candidates if c.candidate_id == trace.chosen_candidate_id]
+    if len(exact) == 1:
+        return exact[0]
+    if len(exact) > 1:
+        raise RuntimeError(
+            f"ambiguous chosen_candidate_id={trace.chosen_candidate_id!r} matches "
+            f"{len(exact)} candidates -- _label_ja's non-injective switch-slot labeling "
+            f"(decision.py's _label_ja renders every non-move slot action as the bare kind "
+            f"string, e.g. 'switch', dropping the target mon) makes candidate_id ambiguous "
+            f"here; refusing to guess which one was actually chosen"
+        )
     stripped_target = _strip_tera_suffix(trace.chosen_candidate_id or "")
     fallback = [c for c in trace.candidates if _strip_tera_suffix(c.candidate_id) == stripped_target]
     if len(fallback) == 1:
@@ -115,14 +160,51 @@ def candidate_events_complete(candidate: CandidateTrace) -> bool:
     return all(d.events_complete for d in candidate.accuracy_details)
 
 
+def _label_counts(candidates: list[CandidateTrace]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for c in candidates:
+        counts[c.candidate_id] = counts.get(c.candidate_id, 0) + 1
+    return counts
+
+
 def pair_candidates_by_id(
     off_trace: DecisionTrace, on_trace: DecisionTrace,
 ) -> tuple[dict[str, tuple[CandidateTrace, CandidateTrace]], list[str], list[str]]:
     """Spec Sec.5: off-run and on-run candidates for the "same" nominal action are paired by
     candidate_id, never by rank or list position -- accuracy_mode can reorder or reshuffle
-    top-K membership. Returns (paired_by_id, entered_top_k, left_top_k), both sorted lists."""
-    off_by_id = {c.candidate_id: c for c in off_trace.candidates}
-    on_by_id = {c.candidate_id: c for c in on_trace.candidates}
+    top-K membership. Returns (paired_by_id, entered_top_k, left_top_k), both sorted lists.
+
+    `candidate_id` is not a guaranteed-unique key across ONE trace's own candidate list (see
+    `_chosen_candidate`'s docstring on `_label_ja`'s non-injective switch-slot labeling -- e.g.
+    two different switch targets in the same slot can both render `"(switch, pass)"`). A naive
+    `{c.candidate_id: c for c in candidates}` comprehension would silently collapse such a
+    collision to whichever duplicate is last in list order.
+
+    An id ambiguous in EITHER trace is excluded from BOTH sides' dicts entirely -- not just the
+    side where it's ambiguous. Excluding it from only its own (ambiguous) side while leaving it
+    in the other side's dict would make the plain set-difference below spuriously report it as
+    "entered_top_k"/"left_top_k" (it would look like a brand-new id that "appeared", when really
+    it was present-but-unresolvable on the other side too) -- confirmed by this fix's own first
+    draft failing exactly that way in testing.
+
+    Unlike `_chosen_candidate` (which raises on ambiguity, because misresolving the ONE chosen
+    line would corrupt the gate's headline cap-hit numerator), this function drops ambiguous ids
+    entirely instead of raising: its output only feeds the spec Sec.5 diff-capture schema
+    (investigative-only, not the headline statistic), and it runs inside `run_gate_b`'s SAME
+    per-decision try/except that the headline cap-hit numerator is recorded from -- raising here
+    would let a lower-stakes diff-schema collision drop an otherwise-valid decision's cap-hit
+    contribution from the numerator too. Silently omitting an unresolvable id from the diff
+    schema is honest (it never claims a specific pairing/entered/left status it cannot back up);
+    silently guessing which duplicate is which -- or which side it "really" belongs to -- would
+    not be."""
+    off_counts = _label_counts(off_trace.candidates)
+    on_counts = _label_counts(on_trace.candidates)
+    ambiguous_ids = {cid for cid, n in off_counts.items() if n > 1} | \
+        {cid for cid, n in on_counts.items() if n > 1}
+
+    off_by_id = {c.candidate_id: c for c in off_trace.candidates if c.candidate_id not in ambiguous_ids}
+    on_by_id = {c.candidate_id: c for c in on_trace.candidates if c.candidate_id not in ambiguous_ids}
+
     common = set(off_by_id) & set(on_by_id)
     left_top_k = sorted(set(off_by_id) - set(on_by_id))
     entered_top_k = sorted(set(on_by_id) - set(off_by_id))
@@ -167,6 +249,15 @@ def _diff_row_from_traces(
     )
 
 
+def _trace_has_nan_score(trace: DecisionTrace) -> bool:
+    """Spec Sec.4's acceptance rule's 2nd part: no NaNs. A NaN `aggregate_score` would NOT
+    raise on its own (NaN arithmetic silently propagates through comparisons/sorting rather
+    than crashing) so it needs an explicit sweep, not just try/except coverage -- otherwise a
+    NaN could flow silently into `off_score`/`on_score`/margins while `no_exceptions=True` is
+    still reported as clean."""
+    return any(math.isnan(c.aggregate_score) for c in trace.candidates)
+
+
 def _decide_with_trace(
     decision: ExtractedDecision, *, accuracy_on: bool, book, calc, oracle_factory, speed_oracle, dex,
 ) -> tuple[str, DecisionTrace]:
@@ -196,6 +287,7 @@ def run_gate_b(
     per_decision_cap_hit: list[tuple[str, bool]] = []
     per_game_any_cap_hit: dict[str, bool] = {}
     exceptions: list[tuple[str, str]] = []
+    nan_found = False
 
     try:
         for d in move_decisions:
@@ -210,10 +302,16 @@ def run_gate_b(
                     d, accuracy_on=True, book=book, calc=calc,
                     oracle_factory=oracle_factory, speed_oracle=speed_oracle, dex=dex,
                 )
+                # Swept for EVERY replayed decision (not just diverging ones) -- spec Sec.4's
+                # acceptance rule's "no NaNs" part covers the whole sample, not only the rows
+                # that make it into the diff schema.
+                if _trace_has_nan_score(off_trace) or _trace_has_nan_score(on_trace):
+                    nan_found = True
                 # _chosen_candidate can raise RuntimeError (a real, confirmed possibility --
-                # see its own docstring on the tera/trace mismatch) -- deliberately kept INSIDE
-                # this try block so such a decision is recorded as a per-decision exception,
-                # not an uncaught crash that would lose every already-accumulated result.
+                # see its own docstring on the tera-suffix and switch-label-ambiguity cases) --
+                # deliberately kept INSIDE this try block so such a decision is recorded as a
+                # per-decision exception, not an uncaught crash that would lose every
+                # already-accumulated result.
                 on_chosen = _chosen_candidate(on_trace)
                 cap_hit_this_decision = candidate_any_cap_hit(on_chosen)
                 if off_action != on_action:
@@ -224,7 +322,10 @@ def run_gate_b(
                 else:
                     diff_row = None
             except Exception as exc:  # noqa: BLE001
-                exceptions.append((d.request_hash, str(exc)))
+                # Exception TYPE is preserved (not just str(exc)) so the one forensic record of
+                # a real-run exception can distinguish an expected RuntimeError (tera-suffix /
+                # switch-label ambiguity, both documented, both handled) from an unexpected bug.
+                exceptions.append((d.request_hash, f"{type(exc).__name__}: {exc}"))
                 continue
 
             per_decision_cap_hit.append((game_id, cap_hit_this_decision))
@@ -247,7 +348,7 @@ def run_gate_b(
         excluded_force_switch_count=excluded_force_switch,
         diffs=diffs,
         acceptance=AcceptanceSummary(
-            no_exceptions=(len(exceptions) == 0), exceptions=exceptions,
+            no_exceptions=(len(exceptions) == 0), no_nans=(not nan_found), exceptions=exceptions,
             off_path_byte_identical=None, latency_within_budget=None,
         ),
         cap_hit_verdict=verdict,
