@@ -1,9 +1,12 @@
 # Accuracy Off/On Offline Decision-Diff Gate — Design
 
-**Status:** spec-ready (incorporates 4 rounds of corrections; round 3 fixed two real architecture
+**Status:** spec-ready (incorporates 5 rounds of corrections; round 3 fixed two real architecture
 errors — an event-discovery bug re-introduced at the diagnostic layer, and an unverified "same
 pass" claim; round 4 fixed a tie-averaging telemetry gap, a degenerate-bootstrap statistical gap,
-and 2 smaller precision fixes)
+and 2 smaller precision fixes; round 5 fixed a real corpus-independence error — the ~197-file
+corpus is confirmed, not assumed, to contain massive reproduction-rerun duplication, corrected to
+a provisional ~85-unique-battle count pending a systematic dedup step — plus removed an
+ill-defined game-level sampling stratum)
 **Scope:** an evaluation/measurement task, not a new bot feature. Gates three downstream
 decisions — flipping `SHOWDOWN_ACCURACY_MODE`'s default, a new strength baseline, and Depth-2
 Stage 3 — none of which start until this gate's numbers exist and are reviewed. No default-on,
@@ -22,14 +25,35 @@ mons, KOs, redirection, or switch states — Gate A cannot license anything on i
 
 **Gate B — real replayed corpus.** `data/eval/t4/rerun/room_raw/{run1,run2,prefix}`,
 `data/eval/t4/room_raw_divergent`, `data/eval/t6/room_raw/{run1,run2}`, and
-`data/eval/kaggle-validation/room_raw` contain **197 real gzipped Showdown protocol logs** from
-past gauntlet runs (turns 6–21, real KOs/switches/damage, opponent policies spanning
-`heuristic`/`max_damage`/`greedy_protect`/`simple_heuristic`/`scripted_vgc`). A direct count
-against these on-disk files (not an estimate) gives **3038 total `|request|` frames, 197
-team-preview, ~66 force-switch, leaving ~2775 plausible move-decision requests** — see §6 for
-why this means Gate B can very likely run on the **full corpus**, not a sample. This is real
-data, not synthetic — Gate B replays real `(state, request)` pairs through
-`heuristic_choose_for_request` with `SHOWDOWN_ACCURACY_MODE` off vs on and compares.
+`data/eval/kaggle-validation/room_raw` contain **197 real gzipped Showdown protocol log files**
+from past gauntlet runs (turns 6–21, real KOs/switches/damage, opponent policies spanning
+`heuristic`/`max_damage`/`greedy_protect`/`simple_heuristic`/`scripted_vgc`). This is real data,
+not synthetic — Gate B replays real `(state, request)` pairs through `heuristic_choose_for_request`
+with `SHOWDOWN_ACCURACY_MODE` off vs on and compares.
+
+**197 files is not 197 independent battles — confirmed, not assumed, and material to every
+statistic in this design.** Reading the actual provenance reports for these runs
+(`reports/2026-07-10-2b35-T4-smoke.md`, the T6 heldout-baseline report, and
+`data/eval/kaggle-validation/provenance.json`) shows `t4/rerun/room_raw/run2` is an explicit
+**reproduction re-run of the identical 51-seed schedule** as `run1` (same `schedule_hash
+a7f000867fdfbde0`; seed logs confirmed byte-identical at 48/51 indices, the other 3 a
+since-fixed determinism bug — not new scenarios). `t4/rerun/room_raw/prefix` (10 files) re-runs
+the **first 10 rows of that same schedule**. `t4/room_raw_divergent` (7 files) are **literal
+copies** of 7 already-counted battles from `run1`/`run2`/`prefix` (its own README names them:
+`run1`/`run2` idx 09/19/48 + `prefix` idx 09). `kaggle-validation/room_raw` (10 files) replays
+**the same schedule as `t4/rerun/room_raw/prefix`** again, verified directly by comparing seed
+values in `kaggle-validation/seeds.jsonl` against `t4/rerun/t4rerun-prefix-seedlog.jsonl` (its own
+`provenance.json` says as much: purpose was to prove Kaggle-generated logs match this exact local
+reference). `t6/room_raw/run2` is, the same way, a confirmed reproduction re-run of `run1`'s
+34-seed schedule (`schedule_hash 3076a71aa6841c8c`, seed logs byte-identical at all 34 indices).
+
+**Net effect: at most two genuinely independent seed schedules exist across all 197 files** —
+`t4`'s 51 seeds (canonically `run1`) and `t6`'s 34 seeds (canonically `run1`) — giving a
+**provisional G ≈ 85 unique battles**, not 197. This number is provisional, not final: it is
+strong directional evidence from reading committed provenance manifests, not yet the output of
+the systematic dedup step §6 requires before Gate B runs. Every "~2775 decisions" / "197 games" /
+"1.5% zero-event bound" figure anywhere in an earlier round of this spec was computed against the
+wrong denominator and must be treated as superseded by §6's corrected, dedup-first numbers.
 
 **Gate B's own scope boundary, stated explicitly in the TL;DR of its report:** the corpus's hero
 side is only 2 fixed teams (`data/eval/t4/`'s team and `data/eval/t6/`'s team). Gate B is a
@@ -441,7 +465,7 @@ docstring) — tracked, not fixed here, and not blocking this gate.
     per decision: `sum(accuracy_branch_cap_hits across responses)` and `max(...)`, so the headline
     any-triggered rate doesn't hide how concentrated or spread cap-hits are across responses.
   - Report numerator, denominator, the resulting rate, **and a game-clustered bootstrap CI**
-    (resample at the game level, matching §6's stratification and this project's established
+    (resample at the *deduplicated* game level, §6, matching this project's established
     game-clustered-bootstrap convention from the value-calibration work) — not a naive
     per-decision CI, since multiple decisions from the same game are correlated, not independent.
     **Pinned bootstrap parameters, not chosen after seeing results:** `B = 10,000` resamples,
@@ -465,10 +489,16 @@ docstring) — tracked, not fixed here, and not blocking this gate.
     within-game decisions are correlated but different games are not); compute the **exact
     one-sided 95% Clopper-Pearson upper bound at 0 observed successes out of `G` trials**,
     `p_upper = 1 - 0.05^(1/G)` (closed form; equivalent to the "rule of three" approximation
-    `≈ 3/G` for large `G`, but exact rather than approximate). At the full corpus's ~197 games this
-    is ≈1.5% (verified numerically); at a ~30-game fallback sample it would be ≈9.5% — **already
-    failing to reach a PASS even with zero observed cap-hits**, which is itself a concrete,
-    quantified reason (beyond runtime) to use the full corpus rather than a small sample (§6).
+    `≈ 3/G` for large `G`, but exact rather than approximate). At the provisional deduplicated
+    corpus size `G ≈ 85` (§1/§6 — the *unique-battle* count, not the 197-file count) this is
+    ≈3.46% (verified numerically) — still a PASS-capable bound, but with far less margin than an
+    (incorrect) 197-game assumption would have suggested. Solving `1 - 0.05^(1/G) ≤ 0.05` gives a
+    **hard minimum of `G ≥ 59` unique battles** for a zero-event PASS to be reachable at all
+    (verified numerically); below that, the zero-event branch can only ever report INCONCLUSIVE,
+    regardless of how the events themselves turn out. `t4`'s 51 unique seeds *alone* would fail
+    this floor (`G=51` → ≈5.7% — just short); only combining `t4`'s 51 with `t6`'s 34 clears it.
+    This is now the concrete, quantified reason (beyond runtime) that Gate B must use the full
+    deduplicated corpus rather than a small sample (§6).
   - **Verdict bands, pinned now, not chosen after seeing results, and dependent on BOTH the point
     estimate and the confidence interval — not the point estimate alone — with the zero-event case
     handled separately from the nonzero case:**
@@ -566,42 +596,70 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
    in the log checked above is a team-preview request. Team-preview and pure-force-switch
    decisions have no move-accuracy content to compare — exclude them from the primary sample,
    report their counts separately.
-5. **Full-corpus-first sampling policy, checked empirically, not assumed:**
-   - A direct count against all 197 on-disk logs gives 3038 total `|request|` frames — 197
-     team-preview, ~66 force-switch (regex-approximate; the extraction module's real parser filters
-     these precisely) — leaving **~2775 plausible move-decision requests**. `run1`/`run2` within
-     `t4` and `t6` were confirmed to be genuinely distinct battles (different `regi-NNN` battle
-     IDs, not duplicate re-runs of the same games), so no double-counting risk from using both.
-   - At the Task 8 latency benchmark's per-decision cost with accuracy on, the full corpus × 2
-     (off + on) is on the order of 15-20 minutes of wall-clock compute — plausibly well within a
-     normal local-run budget. **Use the full corpus as the primary sample.** Before committing to
-     this, run a small timed dry-run (e.g. 50 decisions) and extrapolate; only fall back to
-     sub-sampling if the extrapolated full-corpus runtime is actually prohibitive — measured, not
-     assumed either way.
-   - **If sampling is forced (fallback only), pin these parameters now, not after a preliminary
-     look at results:**
-     - Sampling unit is the **game** (log file), not the individual decision — draw a fixed number
-       of games per stratum, then use every suitable (non-team-preview, non-force-switch) decision
-       from each drawn game. Independent per-decision draws are not used, ever, at any sample size.
-     - Strata: source directory × turn-tercile, where turn-tercile is computed **per game,
-       relative to that game's own turn range** (first/middle/last third of that specific game's
-       own `[min_turn, max_turn]` span), not a fixed absolute cutoff — game lengths vary
-       meaningfully across directories (t6 games run shorter than t4's), so a fixed absolute
-       threshold would put an entire short game into a single bucket.
-     - RNG seed: `20260713`, stated here, not re-rolled after a preliminary look at results.
-     - Minimum stratum size: strata with fewer than 3 games include all of them (no further
-       reduction) and are flagged explicitly in the report as under-powered, rather than silently
-       treated as adequately sampled.
-6. **Sample/usage manifest, one row per decision used** (whether from the full corpus or a
-   fallback sample): source file, battle ID, turn number, side, request hash, and log-prefix hash
-   (the hash of exactly the frames used to build that decision's state) — full provenance,
-   auditable and reproducible, matching this project's established `config_hash`/`movedata_hash`
-   provenance discipline.
-7. **Games are clusters, not independent samples.** Whether the run uses the full corpus or a
-   fallback sample, multiple decisions from the same game are correlated — every aggregate
-   statistic (cap-hit rate, its CI, decision-diff rate) must be computed with game-level
-   clustering, bootstrap resampling whole games, not individual decisions.
-8. **Small hermetic fixtures, in addition to the real-log regression test.** The one real log used
+5. **Global battle-level deduplication — a required step BEFORE Gate B runs, not an optional
+   cleanup.** §1 already found strong directional evidence that most of the 197 files are
+   reproduction re-runs or literal copies of two underlying seed schedules (t4's 51, t6's 34), not
+   197 independent battles. This step turns that finding into a systematic, reproducible procedure
+   rather than a one-off manual exclusion list:
+   - **Primary key: `(schedule_hash, seed_base, seed_index)` cross-referenced against each
+     directory's own committed provenance manifest** (`*-seedlog.jsonl`, `provenance.json`) — NOT
+     the battle/room ID visible in filenames. This correction matters and is evidence-based, not a
+     style preference: Showdown assigns a **fresh, effectively arbitrary room-id slug at
+     battle-creation time regardless of whether the underlying seed is a replay** — confirmed
+     directly in §1's investigation, where `t4/rerun/room_raw/run1` and `run2` carry entirely
+     different `battle-gen9vgc2025regi-NNN` filenames for what their own seed logs prove are the
+     *same* seeded scenario. A room/battle-ID-keyed dedup would silently miss every one of these
+     real duplicates. Two files with matching `(schedule_hash, seed_base, seed_index)` are the same
+     underlying battle; keep exactly one (prefer the lowest-numbered/canonical run — e.g. `run1`
+     over `run2`, full runs over `prefix`) and record the rest as excluded duplicates.
+   - **Secondary, defense-in-depth: content-level dedup via `(request_hash, log_prefix_hash,
+     side)`** for any file lacking a clean provenance-manifest match, or to catch coincidental
+     overlap the manifest-based pass didn't anticipate — this is the mechanism originally proposed
+     as primary; it remains valid, just demoted to a fallback/cross-check since the manifest-based
+     key is the one actually proven (§1) to catch this corpus's real duplication pattern.
+   - Prefix/partial-copy files (any file whose full request sequence is a strict prefix of an
+     already-kept file's sequence) are never counted as separate battles, regardless of which key
+     caught them.
+   - **`G`, used for both the bootstrap and the Clopper-Pearson bound (§4), is the number of
+     unique battles remaining after this dedup — not the number of `.gz` files.**
+   - Report, as separate numbers, not folded together: files found (197), unique battles kept,
+     duplicates/partial-copies excluded (with which key caught each), and the final `G`.
+   - §1's ~85-unique-battle figure is **provisional** — directional evidence from reading
+     provenance manifests, not yet this step's actual output. Treat it as a planning estimate only;
+     the real `G` comes from running this procedure.
+6. **Gate B (the confirmatory run) uses the full deduplicated corpus only — no fallback sampling
+   by default.** A 50-decision timed dry-run is run **purely to estimate total runtime** (at the
+   Task 8 latency benchmark's per-decision cost, the full deduplicated corpus × 2 (off + on) is
+   estimated on the order of several minutes of wall-clock compute — plausibly well within a normal
+   local-run budget, but this must be measured, not assumed). **If the full deduplicated corpus
+   turns out infeasible to run in full, the result is `INCONCLUSIVE / BLOCKED FOR COMPUTE`** — no
+   default-on approval follows from a partial run — **not** a switch to a smaller, separately
+   sampled subset. A gate that quietly downgrades its own evidence standard when the going gets
+   slow is worse than an honest "we didn't run enough," especially since §4 already shows the
+   zero-event PASS threshold needs `G ≥ 59` — sampling down from the already-small deduplicated
+   corpus risks losing exactly the statistical power this gate depends on.
+   - **If a fallback sample is nonetheless kept for a future run** (e.g. corpus growth makes a full
+     run genuinely too slow later): sample **games**, not decisions, using only game-level features
+     available before running anything (source directory, opponent policy) — turn-tercile is
+     **not** a valid sampling stratum, because a single game's own decisions span all three turn
+     terciles by construction (§7's original stratification design conflated a per-decision
+     property with a per-game sampling unit). Use **every** valid decision from each drawn game;
+     treat early/mid/late turn as a **post-hoc evaluation grouping** applied after the data is
+     collected, not a pre-hoc sampling stratum. Pin the exact number of unique games to draw before
+     running anything, with RNG seed `20260713`. **Require the drawn `G` to be at least the §4
+     minimum (`G ≥ 59`) for a zero-event PASS to even be reachable** — a fallback sample smaller
+     than that can, by construction, only ever report INCONCLUSIVE regardless of what the data
+     shows, which is itself grounds to prefer not sampling at all.
+7. **Sample/usage manifest, one row per decision used**: source file, battle ID, turn number, side,
+   request hash, and log-prefix hash (the hash of exactly the frames used to build that decision's
+   state) — full provenance, auditable and reproducible, matching this project's established
+   `config_hash`/`movedata_hash` provenance discipline. This manifest sits downstream of, and is
+   consistent with, requirement 5's separate dedup report (files found / unique battles / excluded
+   duplicates / final `G`) — the two are not the same artifact.
+8. **Games are clusters, not independent samples.** Every aggregate statistic (cap-hit rate, its
+   CI, decision-diff rate) must be computed with game-level clustering — bootstrap resampling whole
+   (deduplicated) games, not individual decisions.
+9. **Small hermetic fixtures, in addition to the real-log regression test.** The one real log used
    for TDD (§7) is good end-to-end coverage but hard to control for specific edge cases. Add
    hand-constructed, small, synthetic room_raw-format fixtures exercising, as dedicated unit tests:
    - a duplicate/reconnect `|request|` frame pair (exercises requirement 2),
@@ -653,20 +711,27 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
   the wrapper affects both equally and the two stay "equal to each other" while both silently
   diverge from pre-refactor behavior. Exact order, to be reflected directly in the implementation
   plan's task sequencing:
-  1. Finish and land the `room_raw_replay` extraction module (§6) first.
+  1. Finish and land the `room_raw_replay` extraction module (§6), **including the global
+     deduplication step (§6 point 5)**, first — the baseline must be collected against the
+     deduplicated corpus, not the raw 197-file set, or it would freeze a baseline containing
+     near-duplicate decisions from confirmed reproduction re-runs.
   2. **Before any `_evaluate_line_details`/`LineEvaluation` code lands:** run the **current,
      unmodified** `heuristic_choose_for_request`/`evaluate_line` in `SHOWDOWN_ACCURACY_MODE=off`
-     against the **full valid corpus** (§6's ~2775-decision primary plan) and freeze the results
-     (chosen action, score, request hash, prefix hash) to a committed artifact. If the full corpus
-     is empirically too expensive for this specific step (measured, not assumed), fall back to the
-     **exact same** deterministic game-level sample already pinned in §6 (seed `20260713`, same
-     stratification/selection rule) — not a different, separately-chosen slice.
+     against the **full deduplicated corpus** (§6's primary plan; only falls back to a smaller
+     sample under the same §6-point-6 rules, not a separately-chosen slice) and freeze the results
+     to a committed artifact. Beyond chosen action / score / request hash / prefix hash, also
+     record: the source git commit, `config_hash`, the Python interpreter version and locked
+     dependency versions (whatever this project's existing environment-pin mechanism already
+     captures — e.g. the same block `T4c`'s manifest environment-hardening added), and scores in a
+     **canonical float representation** (fixed serialization, e.g. `repr()` or a pinned decimal
+     precision) — so a harmless formatting/precision difference in a later diff tool can never be
+     misread as a scoring regression.
   3. This baseline artifact is a **hard checkpoint**: the `_evaluate_line_details` refactor task
      must not start until it exists and is committed, and once frozen, it is **never regenerated**
      — if a later comparison against it looks wrong, that is itself a signal to investigate (a
      refactor bug, or a baseline-collection bug), not a reason to silently re-run and replace it.
-  4. After the refactor lands, replay the identical corpus/sample and diff against the frozen
-     artifact — any difference is a refactor regression, full stop, independent of the
+  4. After the refactor lands, replay the identical deduplicated corpus/sample and diff against the
+     frozen artifact — any difference is a refactor regression, full stop, independent of the
      unset-vs-off env-parser test (which stays, as a narrower, different check: does env-var
      parsing itself correctly treat unset/`"0"`/`"false"` as equivalent — a unit-level concern,
      not a behavioral-regression one).
@@ -682,9 +747,19 @@ live client (`gauntlet.py::handle_request`/`_state_for`) already makes — not n
   ordering is caught immediately rather than silently miscompared by the gate script.
 - `room_raw_replay`'s extraction module: TDD against one of the real, already-on-disk logs for the
   causality requirement (state at request N excludes frames after N) and the
-  team-preview/force-switch separation, **plus** the small hermetic fixtures from §6 point 8 for
+  team-preview/force-switch separation, **plus** the small hermetic fixtures from §6 point 9 for
   the reconnect-duplicate, mid-log force-switch, and causality-boundary-detectability cases the
   one real log doesn't reliably exercise.
+- `test_global_dedup_uses_seed_schedule_not_room_id` (round-5 fix, §6 point 5): the concrete,
+  already-known-true regression case — feed the extractor's dedup pass a scenario shaped exactly
+  like `t4/rerun/room_raw/run1` vs `run2` (two files with different filename/room-id patterns but
+  matching `(schedule_hash, seed_base, seed_index)` from their provenance manifests) and assert
+  only one is kept, with the other recorded as an excluded duplicate — proving the primary key is
+  actually the seed/schedule identity, not the room-id string a naive dedup could be tempted to use
+  instead (§6 explains why room-id alone provably misses this corpus's real duplicates). Run this
+  against the actual `t4`/`t6` provenance manifests as an integration-level check, not only a
+  synthetic unit fixture, since the real dedup ratio (~197 files → ~85 unique battles, provisional)
+  is itself a claim this gate's credibility depends on.
 - Gate A and Gate B scripts themselves: not TDD (measurement/report tasks, following the Task 8
   precedent within the merged slice) — real, honest numbers, no fabrication, explicit reporting of
   any cap/sampling/exclusion so nothing is silently dropped.
