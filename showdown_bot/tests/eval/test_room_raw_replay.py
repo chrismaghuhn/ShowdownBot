@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from showdown_bot.eval.room_raw_replay import (
-    ExtractedDecision,
     RequestKind,
     extract_decisions_from_log,
 )

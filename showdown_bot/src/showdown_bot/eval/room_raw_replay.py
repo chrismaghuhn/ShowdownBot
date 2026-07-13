@@ -3,13 +3,21 @@
 Mirrors client/gauntlet.py's own BattleState.from_log_text / merge_request /
 BattleRequest.model_validate chain exactly -- this module adds no new resolution logic,
 only offline replay of what the live client already does per-request.
+
+One deliberate divergence from gauntlet.py's ``_state_for``: gauntlet.py wraps the
+state-build chain in try/except and degrades to ``state=None`` per-decision on failure
+(a live client must stay resilient to keep playing). This module does NOT catch that
+exception -- it is an offline correctness gate, and silently dropping a decision on a
+swallowed exception would undermine the statistical rigor the gate depends on. A
+malformed line propagates as a hard failure for the whole file instead of a silent
+partial result.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
@@ -34,8 +42,11 @@ def _sha256(text: str) -> str:
 
 @dataclass(frozen=True)
 class ExtractedDecision:
-    state: BattleState | None  # None for team-preview requests (matches gauntlet._state_for)
-    request: BattleRequest
+    # hash=False: state/request are unhashable objects; excluding them from hash
+    # computation is required for frozen dataclass instances to actually be hashable.
+    # Equality (__eq__) still compares every field, including these two, unchanged.
+    state: BattleState | None = field(hash=False)  # None for team-preview (see gauntlet._state_for)
+    request: BattleRequest = field(hash=False)
     kind: RequestKind
     side: str  # "p1" | "p2"
     turn: int  # 0 if no |turn| line has been seen yet (team preview)
@@ -93,6 +104,9 @@ def extract_decisions_from_log(path: str | Path) -> list[ExtractedDecision]:
 
         state: BattleState | None = None
         if not req.team_preview:
+            # Intentionally NOT wrapped in try/except (unlike gauntlet.py's _state_for):
+            # a malformed line should fail this offline gate loudly, not silently drop
+            # a decision and undercount the statistics the gate is built to guarantee.
             state = BattleState.from_log_text(prefix_text)
             merge_request(req, state)
 
