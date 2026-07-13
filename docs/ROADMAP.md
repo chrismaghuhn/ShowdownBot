@@ -29,6 +29,7 @@ state (depth-2 slice, value-calibration spec).
 | Belief (item/spread/move priors) | **Not started** | — | P2, after the panel + data-identity fix |
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
+| Accuracy / hit-probability evaluation | **Built, off by default, merged local main** | 9-task plan, `af575e5`..`c93e863`, merge `3fd3b09`; `reports/2026-07-12-accuracy-slice-closeout.md` + `-latency-gate.md` | `AccuracyDiagnostics`→`DecisionTrace` wiring is an explicit open follow-up (P0 item below); default-on gate needs a fallback-rate review per the closeout report before ever flipping `SHOWDOWN_ACCURACY_MODE`'s default — not this task |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
@@ -87,6 +88,16 @@ state (depth-2 slice, value-calibration spec).
 4. **Reproducibility rounding-out.** Python/Node version pins, dependency/lockfile hashes,
    `tools/calc/package-lock.json` provenance, OS/arch, optional container digest. Env
    provenance partially built (T4c hardening); lockfile/container side still open.
+5. **Wire `AccuracyDiagnostics` into `DecisionTrace`.** The accuracy/hit-probability slice
+   (merged `3fd3b09`) implemented and unit-tested `battle/evaluate.py::accuracy_diagnostics`
+   (ko/survival probability, accuracy-required, miss-punish-value) as a standalone function —
+   deliberately NOT wired into any live caller during that slice (the trace-assembly code in
+   `decision.py` wasn't read/verified as part of that scope, and guessing at the schema was
+   judged worse than shipping a clean, tested, unused function). Explicit open item, not a
+   silent gap: either add an `accuracy_diagnostics: AccuracyDiagnostics | None = None` field to
+   `DecisionTrace` (populated only when `accuracy_mode` is on) or explicitly re-confirm it's
+   still not needed — do not let this disappear. Natural to fold into the start of Depth-2
+   Stage 3 (P1) if that lands first, since both touch the same trace-assembly code path.
 
 ## P1 — Nächster realer Stärkeversuch
 
