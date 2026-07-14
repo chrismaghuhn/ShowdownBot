@@ -377,3 +377,24 @@ def test_build_request_hash_index_raises_on_duplicate():
     with pytest.raises(DuplicateRequestHashError) as exc_info:
         build_request_hash_index(rows)
     assert "rh1" in str(exc_info.value)
+
+
+from showdown_bot.eval.accuracy_cap_derisk import cap_order_for_game
+
+
+def test_cap_order_for_game_rotates_by_index_mod_three():
+    assert cap_order_for_game(0) == [4, 6, 8]
+    assert cap_order_for_game(1) == [6, 8, 4]
+    assert cap_order_for_game(2) == [8, 4, 6]
+    assert cap_order_for_game(3) == [4, 6, 8]  # wraps back to identity
+
+
+def test_cap_order_for_game_covers_all_caps_in_every_position_over_a_full_cycle():
+    """Over any 3 consecutive game indices, each cap appears in each of the 3 cap-order
+    positions exactly once -- the actual combinatorial guarantee this task's methodology
+    depends on, not just a spot-check of a few rotations."""
+    for start in range(0, 30, 3):
+        orders = [cap_order_for_game(start + i) for i in range(3)]
+        for position in range(3):
+            caps_at_position = {order[position] for order in orders}
+            assert caps_at_position == {4, 6, 8}

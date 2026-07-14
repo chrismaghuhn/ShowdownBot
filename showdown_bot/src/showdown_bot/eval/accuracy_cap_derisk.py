@@ -341,3 +341,25 @@ def build_request_hash_index(manifest_rows: list[dict]) -> dict[str, dict]:
             f"breaking decision_id-based joining: {dupes}"
         )
     return index
+
+
+# Task 9's full-corpus latency sweep (spec Sec.2.6, driven by
+# showdown_bot/scripts/run_cap_latency_sweep.py). CAPS lives here -- not duplicated in the driver
+# script -- so cap_order_for_game has exactly one source of truth for what it's rotating.
+CAPS = [4, 6, 8]  # cap=4 here is cap4_auxiliary, per spec Sec.2.3's explicit allowance
+
+
+def cap_order_for_game(game_index: int) -> list[int]:
+    """Cyclic Latin square over CAPS, keyed by game_index: rotate CAPS by game_index mod len(CAPS).
+    Over any len(CAPS) consecutive game indices this guarantees each cap appears in each
+    cap-order position exactly once -- a real combinatorial guarantee, not a probabilistic one.
+    This is what makes Task 9's "counterbalanced by construction" claim true: a random.shuffle-based
+    design (an earlier draft) only makes bias unpredictable, it doesn't bound it -- nothing stops
+    one cap from landing in cap-order position 0 (measured first every time, before any
+    run-specific warm state accrues) more often than the others just by chance. The caller
+    (run_cap_latency_sweep.py) additionally records realized position-frequency counts and
+    fail-closed asserts they differ by at most 1 before ever reporting a latency number, so
+    "counterbalanced" is a verified property of the actual run, not just this function's intent."""
+    n = len(CAPS)
+    r = game_index % n
+    return CAPS[r:] + CAPS[:r]

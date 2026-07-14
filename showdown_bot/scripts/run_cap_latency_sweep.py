@@ -1,7 +1,10 @@
 """Real run: full-corpus latency, both trace modes (none / DecisionTrace()), for
 SHOWDOWN_ACCURACY_BRANCH_CAP in {4 (cap4_auxiliary), 6, 8}, spec Sec.2.6. Cap order uses a cyclic
 Latin square over the sorted game index (guarantees each cap lands in each cap-order position an
-equal +/-1 number of times); trace-mode order alternates off a single monotonic (game, cap)-slot
+equal +/-1 number of times) -- the pure `cap_order_for_game`/`CAPS` logic lives in
+showdown_bot.eval.accuracy_cap_derisk (unit-tested there, imported here) rather than as a private
+helper in this driver script, per this plan's Architecture convention that pure logic belongs in
+accuracy_cap_derisk.py. Trace-mode order alternates off a single monotonic (game, cap)-slot
 counter (guarantees exact +/-1 balance between trace_enabled-first and trace_none-first). Both are
 DETERMINISTIC combinatorial designs, not randomized -- see this task's "Corrections applied here"
 note for why a random.shuffle-based design was replaced. Realized position-frequency counts are
@@ -41,22 +44,12 @@ DATA_EVAL = REPO_ROOT / "data" / "eval"
 OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 FORMAT_ID = "gen9vgc2025regi"
 EXPECTED_FINAL_G = 85
-CAPS = [4, 6, 8]  # cap=4 here is cap4_auxiliary latency, per spec Sec.2.3's explicit allowance
 TRACE_MODES = [False, True]  # False=trace_none, True=trace_enabled
 
 
 def _percentile(sorted_ms: list[float], q: float) -> float:
     idx = min(len(sorted_ms) - 1, max(0, int(round(q * (len(sorted_ms) - 1)))))
     return sorted_ms[idx]
-
-
-def _cap_order_for_game(game_index: int) -> list[int]:
-    """Cyclic Latin square: rotate CAPS by game_index mod len(CAPS). Over any len(CAPS)
-    consecutive games this guarantees each cap appears in each cap-order position exactly once --
-    a real combinatorial guarantee, not a probabilistic one."""
-    n = len(CAPS)
-    r = game_index % n
-    return CAPS[r:] + CAPS[:r]
 
 
 def main() -> None:
@@ -72,6 +65,7 @@ def main() -> None:
     from showdown_bot.engine.calc.client import CalcClient
     from showdown_bot.engine.format_config import load_format_config
     from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.eval.accuracy_cap_derisk import CAPS, cap_order_for_game
     from showdown_bot.eval.room_raw_replay import (
         RequestKind, deduplicate_battle_logs, extract_decisions_from_log,
     )
@@ -141,7 +135,7 @@ def main() -> None:
     combined_index = 0  # increments once per (game, cap) slot across the WHOLE sweep -- this is
     # what makes the trace-mode alternation exact regardless of len(game_ids) or len(CAPS) parity.
     for game_index, game_id in enumerate(game_ids):
-        cap_order = _cap_order_for_game(game_index)
+        cap_order = cap_order_for_game(game_index)
         for cap_position, cap in enumerate(cap_order):
             cap_position_counts[cap][cap_position] += 1
             trace_order = TRACE_MODES if combined_index % 2 == 0 else list(reversed(TRACE_MODES))
@@ -174,7 +168,8 @@ def main() -> None:
                 f"BLOCKED: cap={cap} cap-order position counts {positions} (index = cap-order "
                 f"position 0/1/2) span {spread} across {len(game_ids)} games -- the Latin-square "
                 f"counterbalancing invariant (max-min <= 1) was violated, investigate "
-                f"_cap_order_for_game before trusting any latency number below."
+                f"cap_order_for_game (showdown_bot/eval/accuracy_cap_derisk.py) before trusting "
+                f"any latency number below."
             )
     te_first = trace_order_counts["trace_enabled_first"]
     tn_first = trace_order_counts["trace_none_first"]
