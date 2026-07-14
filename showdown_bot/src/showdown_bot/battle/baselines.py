@@ -53,16 +53,14 @@ def max_damage_choice(
     opp_side = _opp_side(our_side)
     calc = calc or CalcClient()
     oracle = oracle or DamageOracle(calc)
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+
+    calc_profile = calc_profile_from_config(format_config)
     if speed_oracle is None:
         try:
-            from showdown_bot.engine.calc_profile import (
-                build_speed_oracle,
-                calc_profile_from_config,
-            )
+            from showdown_bot.engine.calc_profile import build_speed_oracle
 
-            speed_oracle = build_speed_oracle(
-                calc.backend, calc_profile_from_config(format_config)
-            )
+            speed_oracle = build_speed_oracle(calc.backend, calc_profile)
         except Exception:
             speed_oracle = None
 
@@ -77,7 +75,10 @@ def max_damage_choice(
         )
         for ja in my_actions
     }
-    model = DamageModel(state, our_side, opp_side, book=book, oracle=oracle, field=state.field)
+    model = DamageModel(
+        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+        calc_profile=calc_profile,
+    )
     model.prefetch(list(plans.values()))
 
     best_ja = None
