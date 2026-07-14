@@ -467,3 +467,30 @@ def classify_ambiguous_case(
         f"reproduction check, which routes exactly-one-match re-runs to other_pipeline_error "
         f"instead of calling this function at all)."
     )
+
+
+def distinct_switch_targets(joint_actions: list) -> bool:
+    """Collects ONLY genuine (slot_index, target_ident) pairs from slots where kind == "switch" --
+    never contaminated by None from non-switch slots in the same JointAction, which is the exact
+    bug this helper replaces (found in review: unioning real targets with None-for-non-switch-slots
+    made a single real target look like multiple)."""
+    switch_pairs: set[tuple[int, str | None]] = set()
+    for ja in joint_actions:
+        if ja.slot0.kind == "switch":
+            switch_pairs.add((0, ja.slot0.target_ident))
+        if ja.slot1.kind == "switch":
+            switch_pairs.add((1, ja.slot1.target_ident))
+    return len(switch_pairs) > 1
+
+
+def distinct_tera_states(joint_actions: list) -> bool:
+    states = {(ja.slot0.terastallize, ja.slot1.terastallize) for ja in joint_actions}
+    return len(states) > 1
+
+
+def distinct_move_or_targets(joint_actions: list) -> bool:
+    keys = {
+        (ja.slot0.move_index, ja.slot0.target, ja.slot1.move_index, ja.slot1.target)
+        for ja in joint_actions
+    }
+    return len(keys) > 1

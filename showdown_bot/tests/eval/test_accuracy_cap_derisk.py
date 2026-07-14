@@ -534,3 +534,49 @@ def test_classify_raises_on_non_ambiguous_single_match():
             matching_joint_actions_distinct_move_or_target=False,
             exact_score_tie=False, collision_spans_nonzero_rank=False,
         )
+
+
+from showdown_bot.battle.actions import JointAction
+from showdown_bot.eval.accuracy_cap_derisk import (
+    distinct_move_or_targets,
+    distinct_switch_targets,
+    distinct_tera_states,
+)
+from showdown_bot.models.actions import SlotAction
+
+
+def _ja(slot0: SlotAction, slot1: SlotAction) -> JointAction:
+    return JointAction(slot0=slot0, slot1=slot1)
+
+
+def test_distinct_switch_targets_false_for_single_real_target_plus_a_move_slot():
+    """The core correction: exactly ONE real switch target, paired with a non-switch other slot in
+    every colliding candidate, must NOT be reported as distinct -- this is the exact bug found in
+    review (None from the move/pass slot was previously unioned together with the real target)."""
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="move", move_index=1))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False
+
+
+def test_distinct_switch_targets_true_for_genuinely_different_targets():
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="c"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is True
+
+
+def test_distinct_switch_targets_false_when_no_switch_slots_at_all():
+    ja1 = _ja(SlotAction(kind="move", move_index=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False  # no switches present -> vacuously false
+
+
+def test_distinct_tera_states_true_when_terastallize_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, terastallize=False), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    assert distinct_tera_states([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_true_when_move_index_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2, target=1), SlotAction(kind="pass"))
+    assert distinct_move_or_targets([ja1, ja2]) is True
