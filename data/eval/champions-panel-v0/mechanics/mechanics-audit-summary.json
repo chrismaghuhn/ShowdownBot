@@ -1,0 +1,31 @@
+{
+  "verdict": "PASS",
+  "date": "2026-07-14",
+  "phase": "P1",
+  "format_id": "gen9championsvgc2026regma",
+  "pinned_showdown_sha": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "p0_reference": "reports/champions-panel-v0-format-discovery.md",
+  "mechanics_summary": {
+    "mod": "championsregma",
+    "inherits": "champions",
+    "game_type": "doubles",
+    "bring_pick": "6 to 4",
+    "level": 50,
+    "mega_evolution": "enabled (canMegaEvo via mega stone; sim confirms Charizard-Mega-Y)",
+    "terastallize": "disabled (canTerastallize returns null; validator strips teraType)",
+    "restricted_legendaries": "banned (Flat Rules; no Limit One/Two Restricted clause)",
+    "mythical": "banned (Flat Rules)",
+    "open_team_sheets": true,
+    "stat_system": "Stat Points (not EVs): total limit 66, max 32 per stat, all IVs must be 31",
+    "pp_cap": 20 per move (champions mod init)"
+  },
+  "reg_i_contrast": {
+    "our_format_config": "showdown_bot/config/formats/gen9vgc2025regi.yaml",
+    "tera": true,
+    "restricted_limit": 2,
+    "stat_system": "standard VGC EVs (510)",
+    "dex": "Scarlet/Violet Reg I"
+  },
+  "validator_probes_artifact": "data/eval/champions-panel-v0/mechanics/validator-probes.json",
+  "team_curation_unlock": "pending_user_approval"
+}

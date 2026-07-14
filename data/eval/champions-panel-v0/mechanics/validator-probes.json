@@ -1,0 +1,59 @@
+﻿{
+  "fixed_team_regi": {
+    "exit": 0,
+    "output": ""
+  },
+  "fixed_team_champions": {
+    "exit": 1,
+    "output": "Incineroar has more than 32 Stat Points in HP.\nIncineroar has more than 32 Stat Points in Special Defense.\nIncineroar has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nIncineroar has 508 total Stat Points, which is more than this format's limit of 66.\nIncineroar can't learn Knock Off.\nRillaboom does not exist in Gen 9.\nRillaboom's item Assault Vest does not exist in Gen 9.\nRillaboom has more than 32 Stat Points in HP.\nRillaboom has more than 32 Stat Points in Attack.\nRillaboom has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nRillaboom has 508 total Stat Points, which is more than this format's limit of 66.\nRillaboom can't learn Fake Out.\nFlutter Mane does not exist in Gen 9.\nFlutter Mane's item Choice Specs does not exist in Gen 9.\nFlutter Mane's IVs are not maxed out, but this format requires all IVs to be 31.\nFlutter Mane has more than 32 Stat Points in Special Attack.\nFlutter Mane has more than 32 Stat Points in Speed.\nFlutter Mane has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nFlutter Mane has 508 total Stat Points, which is more than this format's limit of 66.\nLandorus (Landorus-Therian) does not exist in Gen 9.\nLandorus has more than 32 Stat Points in Special Attack.\nLandorus has more than 32 Stat Points in Speed.\nLandorus has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nLandorus has 508 total Stat Points, which is more than this format's limit of 66.\nTornadus does not exist in Gen 9.\nTornadus's item Covert Cloak does not exist in Gen 9.\nTornadus has more than 32 Stat Points in Special Attack.\nTornadus has more than 32 Stat Points in Speed.\nTornadus has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nTornadus has 508 total Stat Points, which is more than this format's limit of 66.\nTornadus's move Bleakwind Storm does not exist in Gen 9.\nUrshifu (Urshifu-Rapid-Strike) does not exist in Gen 9.\nUrshifu has more than 32 Stat Points in Attack.\nUrshifu has more than 32 Stat Points in Speed.\nUrshifu has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nUrshifu has 508 total Stat Points, which is more than this format's limit of 66.\nUrshifu's move Surging Strikes does not exist in Gen 9."
+  },
+  "restricted_miraidon": {
+    "exit": 1,
+    "output": "Miraidon is tagged Restricted Legendary, which is banned by Flat Rules.\nMiraidon's item Choice Specs does not exist in Gen 9.\nMiraidon's move Electro Drift does not exist in Gen 9.\nKoraidon is tagged Restricted Legendary, which is banned by Flat Rules.\nKoraidon's item Choice Band does not exist in Gen 9.",
+    "expected": "fail"
+  },
+  "stat_budget_over_66": {
+    "exit": 1,
+    "output": "Incineroar has more than 32 Stat Points in HP.\nIncineroar has more than 32 Stat Points in Attack.\nIncineroar has exactly 508 EVs, but this format does not restrict you to 510 EVs (If this was intentional, add exactly 1 to one of your EVs, which won't change its stats but will tell us that it wasn't a mistake).\nIncineroar has 508 total Stat Points, which is more than this format's limit of 66.",
+    "expected": "fail"
+  },
+  "stat_per_stat_over_32": {
+    "exit": 1,
+    "output": "Incineroar has more than 32 Stat Points in HP.",
+    "expected": "fail"
+  },
+  "illegal_sv_species": {
+    "exit": 1,
+    "output": "Flutter Mane does not exist in Gen 9.\nFlutter Mane's item Choice Specs does not exist in Gen 9.",
+    "expected": "fail"
+  },
+  "illegal_item_covert_cloak": {
+    "exit": 1,
+    "output": "Whimsicott's item Covert Cloak does not exist in Gen 9.",
+    "expected": "fail"
+  },
+  "illegal_move_knock_off_incin": {
+    "exit": 1,
+    "output": "Incineroar can't learn Knock Off.",
+    "expected": "fail"
+  },
+  "minimal_legal_probe": {
+    "exit": 0,
+    "output": "",
+    "expected": "pass"
+  },
+  "mega_charizard_y": {
+    "exit": 0,
+    "output": "",
+    "expected": "pass"
+  },
+  "tera_type_line_ignored": {
+    "exit": 0,
+    "output": "",
+    "expected": "pass"
+  },
+  "sim_mega_charizard": {
+    "output": "{\"species\":\"Charizard\",\"canMegaEvo\":\"Charizard-Mega-Y\",\"canTerastallize\":null,\"teraType\":\"Fire\"}",
+    "stderr": ""
+  }
+}

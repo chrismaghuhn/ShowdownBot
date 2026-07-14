@@ -30,7 +30,7 @@ state (depth-2 slice, value-calibration spec).
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
 | Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
-| Champions panel v0 (format target) | **P0 PASS** | `reports/champions-panel-v0-format-discovery.md` @ `4bd8040`: primary BO1 ID `gen9championsvgc2026regma`; live `formats.js` ↔ pinned `f8ac140` stable; VGC-Bench `gen9vgc2025regma/regmb` rejected | **P1 mechanics audit** next (user-gated); team curation / panel YAML / schedules **not started** |
+| Champions panel v0 (format target) | **P1 PASS** | P0 @ `4bd8040`: `gen9championsvgc2026regma`; P1 mechanics @ current main (`reports/champions-panel-v0-mechanics-audit.md`): Mega on, Tera off, Stat Points 66/32, Flat Rules ban restricted; `fixed_team.txt` fails as expected | **Team curation** next (user-gated); panel YAML / schedules / gauntlet **not started** |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
