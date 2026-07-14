@@ -1,0 +1,44 @@
+{
+  "schema_version": "champions-hp-suffix-evidence-v1",
+  "run_id": "92e9ad03a1a13327",
+  "git_sha": "62117b51a737f315cf63425cccbbedfe8e8a9340",
+  "seed_base": "champions-panel-v0-smoke-i5",
+  "counts": {
+    "total": 3,
+    "y": 2,
+    "g": 1,
+    "r": 0
+  },
+  "events": [
+    {
+      "seed_index": 8,
+      "battle_id": "c3078d5605bd3a25",
+      "turn": 8,
+      "protocol_line": "|-heal|p2b: Milotic|50/100g",
+      "token": "50/100g",
+      "marker": "g",
+      "normalized_room_log_sha256": "5a700f9264babfbe15648b4e843df7b79bd2fe5e367def92b4b1308997abd888",
+      "source_room_raw_sha256": "84f27bf5e423ed2143e83158608490a50313aada092ca8beb813c50db79692c9"
+    },
+    {
+      "seed_index": 1,
+      "battle_id": "11420baf5092cc4a",
+      "turn": 2,
+      "protocol_line": "|-damage|p2a: Incineroar|50/100y|[from] Recoil",
+      "token": "50/100y",
+      "marker": "y",
+      "normalized_room_log_sha256": "3a97ab093002626ff916e7335e88e17152572561978c7204031ab361f7431c95",
+      "source_room_raw_sha256": "bc5f1385bc7cbbb5ca50dafdac161cc823d165980cb1bdbd432a07c0cd18b5cf"
+    },
+    {
+      "seed_index": 1,
+      "battle_id": "11420baf5092cc4a",
+      "turn": 10,
+      "protocol_line": "|-damage|p2a: Kingambit|20/100y|[from] ability: Rough Skin|[of] p1a: Garchomp",
+      "token": "20/100y",
+      "marker": "y",
+      "normalized_room_log_sha256": "3a97ab093002626ff916e7335e88e17152572561978c7204031ab361f7431c95",
+      "source_room_raw_sha256": "bc5f1385bc7cbbb5ca50dafdac161cc823d165980cb1bdbd432a07c0cd18b5cf"
+    }
+  ]
+}

@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-14 (I5 mixed verdict on `feat/champions-i5-smoke`).
+Last reconciled: 2026-07-14 (HP-suffix revalidation @ `62117b5` on `main`).
 
 ---
 
@@ -27,18 +27,19 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 ## Current Priority
 
-Ordered front-track work as of 2026-07-14 (post-I5):
+Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
 
-1. **Champions HP-suffix state parser** — `100y`/`100g` HP tokens break state build → random-legal
-   `choose_for_request` degradation (5/94 non-preview decisions in I5 trace). Hard blocker before
-   strength or decision-quality claims.
-2. **Live damage → calc gen-0** — speed oracle is gen-0 (I4); live damage scoring can still use
+1. **Live damage → calc gen-0** — speed oracle is gen-0 (I4); live damage scoring can still use
    gen-9 mechanics until threaded through Champions `CalcProfile`.
-3. **Mega overlay** — not modeled; blocks honest strength interpretation.
-4. **Champions latency** — worst p95 **3235 ms** vs **1000 ms** Reg-I gate (I5 STANDARD SAFETY-FAIL);
-   profile or adopt a pre-justified Champions budget before Strength.
-5. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
-6. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+2. **Mega overlay** — not modeled; blocks honest strength interpretation.
+3. **Champions latency** — I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I gate (that run also
+   contained state-degradation; no causal link to p95 established); post-fix validation measured
+   **429 ms** on one pass (not a dedicated profile, not a causal improvement claim).
+4. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
+5. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+
+**Closed (2026-07-14):** HP-suffix state parser — revalidated @ `62117b5`
+(`reports/champions-panel-v0-i5-hpfix-validation.md`): 0 state-degraded non-preview decisions.
 
 ---
 
@@ -48,7 +49,7 @@ Ordered front-track work as of 2026-07-14 (post-I5):
 
 | | |
 |---|---|
-| **Status** | P0–P4 on main; **I5 mixed verdict** on `feat/champions-i5-smoke` @ `4da007b`: CONFIG/PROVENANCE PASS · STANDARD SAFETY FAIL (latency) · STATE-DEGRADATION FOUND. |
+| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix revalidation PASS** @ `62117b5` on `main`. |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -62,13 +63,19 @@ Ordered front-track work as of 2026-07-14 (post-I5):
 | P3 Panel freeze | PASS @ `550f1ad` | `config/eval/panels/panel_champions_v0.yaml`, `showdown_bot/tests/test_panel.py` |
 | P4 Pilot smoke | PASS @ `04b0eb7` (`dirty=false`) | `reports/champions-panel-v0-pilot-smoke.md`, `data/eval/champions-panel-v0/smoke/` |
 | I5 FormatConfig smoke | **Mixed** @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
+| I5 HP-fix revalidation | **HP-SUFFIX PASS** @ `62117b5` (`dirty=false`) | `reports/champions-panel-v0-i5-hpfix-validation.md`, `data/eval/champions-panel-v0/smoke-i5-hpfix-validation/` (incl. `suffix-evidence.json`) |
 
 **Open blockers**
 
-- **HP-suffix state parser (`100y`/`100g`):** state build fails → random-legal degradation (5 degraded hero decisions in I5 trace). **Hard blocker** before strength/decision-quality.
 - **Live damage path:** speed oracle uses calc gen-0 (I4); live damage scoring can still use gen-9 mechanics.
 - **Mega overlay:** not modeled.
-- **Latency gate:** worst p95 **3235 ms** vs **1000 ms** Reg-I budget — official `eval-report` SAFETY-FAIL; profile or set Champions budget before Strength.
+- **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I budget (that run also
+  contained state-degradation; no causal link established); post-fix validation **429 ms** on one
+  pass — dedicated profile/budget still needed before Strength.
+
+**Closed blockers**
+
+- ~~HP-suffix state parser (`100y`/`100g`/`100r`)~~ — fixed @ `62117b5`; revalidated 0/99 degraded (`reports/champions-panel-v0-i5-hpfix-validation.md`).
 
 **Explicit non-claims**
 
@@ -242,5 +249,5 @@ Ordered front-track work as of 2026-07-14 (post-I5):
 | Champions panel config | `config/eval/panels/panel_champions_v0.yaml` |
 | Champions smoke schedule (P4) | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
 | Champions smoke schedule (I5) | `config/eval/schedules/champions_v0_smoke_i5.yaml` |
-| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (`config-manifest.json`, `dirty=false`) |
+| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |
