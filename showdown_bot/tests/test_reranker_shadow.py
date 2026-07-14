@@ -81,6 +81,7 @@ def test_heuristic_choice_unmatched_is_fail_safe(monkeypatch, tmp_path, decision
     _enable(monkeypatch, tmp_path / "s.jsonl")
     rt = RerankerShadowRuntime.from_env(format_id="gen9vgc2025regi", packed_team=""); rt.start_game()
     tr, state, req, choose, side = _run_decision(decision_fixture)
+    tr.chosen_candidate_key = "does-not-exist-key"      # key path is authoritative
     tr.chosen_candidate_id = "does-not-exist"           # force an unmatched heuristic pick
     rt.observe_shadow(trace=tr, state=state, request=req, choose=choose,
                       turn_number=1, our_side=side, decision_index=0)

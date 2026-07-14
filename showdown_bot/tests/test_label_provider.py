@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from showdown_bot.battle.candidate_identity import candidate_identity
 from showdown_bot.learning.schema import LABEL_KEYS
 
 
@@ -67,7 +68,7 @@ def test_stub_provider_labels_all_candidates(trace_fixture):
     from showdown_bot.learning.label_provider import StubLabelProvider
     p = StubLabelProvider()
     labels = p.labels_for_decision(trace_fixture, None, None, context=None)
-    assert set(labels) == {c.candidate_id for c in trace_fixture.candidates}
+    assert set(labels) == {candidate_identity(c) for c in trace_fixture.candidates}
     for lab in labels.values():
         assert set(lab) == set(LABEL_KEYS)         # exact key set
         assert all(v == 0 for v in lab.values())   # zeroed (byte-identical to today)
@@ -76,7 +77,7 @@ def test_stub_provider_labels_all_candidates(trace_fixture):
 def test_validate_label_prefix_rejects_holey_set(trace_fixture):
     from showdown_bot.learning.label_provider import _validate_label_prefix
     # labels for candidate 0 and 2 but not 1 -> a holey ranking -> reject
-    ids = [c.candidate_id for c in trace_fixture.candidates]
+    ids = [candidate_identity(c) for c in trace_fixture.candidates]
     holey = {ids[0]: {}, ids[2]: {}} if len(ids) >= 3 else {}
     if not holey:
         pytest.skip("Need at least 3 candidates to build a holey set")
