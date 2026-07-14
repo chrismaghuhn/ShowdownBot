@@ -242,6 +242,26 @@ def _validate_v2_tera_overlay(row: dict, *, chosen_key: str, tera_slot: int | No
                 raise DecisionCaptureError(
                     "unexpected tera on non-chosen slot between key and normalized_action"
                 )
+        elif norm_slot.get("kind") == "switch":
+            target_ident = key_slot.get("target_ident")
+            switch_target = norm_slot.get("switch_target")
+            if not isinstance(target_ident, str) or not target_ident:
+                raise DecisionCaptureError(
+                    "chosen_candidate_key switch slot must have non-empty target_ident"
+                )
+            if not isinstance(switch_target, str) or not switch_target:
+                raise DecisionCaptureError(
+                    "normalized_action switch slot must have non-empty switch_target"
+                )
+            if to_id(target_ident) != switch_target:
+                raise DecisionCaptureError(
+                    "chosen_candidate_key switch target_ident mismatch vs normalized_action"
+                )
+        elif norm_slot.get("kind") == "pass":
+            if key_slot.get("target_ident") is not None:
+                raise DecisionCaptureError(
+                    "chosen_candidate_key pass slot must not carry target_ident"
+                )
 
 
 def _validate_v2_row(row: dict) -> None:

@@ -58,12 +58,14 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
         for line in MANIFEST.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    decision_id_by_request_hash = {
-        row["request_hash"]: row["decision_id"]
-        for row in manifest_rows
-        if row["request_hash"] in ambiguous_request_hashes
+    from showdown_bot.eval.accuracy_cap_derisk import build_request_hash_index
+
+    manifest_by_request_hash = build_request_hash_index(manifest_rows)
+    ambiguous_decision_ids = {
+        manifest_by_request_hash[request_hash]["decision_id"]
+        for request_hash in ambiguous_request_hashes
+        if request_hash in manifest_by_request_hash
     }
-    ambiguous_decision_ids = set(decision_id_by_request_hash.values())
     if not ambiguous_decision_ids:
         pytest.skip("no manifest decision_ids for historical ambiguous request_hashes")
 

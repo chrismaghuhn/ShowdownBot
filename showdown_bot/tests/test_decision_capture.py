@@ -307,3 +307,57 @@ def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_tra
     with pytest.raises(DecisionCaptureError, match="chosen_tera_slot must be null or int"):
         load_decision_trace(path)
 
+
+def _minimal_v2_switch_row(*, switch_target: str = "3"):
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.battle.candidate_identity import joint_action_key
+    from showdown_bot.models.actions import SlotAction
+
+    key = joint_action_key(JointAction(
+        slot0=SlotAction(kind="switch", target_ident="3"),
+        slot1=SlotAction(kind="pass"),
+    ))
+    return {
+        "trace_schema_version": "decision-trace-v2",
+        "battle_id": "b",
+        "seed_index": 0,
+        "decision_index": 0,
+        "turn_number": 1,
+        "our_side": "p1",
+        "config_id": "heuristic",
+        "config_hash": "c" * 64,
+        "schedule_hash": "s" * 64,
+        "format_id": "gen9vgc2025regi",
+        "git_sha": "a" * 40,
+        "observable_state_hash": "0" * 64,
+        "request_hash": "1" * 64,
+        "decision_phase": "regular_turn",
+        "state_summary": {"turn": 1, "field": {}, "sides": {}},
+        "actual_choose_string": f"/choose switch {switch_target}, pass|1",
+        "normalized_action": {
+            "kind": "joint",
+            "slots": [
+                {"kind": "switch", "switch_target": switch_target},
+                {"kind": "pass"},
+            ],
+        },
+        "chosen_candidate_id": "(switch, pass)",
+        "chosen_candidate_key": key,
+        "chosen_tera_slot": None,
+        "chosen_rank": 0,
+        "candidates": [{
+            "candidate_id": "(switch, pass)",
+            "candidate_key": key,
+            "rank": 0,
+            "aggregate_score": 1.0,
+        }],
+        "decision_latency_ms": 1.0,
+    }
+
+
+def test_load_decision_trace_rejects_v2_switch_target_mismatch(tmp_path):
+    row = _minimal_v2_switch_row(switch_target="4")
+    path = tmp_path / "bad-switch.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionCaptureError, match="switch target_ident mismatch"):
+        load_decision_trace(path)
