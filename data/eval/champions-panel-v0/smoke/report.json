@@ -1,0 +1,279 @@
+{
+  "aggregates": {
+    "losing_cells": [],
+    "overall_pooled": {
+      "n": 6,
+      "wilson_hi": 0.7000116786584712,
+      "wilson_lo": 0.09676933255921683,
+      "win_rate": 0.3333333333333333,
+      "wins": 2
+    },
+    "per_policy": [
+      {
+        "n": 3,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.5615060804490177,
+        "wilson_lo": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      {
+        "n": 3,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.9385096847238394,
+        "wilson_lo": 0.2076549551264879,
+        "win_rate": 0.6666666666666666,
+        "wins": 2
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.3333333333333333,
+    "worst_cell": {
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "cells": [
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "opp_team_path": "teams/panel_champions_v0/goodstuff.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "64ecc8fb2e6da7f1",
+      "opp_team_path": "teams/panel_champions_v0/trick_room.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "ea99dd840d0adce2",
+      "opp_team_path": "teams/panel_champions_v0/tailwind_offense.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "0054b6894af7215a",
+      "opp_team_path": "teams/panel_champions_v0/goodstuff.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "64ecc8fb2e6da7f1",
+      "opp_team_path": "teams/panel_champions_v0/trick_room.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.20654329147389294,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "ea99dd840d0adce2",
+      "opp_team_path": "teams/panel_champions_v0/tailwind_offense.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.20654329147389294,
+      "win_rate": 1.0,
+      "wins": 1
+    }
+  ],
+  "heldout": false,
+  "mode": "dev",
+  "paired": false,
+  "provenance": {
+    "config_hash": "d2a17c7935c3ff77",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.13.4",
+        "websockets": "16.0"
+      },
+      "node": "v22.22.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.5"
+    },
+    "format_id": "gen9championsvgc2026regma",
+    "git_sha": "04b0eb78f895698eddcdfa76b01ccba28ff5f401",
+    "input_sha256": {
+      "manifest": "1ef3a14073f23b4525bc72df1460c202d1c7829a8359e46b678380fb19830f81",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "1b24ec49e2101e02b00139bba73291a6020ff9a640e25b7189c60f7ea3efdc03",
+      "schedule": "9317c2a16de10d91d4962f1ec73e44f5e268a43bc4bd09d99b73386a2c15f8fa",
+      "seedlog": "65ebd350569e24d6f06714a843c310332668673ecfd6e18021e1dac38797dfce"
+    },
+    "panel_hash": "aac1ea30446fde88",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "aac1ea30446fde88",
+    "row_count": 6,
+    "run_id": "a8a5d29bfe325456",
+    "schedule_hash": "16ba86fd592d37e4",
+    "seed_base": "champions-panel-v0-smoke",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-14T15:59:32.629343+00:00"
+  },
+  "reproduction": {
+    "env": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "champions-panel-v0-smoke"
+    },
+    "input_sha256": {
+      "manifest": "1ef3a14073f23b4525bc72df1460c202d1c7829a8359e46b678380fb19830f81",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "1b24ec49e2101e02b00139bba73291a6020ff9a640e25b7189c60f7ea3efdc03",
+      "schedule": "9317c2a16de10d91d4962f1ec73e44f5e268a43bc4bd09d99b73386a2c15f8fa",
+      "seedlog": "65ebd350569e24d6f06714a843c310332668673ecfd6e18021e1dac38797dfce"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --schedule champions_v0_smoke_pilot.yaml --panel panel_champions_v0.yaml --out <dir> --mode gate",
+    "run_command": "python -m showdown_bot.cli gauntlet --schedule ..\\config\\eval\\schedules\\champions_v0_smoke_pilot.yaml --result-out ..\\data\\eval\\champions-panel-v0\\smoke\\results.jsonl",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "6 == 6",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=0 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "6 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "aac1ea30446fde88",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "d2a17c7935c3ff77",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "16ba86fd592d37e4",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "champions-panel-v0-smoke",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "a8a5d29bfe325456",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "04b0eb78f895698eddcdfa76b01ccba28ff5f401",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": true,
+  "schema_version": 1,
+  "verdict": "SINGLE-RUN SAFETY-PASS",
+  "warnings": [
+    "This is a single-run safety readout, not a comparison. A single run cannot establish improvement over any baseline \u2014 it can only pass or fail the safety gates. Any strength claim requires a paired run against a pinned baseline (T6) with the positive-evidence rule.",
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim."
+  ]
+}
