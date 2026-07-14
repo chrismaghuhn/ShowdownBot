@@ -1,0 +1,87 @@
+{
+  "verdict": "PASS",
+  "date": "2026-07-14",
+  "spec": "docs/superpowers/specs/2026-07-14-champions-panel-v0-design.md",
+  "phase": "P0",
+  "pinned_showdown": {
+    "path": "~/.cache/showdownbot/pokemon-showdown",
+    "sha": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "subject": "Update Champions Random Battle for 1.1.0 changes (#12119)"
+  },
+  "live_snapshot": {
+    "url": "https://play.pokemonshowdown.com/data/formats.js",
+    "artifact": "data/eval/champions-panel-v0/discovery/formats.js.snapshot",
+    "bytes": 145903,
+    "fetched": "2026-07-14"
+  },
+  "primary_format_id": "gen9championsvgc2026regma",
+  "formats": [
+    {
+      "human_name": "[Gen 9 Champions] VGC 2026 Reg M-A",
+      "machine_id": "gen9championsvgc2026regma",
+      "mod": "championsregma",
+      "gameType": "doubles",
+      "ruleset": ["Flat Rules", "VGC Timer", "Open Team Sheets"],
+      "searchShow": false,
+      "role": "primary_bo1"
+    },
+    {
+      "human_name": "[Gen 9 Champions] VGC 2026 Reg M-A (Bo3)",
+      "machine_id": "gen9championsvgc2026regmabo3",
+      "mod": "championsregma",
+      "gameType": "doubles",
+      "ruleset": ["Flat Rules", "VGC Timer", "Force Open Team Sheets", "Best of = 3"],
+      "searchShow": false,
+      "role": "document_bo3"
+    },
+    {
+      "human_name": "[Gen 9 Champions] VGC 2026 Reg M-B",
+      "machine_id": "gen9championsvgc2026regmb",
+      "mod": "champions",
+      "gameType": "doubles",
+      "ruleset": ["Flat Rules", "VGC Timer", "Open Team Sheets"],
+      "searchShow": null,
+      "role": "document_mb_bo1"
+    },
+    {
+      "human_name": "[Gen 9 Champions] VGC 2026 Reg M-B (Bo3)",
+      "machine_id": "gen9championsvgc2026regmbbo3",
+      "mod": "champions",
+      "gameType": "doubles",
+      "ruleset": ["Flat Rules", "VGC Timer", "Force Open Team Sheets", "Best of = 3"],
+      "searchShow": null,
+      "role": "document_mb_bo3"
+    }
+  ],
+  "legacy_rejected_ids": [
+    {
+      "id": "gen9vgc2025regma",
+      "source": "cameronangliss/vgc-bench log headers",
+      "validator_on_pin": "Error: format should be a 'Format', but was a 'Condition'"
+    },
+    {
+      "id": "gen9vgc2025regmb",
+      "source": "cameronangliss/vgc-bench log headers",
+      "validator_on_pin": "not present in pinned config/formats.ts (same class as regma)"
+    }
+  ],
+  "live_vs_pinned": {
+    "vgc_2026_reg_m_entries_match": true,
+    "notes": "All four VGC 2026 Reg M-A/M-B human names present in live formats.js and pinned formats.ts with matching mod + ruleset strings."
+  },
+  "validator_probes": {
+    "gen9championsvgc2026regma": {
+      "unknown_format": false,
+      "reg_i_fixed_team": {"exit": 1, "summary": "Multiple Champions dex / stat-system violations (e.g. Flutter Mane does not exist in Gen 9, 508 stat points > 66 limit)."},
+      "minimal_probe_team": {"exit": 0, "note": "Local-only probe file; not committed."},
+      "reg_i_format_control": {"format": "gen9vgc2025regi", "fixed_team_exit": 0}
+    }
+  },
+  "tier_probe": {
+    "method": "local Battle sim (pinned dist/sim/battle)",
+    "format_id": "gen9championsvgc2026regma",
+    "tier_line": "|tier|[Gen 9 Champions] VGC 2026 Reg M-A",
+    "replay_cross_check": "https://replay.pokemonshowdown.com/gen9championsvgc2026regma-2598085389"
+  },
+  "p1_unlock": true
+}
