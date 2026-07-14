@@ -4,6 +4,7 @@ game_type: doubles
 restricted_limit: 0
 tera: true
 mega: false
+calc_generation: 9
 stat_investment:
   kind: ev
   total: 510

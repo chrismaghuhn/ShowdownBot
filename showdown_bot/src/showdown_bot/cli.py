@@ -102,7 +102,7 @@ def run_schedule(args) -> None:
         import sys
         from datetime import datetime, timezone
 
-        from showdown_bot.eval.config_env import behavior_env, build_config_manifest
+        from showdown_bot.eval.config_env import behavior_env, build_config_manifest, config_provenance_for_format
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
         from showdown_bot.eval.run_manifest import (
             build_run_manifest,
@@ -145,11 +145,14 @@ def run_schedule(args) -> None:
                 except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
                     pass
                 movedata_hash = _file_content_hash(movedata_path())
+                provenance = config_provenance_for_format(format_id)
                 manifest = build_config_manifest(
                     agent=agent, format_id=format_id,
                     priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
                     model_hash=_model_hash, model_manifest_hash=_model_manifest_hash,
                     movedata_hash=movedata_hash,
+                    format_config_hash=provenance["format_config_hash"],
+                    calc_pin_hash=provenance["calc_pin_hash"],
                 )
                 _cfg_hash_cache[key] = make_config_hash(manifest)
             return _cfg_hash_cache[key]

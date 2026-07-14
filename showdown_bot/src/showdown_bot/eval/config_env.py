@@ -175,7 +175,8 @@ def behavior_env(environ=None) -> dict[str, str]:
 
 
 def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=None,
-                          model_hash=None, model_manifest_hash=None, movedata_hash=None) -> dict:
+                          model_hash=None, model_manifest_hash=None, movedata_hash=None,
+                          format_config_hash=None, calc_pin_hash=None) -> dict:
     """Assemble the effective-config manifest that ``make_config_hash`` hashes.
 
     ``env`` defaults to ``behavior_env()``. ``model_hash``/``model_manifest_hash`` are
@@ -184,7 +185,10 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
     ``config/moves/movedata.json`` -- included whenever provided (unconditionally by the
     caller, mirroring ``priors_hash``/``spreads_hash``, not gated behind
     ``SHOWDOWN_ACCURACY_MODE``), so two runs with different accuracy data never share a
-    config lineage even when the accuracy feature itself is off."""
+    config lineage even when the accuracy feature itself is off.
+
+    ``format_config_hash`` / ``calc_pin_hash`` pin the resolved format yaml and vendored
+    ``@smogon/calc`` artifact (I4 §5). Included whenever provided by the caller."""
     manifest = {
         "agent": agent,
         "format_id": format_id,
@@ -198,4 +202,29 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
         manifest["model_manifest_hash"] = model_manifest_hash
     if movedata_hash is not None:
         manifest["movedata_hash"] = movedata_hash
+    if format_config_hash is not None:
+        manifest["format_config_hash"] = format_config_hash
+    if calc_pin_hash is not None:
+        manifest["calc_pin_hash"] = calc_pin_hash
     return manifest
+
+
+def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
+    """Format yaml + calc pin hashes for ``build_config_manifest``.
+
+    Missing format yaml -> ``format_config_hash`` is None. Malformed yaml/schema
+    errors propagate. Calc pin errors always propagate (§5.4 fail-closed).
+    """
+    from showdown_bot.engine.calc.pin import calc_pin_hash, format_config_hash
+    from showdown_bot.engine.format_config import load_format_config
+
+    fmt_hash: str | None = None
+    try:
+        cfg = load_format_config(format_id)
+    except FileNotFoundError:
+        cfg = None
+    if cfg is not None and cfg.source_path is not None:
+        fmt_hash = format_config_hash(cfg.source_path)
+
+    pin = calc_pin_hash()
+    return {"format_config_hash": fmt_hash, "calc_pin_hash": pin}

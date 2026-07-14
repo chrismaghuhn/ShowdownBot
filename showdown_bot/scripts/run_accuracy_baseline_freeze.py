@@ -80,7 +80,7 @@ def main() -> None:
     from showdown_bot.engine.moves import movedata_path
     from showdown_bot.engine.speed import SpeedOracle
     from showdown_bot.eval.accuracy_baseline import freeze_baseline
-    from showdown_bot.eval.config_env import behavior_env, build_config_manifest
+    from showdown_bot.eval.config_env import behavior_env, build_config_manifest, config_provenance_for_format
     from showdown_bot.eval.result_jsonl import make_config_hash
     from showdown_bot.eval.room_raw_replay import (
         RequestKind,
@@ -270,10 +270,13 @@ def main() -> None:
     priors_hash = _file_content_hash(load_format_config(FORMAT_ID).meta_path("protect_priors"))
     spreads_hash = _file_content_hash(load_format_config(FORMAT_ID).meta_path("default_spreads"))
     movedata_hash = _file_content_hash(movedata_path())
+    provenance = config_provenance_for_format(FORMAT_ID)
     manifest = build_config_manifest(
         agent="heuristic", format_id=FORMAT_ID,
         priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
         movedata_hash=movedata_hash,
+        format_config_hash=provenance["format_config_hash"],
+        calc_pin_hash=provenance["calc_pin_hash"],
     )
     config_hash = make_config_hash(manifest)
 
