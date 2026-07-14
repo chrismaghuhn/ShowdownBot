@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-14 (HP-suffix revalidation @ `62117b5` on `main`).
+Last reconciled: 2026-07-14 (I6 live-damage gen-0 @ `3bcd4b3`; HP-suffix revalidation @ `62117b5` on `main`).
 
 ---
 
@@ -27,19 +27,20 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 ## Current Priority
 
-Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
+Ordered front-track work as of 2026-07-14 (post I6 live-damage gen-0 smoke):
 
-1. **Live damage → calc gen-0** — speed oracle is gen-0 (I4); live damage scoring can still use
-   gen-9 mechanics until threaded through Champions `CalcProfile`.
-2. **Mega overlay** — not modeled; blocks honest strength interpretation.
-3. **Champions latency** — I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I gate (that run also
-   contained state-degradation; no causal link to p95 established); post-fix validation measured
-   **429 ms** on one pass (not a dedicated profile, not a causal improvement claim).
-4. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
-5. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+1. **Mega overlay** — not modeled; blocks honest strength interpretation.
+2. **Champions latency** — I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I gate (that run also
+   contained state-degradation; no causal link to p95 established); I6 2-battle smoke measured
+   **331 ms** worst p95 (safety pass, not a dedicated profile or causal improvement claim).
+3. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
+4. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
 
 **Closed (2026-07-14):** HP-suffix state parser — revalidated @ `62117b5`
 (`reports/champions-panel-v0-i5-hpfix-validation.md`): 0 state-degraded non-preview decisions.
+
+**Closed (2026-07-14):** Live damage → calc gen-0 (I6) — wired + 2-battle safety smoke @ `3bcd4b3`
+(`reports/champions-panel-v0-i6-smoke.md`): hermetic G2–G11 PASS, `eval-report` SAFETY-PASS.
 
 ---
 
@@ -49,7 +50,7 @@ Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
 
 | | |
 |---|---|
-| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix revalidation PASS** @ `62117b5` on `main`. |
+| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix revalidation PASS** @ `62117b5`; **I6 live-damage gen-0 PASS** @ `3bcd4b3` on `main`. |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -64,23 +65,25 @@ Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
 | P4 Pilot smoke | PASS @ `04b0eb7` (`dirty=false`) | `reports/champions-panel-v0-pilot-smoke.md`, `data/eval/champions-panel-v0/smoke/` |
 | I5 FormatConfig smoke | **Mixed** @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
 | I5 HP-fix revalidation | **HP-SUFFIX PASS** @ `62117b5` (`dirty=false`) | `reports/champions-panel-v0-i5-hpfix-validation.md`, `data/eval/champions-panel-v0/smoke-i5-hpfix-validation/` (incl. `suffix-evidence.json`) |
+| I6 Live-damage gen-0 smoke | **I6 PASS · 2-BATTLE SAFETY-PASS** @ `3bcd4b3` (`dirty=false`) | `reports/champions-panel-v0-i6-smoke.md`, `data/eval/champions-panel-v0/smoke-i6-damage-gen0/` |
 
 **Open blockers**
 
-- **Live damage path:** speed oracle uses calc gen-0 (I4); live damage scoring can still use gen-9 mechanics.
 - **Mega overlay:** not modeled.
 - **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I budget (that run also
-  contained state-degradation; no causal link established); post-fix validation **429 ms** on one
-  pass — dedicated profile/budget still needed before Strength.
+  contained state-degradation; no causal link established); I6 2-battle smoke **331 ms** worst p95
+  (safety pass only) — dedicated profile/budget still needed before Strength.
 
 **Closed blockers**
 
+- ~~Live damage path (gen-0 calc_profile)~~ — I6 @ `3bcd4b3`; hermetic G2–G11 + 2-battle smoke (`reports/champions-panel-v0-i6-smoke.md`).
 - ~~HP-suffix state parser (`100y`/`100g`/`100r`)~~ — fixed @ `62117b5`; revalidated 0/99 degraded (`reports/champions-panel-v0-i5-hpfix-validation.md`).
 
 **Explicit non-claims**
 
+- I6 proves **gen-0 calc_profile wiring + minimal harness safety** on 2 battles — not strength.
 - I5 proves **config/provenance wiring + harness completion** on a 10-row panel — not strength, not full safety pass, not full heuristic fidelity.
-- Hero win counts (P4 2/6, I5 3/10) are **not** interpreted.
+- Hero win counts (P4 2/6, I5 3/10, I6 0/2) are **not** interpreted.
 
 **Related**
 
@@ -233,7 +236,7 @@ Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
 1. **`docs/PROJECT_INDEX.md`** (this file) — orientation.
 2. **`docs/ROADMAP.md`** — authoritative status matrix and sequencing.
 3. **Active track report** for the task at hand, e.g.:
-   - Champions: `reports/champions-panel-v0-i5-smoke.md` (I5), `reports/champions-panel-v0-pilot-smoke.md` (P4)
+   - Champions: `reports/champions-panel-v0-i6-smoke.md` (I6), `reports/champions-panel-v0-i5-smoke.md` (I5), `reports/champions-panel-v0-pilot-smoke.md` (P4)
    - Accuracy: `reports/2026-07-14-accuracy-default-on-decision-note.md`
    - Parser follow-up: `reports/champions-poke-env-reference-audit.md`
 4. **Relevant tests** — e.g. `showdown_bot/tests/test_panel.py`, `showdown_bot/tests/eval/test_candidate_identity_replay.py`, request fixtures under `showdown_bot/tests/fixtures/`.
@@ -249,5 +252,6 @@ Ordered front-track work as of 2026-07-14 (post HP-suffix revalidation):
 | Champions panel config | `config/eval/panels/panel_champions_v0.yaml` |
 | Champions smoke schedule (P4) | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
 | Champions smoke schedule (I5) | `config/eval/schedules/champions_v0_smoke_i5.yaml` |
-| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`) |
+| Champions smoke schedule (I6) | `config/eval/schedules/champions_v0_smoke_i6_2battle.yaml` |
+| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`), `smoke-i6-damage-gen0/` (I6 @ `3bcd4b3`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |

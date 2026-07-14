@@ -20,6 +20,7 @@ from showdown_bot.engine.belief.hypotheses import (
     hypothesis_from_state,
 )
 from showdown_bot.engine.calc.models import DamageRequest
+from showdown_bot.engine.calc_profile import DEFAULT_CALC_PROFILE, CalcProfile
 from showdown_bot.engine.moves import hit_probability
 from showdown_bot.engine.state import BattleState, FieldState, to_id
 
@@ -208,7 +209,9 @@ class DamageModel:
         field: FieldState | None = None,
         our_spreads: dict | None = None,
         opp_sets: dict | None = None,
+        calc_profile: CalcProfile | None = None,
     ) -> None:
+        self._calc_profile = calc_profile or DEFAULT_CALC_PROFILE
         self.state = state
         self.our_side = our_side
         self.opp_side = opp_side
@@ -235,7 +238,11 @@ class DamageModel:
         def_hyp = self.hyps[target_key]
         defender = def_hyp.as_defender(DEFENSE if action.is_ours else _our_def_preset())
         return DamageRequest(
-            attacker=attacker, defender=defender, move=move, field=dict(self.field_payload)
+            attacker=attacker,
+            defender=defender,
+            move=move,
+            field=dict(self.field_payload),
+            gen=self._calc_profile.generation,
         )
 
     def _alive_slots(self, side: str) -> list[str]:
@@ -292,7 +299,9 @@ class DamageModel:
         req = DamageRequest(
             attacker=self.hyps[attacker_key].as_attacker(OFFENSE, move=move),
             defender=self.hyps[target_key].as_defender(DEFENSE),
-            move=move, field=dict(self.field_payload),
+            move=move,
+            field=dict(self.field_payload),
+            gen=self._calc_profile.generation,
         )
         return self.oracle.damage(req).is_guaranteed_ohko
 
@@ -300,7 +309,9 @@ class DamageModel:
         req = DamageRequest(
             attacker=self.hyps[attacker_key].as_attacker(OFFENSE, move=move),
             defender=self.hyps[target_key].as_defender(OFFENSE),
-            move=move, field=dict(self.field_payload),
+            move=move,
+            field=dict(self.field_payload),
+            gen=self._calc_profile.generation,
         )
         return self.oracle.damage(req).can_ohko
 
@@ -308,7 +319,9 @@ class DamageModel:
         req = DamageRequest(
             attacker=self.hyps[attacker_key].as_attacker(OFFENSE, move=move),
             defender=self.hyps[defender_key].as_defender(OFFENSE),
-            move=move, field=dict(self.field_payload),
+            move=move,
+            field=dict(self.field_payload),
+            gen=self._calc_profile.generation,
         )
         return not self.oracle.damage(req).can_ohko
 

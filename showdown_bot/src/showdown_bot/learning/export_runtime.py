@@ -233,10 +233,9 @@ class DatasetExportRuntime:
             format_cfg = load_format_config(format_id)
         except FileNotFoundError:
             format_cfg = None
+        calc_profile = calc_profile_from_config(format_cfg)
         try:
-            speed_oracle = build_speed_oracle(
-                calc.backend, calc_profile_from_config(format_cfg)
-            )
+            speed_oracle = build_speed_oracle(calc.backend, calc_profile)
         except Exception:  # noqa: BLE001
             speed_oracle = None
 
@@ -257,6 +256,8 @@ class DatasetExportRuntime:
             "move_meta": move_meta or {},
             "our_spreads": our_spreads,
             "opp_sets": opp_sets if opp_sets is not None else {},
+            "format_config": format_cfg,
+            "calc_profile": calc_profile,
             # priors: threaded from the gauntlet so the rollout's inner opponent model
             # uses the same Protect priors as the live decision (label-decision consistency).
             # weights=None matches decision.py defaults (decision.py also defaults weights=None).

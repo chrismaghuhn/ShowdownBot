@@ -291,18 +291,17 @@ def _choose_best(
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
 
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+
+    calc_profile = calc_profile_from_config(format_config)
+
     calc = calc or CalcClient()
     oracle = oracle or DamageOracle(calc)
     if speed_oracle is None:
         try:
-            from showdown_bot.engine.calc_profile import (
-                build_speed_oracle,
-                calc_profile_from_config,
-            )
+            from showdown_bot.engine.calc_profile import build_speed_oracle
 
-            speed_oracle = build_speed_oracle(
-                calc.backend, calc_profile_from_config(format_config)
-            )
+            speed_oracle = build_speed_oracle(calc.backend, calc_profile)
         except Exception:
             speed_oracle = None
     if dex is None:
@@ -360,7 +359,9 @@ def _choose_best(
     if not my_actions:
         raise ValueError("no legal joint actions")
 
-    mode = classify_game_mode(state, our_side=our_side, calc=calc, book=book)
+    mode = classify_game_mode(
+        state, our_side=our_side, calc=calc, book=book, calc_profile=calc_profile
+    )
 
     plans = {
         ja: _plan_my_actions(
@@ -397,6 +398,7 @@ def _choose_best(
             model_k = DamageModel(
                 state, our_side, opp_side, book=book, oracle=shared_oracle,
                 field=state.field, our_spreads=our_spreads, opp_sets=merged_sets,
+                calc_profile=calc_profile,
             )
             model_k.enqueue(list(plans.values()) + [r.actions for r in resps_k])
             world_ctx.append((world_w, resps_k, model_k))
@@ -440,7 +442,7 @@ def _choose_best(
 
         model = DamageModel(
             state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
-            our_spreads=our_spreads, opp_sets=opp_sets,
+            our_spreads=our_spreads, opp_sets=opp_sets, calc_profile=calc_profile,
         )
         groups = list(plans.values()) + [r.actions for r in opp_resps]
         model.prefetch(groups)
@@ -502,7 +504,11 @@ def _choose_best(
                 top_m_idx = list(range(min(top_m, n_resps)))
 
             d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
-            d2_model_kwargs = {"our_spreads": our_spreads, "opp_sets": opp_sets}
+            d2_model_kwargs = {
+                "our_spreads": our_spreads,
+                "opp_sets": opp_sets,
+                "calc_profile": calc_profile,
+            }
             # [accuracy-slice] Deliberately does NOT include accuracy_mode/accuracy_branch_cap.
             # depth2_value's turn-2 refinement (search.py) is out of scope for the accuracy slice
             # (spec Sec.12, Depth-2 Stage 3 is separate, later work) -- if SHOWDOWN_ACCURACY_MODE
@@ -667,7 +673,9 @@ def _choose_best(
             return agg
 
         # Decision-level threat counts: computed once, shared across all candidates.
-        dec_threatened, dec_survives = ko_threat_counts(state, our_side, calc=calc, book=book)
+        dec_threatened, dec_survives = ko_threat_counts(
+            state, our_side, calc=calc, book=book, calc_profile=calc_profile
+        )
 
         def _ko_secured_for(plan: list[PlannedAction]) -> int:
             """Distinct opponent active slots guaranteed-OHKO'd by this candidate's
@@ -687,7 +695,10 @@ def _choose_best(
                         atk is not None
                         and tgt is not None
                         and not tgt.fainted
-                        and guaranteed_ohko(state, atk, a.move.name, tgt, calc=calc, book=book)
+                        and guaranteed_ohko(
+                            state, atk, a.move.name, tgt,
+                            calc=calc, book=book, calc_profile=calc_profile,
+                        )
                     ):
                         slots.add(a.target)
             return len(slots)

@@ -31,6 +31,7 @@ _ACTIVE_SLOTS = ("a", "b")
 _CORE_DEP_KEYS = frozenset({
     "book", "calc", "oracle", "speed_oracle", "dex", "priors", "weights",
     "risk_lambda", "tera_margin", "rollout_horizon", "our_spreads", "opp_sets",
+    "format_config",
 })
 
 
