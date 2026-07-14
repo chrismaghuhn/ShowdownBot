@@ -234,3 +234,110 @@ def build_action_table_row(decision_id: str, chosen_action: str, trace, request)
             return _row("chosen_missing")
 
     return _row(status, rank=resolved.rank, rank_mismatch=(resolved.rank != 0), cc_score=resolved.aggregate_score)
+
+
+@dataclass(frozen=True)
+class Stage1Result:
+    passed: bool
+    raw_diff_decision_ids: set[str]
+
+
+class Stage1ReproductionError(Exception):
+    pass
+
+
+def run_stage1_raw_reproduction(
+    auxiliary_rows: list[ActionTableRow],
+    frozen_off_actions_by_decision_id: dict[str, str],
+    frozen_on_actions_for_the_20: dict[str, str],
+) -> Stage1Result:
+    """Spec Sec.2.3 Stage 1: raw (un-normalized) string comparison only, restricted to the
+    historical 881-eligible set (callers must pre-filter both inputs to that set before calling).
+    Must exactly reproduce the frozen 20 -- both WHICH decision_ids differ AND the exact historical
+    on_chosen_action value for each -- any deviation raises immediately. Reproducing only the diff
+    SET (without checking the actual on-value) is explicitly insufficient and was a real bug caught
+    in this plan's own review."""
+    aux_by_id = {r.decision_id: r for r in auxiliary_rows}
+    if set(aux_by_id) != set(frozen_off_actions_by_decision_id):
+        raise Stage1ReproductionError(
+            f"decision_id set mismatch between auxiliary rows and frozen off-actions: "
+            f"only-in-auxiliary={set(aux_by_id) - set(frozen_off_actions_by_decision_id)} "
+            f"only-in-frozen={set(frozen_off_actions_by_decision_id) - set(aux_by_id)}"
+        )
+    raw_diff_ids = {
+        did for did, off_action in frozen_off_actions_by_decision_id.items()
+        if aux_by_id[did].chosen_action_raw != off_action
+    }
+    expected_diff_ids = set(frozen_on_actions_for_the_20)
+    if raw_diff_ids != expected_diff_ids:
+        raise Stage1ReproductionError(
+            f"raw reproduction FAILED (diff-ID set): expected {sorted(expected_diff_ids)}, "
+            f"got {sorted(raw_diff_ids)} -- unexpected={sorted(raw_diff_ids - expected_diff_ids)} "
+            f"missing={sorted(expected_diff_ids - raw_diff_ids)}"
+        )
+    wrong_on_value = {
+        did: (aux_by_id[did].chosen_action_raw, expected_on)
+        for did, expected_on in frozen_on_actions_for_the_20.items()
+        if aux_by_id[did].chosen_action_raw != expected_on
+    }
+    if wrong_on_value:
+        raise Stage1ReproductionError(
+            f"raw reproduction FAILED (on-action value): the diff-ID set matches, but "
+            f"{len(wrong_on_value)} decision(s) reproduced a DIFFERENT wrong action than the "
+            f"historically recorded one -- {wrong_on_value}"
+        )
+    return Stage1Result(passed=True, raw_diff_decision_ids=raw_diff_ids)
+
+
+def run_stage2_semantic_diff(
+    auxiliary_rows: list[ActionTableRow],
+    frozen_actions_canonical_by_decision_id: dict[str, str],
+) -> ActionTableDiff:
+    """Spec Sec.2.3 Stage 2: only meaningful after Stage 1 passes. Canonical-field-based semantic
+    diff via compare_action_tables -- answers "how many semantically distinct decisions", not "is
+    this the same run". `frozen_actions_canonical_by_decision_id` must already be pre-computed
+    canonical forms (see decision-id-manifest.jsonl's legacy_frozen_action_canonical field, Task 4)
+    -- this function never calls normalize_choose itself."""
+    frozen_rows = [
+        ActionTableRow(
+            decision_id=did, chosen_action_raw=canonical, chosen_action_canonical=canonical,
+            candidate_resolution_status="exact",
+            chosen_candidate_rank=0, chosen_rank_mismatch=False, top_rank_score=None, chosen_candidate_score=None,
+        )
+        for did, canonical in frozen_actions_canonical_by_decision_id.items()
+    ]
+    aux_by_id = {r.decision_id: r for r in auxiliary_rows if r.decision_id in frozen_actions_canonical_by_decision_id}
+    return compare_action_tables(
+        frozen_rows, list(aux_by_id.values()), direction="off -> cap4_auxiliary",
+        score_comparable=False,
+        score_incompatible_reason="legacy_frozen_score not proven equivalent (see Task 4's verified finding)",
+    )
+
+
+class DuplicateRequestHashError(Exception):
+    pass
+
+
+def build_request_hash_index(manifest_rows: list[dict]) -> dict[str, dict]:
+    """Fail-closed request_hash -> manifest-row index. This plan's actual join key is
+    decision_id (Sec.2.2) -- this helper exists ONLY to translate EXTERNAL request_hash-keyed
+    inputs (gate-b-report.json's diffs/acceptance.exceptions, which predate decision_id) into
+    decision_id space. A bare `{r["request_hash"]: r for r in manifest_rows}` dict comprehension
+    would silently keep only the last row for a duplicated request_hash and drop the other,
+    quietly breaking the "decision_id-joined" claim this plan makes throughout -- so this helper
+    asserts `len(index) == len(manifest_rows)` and names every colliding request_hash before
+    returning, rather than silently constructing a lossy index. Reused by Task 6's
+    validate_cap4_auxiliary.py and Task 11's run_ambiguous_candidate_diagnostic.py -- both driver
+    scripts that need to look up a manifest row by request_hash."""
+    index = {r["request_hash"]: r for r in manifest_rows}
+    if len(index) != len(manifest_rows):
+        counts: dict[str, int] = {}
+        for r in manifest_rows:
+            counts[r["request_hash"]] = counts.get(r["request_hash"], 0) + 1
+        dupes = {rh: n for rh, n in counts.items() if n > 1}
+        raise DuplicateRequestHashError(
+            f"{len(dupes)} duplicate request_hash value(s) across {len(manifest_rows)} manifest "
+            f"rows -- a bare request_hash-keyed dict would silently collapse these to one row, "
+            f"breaking decision_id-based joining: {dupes}"
+        )
+    return index

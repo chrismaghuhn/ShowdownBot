@@ -270,3 +270,97 @@ def test_build_action_table_row_unparseable_action_falls_back_to_deterministic_m
 
     row2 = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
     assert row.chosen_action_canonical == row2.chosen_action_canonical  # determinism
+
+
+from showdown_bot.eval.accuracy_cap_derisk import (
+    Stage1ReproductionError,
+    run_stage1_raw_reproduction,
+    run_stage2_semantic_diff,
+)
+
+
+def _aux_row(decision_id, action_raw, action_canonical=None):
+    return ActionTableRow(
+        decision_id=decision_id, chosen_action_raw=action_raw,
+        chosen_action_canonical=action_canonical if action_canonical is not None else action_raw,
+        candidate_resolution_status="exact",
+        chosen_candidate_rank=0, chosen_rank_mismatch=False, top_rank_score=1.0, chosen_candidate_score=1.0,
+    )
+
+
+def test_stage1_passes_when_raw_diff_set_and_on_actions_match_frozen_exactly():
+    aux = [_aux_row("id1", "/choose move 1"), _aux_row("id2", "/choose move 3")]
+    frozen_off_actions = {"id1": "/choose move 1", "id2": "/choose move 2"}
+    frozen_on_actions_for_20 = {"id2": "/choose move 3"}  # the exact historical on-value for id2
+    result = run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert result.passed is True
+    assert result.raw_diff_decision_ids == {"id2"}
+
+
+def test_stage1_raises_on_unexpected_raw_diff():
+    aux = [_aux_row("id1", "/choose move 99")]  # unexpectedly differs
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {}  # id1 was NOT one of the frozen 20
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id1" in str(exc_info.value)
+
+
+def test_stage1_raises_on_missing_expected_diff():
+    aux = [_aux_row("id1", "/choose move 1")]  # now matches off, but frozen report said it should diff
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # expected a diff here
+    with pytest.raises(Stage1ReproductionError):
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+
+
+def test_stage1_raises_when_diff_id_set_matches_but_on_action_value_does_not():
+    """The core correction: reproducing the SAME set of differing decision_ids is not enough --
+    the auxiliary run's actual differing action must equal the historical on_chosen_action value,
+    not just be different from off (spec Sec.2.3 Stage 1)."""
+    aux = [_aux_row("id1", "/choose move 5")]  # differs from off (matches the *set*)...
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # ...but NOT the historical on-value
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id1" in str(exc_info.value)
+
+
+def test_stage2_smaller_normalized_set_than_raw_20_is_not_a_failure():
+    """If Stage 1 passed (raw matches the historical 20, including exact on-values) but two of
+    those raw diffs turn out to be pure representational differences (their PRE-COMPUTED canonical
+    forms happen to match), Stage 2 reports fewer semantic diffs -- honestly, not as a failure."""
+    aux = [
+        _aux_row("id1", "/choose move 1", "canonical:move1"),
+        _aux_row("id2", "/choose move 2 ", "canonical:move2"),  # raw differs from frozen, canonical doesn't
+    ]
+    frozen_actions_canonical = {"id1": "canonical:move9", "id2": "canonical:move2"}
+    result = run_stage2_semantic_diff(aux, frozen_actions_canonical)
+    # id1: genuinely different canonical action -> action_changed True; id2: same canonical -> False
+    changed = {r.decision_id for r in result.rows if r.action_changed}
+    assert changed == {"id1"}
+
+
+from showdown_bot.eval.accuracy_cap_derisk import DuplicateRequestHashError, build_request_hash_index
+
+
+def test_build_request_hash_index_passes_when_unique():
+    rows = [{"request_hash": "rh1", "decision_id": "id1"}, {"request_hash": "rh2", "decision_id": "id2"}]
+    index = build_request_hash_index(rows)
+    assert index["rh1"]["decision_id"] == "id1"
+    assert index["rh2"]["decision_id"] == "id2"
+
+
+def test_build_request_hash_index_raises_on_duplicate():
+    """The core correction: a bare {r['request_hash']: r for r in rows} dict comprehension would
+    silently keep only the LAST row for a duplicated request_hash and drop the other -- any
+    driver script translating gate-b-report.json's request_hash-keyed data into decision_id space
+    must use this fail-closed index instead, exactly matching len(index) == len(rows)."""
+    rows = [
+        {"request_hash": "rh1", "decision_id": "id1"},
+        {"request_hash": "rh1", "decision_id": "id2"},  # same request_hash, different decision
+        {"request_hash": "rh2", "decision_id": "id3"},
+    ]
+    with pytest.raises(DuplicateRequestHashError) as exc_info:
+        build_request_hash_index(rows)
+    assert "rh1" in str(exc_info.value)
