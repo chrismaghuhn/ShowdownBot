@@ -37,7 +37,11 @@ def _bench_switch_targets(req: BattleRequest, slot_index: int) -> list[SlotActio
     return actions
 
 
-def _move_targets(move_target: str) -> list[int | None]:
+def _move_targets(move_target: str | None) -> list[int | None]:
+    # Server omitted target on this move slot -> targetless /choose (Solar Beam
+    # release, self/side moves sent without a target key, etc.).
+    if move_target is None:
+        return [None]
     # Only single-adjacent-target moves take an explicit target slot (1 or 2).
     if move_target in ("normal", "adjacentFoe", "any"):
         return [1, 2]

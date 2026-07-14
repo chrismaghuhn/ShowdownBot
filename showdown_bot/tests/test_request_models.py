@@ -3,6 +3,7 @@ from pathlib import Path
 
 from showdown_bot.battle.legal_actions import _slot_move_actions
 from showdown_bot.engine.moves import get_move_meta
+from showdown_bot.models.actions import SlotAction
 from showdown_bot.models.request import BattleRequest
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -69,16 +70,47 @@ def test_struggle_only_slot_is_a_selectable_move_action():
 
 
 def test_parse_champions_solarbeam_without_target():
-    """Champions rain held-out: Showdown can omit target on Solar Beam."""
+    """Champions payloads may omit target; keep None (no MoveMeta backfill)."""
     data = json.loads((FIXTURES / "request_champions_solarbeam_no_target.json").read_text())
     req = BattleRequest.model_validate(data)
     solar = req.active[1].moves[3]
     assert solar.id == "solarbeam"
-    assert solar.target == get_move_meta("solarbeam").target == "normal"
+    assert solar.target is None
 
 
 def test_champions_solarbeam_without_target_is_selectable():
     data = json.loads((FIXTURES / "request_champions_solarbeam_no_target.json").read_text())
     req = BattleRequest.model_validate(data)
     actions = _slot_move_actions(1, req)
-    assert any(a.kind == "move" and a.move_index == 4 for a in actions)
+    solar = [a for a in actions if a.kind == "move" and a.move_index == 4]
+    assert solar
+    assert all(a.target is None for a in solar)
+
+
+def test_parse_champions_solarbeam_release_minimal_slot():
+    """Turn-6 rain held-out: charge-release Solar Beam is move+id only."""
+    data = json.loads((FIXTURES / "request_champions_solarbeam_release.json").read_text())
+    req = BattleRequest.model_validate(data)
+    solar = req.active[0].moves[0]
+    assert solar.id == "solarbeam"
+    assert solar.target is None
+    assert solar.pp is None
+    assert solar.maxpp is None
+
+
+def test_champions_solarbeam_release_slot_actions_are_targetless():
+    data = json.loads((FIXTURES / "request_champions_solarbeam_release.json").read_text())
+    req = BattleRequest.model_validate(data)
+    actions = _slot_move_actions(0, req)
+    solar = [a for a in actions if a.kind == "move" and a.move_index == 1]
+    assert solar == [SlotAction(kind="move", move_index=1, target=None)]
+
+
+def test_champions_solarbeam_with_normal_target_stays_targeted():
+    data = json.loads((FIXTURES / "request_doubles_moves.json").read_text())
+    req = BattleRequest.model_validate(data)
+    solar = req.active[1].moves[3]
+    assert solar.target == "normal"
+    actions = _slot_move_actions(1, req)
+    solar_actions = [a for a in actions if a.kind == "move" and a.move_index == 4]
+    assert {a.target for a in solar_actions} == {1, 2}

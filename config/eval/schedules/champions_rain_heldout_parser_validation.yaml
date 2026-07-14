@@ -1,0 +1,25 @@
+# Champions rain held-out parser validation — 2 battles only.
+# Validates targetless Solar Beam release choose-path (no MoveMeta target backfill):
+# rain_offense / Meganium Solar Beam minimal slot → /choose move N without target.
+# Prior blocker: backfill turned omitted target into illegal move 1 2 at release.
+# seed_base: champions-rain-heldout-parser-v0 (Channel A — fresh server required)
+version: champions_v0
+panel_hash: aac1ea30446fde88
+schedule_hash: fe3c2b5227d74b4e
+rows:
+- format_id: gen9championsvgc2026regma
+  hero_team_path: teams/fixed_champions_v0.txt
+  opp_policy: heuristic
+  opp_team_path: teams/panel_champions_v0/rain_offense.txt
+  seed_index: 0
+  hero_team_hash: 1d3a4cf5a4042532
+  opp_team_hash: e0c96fa0cabf1def
+  panel_split: heldout
+- format_id: gen9championsvgc2026regma
+  hero_team_path: teams/fixed_champions_v0.txt
+  opp_policy: max_damage
+  opp_team_path: teams/panel_champions_v0/rain_offense.txt
+  seed_index: 1
+  hero_team_hash: 1d3a4cf5a4042532
+  opp_team_hash: e0c96fa0cabf1def
+  panel_split: heldout

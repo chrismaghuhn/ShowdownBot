@@ -1,0 +1,27 @@
+{
+  "active": [
+    {
+      "moves": [{"move": "Solar Beam", "id": "solarbeam"}],
+      "trapped": true
+    },
+    {
+      "moves": [
+        {"move": "Weather Ball", "id": "weatherball", "pp": 10, "maxpp": 12, "target": "normal", "disabled": false},
+        {"move": "Hurricane", "id": "hurricane", "pp": 10, "maxpp": 12, "target": "any", "disabled": false},
+        {"move": "Wide Guard", "id": "wideguard", "pp": 12, "maxpp": 12, "target": "allySide", "disabled": false},
+        {"move": "Tailwind", "id": "tailwind", "pp": 15, "maxpp": 16, "target": "allySide", "disabled": false}
+      ]
+    }
+  ],
+  "side": {
+    "name": "BaselineBot9603",
+    "id": "p2",
+    "pokemon": [
+      {"ident": "p2: Meganium", "details": "Meganium, L50, F", "condition": "187/187", "active": true, "moves": ["solarbeam", "weatherball", "dazzlinggleam", "protect"]},
+      {"ident": "p2: Pelipper", "details": "Pelipper, L50, M", "condition": "83/167", "active": true, "moves": ["weatherball", "hurricane", "wideguard", "tailwind"]},
+      {"ident": "p2: Sneasler", "details": "Sneasler, L50, M", "condition": "0 fnt", "active": false, "moves": ["closecombat", "fakeout", "direclaw", "protect"]},
+      {"ident": "p2: Basculegion", "details": "Basculegion, L50, M", "condition": "197/197", "active": false, "moves": ["wavecrash", "lastrespects", "crunch", "flipturn"]}
+    ]
+  },
+  "rqid": 21
+}

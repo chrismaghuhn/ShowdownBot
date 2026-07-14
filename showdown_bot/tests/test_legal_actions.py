@@ -3,7 +3,9 @@ from pathlib import Path
 
 from showdown_bot.battle.legal_actions import _move_targets, enumerate_slot_pairs
 from showdown_bot.engine.moves import get_move_meta
+from showdown_bot.models.actions import SlotAction, SlotPair
 from showdown_bot.models.request import BattleRequest
+from showdown_bot.protocol.encoder import encode_choose
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -16,6 +18,7 @@ def test_side_field_moves_take_no_target():
     assert _move_targets("allyTeam") == [None]
     assert _move_targets("foeSide") == [None]
     assert _move_targets("randomNormal") == [None]
+    assert _move_targets(None) == [None]
     assert _move_targets("normal") == [1, 2]
     assert _move_targets("adjacentFoe") == [1, 2]
     # Tailwind really is an allySide move in the data -> must be targetless.
@@ -132,3 +135,13 @@ def test_one_mon_left_doubles_null_active_slot():
     assert any(p.slot0.kind == "move" for p in pairs)
     # the heuristic enumerator must also handle the null slot
     assert enumerate_my_actions(req)
+
+
+def test_champions_solarbeam_release_encodes_targetless():
+    data = json.loads((FIXTURES / "request_champions_solarbeam_release.json").read_text())
+    req = BattleRequest.model_validate(data)
+    pair = SlotPair(
+        slot0=SlotAction(kind="move", move_index=1, target=None),
+        slot1=SlotAction(kind="move", move_index=4, target=None),
+    )
+    assert encode_choose(pair, rqid=req.rqid) == "/choose move 1, move 4|21"
