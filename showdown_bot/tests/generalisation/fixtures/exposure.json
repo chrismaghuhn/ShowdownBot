@@ -1,0 +1,1 @@
+{"schema_version":"team-exposure-v1","exposure_id":"t4-before-eval","cutoff_utc":"2026-07-10T00:00:00Z","allowed_sources":["training","development"],"exposed_team_hashes":["5aef213f351a6627"],"exposed_archetypes":["balance"]}

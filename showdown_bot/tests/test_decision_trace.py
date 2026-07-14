@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
+from showdown_bot.battle.decision_trace import (
+    AccuracyEventTrace,
+    AccuracyResponseDetail,
+    AccuracyTieOrderTrace,
+    CandidateTrace,
+    DecisionTrace,
+)
 from showdown_bot.battle.evaluate import OutcomeBreakdown
 from showdown_bot.engine.belief.hypotheses import load_spread_book
 from showdown_bot.engine.calc.models import DamageResult
@@ -25,6 +31,19 @@ def test_dtos_construct_with_defaults():
                         outcome_breakdowns=[OutcomeBreakdown()],
                         aggregate_breakdown=OutcomeBreakdown())
     assert ct.candidate_id == "x" and ct.rank == 0
+
+
+def test_selection_telemetry_defaults_to_none():
+    trace = DecisionTrace()
+    assert trace.selection_stage is None
+    assert trace.fallback_reason is None
+
+
+def test_aggregation_params_default_to_none():
+    t = DecisionTrace()
+    assert t.aggregation_mode is None
+    assert t.risk_lambda is None
+    assert t.must_react_lambda is None
 
 
 # ---------------------------------------------------------------------------
@@ -276,3 +295,71 @@ def test_ko_secured_ignores_nondamaging_and_unselected(decision_fixture):
     # _FakeCalc never OHKOs, so secured must be 0 even for all-damaging plans
     for c in tr.candidates:
         assert c.model_features.ko_secured_count == 0
+
+
+# ---------------------------------------------------------------------------
+# New: accuracy telemetry (CandidateTrace.accuracy_details) -- Task 6
+# ---------------------------------------------------------------------------
+
+def test_accuracy_response_detail_fields_exist():
+    detail = AccuracyResponseDetail(
+        accuracy_leaf_count=4, accuracy_event_count=2, accuracy_branch_cap_hits=0,
+        events_complete=True, tie_orders=[], events=[],
+    )
+    assert detail.accuracy_leaf_count == 4
+    assert detail.events_complete is True
+
+
+def test_candidate_trace_accuracy_details_defaults_empty():
+    ct = CandidateTrace(
+        candidate_id="x", joint_action=None, rank=0, aggregate_score=0.0,
+        score_vector=[], outcome_breakdowns=[], aggregate_breakdown=OutcomeBreakdown(),
+    )
+    assert ct.accuracy_details == []
+
+
+def test_decision_with_accuracy_mode_populates_accuracy_details(decision_fixture, monkeypatch):
+    """Integration test through the real decision.py entry point with a DecisionTrace
+    passed and SHOWDOWN_ACCURACY_MODE forced on -- mirrors test_accuracy_mode_wiring.py's
+    "force accuracy on via env var, pass a trace, inspect it" pattern using this file's
+    own decision_fixture (same underlying fixture data as conftest.py's)."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    req, kw = decision_fixture
+    trace = DecisionTrace()
+    heuristic_choose_for_request(req, trace=trace, **kw)
+
+    assert trace.candidates, "expected at least one candidate in the trace"
+    saw_event = False
+    for candidate in trace.candidates:
+        assert isinstance(candidate.accuracy_details, list)
+        assert len(candidate.accuracy_details) == len(candidate.score_vector)
+        for detail in candidate.accuracy_details:
+            assert isinstance(detail, AccuracyResponseDetail)
+            assert detail.accuracy_branch_cap_hits >= 0
+            assert isinstance(detail.events_complete, bool)
+            assert detail.accuracy_event_count == len(detail.events)
+            for tie_order in detail.tie_orders:
+                assert isinstance(tie_order, AccuracyTieOrderTrace)
+            for event in detail.events:
+                assert isinstance(event, AccuracyEventTrace)
+                assert event.tie_order in ("ours_first", "ours_last")
+                saw_event = True
+    # request_doubles_moves.json includes Heat Wave (90% accuracy), so with
+    # accuracy mode on at least one candidate/response should surface a real
+    # accuracy event -- proves the wiring actually threads live data through,
+    # not just that the lists exist and are empty.
+    assert saw_event, "expected at least one AccuracyEventTrace across all candidates"
+
+
+def test_decision_trace_candidates_rank_sorted(decision_fixture, monkeypatch):
+    """Spec Sec.5 point-8 fix: candidates must be provably rank-sorted, not just
+    observed to be by accident of the current construction code."""
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
+    req, kw = decision_fixture
+    trace = DecisionTrace()
+    heuristic_choose_for_request(req, trace=trace, **kw)
+    assert [c.rank for c in trace.candidates] == list(range(len(trace.candidates)))

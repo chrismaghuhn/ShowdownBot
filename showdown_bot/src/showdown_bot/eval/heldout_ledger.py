@@ -44,6 +44,11 @@ _STR_FIELDS_BY_KIND = {
     "schedule": _COMMON_STR_FIELDS,
     "run": _COMMON_STR_FIELDS + _RUN_ONLY_STR_FIELDS,
 }
+_GENERALISATION_FIELDS = frozenset({"kind", *_COMMON_STR_FIELDS, "justification",
+                                    "manifest_hash", "policy_hash", "plan_hash"})
+_FIELDS_BY_KIND["generalisation_schedule"] = _GENERALISATION_FIELDS
+_STR_FIELDS_BY_KIND["generalisation_schedule"] = (
+    _COMMON_STR_FIELDS + ("manifest_hash", "policy_hash", "plan_hash"))
 
 
 class LedgerError(ValueError):

@@ -1,0 +1,6 @@
+schema_version: speed-control-taxonomy-v1
+categories:
+  tailwind: [tailwind]
+  trick_room: [trickroom]
+  speed_reduction: [bulldoze, drumbeating, electroweb, icywind, lowsweep, mudshot, pounce, rocktomb, scaryface, stringshot]
+  speed_boost: [agility, autotomize, dragondance, flamecharge, quiverdance, rockpolish, trailblaze]

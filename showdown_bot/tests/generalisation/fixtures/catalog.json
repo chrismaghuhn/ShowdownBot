@@ -1,0 +1,6 @@
+{"schema_version":"team-catalog-v1","teams":[
+  {"team_hash":"5aef213f351a6627","team_id":"fixed-hero","team_path":"teams/fixed_team.txt","archetype":"balance","declared_split":"train"},
+  {"team_hash":"e622869d6c68307e","team_id":"trickroom","team_path":"teams/panel_v001/trickroom_dev.txt","archetype":"trick_room","declared_split":"dev"},
+  {"team_hash":"b0048ae65f0e9ee5","team_id":"sun","team_path":"teams/panel_v001/sun_dev.txt","archetype":"sun","declared_split":"dev"},
+  {"team_hash":"69f471c2740f1927","team_id":"rain","team_path":"teams/panel_v001/rain_dev.txt","archetype":"rain","declared_split":"dev"}
+]}

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from showdown_bot.battle.candidate_identity import assert_unique_candidate_identities, candidate_identity
 from showdown_bot.learning.schema import LABEL_KEYS
 
 
@@ -22,9 +23,10 @@ def _validate_label_prefix(trace, labels: dict) -> None:
     situation must surface as RolloutLabelError on the rollout path, never as a silent
     0-row export.
     """
+    assert_unique_candidate_identities(trace.candidates)
     if trace.candidates and not labels:
         raise ValueError("labels must not be empty for a non-empty trace")
-    expected = [c.candidate_id for c in trace.candidates[: len(labels)]]
+    expected = [candidate_identity(c) for c in trace.candidates[: len(labels)]]
     if list(labels.keys()) != expected:
         raise ValueError("labels must be a candidate prefix in trace order")
 
@@ -35,7 +37,8 @@ class StubLabelProvider:
 
     def labels_for_decision(self, trace, state, request, *, context) -> dict:
         zero = {k: 0 for k in LABEL_KEYS}
-        return {c.candidate_id: dict(zero) for c in trace.candidates}
+        assert_unique_candidate_identities(trace.candidates)
+        return {candidate_identity(c): dict(zero) for c in trace.candidates}
 
 
 class RolloutLabelProvider:

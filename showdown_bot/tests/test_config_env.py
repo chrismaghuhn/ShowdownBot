@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import showdown_bot.eval.config_env as config_env
 from showdown_bot.eval.config_env import (
     BEHAVIOR_AFFECTING,
@@ -18,6 +20,7 @@ from showdown_bot.eval.config_env import (
     behavior_env,
     build_config_manifest,
     is_classified,
+    is_excluded,
 )
 from showdown_bot.eval.result_jsonl import make_config_hash
 
@@ -143,6 +146,51 @@ def test_config_hash_changes_when_fast_board_protect_penalty_toggled():
     assert h_off != h_on
 
 
+# --- research-only aggregation-trace sidecar PATH (2c-Slice-0b Task 3) ------------------
+
+def test_agg_trace_out_is_non_behavioral_and_classified():
+    # SHOWDOWN_AGG_TRACE_OUT is the env alias for --agg-trace-out (cli.run_schedule): a
+    # research-only full-fidelity aggregation sidecar PATH, IO/telemetry-only with no /choose
+    # effect. Same species as SHOWDOWN_DECISION_DIFF (diagnostic) and the SHOWDOWN_DATASET_
+    # prefix family -> excluded from config_hash. It MUST stay non-behavioral so a per-shard
+    # datagen export path never perturbs config_hash / breaks pairing.
+    assert is_excluded("SHOWDOWN_AGG_TRACE_OUT") is True
+    assert is_classified("SHOWDOWN_AGG_TRACE_OUT")
+    assert "SHOWDOWN_AGG_TRACE_OUT" not in BEHAVIOR_AFFECTING
+
+
+def test_behavior_env_excludes_agg_trace_out():
+    # The export path must NOT fold into config_hash (fail-closed would otherwise include an
+    # unclassified SHOWDOWN_* var): a run that sets it, and one that sets a DIFFERENT per-shard
+    # path, must still produce the same config_hash and pair.
+    assert behavior_env(
+        {"SHOWDOWN_AGG_TRACE_OUT": "/x/agg.jsonl", "SHOWDOWN_ROLLOUT_HORIZON": "3"}
+    ) == {"SHOWDOWN_ROLLOUT_HORIZON": "3"}
+
+
+# --- NEUTRAL-mode risk_lambda (2c-1, mirrors SHOWDOWN_MUST_REACT_LAMBDA) ----------------
+
+def test_risk_lambda_is_behavior_affecting_and_classified():
+    # Read in showdown_bot.battle.policy (_risk_lambda) -> Python source, not the
+    # server-side set.
+    assert "SHOWDOWN_RISK_LAMBDA" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_RISK_LAMBDA" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_RISK_LAMBDA")
+
+
+def test_behavior_env_includes_risk_lambda():
+    env = {"SHOWDOWN_RISK_LAMBDA": "0.2", "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+    assert behavior_env(env) == {"SHOWDOWN_RISK_LAMBDA": "0.2",
+                                 "SHOWDOWN_MUST_REACT_LAMBDA": "0.5"}
+
+
+def test_config_hash_changes_when_risk_lambda_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_RISK_LAMBDA": "0.2"})))
+    assert h_off != h_on
+
+
 # --- make_config_hash over the manifest ------------------------------------------------
 
 def _manifest(env, *, agent="heuristic", format_id="f", model_hash=None, model_manifest_hash=None):
@@ -222,3 +270,129 @@ def test_behavior_affecting_flags_are_actually_read_in_source():
     seen = set(_scanned_reads())
     missing = set(BEHAVIOR_AFFECTING) - seen
     assert not missing, f"BEHAVIOR_AFFECTING flags never read in source: {sorted(missing)}"
+
+
+# --- +Sampling world count (2c-sampling) -----------------------------------------------
+
+def test_world_samples_behavior_affecting_and_classified():
+    assert "SHOWDOWN_WORLD_SAMPLES" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_WORLD_SAMPLES" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_WORLD_SAMPLES")
+
+
+def test_config_hash_changes_when_world_samples_set():
+    h_off = make_config_hash(_manifest(behavior_env({})))
+    h_on = make_config_hash(_manifest(behavior_env({"SHOWDOWN_WORLD_SAMPLES": "4"})))
+    assert h_off != h_on
+
+
+# --- depth-2 search toggle (2c-depth2 Task 1) -------------------------------------------
+
+def test_search_depth_is_behavior_affecting_and_clamped(monkeypatch):
+    from showdown_bot.battle.decision import _search_depth
+    assert "SHOWDOWN_SEARCH_DEPTH" in BEHAVIOR_AFFECTING
+    monkeypatch.delenv("SHOWDOWN_SEARCH_DEPTH", raising=False)
+    base = make_config_hash(_manifest(behavior_env({})))
+    assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2"); assert _search_depth() == 2
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "5"); assert _search_depth() == 2   # clamp
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "0"); assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "x"); assert _search_depth() == 1
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    assert make_config_hash(_manifest(behavior_env({"SHOWDOWN_SEARCH_DEPTH": "2"}))) != base   # set -> hash changes
+
+
+# --- accuracy mode + branch cap (accuracy-slice) ----------------------------------------
+
+def test_accuracy_mode_is_behavior_affecting_and_classified():
+    assert "SHOWDOWN_ACCURACY_MODE" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_ACCURACY_MODE" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_ACCURACY_MODE")
+
+
+def test_accuracy_branch_cap_is_behavior_affecting_and_classified():
+    assert "SHOWDOWN_ACCURACY_BRANCH_CAP" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_ACCURACY_BRANCH_CAP" not in SERVER_SIDE_BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_ACCURACY_BRANCH_CAP")
+
+
+def test_config_hash_changes_when_accuracy_mode_toggled():
+    h_off = make_config_hash(_manifest(behavior_env({"SHOWDOWN_MUST_REACT_LAMBDA": "0.5"})))
+    h_on = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_MUST_REACT_LAMBDA": "0.5", "SHOWDOWN_ACCURACY_MODE": "1"})))
+    assert h_off != h_on
+
+
+def test_config_hash_changes_when_accuracy_branch_cap_differs_with_mode_on():
+    h_cap4 = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_ACCURACY_MODE": "1", "SHOWDOWN_ACCURACY_BRANCH_CAP": "4"})))
+    h_cap8 = make_config_hash(_manifest(behavior_env(
+        {"SHOWDOWN_ACCURACY_MODE": "1", "SHOWDOWN_ACCURACY_BRANCH_CAP": "8"})))
+    assert h_cap4 != h_cap8
+
+
+# --- _accuracy_mode() explicit boolean parser -------------------------------------------
+# Regression coverage: bool(os.environ.get(...)) would treat the STRINGS "0" and "false" as
+# truthy. These six cases are the exact matrix that must hold for the off-path (which is
+# verified elsewhere by explicitly setting "0"/"false") to mean anything.
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    (None, False),      # unset
+    ("", False),
+    ("0", False),
+    ("false", False),
+    ("False", False),   # case-insensitive
+    ("1", True),
+    ("true", True),
+])
+def test_accuracy_mode_parser_matrix(monkeypatch, raw, expected):
+    from showdown_bot.battle.decision import _accuracy_mode
+
+    if raw is None:
+        monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+    else:
+        monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", raw)
+    assert _accuracy_mode() is expected
+
+
+def test_unset_and_explicit_off_are_equivalent_post_refactor(monkeypatch):
+    """accuracy-offline-gate plan Task 7: a defense-in-depth pin on top of the parser
+    matrix above -- unset and explicit "0" must resolve to the exact same boolean via
+    ``_accuracy_mode()`` as it exists in this worktree TODAY, i.e. post Tasks 5/6's
+    LineEvaluation/_evaluate_line_details refactor (which touched decision.py/evaluate.py's
+    trace-population code but left this parser itself untouched -- confirmed by reading the
+    diff). The import below is a fresh, function-scoped import (same pattern as
+    ``test_accuracy_mode_parser_matrix`` above) resolved against this worktree's actual
+    ``src/`` tree, not a module imported once at collection time from some other checkout."""
+    from showdown_bot.battle.decision import _accuracy_mode
+
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+    unset = _accuracy_mode()
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
+    explicit_off = _accuracy_mode()
+    assert unset == explicit_off == False
+
+
+# --- movedata_hash provenance (accuracy-slice Task 7) -----------------------------------
+
+def test_build_config_manifest_includes_movedata_hash_when_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s",
+        movedata_hash="mv1", env={},
+    )
+    assert m["movedata_hash"] == "mv1"
+
+
+def test_build_config_manifest_movedata_hash_absent_when_not_provided():
+    m = build_config_manifest(
+        agent="heuristic", format_id="f", priors_hash="p", spreads_hash="s", env={},
+    )
+    assert "movedata_hash" not in m
+
+
+def test_config_hash_changes_when_movedata_hash_differs():
+    m1 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv1", env={})
+    m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
+                                movedata_hash="mv2", env={})
+    assert make_config_hash(m1) != make_config_hash(m2)

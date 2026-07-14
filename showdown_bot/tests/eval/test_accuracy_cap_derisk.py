@@ -1,0 +1,610 @@
+# showdown_bot/tests/eval/test_accuracy_cap_derisk.py
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from showdown_bot.eval.accuracy_cap_derisk import (
+    DecisionIdComponents,
+    DuplicateDecisionIdError,
+    assert_decision_ids_unique,
+    compute_decision_id,
+)
+
+
+def test_compute_decision_id_is_deterministic():
+    c = DecisionIdComponents(
+        seed_base="abc123", seed_index=2, request_hash="rh1",
+        log_prefix_hash="lp1", side="p1", rqid=5, turn=3,
+    )
+    assert compute_decision_id(c) == compute_decision_id(c)
+
+
+def test_compute_decision_id_changes_with_any_field():
+    base = DecisionIdComponents(
+        seed_base="abc123", seed_index=2, request_hash="rh1",
+        log_prefix_hash="lp1", side="p1", rqid=5, turn=3,
+    )
+    variants = [
+        DecisionIdComponents(seed_base="other_seed", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=99, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="other_hash", log_prefix_hash="lp1", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="other_prefix", side="p1", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p2", rqid=5, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=99, turn=3),
+        DecisionIdComponents(seed_base="abc123", seed_index=2, request_hash="rh1", log_prefix_hash="lp1", side="p1", rqid=5, turn=99),
+    ]
+    base_id = compute_decision_id(base)
+    for v in variants:
+        assert compute_decision_id(v) != base_id
+
+
+def test_compute_decision_id_is_a_hex_sha256():
+    c = DecisionIdComponents(
+        seed_base="abc123", seed_index=2, request_hash="rh1",
+        log_prefix_hash="lp1", side="p1", rqid=5, turn=3,
+    )
+    did = compute_decision_id(c)
+    assert len(did) == 64
+    int(did, 16)  # raises if not valid hex
+
+
+def test_assert_decision_ids_unique_passes_on_unique_ids():
+    assert_decision_ids_unique(["a", "b", "c"])  # no raise
+
+
+def test_assert_decision_ids_unique_raises_on_duplicate():
+    with pytest.raises(DuplicateDecisionIdError) as exc_info:
+        assert_decision_ids_unique(["a", "b", "a", "c", "b"])
+    msg = str(exc_info.value)
+    assert "a" in msg and "b" in msg  # both duplicated ids named, not just a count
+
+
+from showdown_bot.eval.accuracy_cap_derisk import (
+    ActionTableRow,
+    DecisionIdPairingError,
+    compare_action_tables,
+)
+
+
+def _row(decision_id, action_raw, action_canonical=None, *, top_rank_score=1.0,
+         chosen_candidate_score=1.0, candidate_resolution_status="exact"):
+    return ActionTableRow(
+        decision_id=decision_id, chosen_action_raw=action_raw,
+        chosen_action_canonical=action_canonical if action_canonical is not None else action_raw,
+        candidate_resolution_status=candidate_resolution_status,
+        chosen_candidate_rank=0, chosen_rank_mismatch=False,
+        top_rank_score=top_rank_score, chosen_candidate_score=chosen_candidate_score,
+    )
+
+
+def test_compare_action_tables_pairs_by_decision_id_not_position():
+    ref = [_row("id2", "/choose move 1"), _row("id1", "/choose move 2")]
+    cand = [_row("id1", "/choose move 2"), _row("id2", "/choose move 1")]
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert result.direction == "cap4 -> cap6"
+    assert len(result.rows) == 2
+    assert all(not r.action_changed for r in result.rows)
+
+
+def test_compare_action_tables_detects_action_change_via_stored_canonical_field():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 2")]
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert result.rows[0].action_changed is True
+
+
+def test_compare_action_tables_uses_canonical_not_raw_for_action_changed():
+    """Two raw strings that differ byte-for-byte but share the same PRE-COMPUTED canonical form
+    (simulating what normalize_choose would fold together, e.g. a trailing-space encoding quirk)
+    must NOT be reported as an action change -- proving the comparator reads the stored canonical
+    field, not the raw one."""
+    ref = [_row("id1", "/choose move 1", "canonical:move1")]
+    cand = [_row("id1", "/choose move 1 ", "canonical:move1")]  # raw differs, canonical doesn't
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert result.rows[0].action_changed is False
+
+
+def test_compare_action_tables_does_not_count_pure_score_change_as_action_diff():
+    ref = [_row("id1", "/choose move 1", top_rank_score=5.0)]
+    cand = [_row("id1", "/choose move 1", top_rank_score=7.0)]  # same action, different score
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    row = result.rows[0]
+    assert row.action_changed is False
+    assert row.top_rank_score_delta == pytest.approx(2.0)
+    assert row.top_rank_score_changed is True  # score change tracked, but NOT an action diff
+
+
+def test_compare_action_tables_fails_closed_on_missing_id_in_candidate():
+    ref = [_row("id1", "/choose move 1"), _row("id2", "/choose move 2")]
+    cand = [_row("id1", "/choose move 1")]  # id2 missing
+    with pytest.raises(DecisionIdPairingError) as exc_info:
+        compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert "id2" in str(exc_info.value)
+
+
+def test_compare_action_tables_fails_closed_on_extra_id_in_candidate():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 1"), _row("id_extra", "/choose move 2")]
+    with pytest.raises(DecisionIdPairingError) as exc_info:
+        compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    assert "id_extra" in str(exc_info.value)
+
+
+def test_compare_action_tables_fails_closed_on_duplicate_id_within_one_table():
+    ref = [_row("id1", "/choose move 1"), _row("id1", "/choose move 2")]
+    cand = [_row("id1", "/choose move 1")]
+    with pytest.raises(DecisionIdPairingError):
+        compare_action_tables(ref, cand, direction="cap4 -> cap6")
+
+
+def test_compare_action_tables_uses_correctly_named_reference_candidate_fields_not_baseline_replay():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 2")]
+    result = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    row = result.rows[0]
+    assert row.reference_action_raw == "/choose move 1"
+    assert row.candidate_action_raw == "/choose move 2"
+    assert not hasattr(row, "baseline_action")
+    assert not hasattr(row, "replay_action")
+
+
+def test_compare_action_tables_direction_is_not_inferred_from_argument_order():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 2")]
+    r1 = compare_action_tables(ref, cand, direction="cap4 -> cap6")
+    r2 = compare_action_tables(cand, ref, direction="cap6 -> cap4")  # swapped args, swapped label
+    assert r1.direction == "cap4 -> cap6"
+    assert r2.direction == "cap6 -> cap4"
+    # swapping which table is "reference" flips reference/candidate labeling on the SAME
+    # underlying decision, proving the function has no baked-in "first arg is always off" bias
+    assert r1.rows[0].reference_action_raw == r2.rows[0].candidate_action_raw
+    assert r1.rows[0].candidate_action_raw == r2.rows[0].reference_action_raw
+
+
+def test_compare_action_tables_refuses_incompatible_score_semantics():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 1")]
+    result = compare_action_tables(
+        ref, cand, direction="off -> cap6", score_comparable=False,
+        score_incompatible_reason="legacy_frozen_score not proven equivalent to top_rank_score",
+    )
+    row = result.rows[0]
+    assert row.score_comparable is False
+    assert row.top_rank_score_delta is None  # never silently computed
+    assert "not proven equivalent" in row.score_incompatible_reason
+
+
+def test_compare_action_tables_requires_reason_when_score_incompatible():
+    ref = [_row("id1", "/choose move 1")]
+    cand = [_row("id1", "/choose move 1")]
+    with pytest.raises(ValueError, match="score_incompatible_reason"):
+        compare_action_tables(ref, cand, direction="off -> cap6", score_comparable=False)
+
+
+from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
+from showdown_bot.eval.accuracy_cap_derisk import build_action_table_row
+
+
+def _candidate(candidate_id, rank, score):
+    return CandidateTrace(
+        candidate_id=candidate_id, joint_action=None, rank=rank, aggregate_score=score,
+        score_vector=[score], outcome_breakdowns=[], aggregate_breakdown=None,
+    )
+
+
+def test_build_action_table_row_exact_match_rank_zero(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="A", candidates=[
+        _candidate("A", 0, 5.0), _candidate("B", 1, 3.0),
+    ])
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
+    assert row.candidate_resolution_status == "exact"
+    assert row.chosen_candidate_rank == 0
+    assert row.chosen_rank_mismatch is False
+    assert row.top_rank_score == 5.0
+    assert row.chosen_candidate_score == 5.0
+    assert row.chosen_action_raw == "/choose move 1"
+    assert row.chosen_action_canonical  # non-empty; this single-slot action hits the
+    # unparseable fallback, see the dedicated fallback test below for its exact shape
+
+
+def test_build_action_table_row_tera_stripped_and_rank_mismatch_simultaneously(scripted_request):
+    """Both facts survive independently -- neither status collapses the other (spec Sec.2.3)."""
+    trace = DecisionTrace(chosen_candidate_id="(protect, moonblast->1 tera)", candidates=[
+        _candidate("(protect, shadowball->1)", 0, 6.0),
+        _candidate("(protect, moonblast->1)", 1, 5.0),  # the real chosen line, at rank 1
+    ])
+    row = build_action_table_row("d1", "/choose move 1, move 2", trace, scripted_request)
+    assert row.candidate_resolution_status == "tera_stripped"
+    assert row.chosen_candidate_rank == 1
+    assert row.chosen_rank_mismatch is True  # BOTH tera_stripped and rank_mismatch present
+    assert row.top_rank_score == 6.0  # rank-0's score, independent of which one is chosen
+    assert row.chosen_candidate_score == 5.0
+
+
+def test_build_action_table_row_ambiguous_label_has_null_chosen_candidate_score(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="(switch, pass)", candidates=[
+        _candidate("(switch, pass)", 0, 4.0), _candidate("(switch, pass)", 1, 2.0),
+    ])
+    row = build_action_table_row("d1", "/choose switch 2, pass", trace, scripted_request)
+    assert row.candidate_resolution_status == "ambiguous_label"
+    assert row.chosen_candidate_rank is None
+    assert row.chosen_rank_mismatch is None
+    assert row.chosen_candidate_score is None
+    assert row.top_rank_score == 4.0  # top_rank_score still populated -- independent of resolution
+
+
+def test_build_action_table_row_chosen_missing(scripted_request):
+    trace = DecisionTrace(chosen_candidate_id="(nothing matches)", candidates=[
+        _candidate("A", 0, 5.0),
+    ])
+    row = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    assert row.candidate_resolution_status == "chosen_missing"
+    assert row.chosen_candidate_score is None
+    assert row.top_rank_score == 5.0
+
+
+def test_build_action_table_row_empty_trace_keeps_the_action_row(scripted_request):
+    """An empty/rank-corrupt trace must not make the whole decision (and its chosen_action_raw)
+    disappear -- only the score fields go null, with the status visibly reflecting why."""
+    trace = DecisionTrace(chosen_candidate_id=None, candidates=[])
+    row = build_action_table_row("d1", "/choose move 1", trace, scripted_request)
+    assert row.chosen_action_raw == "/choose move 1"  # action always present
+    assert row.top_rank_score is None
+    assert row.chosen_candidate_score is None
+    assert row.chosen_candidate_rank is None
+    assert row.candidate_resolution_status in ("chosen_missing", "other_resolution_error")
+
+
+def test_build_action_table_row_unparseable_action_falls_back_to_deterministic_marker(scripted_request):
+    """The genuinely new behavior beyond the plan's literal code: _canonical_action's
+    try/except DecisionCaptureError fallback for chosen_action strings normalize_choose can't
+    parse (e.g. single-slot instead of the required two comma-separated slots)."""
+    trace = DecisionTrace(chosen_candidate_id="A", candidates=[_candidate("A", 0, 5.0)])
+    row = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    parsed = json.loads(row.chosen_action_canonical)
+    assert parsed["kind"] == "unparseable"
+    assert parsed["raw"] == "/choose move 3"
+    assert "error" in parsed
+
+    row2 = build_action_table_row("d1", "/choose move 3", trace, scripted_request)
+    assert row.chosen_action_canonical == row2.chosen_action_canonical  # determinism
+
+
+from showdown_bot.eval.accuracy_cap_derisk import (
+    Stage1ReproductionError,
+    run_stage1_raw_reproduction,
+    run_stage2_semantic_diff,
+)
+
+
+def _aux_row(decision_id, action_raw, action_canonical=None):
+    return ActionTableRow(
+        decision_id=decision_id, chosen_action_raw=action_raw,
+        chosen_action_canonical=action_canonical if action_canonical is not None else action_raw,
+        candidate_resolution_status="exact",
+        chosen_candidate_rank=0, chosen_rank_mismatch=False, top_rank_score=1.0, chosen_candidate_score=1.0,
+    )
+
+
+def test_stage1_passes_when_raw_diff_set_and_on_actions_match_frozen_exactly():
+    aux = [_aux_row("id1", "/choose move 1"), _aux_row("id2", "/choose move 3")]
+    frozen_off_actions = {"id1": "/choose move 1", "id2": "/choose move 2"}
+    frozen_on_actions_for_20 = {"id2": "/choose move 3"}  # the exact historical on-value for id2
+    result = run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert result.passed is True
+    assert result.raw_diff_decision_ids == {"id2"}
+
+
+def test_stage1_raises_on_decision_id_set_mismatch():
+    """Check (a): even before comparing any action values, the auxiliary rows and the frozen
+    off-actions must cover the exact same decision_id set -- a caller's pre-filtering bug
+    (e.g. wrong exclusion of the 63/wrong inclusion in the 881-eligible set) must be caught
+    here, not silently produce a wrong diff-ID count downstream."""
+    aux = [_aux_row("id1", "/choose move 1")]
+    frozen_off_actions = {"id1": "/choose move 1", "id2": "/choose move 2"}  # id2 missing from aux
+    frozen_on_actions_for_20 = {}
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id2" in str(exc_info.value)
+
+
+def test_stage1_raises_on_unexpected_raw_diff():
+    aux = [_aux_row("id1", "/choose move 99")]  # unexpectedly differs
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {}  # id1 was NOT one of the frozen 20
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id1" in str(exc_info.value)
+
+
+def test_stage1_raises_on_missing_expected_diff():
+    aux = [_aux_row("id1", "/choose move 1")]  # now matches off, but frozen report said it should diff
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # expected a diff here
+    with pytest.raises(Stage1ReproductionError):
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+
+
+def test_stage1_raises_when_diff_id_set_matches_but_on_action_value_does_not():
+    """The core correction: reproducing the SAME set of differing decision_ids is not enough --
+    the auxiliary run's actual differing action must equal the historical on_chosen_action value,
+    not just be different from off (spec Sec.2.3 Stage 1)."""
+    aux = [_aux_row("id1", "/choose move 5")]  # differs from off (matches the *set*)...
+    frozen_off_actions = {"id1": "/choose move 1"}
+    frozen_on_actions_for_20 = {"id1": "/choose move 2"}  # ...but NOT the historical on-value
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id1" in str(exc_info.value)
+
+
+def test_stage2_smaller_normalized_set_than_raw_20_is_not_a_failure():
+    """If Stage 1 passed (raw matches the historical 20, including exact on-values) but two of
+    those raw diffs turn out to be pure representational differences (their PRE-COMPUTED canonical
+    forms happen to match), Stage 2 reports fewer semantic diffs -- honestly, not as a failure."""
+    aux = [
+        _aux_row("id1", "/choose move 1", "canonical:move1"),
+        _aux_row("id2", "/choose move 2 ", "canonical:move2"),  # raw differs from frozen, canonical doesn't
+    ]
+    frozen_actions_canonical = {"id1": "canonical:move9", "id2": "canonical:move2"}
+    result = run_stage2_semantic_diff(aux, frozen_actions_canonical)
+    # id1: genuinely different canonical action -> action_changed True; id2: same canonical -> False
+    changed = {r.decision_id for r in result.rows if r.action_changed}
+    assert changed == {"id1"}
+
+
+from showdown_bot.eval.accuracy_cap_derisk import DuplicateRequestHashError, build_request_hash_index
+
+
+def test_build_request_hash_index_passes_when_unique():
+    rows = [{"request_hash": "rh1", "decision_id": "id1"}, {"request_hash": "rh2", "decision_id": "id2"}]
+    index = build_request_hash_index(rows)
+    assert index["rh1"]["decision_id"] == "id1"
+    assert index["rh2"]["decision_id"] == "id2"
+
+
+def test_build_request_hash_index_raises_on_duplicate():
+    """The core correction: a bare {r['request_hash']: r for r in rows} dict comprehension would
+    silently keep only the LAST row for a duplicated request_hash and drop the other -- any
+    driver script translating gate-b-report.json's request_hash-keyed data into decision_id space
+    must use this fail-closed index instead, exactly matching len(index) == len(rows)."""
+    rows = [
+        {"request_hash": "rh1", "decision_id": "id1"},
+        {"request_hash": "rh1", "decision_id": "id2"},  # same request_hash, different decision
+        {"request_hash": "rh2", "decision_id": "id3"},
+    ]
+    with pytest.raises(DuplicateRequestHashError) as exc_info:
+        build_request_hash_index(rows)
+    assert "rh1" in str(exc_info.value)
+
+
+from showdown_bot.eval.accuracy_cap_derisk import cap_order_for_game
+
+
+def test_cap_order_for_game_rotates_by_index_mod_three():
+    assert cap_order_for_game(0) == [4, 6, 8]
+    assert cap_order_for_game(1) == [6, 8, 4]
+    assert cap_order_for_game(2) == [8, 4, 6]
+    assert cap_order_for_game(3) == [4, 6, 8]  # wraps back to identity
+
+
+def test_cap_order_for_game_covers_all_caps_in_every_position_over_a_full_cycle():
+    """Over any 3 consecutive game indices, each cap appears in each of the 3 cap-order
+    positions exactly once -- the actual combinatorial guarantee this task's methodology
+    depends on, not just a spot-check of a few rotations."""
+    for start in range(0, 30, 3):
+        orders = [cap_order_for_game(start + i) for i in range(3)]
+        for position in range(3):
+            caps_at_position = {order[position] for order in orders}
+            assert caps_at_position == {4, 6, 8}
+
+
+from showdown_bot.eval.accuracy_cap_derisk import classify_ambiguous_case
+
+
+def test_classify_label_collision_switch_target_omitted():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.primary_cause == "label_collision"
+    assert result.label_collision_subtype == "switch_target_omitted"
+    assert "distinct_switch_targets_same_label" in result.companion_flags
+
+
+def test_classify_chosen_missing():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(nothing)", matching_candidate_ids=[],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        top_k_truncated=True, chosen_candidate_missing_subreason="top_k_truncation",
+    )
+    assert result.primary_cause == "chosen_candidate_missing"
+    assert result.chosen_candidate_missing_subreason == "top_k_truncation"
+    assert "top_k_truncated" in result.companion_flags
+
+
+def test_classify_chosen_candidate_missing_requires_subreason():
+    with pytest.raises(ValueError, match="sub-reason"):
+        classify_ambiguous_case(
+            chosen_candidate_id="(nothing)", matching_candidate_ids=[],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
+            # no chosen_candidate_missing_subreason -> must raise
+        )
+
+
+def test_classify_primary_and_companion_flags_are_independent():
+    """A label collision WITH a simultaneous exact score tie and a collision spanning a nonzero
+    rank -- both companion facts survive, neither forces a different primary cause (spec Sec.3.1)."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=True, collision_spans_nonzero_rank=True,
+    )
+    assert result.primary_cause == "label_collision"  # unaffected by the companion facts
+    assert "exact_score_tie" in result.companion_flags
+    assert "collision_spans_nonzero_rank" in result.companion_flags
+
+
+def test_classify_other_pipeline_error_requires_rationale():
+    with pytest.raises(ValueError, match="rationale"):
+        classify_ambiguous_case(
+            chosen_candidate_id="(weird)", matching_candidate_ids=["(weird)"],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
+            force_other_pipeline_error=True,  # no rationale provided -> must raise
+        )
+
+
+def test_classify_request_reconstructable_false_overrides_label_collision():
+    """invalid_or_nonreconstructable_request takes priority even when the candidate-set shape
+    would otherwise resolve to label_collision (spec Sec.3.1's priority order)."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        request_reconstructable=False,
+    )
+    assert result.primary_cause == "invalid_or_nonreconstructable_request"
+
+
+def test_classify_force_other_pipeline_error_succeeds_with_rationale():
+    """The successful override path -- force_other_pipeline_error=True WITH a real rationale
+    must win over what would otherwise be label_collision, not just raise on a missing one."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        force_other_pipeline_error=True, other_pipeline_error_rationale="transient calc timeout",
+    )
+    assert result.primary_cause == "other_pipeline_error"
+
+
+def test_classify_label_collision_subtype_priority_tera_over_move_or_target():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="X", matching_candidate_ids=["X", "X"],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=True,
+        matching_joint_actions_distinct_move_or_target=True,  # both true -- tera wins by priority
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.label_collision_subtype == "tera_state_omitted"
+
+
+def test_classify_label_collision_subtype_move_or_target_omitted():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="X", matching_candidate_ids=["X", "X"],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=True,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.label_collision_subtype == "move_or_target_omitted"
+
+
+def test_classify_raises_on_non_ambiguous_single_match():
+    """The 1-match fallthrough -- this function must never be called on a genuinely resolvable
+    case, and must fail loudly (not silently misclassify) if it is."""
+    with pytest.raises(ValueError, match="non-ambiguous"):
+        classify_ambiguous_case(
+            chosen_candidate_id="X", matching_candidate_ids=["X"],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
+        )
+
+
+from showdown_bot.battle.actions import JointAction
+from showdown_bot.eval.accuracy_cap_derisk import (
+    distinct_move_or_targets,
+    distinct_switch_targets,
+    distinct_tera_states,
+)
+from showdown_bot.models.actions import SlotAction
+
+
+def _ja(slot0: SlotAction, slot1: SlotAction) -> JointAction:
+    return JointAction(slot0=slot0, slot1=slot1)
+
+
+def test_distinct_switch_targets_false_for_single_real_target_plus_a_move_slot():
+    """The core correction: exactly ONE real switch target, paired with a non-switch other slot in
+    every colliding candidate, must NOT be reported as distinct -- this is the exact bug found in
+    review (None from the move/pass slot was previously unioned together with the real target)."""
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="move", move_index=1))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False
+
+
+def test_distinct_switch_targets_true_for_genuinely_different_targets():
+    ja1 = _ja(SlotAction(kind="switch", target_ident="b"), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="switch", target_ident="c"), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is True
+
+
+def test_distinct_switch_targets_false_when_no_switch_slots_at_all():
+    ja1 = _ja(SlotAction(kind="move", move_index=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2), SlotAction(kind="pass"))
+    assert distinct_switch_targets([ja1, ja2]) is False  # no switches present -> vacuously false
+
+
+def test_distinct_tera_states_true_when_terastallize_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, terastallize=False), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    assert distinct_tera_states([ja1, ja2]) is True
+
+
+def test_distinct_tera_states_true_when_terastallize_differs_on_slot1():
+    """Both existing distinct_tera_states/distinct_move_or_targets tests only varied slot0 -- a
+    regression that accidentally dropped slot1 from the comparison tuple would still pass them.
+    This exercises the slot1 half of the tuple explicitly."""
+    ja1 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, terastallize=False))
+    ja2 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, terastallize=True))
+    assert distinct_tera_states([ja1, ja2]) is True
+
+
+def test_distinct_tera_states_false_when_identical():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    assert distinct_tera_states([ja1, ja2]) is False
+
+
+def test_distinct_move_or_targets_true_when_move_index_differs():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=2, target=1), SlotAction(kind="pass"))
+    assert distinct_move_or_targets([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_true_when_slot1_target_differs():
+    """Same slot1-coverage gap as distinct_tera_states above, for the move/target tuple."""
+    ja1 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, target=1))
+    ja2 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, target=2))
+    assert distinct_move_or_targets([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_false_when_identical():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    assert distinct_move_or_targets([ja1, ja2]) is False

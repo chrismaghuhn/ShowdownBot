@@ -9,16 +9,20 @@ from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
 from showdown_bot.battle.opponent import SpeciesDex, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
-from showdown_bot.battle.policy import pick_best, tera_decision
+from showdown_bot.battle.policy import _risk_lambda, aggregate_scores, pick_best, tera_decision
 from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
 from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.battle.search import depth2_value
 from showdown_bot.battle.team_preview import pick_team_preview_default
 from showdown_bot.engine.belief.game_mode import classify_game_mode
 from showdown_bot.engine.belief.hypotheses import SpreadBook
+from showdown_bot.engine.belief.world_sampler import (
+    build_world_dist, sample_worlds, world_samples, world_seed,
+)
 from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.engine.speed import SpeedOracle
-from showdown_bot.engine.state import BattleState
+from showdown_bot.engine.state import BattleState, to_id
 from showdown_bot.models.actions import SlotAction
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.encoder import encode_choose, encode_team_preview
@@ -50,6 +54,78 @@ def _fast_board_protect_weight() -> float:
         return 0.0
 
 
+def _search_depth() -> int:
+    """Search depth (SHOWDOWN_SEARCH_DEPTH), clamped to {1, 2}. Default/unparsable
+    -> 1 (verbatim 1-ply = byte-identical). >=2 -> approximate depth-2."""
+    try:
+        return 2 if int(os.environ.get("SHOWDOWN_SEARCH_DEPTH", "1")) >= 2 else 1
+    except ValueError:
+        return 1
+
+
+def _search_topn() -> int:
+    """Depth-2 candidate frontier cap N (SHOWDOWN_SEARCH_TOPN): how many of our
+    top-1-ply-ranked turn-1 candidates get expanded to depth-2. Default 2,
+    clamped >=1. Unused unless SHOWDOWN_SEARCH_DEPTH>=2 (see ``_search_depth``)
+    -- deliberately NOT BEHAVIOR_AFFECTING (see config_env), since it cannot
+    affect output at depth=1."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_SEARCH_TOPN", "2"))
+    except ValueError:
+        return 2
+    return max(1, v)
+
+
+def _search_topm() -> int:
+    """Depth-2 response frontier cap M1 (SHOWDOWN_SEARCH_TOPM): how many of a
+    selected candidate's opponent-response slots (the highest-weight ones) get
+    expanded to depth-2. Default 2, clamped >=1. Same non-BEHAVIOR_AFFECTING
+    rationale as ``_search_topn``."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_SEARCH_TOPM", "2"))
+    except ValueError:
+        return 2
+    return max(1, v)
+
+
+def _accuracy_mode() -> bool:
+    """``SHOWDOWN_ACCURACY_MODE``: on/off switch for hit/miss branching in evaluate_line.
+    Off (default/unset/""/"0"/"false", case-insensitive) -> today's exact always-hit
+    resolve_turn path, byte-identical output. Uses an EXPLICIT off-list, not
+    ``bool(os.environ.get(...))`` -- that shortcut (used elsewhere in this codebase for
+    presence-only flags, e.g. SHOWDOWN_RERANKER_SHADOW) treats the STRING "0" or "false" as
+    truthy, which is wrong here: this flag needs "0"/"false" to explicitly mean off, not just
+    unset."""
+    raw = os.environ.get("SHOWDOWN_ACCURACY_MODE", "").strip().lower()
+    return raw not in ("", "0", "false")
+
+
+def _accuracy_branch_cap() -> int:
+    """Max resolve_turn calls per resolve_turn_branches expansion
+    (SHOWDOWN_ACCURACY_BRANCH_CAP). Default 4, clamped >=1. Only consulted when
+    _accuracy_mode() is on."""
+    try:
+        v = int(os.environ.get("SHOWDOWN_ACCURACY_BRANCH_CAP", "4"))
+    except ValueError:
+        return 4
+    return max(1, v)
+
+
+def _applied_damage_from_outcome(outcome, state: BattleState) -> dict[tuple[str, str], float]:
+    """Absolute-HP damage per (side, slot) from a turn-1 ``TurnOutcome``, for
+    ``approx_turn2_state``. ``hp_delta`` is FRACTIONAL (new_frac - start_frac,
+    <=0 for damage); convert to absolute HP via the CURRENT (turn-1) max_hp.
+    Heals (delta>=0) contribute no subtraction."""
+    dmg: dict[tuple[str, str], float] = {}
+    for (side, slot), delta in outcome.hp_delta.items():
+        if delta >= 0:
+            continue
+        mon = state.sides.get(side, {}).get(slot)
+        if mon is not None:
+            dmg[(side, slot)] = -delta * mon.max_hp
+    return dmg
+
+
 def choose_for_request(req: BattleRequest) -> str:
     """Legacy random agent (kept for smoke tests / hard fallback)."""
     if req.team_preview:
@@ -66,6 +142,16 @@ def choose_for_request_json(payload: str) -> str:
 
 def _opp_side(our_side: str) -> str:
     return "p2" if our_side == "p1" else "p1"
+
+
+def _board_key(state, opp_side: str) -> str:
+    """A stable per-decision string for seeding the world sampler: opponent species
+    + hp buckets + field. Same board -> same worlds (determinism)."""
+    parts = []
+    for slot, mon in sorted(state.side(opp_side).items()):
+        parts.append(f"{slot}:{mon.species}:{int((mon.hp_fraction or 0) * 20)}")
+    field = getattr(state, "field", None)
+    return "|".join(parts) + "#" + str(field)
 
 
 def _is_fast_board(field) -> bool:
@@ -172,7 +258,7 @@ def _choose_best(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -187,13 +273,20 @@ def _choose_best(
     other inability so the caller's fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
-    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
-    a ``report`` list to collect a readable decision block.
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2).
+    ``risk_lambda`` (NEUTRAL-mode variance penalty passed to pick_best/
+    aggregate_scores) defaults to ``None``, which resolves ``SHOWDOWN_RISK_LAMBDA``
+    via ``policy._risk_lambda()`` (else 0.5); pass an explicit float to override.
+    Pass a ``report`` list to collect a readable decision block.
     """
     if req.team_preview:
         raise ValueError("_choose_best_ja does not handle team preview")
     if rollout_horizon is None:
         rollout_horizon = _default_rollout_horizon()
+    if risk_lambda is None:
+        risk_lambda = _risk_lambda()
+    accuracy_mode = _accuracy_mode()
+    accuracy_branch_cap = _accuracy_branch_cap()
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -274,52 +367,182 @@ def _choose_best(
         for slot, mon in state.side(opp_side).items()
         if slot in ("a", "b") and 0.0 < mon.hp_fraction <= 0.6
     }
-    opp_resps = predict_responses(
-        state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
-        dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
-        opp_sets=opp_sets,
-    )
-    resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
+    world_dist = None
+    if world_samples() > 1:
+        opp_mons = [(to_id(mon.species), mon.species)
+                    for mon in state.side(opp_side).values()]
+        world_dist = build_world_dist(opp_mons, book, opp_sets or {})
+    if world_dist:
+        # --- K-world opponent-set sampling (2c +Sampling): only when there is actual
+        # opponent-set uncertainty to sample; empty dist -> single-world = byte-identical ---
+        seed = world_seed(os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "world"),
+                          getattr(state, "turn", 0) or 0, _board_key(state, opp_side))
+        worlds = sample_worlds(world_dist, world_samples(), seed=seed)
+        shared_oracle = oracle or DamageOracle()
+        world_ctx = []  # (world_weight, opp_resps_k, model_k)
+        for world_sets, world_w in worlds:
+            merged_sets = {**(opp_sets or {}), **world_sets}
+            resps_k = predict_responses(
+                state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
+                dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+                opp_sets=merged_sets,
+            )
+            model_k = DamageModel(
+                state, our_side, opp_side, book=book, oracle=shared_oracle,
+                field=state.field, our_spreads=our_spreads, opp_sets=merged_sets,
+            )
+            model_k.enqueue(list(plans.values()) + [r.actions for r in resps_k])
+            world_ctx.append((world_w, resps_k, model_k))
+        shared_oracle.flush()
+        # _maybe_tera + report/trace below reference a single opp_resps/model; bind them
+        # to the most-likely world (world_ctx[0], always present). Full K-world Tera/trace
+        # is a follow-up refinement (this machinery slice is off-by-default, no winrate claim).
+        opp_resps = world_ctx[0][1]
+        model = world_ctx[0][2]
 
-    model = DamageModel(
-        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
-        our_spreads=our_spreads, opp_sets=opp_sets,
-    )
-    groups = list(plans.values()) + [r.actions for r in opp_resps]
-    model.prefetch(groups)
+        def score_plan(my_plan: list[PlannedAction]) -> list[float]:
+            out: list[float] = []
+            for _w, resps_k, model_k in world_ctx:
+                targets = [r.actions for r in resps_k] if resps_k else [[]]
+                for opp_actions in targets:
+                    out.append(evaluate_line(
+                        state, my_plan, opp_actions, model_k.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+                    )[0])
+            return out
 
-    def score_plan(my_plan: list[PlannedAction]) -> list[float]:
-        if opp_resps:
+        resp_weights = []
+        for world_w, resps_k, _model_k in world_ctx:
+            if resps_k:
+                for r in resps_k:
+                    resp_weights.append(world_w * (r.weight if priors is not None else 1.0))
+            else:
+                resp_weights.append(world_w)
+        items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
+        best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+    else:
+        # --- single-world path (unchanged; byte-identical when world_samples()<=1) ---
+        opp_resps = predict_responses(
+            state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
+            dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
+            opp_sets=opp_sets,
+        )
+        resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
+
+        model = DamageModel(
+            state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+            our_spreads=our_spreads, opp_sets=opp_sets,
+        )
+        groups = list(plans.values()) + [r.actions for r in opp_resps]
+        model.prefetch(groups)
+
+        def score_plan(my_plan: list[PlannedAction]) -> list[float]:
+            if opp_resps:
+                return [
+                    evaluate_line(
+                        state, my_plan, r.actions, model.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+                    )[0]
+                    for r in opp_resps
+                ]
             return [
                 evaluate_line(
-                    state, my_plan, r.actions, model.damage_fn,
+                    state, my_plan, [], model.damage_fn,
                     our_side=our_side, weights=weights, field=state.field,
                     rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                 )[0]
-                for r in opp_resps
             ]
-        return [
-            evaluate_line(
-                state, my_plan, [], model.damage_fn,
-                our_side=our_side, weights=weights, field=state.field,
-                rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
-            )[0]
-        ]
 
-    items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
-    best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+        if _search_depth() > 1 and world_samples() <= 1:
+            # --- depth-2 wrap (guarded; the verbatim 1-ply branch below runs
+            # unchanged whenever this condition is false -> byte-identical off) ---
+            def score_plan_with_outcome(my_plan: list[PlannedAction]) -> list[tuple[float, object]]:
+                targets = [r.actions for r in opp_resps] if opp_resps else [[]]
+                return [
+                    evaluate_line(
+                        state, my_plan, opp_actions, model.damage_fn,
+                        our_side=our_side, weights=weights, field=state.field,
+                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+                    )
+                    for opp_actions in targets
+                ]
+
+            full = {ja: score_plan_with_outcome(plan) for ja, plan in plans.items()}
+            items = [(ja, [s for s, _o in vec]) for ja, vec in full.items()]
+
+            # Frontier caps: N turn-1 candidates x M1 opponent-response slots.
+            top_n = _search_topn()
+            top_m = _search_topm()
+            ranked_pos = sorted(
+                range(len(items)),
+                key=lambda i: aggregate_scores(
+                    items[i][1], mode, risk_lambda=risk_lambda, weights=resp_weights
+                ),
+                reverse=True,
+            )
+            top_n_pos = ranked_pos[:top_n]
+
+            n_resps = len(opp_resps) if opp_resps else 1
+            if resp_weights is not None:
+                top_m_idx = sorted(range(len(resp_weights)), key=lambda i: -resp_weights[i])[:top_m]
+            else:
+                top_m_idx = list(range(min(top_m, n_resps)))
+
+            d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
+            d2_model_kwargs = {"our_spreads": our_spreads, "opp_sets": opp_sets}
+            # [accuracy-slice] Deliberately does NOT include accuracy_mode/accuracy_branch_cap.
+            # depth2_value's turn-2 refinement (search.py) is out of scope for the accuracy slice
+            # (spec Sec.12, Depth-2 Stage 3 is separate, later work) -- if SHOWDOWN_ACCURACY_MODE
+            # and SHOWDOWN_SEARCH_DEPTH=2 are ever both on, the top-N/top-M candidates' scores get
+            # overwritten by depth2_value with legacy always-hit values, mixing methodologies
+            # inside one decision's comparison set. Not exercised by the accuracy-slice latency
+            # bench (scratchpad/bench_accuracy_latency.py) or tests -- known, accepted gap until
+            # Depth-2 Stage 3 threads these two kwargs through search.py.
+            d2_eval_kwargs = {
+                "weights": weights, "rollout_horizon": rollout_horizon,
+                "endgame": endgame, "fast_board": fast_board,
+            }
+
+            for pos in top_n_pos:
+                ja, scores_vec = items[pos]
+                outcomes = full[ja]
+                for i in top_m_idx:
+                    _score1, outcome = outcomes[i]
+                    applied_damage = _applied_damage_from_outcome(outcome, state)
+                    v = depth2_value(
+                        state, our_side=our_side, applied_damage=applied_damage, mode=mode,
+                        risk_lambda=risk_lambda, top_m=2, book=book, oracle=model.oracle,
+                        predict_kwargs=d2_predict_kwargs, model_kwargs=d2_model_kwargs,
+                        eval_kwargs=d2_eval_kwargs,
+                    )
+                    scores_vec[i] = v
+        else:
+            items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
+        best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
+    if trace is not None:
+        from showdown_bot.battle.policy import must_react_lambda as _mrl
+        trace.aggregation_mode = mode.value if hasattr(mode, "value") else str(mode)
+        trace.risk_lambda = float(risk_lambda)
+        trace.must_react_lambda = float(_mrl())
     if best_ja is None:
         raise ValueError("no best action found")
 
+    pre_tera_ja = best_ja
     best_ja = _maybe_tera(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
         endgame=endgame, fast_board=fast_board,
+        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
     )
 
     if report is not None:
         from showdown_bot.battle.diagnostics import format_decision
-        from showdown_bot.battle.policy import aggregate_scores
 
         ranked = sorted(
             (
@@ -341,6 +564,7 @@ def _choose_best(
         _, out = evaluate_line(
             state, chosen_plan, rep_resp, model.damage_fn,
             our_side=our_side, weights=weights, field=state.field, rollout_horizon=0,
+            accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
         )
         incoming = sum(-d for k, d in out.hp_delta.items() if k[0] == our_side and d < 0)
         outgoing = sum(-d for k, d in out.hp_delta.items() if k[0] == opp_side and d < 0)
@@ -362,31 +586,60 @@ def _choose_best(
                 pass
 
     if trace is not None:
+        from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key
         from showdown_bot.battle.decision_trace import (
+            AccuracyEventTrace,
+            AccuracyResponseDetail,
+            AccuracyTieOrderTrace,
             CandidateModelFeatures,
             CandidateTrace,
             DecisionTrace as _DT,
         )
-        from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
-        from showdown_bot.battle.policy import aggregate_scores
+        from showdown_bot.battle.evaluate import (
+            OutcomeBreakdown,
+            _evaluate_line_details,
+            score_outcome_with_breakdown,
+        )
         from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
 
         rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
 
         def _breakdowns_for(plan):
             out = []
-            for ra in rep_resps:
-                _, oc = evaluate_line(
+            acc_details = []
+            for ri, ra in enumerate(rep_resps):
+                d = _evaluate_line_details(
                     state, plan, ra, model.damage_fn, our_side=our_side,
                     weights=weights, field=state.field, rollout_horizon=0,
                     endgame=endgame, fast_board=fast_board,
+                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                 )
                 out.append(
                     score_outcome_with_breakdown(
-                        oc, our_side, weights, endgame=endgame, fast_board=fast_board
+                        d.representative_outcome, our_side, weights, endgame=endgame, fast_board=fast_board
                     )[1]
                 )
-            return out
+                acc_details.append(AccuracyResponseDetail(
+                    accuracy_leaf_count=sum(t.accuracy_leaf_count for t in d.tie_order_details),
+                    accuracy_event_count=len(d.accuracy_events),
+                    accuracy_branch_cap_hits=d.fallback_leaves,
+                    events_complete=(d.fallback_leaves == 0),
+                    tie_orders=[
+                        AccuracyTieOrderTrace(
+                            t.tie_order, t.weight, t.accuracy_leaf_count,
+                            t.accuracy_branch_cap_hits, t.events_complete,
+                        )
+                        for t in d.tie_order_details
+                    ],
+                    events=[
+                        AccuracyEventTrace(
+                            e.attacker, e.target, e.move_id, e.hit_probability,
+                            response_index=ri, tie_order=e.tie_order,
+                        )
+                        for e in d.accuracy_events
+                    ],
+                ))
+            return out, acc_details
 
         def _weighted_mean_breakdown(bds):
             ws = resp_weights or [1.0] * len(bds)
@@ -432,7 +685,7 @@ def _choose_best(
         scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
         cands = []
         for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
-            bds = _breakdowns_for(plans[ja])
+            bds, acc_details = _breakdowns_for(plans[ja])
             cands.append(CandidateTrace(
                 candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
                 aggregate_score=agg, score_vector=list(scores),
@@ -442,9 +695,13 @@ def _choose_best(
                     ko_threatened_count=dec_threatened,
                     survives_for_sure_count=dec_survives,
                 ),
+                accuracy_details=acc_details,
+                candidate_key=joint_action_key(ja),
             ))
         trace.game_mode = getattr(mode, "name", str(mode))
+        trace.chosen_candidate_key = joint_action_key(pre_tera_ja)
         trace.chosen_candidate_id = _label_ja(req, best_ja)
+        trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
         trace.opponent_responses = [r.actions for r in opp_resps]
         trace.opponent_response_weights = resp_weights or []
         trace.candidates = cands
@@ -490,7 +747,7 @@ def _choose_best_ja(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -536,7 +793,7 @@ def heuristic_choose_for_request(
     dex: SpeciesDex | None = None,
     priors=None,
     weights: EvalWeights | None = None,
-    risk_lambda: float = 0.5,
+    risk_lambda: float | None = None,
     tera_margin: float = 1.0,
     rollout_horizon: int | None = None,
     report: list[str] | None = None,
@@ -548,8 +805,10 @@ def heuristic_choose_for_request(
     fallback chain can take over.
 
     ``rollout_horizon`` enables the multi-turn condition rollout (0 = off, exact
-    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2). Pass
-    a ``report`` list to collect a readable decision block.
+    legacy behavior; default resolves ``SHOWDOWN_ROLLOUT_HORIZON``, else 2).
+    ``risk_lambda`` defaults to ``None``, which resolves ``SHOWDOWN_RISK_LAMBDA``
+    (else 0.5) inside ``_choose_best``. Pass a ``report`` list to collect a
+    readable decision block.
     """
     if req.team_preview:
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
@@ -579,6 +838,7 @@ def _maybe_tera(
     req, best_ja, best_val, mode, state, our_side, opp_side,
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
     *, endgame: bool = False, fast_board: bool = False,
+    accuracy_mode: bool = False, accuracy_branch_cap: int = 4,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
@@ -599,20 +859,32 @@ def _maybe_tera(
             scores = [
                 evaluate_line(state, plan, r.actions, model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame, fast_board=fast_board)[0]
+                              endgame=endgame, fast_board=fast_board,
+                              accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap)[0]
                 for r in opp_resps
             ]
         else:
             scores = [
                 evaluate_line(state, plan, [], model.damage_fn,
                               our_side=our_side, weights=weights, field=state.field,
-                              endgame=endgame, fast_board=fast_board)[0]
+                              endgame=endgame, fast_board=fast_board,
+                              accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap)[0]
             ]
         val = aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
         if val > best_overlay_val and tera_decision(best_val, val, margin=tera_margin):
             best = tera_ja
             best_overlay_val = val
     return best
+
+
+def _mark_selection(trace, stage: str, reason: str | None = None) -> None:
+    """Pure side-effect telemetry marker: records which stage produced the
+    chosen ``/choose`` string (and, on a fallback, why) on the passed
+    ``DecisionTrace``. No-op when ``trace`` is None -- never influences which
+    branch ``choose_with_fallback`` takes or what it returns."""
+    if trace is not None:
+        trace.selection_stage = stage
+        trace.fallback_reason = reason
 
 
 def choose_with_fallback(
@@ -632,8 +904,10 @@ def choose_with_fallback(
     skipped and the bot never crashes the battle loop.
     """
     if req.team_preview:
+        _mark_selection(trace, "team_preview")
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
+    fallback_reason: str | None = None
     if state is not None and book is not None:
         # NOTE: a ThreadPoolExecutor context manager would block in __exit__
         # waiting for the worker, defeating the timeout. We shut it down with
@@ -646,10 +920,14 @@ def choose_with_fallback(
                 heuristic_choose_for_request,
                 req, state=state, book=book, our_side=our_side, report=report, trace=trace, **deps,
             )
-            return fut.result(timeout=hard_timeout)
+            choice = fut.result(timeout=hard_timeout)
+            _mark_selection(trace, "heuristic")
+            return choice
         except FutureTimeout:
+            fallback_reason = "heuristic_timeout"
             logger.warning("heuristic timed out after %ss, falling back", hard_timeout)
         except Exception as exc:  # noqa: BLE001 - intentional catch-all for robustness
+            fallback_reason = "heuristic_error"
             logger.warning("heuristic failed, falling back: %s", exc)
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -658,13 +936,19 @@ def choose_with_fallback(
         from showdown_bot.battle.baselines import max_damage_choice
 
         if state is not None and book is not None:
-            return max_damage_choice(req, state=state, book=book, our_side=our_side, **deps)
+            choice = max_damage_choice(req, state=state, book=book, our_side=our_side, **deps)
+            _mark_selection(trace, "max_damage_fallback", fallback_reason)
+            return choice
     except Exception as exc:  # noqa: BLE001
+        fallback_reason = "max_damage_error"
         logger.warning("max_damage fallback failed: %s", exc)
 
     try:
-        return encode_choose(pick_default_pair(req), rqid=req.rqid)
+        choice = encode_choose(pick_default_pair(req), rqid=req.rqid)
+        _mark_selection(trace, "deterministic_default_pair", fallback_reason)
+        return choice
     except Exception as exc:  # noqa: BLE001
         logger.warning("random fallback failed: %s", exc)
 
+    _mark_selection(trace, "server_default", "default_pair_error")
     return f"/choose default|{req.rqid}"

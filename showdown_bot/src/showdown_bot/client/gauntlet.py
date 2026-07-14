@@ -250,7 +250,9 @@ class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
     def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
-                 export_runtime=None, allow_own_export=True, is_mirror=True):
+                 export_runtime=None, allow_own_export=True, is_mirror=True,
+                 decision_trace_writer=None, decision_trace_context=None,
+                 agg_trace_writer=None, agg_trace_context=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -258,6 +260,27 @@ class _Client:
         self.priors = priors
         self.format_id = format_id
         self.packed_team = packed_team
+        # Decision capture seam (candidate-vs-baseline-diff Task 4) — off by default. A caller
+        # (cli.run_schedule, HERO client only) can supply a DecisionTraceWriter + a per-battle
+        # BattleTraceContext to bind every decision this client makes to an optional sidecar
+        # file. `None` (both, the default) is a NO-OP: `handle_request` never builds a
+        # DecisionTrace for capture, never calls prepare_capture/build_trace_row, and the
+        # dispatched /choose messages are byte-identical to before this seam existed.
+        self.decision_trace_writer = decision_trace_writer
+        self.decision_trace_context = decision_trace_context
+        self._decision_capture_index = 0
+        # Aggregation-trace capture seam (2c-Slice-0b Task 3) — off by default, and INDEPENDENT
+        # of decision capture above (a SEPARATE writer/context/counter, mirroring its shape
+        # exactly). A caller (cli.run_schedule, HERO client only) can supply an AggTraceWriter +
+        # a per-battle AggTraceContext (research/aggregation_trace.py) to bind every decision
+        # this client makes to a SECOND, independent sidecar file (the full-fidelity per-
+        # candidate x per-opponent-response score matrix). `None` (both, the default) is a
+        # NO-OP: `handle_request` never builds a DecisionTrace for THIS trigger, never calls
+        # build_agg_row, and the dispatched /choose messages are byte-identical to before this
+        # seam existed.
+        self.agg_trace_writer = agg_trace_writer
+        self.agg_trace_context = agg_trace_context
+        self._agg_trace_index = 0
         # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
@@ -472,10 +495,45 @@ class _Client:
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
         # Build a DecisionTrace only when export OR shadow is enabled and the heuristic is active.
         # With both seams off (self._export is None and self._shadow is None) -> trace_obj=None
-        # (bit-identical path — no trace is constructed, choose is unaffected).
+        # (bit-identical path — no trace is constructed, choose is unaffected). Decision capture
+        # below (Task 4) never widens THIS condition -- it is an ADDITIONAL, independent trigger
+        # for the same trace_obj, so export/shadow's own construction is untouched by capture.
         trace_obj = DecisionTrace() if (
             (self._export is not None or self._shadow is not None)
             and self.agent == "heuristic" and state is not None) else None
+        # Decision capture (candidate-vs-baseline-diff Task 4, off by default): an independent
+        # trigger for the SAME trace_obj. When export/shadow already built one (agent ==
+        # "heuristic"), capture reuses it -- one heuristic run, one trace, multiple consumers.
+        # When they did not (e.g. hero_agent == "heuristic_reranker", which export/shadow never
+        # wire into -- see the explicit `self.agent == "heuristic"` guard on their own observe()
+        # calls below), capture builds its OWN trace here so it can see the reranker's real
+        # candidates too. `self.decision_trace_writer is None` (the default) makes
+        # capture_wants_trace False, so trace_obj is left EXACTLY as computed above --
+        # byte-identical to every caller that predates this seam.
+        capture_wants_trace = (
+            self.decision_trace_writer is not None
+            and self.agent in ("heuristic", "heuristic_reranker")
+            and state is not None
+        )
+        # Aggregation trace (2c-Slice-0b Task 3, off by default): a SECOND, INDEPENDENT trigger
+        # for the SAME trace_obj, mirroring capture_wants_trace's own shape exactly (same agent/
+        # state gate) so the agg-trace sidecar sees real populated candidates for both
+        # "heuristic" and "heuristic_reranker". `self.agg_trace_writer is None` (the default)
+        # makes agg_wants_trace False, so trace_obj is left EXACTLY as computed by the export/
+        # shadow condition above and by capture_wants_trace -- this NEVER widens either of
+        # those; it only adds one more independent OR-branch below.
+        agg_wants_trace = (
+            self.agg_trace_writer is not None
+            and self.agent in ("heuristic", "heuristic_reranker")
+            and state is not None
+        )
+        if (capture_wants_trace or agg_wants_trace) and trace_obj is None:
+            trace_obj = DecisionTrace()
+        prepared_capture = None
+        if self.decision_trace_writer is not None:
+            from showdown_bot.eval.decision_capture import prepare_capture
+
+            prepared_capture = prepare_capture(state, req)
         # Client-owned decision deps (2b-2.5a Kaggle-OOM root-cause fix): built once
         # per battle (heuristic/max_damage/heuristic_reranker only) and threaded into
         # every decision so the core reuses ONE calc instead of spawning a fresh Node
@@ -486,6 +544,8 @@ class _Client:
         # for every agent other than "heuristic_reranker" and when disabled/unavailable
         # (fail-safe -- see agent_choose's heuristic_reranker branch).
         override = self._reranker_override()
+        capture_stage_override = None
+        capture_reason_override = None
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -501,11 +561,65 @@ class _Client:
             self.crashes += 1
             choose = f"/choose default|{req.rqid}"
             trace_obj = None  # discard partial trace on crash
-        self.latencies.append(time.perf_counter() - start)
+            capture_stage_override = "client_exception_default"
+            capture_reason_override = "agent_exception"
+        # Existing decision-latency window (choice computed, not yet sent) — measured ONCE here
+        # so the capture sidecar's decision_latency_ms and self.latencies derive from the exact
+        # SAME perf_counter() call; the sidecar latency is never the WebSocket send time.
+        decision_latency_ms = (time.perf_counter() - start) * 1000
+        self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
+        # Decision capture: write ONLY after a successful send, and never mutate an
+        # already-validated row. Off (writer is None, the default) -> no-op; prepared_capture is
+        # already None in that case too, so this is zero new objects, zero behavior change.
+        if self.decision_trace_writer is not None:
+            from showdown_bot.eval.decision_capture import build_trace_row
+
+            row = build_trace_row(
+                context=self.decision_trace_context,
+                prepared=prepared_capture,
+                request=req,
+                choose=choose,
+                trace=trace_obj,
+                decision_index=self._decision_capture_index,
+                decision_latency_ms=decision_latency_ms,
+                selection_stage_override=capture_stage_override,
+                fallback_reason_override=capture_reason_override,
+            )
+            self.decision_trace_writer.write(row)
+            self._decision_capture_index += 1
+        # Aggregation trace (2c-Slice-0b Task 3): write ONLY after a successful send, mirroring
+        # decision capture's own placement/discipline exactly -- but a SECOND, INDEPENDENT
+        # writer/context/counter, never mutating or reusing decision capture's. Off
+        # (self.agg_trace_writer is None, the default) -> no-op: zero new objects, zero
+        # behavior change. Reuses trace_obj (built above by EITHER capture_wants_trace OR
+        # agg_wants_trace, whichever fired) so a decision that ONLY the agg-trace seam wants
+        # still gets a real, populated trace instead of a degenerate None one.
+        if self.agg_trace_writer is not None:
+            from showdown_bot.research.aggregation_trace import build_agg_row
+
+            try:
+                agg_row = build_agg_row(
+                    context=self.agg_trace_context,
+                    trace=trace_obj,
+                    request=req,
+                    choose=choose,
+                    decision_index=self._agg_trace_index,
+                    turn_number=getattr(state, "turn", None),
+                )
+                self.agg_trace_writer.write(agg_row)
+                self._agg_trace_index += 1
+            except Exception as exc:  # noqa: BLE001 - agg-trace is best-effort; never stall the battle
+                logger.debug(
+                    "[%s] agg-trace write failed (decision dropped from sidecar): %s", self.name, exc
+                )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
-        if self._export is not None and trace_obj is not None and not req.team_preview:
+        # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
+        # trace_obj is then non-None only for "heuristic" already) keeps this fully decoupled
+        # from decision capture's own, separately-gated trace_obj build for "heuristic_reranker".
+        if self._export is not None and trace_obj is not None and self.agent == "heuristic" \
+                and not req.team_preview:
             try:
                 self._export.observe(
                     trace=trace_obj, state=state, request=req,
@@ -515,9 +629,11 @@ class _Client:
             except Exception as exc:  # noqa: BLE001 - export is best-effort; never stall the battle
                 logger.debug("[%s] export observe failed: %s", self.name, exc)
         # Reranker Shadow observe: post-send, bounded, off the event loop (single-worker executor),
-        # LOG-ONLY. SAME condition as export so shadow decision indices stay in lockstep with the
-        # export dataset. choose is already computed + sent above; this never mutates it.
-        if self._shadow is not None and trace_obj is not None and not req.team_preview:   # SAME cond as export
+        # LOG-ONLY. SAME condition as export (including the agent guard, for the same decoupling
+        # reason) so shadow decision indices stay in lockstep with the export dataset. choose is
+        # already computed + sent above; this never mutates it.
+        if self._shadow is not None and trace_obj is not None and self.agent == "heuristic" \
+                and not req.team_preview:   # SAME cond as export
             sh = self._shadow
             decision_index = sh._decision_local_index
             sh.bump_decision_index()                          # advance synchronously, lockstep with export
@@ -867,6 +983,10 @@ async def run_local_gauntlet(
     on_battle_result=None,
     export_runtime=None,
     battle_timeout_s: float | None = None,
+    decision_trace_writer=None,
+    decision_trace_context=None,
+    agg_trace_writer=None,
+    agg_trace_context=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -893,7 +1013,41 @@ async def run_local_gauntlet(
     ``_Client`` as ``is_mirror`` -- it reaches the export runtime either at construction (owned
     runtime) or via a per-battle refresh (borrowed/run-scoped runtime; see the
     ``self._export.mirror_flag = is_mirror`` assignment in ``_Client.__init__``).
+
+    ``decision_trace_writer``/``decision_trace_context`` (candidate-vs-baseline-diff Task 4,
+    off by default): an optional per-decision capture sidecar for the HERO client only (the
+    villain never receives either -- an explicit hero-only contract, mirroring
+    ``export_runtime``'s). Exactly one of the two being given is a caller bug -- raises
+    ``ValueError`` -- since a writer with no battle context (or vice versa) can't produce a
+    valid, bound trace row. A context implies exactly one battle is being played, so it also
+    requires ``games == 1``. Both ``None`` (the default) is byte-identical to every caller that
+    predates this seam: neither client ever sees a non-None writer/context, so
+    ``_Client.handle_request`` never builds a capture ``DecisionTrace``, never calls
+    ``prepare_capture``/``build_trace_row``, and the dispatched ``/choose`` messages are
+    unchanged.
+
+    ``agg_trace_writer``/``agg_trace_context`` (2c-Slice-0b Task 3, off by default): a SECOND,
+    INDEPENDENT optional per-decision full-fidelity aggregation-trace sidecar (see
+    ``research/aggregation_trace.py``) — same hero-only contract and the same pairing/``games
+    == 1`` validation as ``decision_trace_writer``/``decision_trace_context`` above, but fully
+    independent of it: either, both, or neither may be given, and each writes to its own file
+    with its own per-decision counter. Both ``None`` (the default) is likewise byte-identical:
+    the hero client never sees a non-None agg writer/context, so ``_Client.handle_request``
+    never builds a ``DecisionTrace`` for THIS trigger, never calls ``build_agg_row``, and the
+    dispatched ``/choose`` messages are unchanged.
     """
+    if (decision_trace_writer is None) != (decision_trace_context is None):
+        raise ValueError(
+            "decision_trace_writer and decision_trace_context must be given together"
+        )
+    if decision_trace_context is not None and games != 1:
+        raise ValueError("decision_trace_context requires games == 1")
+    if (agg_trace_writer is None) != (agg_trace_context is None):
+        raise ValueError(
+            "agg_trace_writer and agg_trace_context must be given together"
+        )
+    if agg_trace_context is not None and games != 1:
+        raise ValueError("agg_trace_context requires games == 1")
     book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
     is_mirror = _is_mirror_battle(team_path, opp_team_path)
@@ -916,7 +1070,11 @@ async def run_local_gauntlet(
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
     hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id,
                    packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
-                   export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror)
+                   export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror,
+                   decision_trace_writer=decision_trace_writer,
+                   decision_trace_context=decision_trace_context,
+                   agg_trace_writer=agg_trace_writer,
+                   agg_trace_context=agg_trace_context)
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)

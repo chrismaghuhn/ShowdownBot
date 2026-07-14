@@ -1,0 +1,15 @@
+{
+  "baseline_path": "data/eval/accuracy-gate/pre-refactor-baseline.jsonl",
+  "baseline_row_count": 944,
+  "baseline_source_commit": "feb90302c107c267d4d4a94ea0fd58d36fadc3a9",
+  "elapsed_seconds": 34.5,
+  "extra_in_replay": [],
+  "matched": 944,
+  "missing_from_replay": [],
+  "post_refactor_commit": "0152d97d0070a966a753d563c87a0e852d095fbe",
+  "regressions": [],
+  "regressions_count": 0,
+  "replay_final_g": 85,
+  "replay_row_count": 944,
+  "tera_fallback_count": 1
+}

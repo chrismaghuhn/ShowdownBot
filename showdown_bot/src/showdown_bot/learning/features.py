@@ -608,11 +608,13 @@ def extract_features(trace, state, request, context: FeatureContext, *, labels=N
     This scaffold sets every feature to its typed sentinel; later tasks replace
     stubs with real values group by group, without breaking these gates.
     """
+    from showdown_bot.battle.candidate_identity import candidate_identity
     from showdown_bot.learning.label_provider import _validate_label_prefix
 
     if labels is None:
-        # Backward-compat: stub zero-labels for all candidates (stub-h0 path)
-        labels = {c.candidate_id: _stub_label() for c in trace.candidates}
+        from showdown_bot.battle.candidate_identity import assert_unique_candidate_identities
+        assert_unique_candidate_identities(trace.candidates)
+        labels = {candidate_identity(c): _stub_label() for c in trace.candidates}
     else:
         _validate_label_prefix(trace, labels)
 
@@ -620,7 +622,8 @@ def extract_features(trace, state, request, context: FeatureContext, *, labels=N
     rows = []
     candidate_index = 0
     for cand in trace.candidates:
-        if cand.candidate_id not in labels:
+        ident = candidate_identity(cand)
+        if ident not in labels:
             continue
         features = _stub_features()
         features.update(g1)
@@ -631,7 +634,7 @@ def extract_features(trace, state, request, context: FeatureContext, *, labels=N
             Row(
                 features=features,
                 metadata=_metadata(context, candidate_index),
-                label=labels[cand.candidate_id],
+                label=labels[ident],
             )
         )
         candidate_index += 1

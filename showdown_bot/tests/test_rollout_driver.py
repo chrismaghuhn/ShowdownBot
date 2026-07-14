@@ -292,7 +292,9 @@ def test_rollout_labels_replaces_stub(decision_fixture):
             f"candidate {cid!r} missing keys: {required_keys - set(vdict)}"
         )
 
-    # chosen_candidate must appear in labels
-    assert tr.chosen_candidate_id in labels, (
-        f"chosen_candidate_id {tr.chosen_candidate_id!r} not in labels keys: {set(labels)}"
+    from showdown_bot.battle.candidate_identity import candidate_identity, resolve_chosen_candidate
+
+    chosen = resolve_chosen_candidate(tr)
+    assert candidate_identity(chosen) in labels, (
+        f"chosen candidate identity {candidate_identity(chosen)!r} not in labels keys: {set(labels)}"
     )

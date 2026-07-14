@@ -308,6 +308,11 @@ def rollout_labels(
         ValueError: if all opponent responses are switches, if chosen_candidate_id
                     is not among the rollout candidates, or on malformed weights.
     """
+    from showdown_bot.battle.candidate_identity import (
+        assert_unique_candidate_identities,
+        candidate_identity,
+        resolve_chosen_candidate,
+    )
     from showdown_bot.learning.teacher import counterfactual_value, label_decision
 
     common = dict(
@@ -329,11 +334,16 @@ def rollout_labels(
     )
     R = _normalize_responses(resps, weights)
 
+    prefix = trace.candidates[: cfg.top_k]
+    assert_unique_candidate_identities(prefix)
+    chosen = resolve_chosen_candidate(trace)
+    chosen_ident = candidate_identity(chosen)
+
     teacher_values: dict = {}
     heuristic_values: dict = {}
-    for c in trace.candidates[: cfg.top_k]:
-        cid = c.candidate_id
-        teacher_values[cid] = counterfactual_value(
+    for c in prefix:
+        ident = candidate_identity(c)
+        teacher_values[ident] = counterfactual_value(
             state,
             c.joint_action,
             R,
@@ -342,12 +352,12 @@ def rollout_labels(
             leaf=leaf,
             cfg=cfg,
         )
-        heuristic_values[cid] = c.aggregate_score
+        heuristic_values[ident] = c.aggregate_score
 
-    if trace.chosen_candidate_id not in teacher_values:
+    if chosen_ident not in teacher_values:
         raise RolloutLabelError(
-            f"chosen_candidate_id {trace.chosen_candidate_id!r} is not among the "
+            f"chosen candidate identity {chosen_ident!r} is not among the "
             f"rollout candidates ({list(teacher_values)!r})"
         )
 
-    return label_decision(teacher_values, heuristic_values, trace.chosen_candidate_id)
+    return label_decision(teacher_values, heuristic_values, chosen_ident)

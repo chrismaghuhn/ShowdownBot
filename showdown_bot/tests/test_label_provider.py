@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from showdown_bot.battle.candidate_identity import candidate_identity
 from showdown_bot.learning.schema import LABEL_KEYS
 
 
@@ -67,7 +68,7 @@ def test_stub_provider_labels_all_candidates(trace_fixture):
     from showdown_bot.learning.label_provider import StubLabelProvider
     p = StubLabelProvider()
     labels = p.labels_for_decision(trace_fixture, None, None, context=None)
-    assert set(labels) == {c.candidate_id for c in trace_fixture.candidates}
+    assert set(labels) == {candidate_identity(c) for c in trace_fixture.candidates}
     for lab in labels.values():
         assert set(lab) == set(LABEL_KEYS)         # exact key set
         assert all(v == 0 for v in lab.values())   # zeroed (byte-identical to today)
@@ -76,7 +77,7 @@ def test_stub_provider_labels_all_candidates(trace_fixture):
 def test_validate_label_prefix_rejects_holey_set(trace_fixture):
     from showdown_bot.learning.label_provider import _validate_label_prefix
     # labels for candidate 0 and 2 but not 1 -> a holey ranking -> reject
-    ids = [c.candidate_id for c in trace_fixture.candidates]
+    ids = [candidate_identity(c) for c in trace_fixture.candidates]
     holey = {ids[0]: {}, ids[2]: {}} if len(ids) >= 3 else {}
     if not holey:
         pytest.skip("Need at least 3 candidates to build a holey set")
@@ -88,6 +89,34 @@ def test_validate_label_prefix_rejects_empty_for_nonempty_trace(trace_fixture):
     from showdown_bot.learning.label_provider import _validate_label_prefix
     with pytest.raises(ValueError):
         _validate_label_prefix(trace_fixture, {})   # empty labels for a non-empty trace -> reject
+
+
+def test_validate_label_prefix_rejects_identity_collision_outside_labeled_prefix():
+    """Legacy v1 collision in unlabeled tail must fail before prefix check accepts."""
+    from showdown_bot.battle.candidate_identity import ChosenCandidateResolutionError
+    from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
+    from showdown_bot.battle.evaluate import OutcomeBreakdown
+    from showdown_bot.learning.label_provider import _validate_label_prefix
+
+    shared = "(Knock Off->1, switch)"
+    empty_breakdown = OutcomeBreakdown()
+    trace = DecisionTrace(candidates=[
+        CandidateTrace(
+            candidate_id=shared, rank=0, aggregate_score=1.0, score_vector=[1.0],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+        CandidateTrace(
+            candidate_id=shared, rank=1, aggregate_score=0.5, score_vector=[0.5],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+        CandidateTrace(
+            candidate_id="(pass, pass)", rank=2, aggregate_score=0.0, score_vector=[0.0],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+    ])
+    labels = {shared: {k: 0 for k in LABEL_KEYS}}
+    with pytest.raises(ChosenCandidateResolutionError, match="ambiguous candidate identity"):
+        _validate_label_prefix(trace, labels)
 
 
 def test_stub_row_metadata_teacher_version(stub_ctx_and_inputs):

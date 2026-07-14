@@ -19,6 +19,30 @@ def _must_react_lambda() -> float:
         return 0.6
 
 
+def must_react_lambda() -> float:
+    """Public read of the current MUST_REACT worst-case weight (env-configurable)."""
+    return _must_react_lambda()
+
+
+def _risk_lambda() -> float:
+    """How much NEUTRAL (and weighted-AHEAD/NEUTRAL) aggregation penalizes
+    variance: 1.0 = full variance penalty, 0.0 = pure mean (ignore variance).
+    Overridable via ``SHOWDOWN_RISK_LAMBDA`` for tuning (mirrors
+    ``_must_react_lambda`` exactly). Default 0.5 matches the historic hardcoded
+    ``risk_lambda`` default used throughout ``aggregate_scores``/``pick_best``."""
+    try:
+        return max(0.0, min(1.0, float(os.environ.get("SHOWDOWN_RISK_LAMBDA", "0.5"))))
+    except ValueError:
+        return 0.5
+
+
+def risk_lambda() -> float:
+    """Public accessor for the env-tunable NEUTRAL-mode risk_lambda default (see
+    ``_risk_lambda``). Callers that want the current env-resolved value without
+    reaching into the private helper should use this."""
+    return _risk_lambda()
+
+
 def aggregate_scores(
     scores: list[float],
     mode: GameMode,

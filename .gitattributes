@@ -35,3 +35,8 @@ data/datasets/phase3-slice2b25a/dataset.jsonl.gz binary
 # dev-strength paired-report results/manifests/seeds/report are byte-pinned by sha256.txt —
 # keep LF-stable so the checksums survive checkout on any platform.
 data/eval/2b4/** -text
+
+# 05 generalisation golden: report.json/report.md are compared byte-for-byte by
+# test_report_matches_golden. The reporting code writes LF (newline="\n"), so CRLF
+# rewriting on checkout would break the comparison — keep them LF-stable.
+showdown_bot/tests/generalisation/golden/** -text

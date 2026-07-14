@@ -1,0 +1,40 @@
+name: pytest slice smoke
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  slice-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: showdown_bot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install calc bridge dependencies
+        run: npm ci --prefix tools/calc --no-audit --no-fund
+
+      - name: Install showdown_bot package
+        run: pip install -e ".[dev]"
+
+      - name: Run reconciliation slice smoke tests
+        run: >
+          python -m pytest
+          tests/test_candidate_identity.py
+          tests/test_decision_capture.py
+          tests/test_label_provider.py
+          tests/eval/test_accuracy_gate_b.py
+          tests/eval/test_accuracy_cap_derisk.py
+          tests/eval/test_candidate_identity_replay.py
+          tests/test_fast_board_protect.py
+          -q --tb=line

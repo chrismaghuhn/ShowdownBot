@@ -24,6 +24,20 @@ BEHAVIOR_AFFECTING = frozenset({
     "SHOWDOWN_ROLLOUT_HORIZON",
     "SHOWDOWN_PROTECT_PENALTY",
     "SHOWDOWN_MUST_REACT_LAMBDA",
+    # [2c-1] NEUTRAL-mode aggregation risk-aversion knob (mirrors
+    # SHOWDOWN_MUST_REACT_LAMBDA above): changes which candidate wins the variance
+    # penalty in aggregate_scores/pick_best -> directly changes which move is
+    # played -> config_hash.
+    "SHOWDOWN_RISK_LAMBDA",
+    # [2c-sampling] K sampled opponent-set worlds in _choose_best -> changes which
+    # candidate wins (aggregation over sampled worlds) -> config_hash. Off/<=1 = 1
+    # world = byte-identical.
+    "SHOWDOWN_WORLD_SAMPLES",
+    # [2c-depth2] Search depth (1 = verbatim 1-ply, 2 = approximate depth-2 backup) in
+    # _choose_best's single-world path -> changes which candidate's score vector is used
+    # (1-ply leaf vs depth-2 backup), which can flip which move is played -> config_hash.
+    # Off/<=1 = 1-ply = byte-identical.
+    "SHOWDOWN_SEARCH_DEPTH",
     "SHOWDOWN_OPP_SETS",
     "SHOWDOWN_OUR_ROLL",
     "SHOWDOWN_OUR_DEF_PRESET",
@@ -55,6 +69,16 @@ BEHAVIOR_AFFECTING = frozenset({
     # SHOWDOWN_PROTECT_PENALTY -- when non-zero it changes the score of a wasted Protect
     # on a both-Tailwind board, which can flip which candidate is chosen -> config_hash.
     "SHOWDOWN_FAST_BOARD_PROTECT_PENALTY",
+    # [accuracy-slice] On/off switch for hit/miss branching in evaluate_line -- directly
+    # changes which candidate's score is used (always-hit vs probability-weighted) -> config_hash.
+    # Off/unset = byte-identical.
+    "SHOWDOWN_ACCURACY_MODE",
+    # [accuracy-slice] Max resolve_turn_branches expansion depth. A different cap can change
+    # which lines hit the per-branch fallback and therefore which candidate scores highest --
+    # deliberately UNCONDITIONAL here (not excluded when SHOWDOWN_ACCURACY_MODE is off), to
+    # avoid repeating the SHOWDOWN_SEARCH_TOPN/TOPM conditional-exclusion bug the project's
+    # audit found.
+    "SHOWDOWN_ACCURACY_BRANCH_CAP",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the
@@ -82,6 +106,12 @@ SERVER_SIDE_BEHAVIOR_AFFECTING = frozenset({
 NON_BEHAVIORAL = frozenset({
     "SHOWDOWN_TURN_TRACE",
     "SHOWDOWN_DECISION_DIFF",
+    # [2c-Slice-0b Task 3] Research-only full-fidelity aggregation sidecar PATH (env alias for
+    # --agg-trace-out; the Kaggle datagen kernel injects it via EXTRA_ENV). IO/telemetry-only,
+    # no /choose effect -> excluded from config_hash. MUST stay non-behavioral so a per-shard
+    # export path never perturbs config_hash / breaks datagen pairing (same species as
+    # SHOWDOWN_DECISION_DIFF above and the SHOWDOWN_DATASET_ prefix family).
+    "SHOWDOWN_AGG_TRACE_OUT",
     "SHOWDOWN_ROOM_RAW_DUMP",
     "SHOWDOWN_EVAL_SEED_LOG",
     "SHOWDOWN_EVAL_POLICY_TELEMETRY",   # T3e P2 activation telemetry: log-only, no /choose effect
@@ -101,6 +131,12 @@ NON_BEHAVIORAL_PREFIXES = ("SHOWDOWN_AUTH_", "SHOWDOWN_DATASET_")
 EXCLUDED_BY_REASON = {
     "SHOWDOWN_FORMAT": "captured via the manifest field format_id",
     "SHOWDOWN_TEAM_PATH": "captured via hero_team_hash / team content hashes",
+    "SHOWDOWN_SEARCH_TOPN": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
+    "SHOWDOWN_SEARCH_TOPM": "depth-2 frontier cap; unused unless SHOWDOWN_SEARCH_DEPTH>=2 "
+                            "(byte-identical at depth=1), captured by the stage-1 latency-gate "
+                            "run manifest, not config_hash",
 }
 
 
@@ -139,12 +175,16 @@ def behavior_env(environ=None) -> dict[str, str]:
 
 
 def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=None,
-                          model_hash=None, model_manifest_hash=None) -> dict:
+                          model_hash=None, model_manifest_hash=None, movedata_hash=None) -> dict:
     """Assemble the effective-config manifest that ``make_config_hash`` hashes.
 
     ``env`` defaults to ``behavior_env()``. ``model_hash``/``model_manifest_hash`` are
     included ONLY when provided (i.e. when the reranker is enabled), so a reranker-off run
-    and a reranker-on run never collide."""
+    and a reranker-on run never collide. ``movedata_hash`` is a content hash of
+    ``config/moves/movedata.json`` -- included whenever provided (unconditionally by the
+    caller, mirroring ``priors_hash``/``spreads_hash``, not gated behind
+    ``SHOWDOWN_ACCURACY_MODE``), so two runs with different accuracy data never share a
+    config lineage even when the accuracy feature itself is off."""
     manifest = {
         "agent": agent,
         "format_id": format_id,
@@ -156,4 +196,6 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
         manifest["model_hash"] = model_hash
     if model_manifest_hash is not None:
         manifest["model_manifest_hash"] = model_manifest_hash
+    if movedata_hash is not None:
+        manifest["movedata_hash"] = movedata_hash
     return manifest

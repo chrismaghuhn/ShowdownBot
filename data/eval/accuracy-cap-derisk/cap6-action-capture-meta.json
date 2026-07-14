@@ -1,0 +1,15 @@
+{
+  "candidate_resolution_status_counts": {
+    "ambiguous_label": 63,
+    "exact": 880,
+    "tera_stripped": 1
+  },
+  "cap": 6,
+  "config_hash": "f6b76b8383949dfd",
+  "dependency_lock_hash": "d4d541e12edf46135a6072c896f301f9b32dc4db4fdfb8b3c8c1b8ebe60499c7",
+  "elapsed_seconds": 55.6,
+  "label": "cap6",
+  "python_version": "3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]",
+  "row_count": 944,
+  "source_commit": "32195920d571a38d6ad70ee2e42595ccd540be86"
+}

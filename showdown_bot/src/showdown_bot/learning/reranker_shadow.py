@@ -292,12 +292,18 @@ class RerankerShadowRuntime:
 
             # (6) Heuristic pick via the trace (authoritative).
             heuristic_choice_index = None
-            chosen = trace.chosen_candidate_id
-            if chosen is not None:
+            try:
+                from showdown_bot.battle.candidate_identity import (
+                    ChosenCandidateResolutionError,
+                    resolve_chosen_candidate,
+                )
+                chosen_cand = resolve_chosen_candidate(trace)
                 for i, cand in enumerate(trace.candidates):
-                    if cand.candidate_id == chosen:
+                    if cand is chosen_cand:
                         heuristic_choice_index = i
                         break
+            except ChosenCandidateResolutionError:
+                heuristic_choice_index = None
             if heuristic_choice_index is None:
                 row["fallback_reason"] = "heuristic_choice_not_in_trace"
                 row["diverged"] = None

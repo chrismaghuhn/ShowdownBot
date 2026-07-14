@@ -1,0 +1,132 @@
+{
+  "board_count": 2,
+  "diff_count": 0,
+  "elapsed_seconds": 46.5,
+  "exception_count": 0,
+  "field_variants": [
+    "neutral",
+    "tailwind_both",
+    "tailwind_p1",
+    "tailwind_p2",
+    "trick_room",
+    "sun",
+    "rain"
+  ],
+  "report_schema_version": "gate-a-report-v1",
+  "row_count": 14,
+  "rows": [
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "neutral",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "tailwind_both",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "tailwind_p1",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "tailwind_p2",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "trick_room",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "sun",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "primary",
+      "exception": null,
+      "field_variant": "rain",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "neutral",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "tailwind_both",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "tailwind_p1",
+      "off_chosen_action": "/choose move 3, move 3|2",
+      "on_chosen_action": "/choose move 3, move 3|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "tailwind_p2",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "trick_room",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "sun",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    },
+    {
+      "action_changed": false,
+      "board": "single_target",
+      "exception": null,
+      "field_variant": "rain",
+      "off_chosen_action": "/choose move 1 2, move 2 2|2",
+      "on_chosen_action": "/choose move 1 2, move 2 2|2"
+    }
+  ],
+  "source_commit": "d21f30a760c8b9b147fe85002fe90fbb281c6b93"
+}
