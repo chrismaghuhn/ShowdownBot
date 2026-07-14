@@ -31,7 +31,7 @@ async def test_empty_duplicate_win_callback_counts_one_game_and_one_row(monkeypa
 
     monkeypatch.setattr(g, "ShowdownConnection", lambda _url: _FakeConn())
     monkeypatch.setattr(g, "authenticate_local", _auth)
-    monkeypatch.setattr(g, "_load_belief_deps", lambda _fmt: (None, None, None))
+    monkeypatch.setattr(g, "_load_belief_deps", lambda _fmt: (None, None, None, {}))
     monkeypatch.setattr(g, "_resolve_side_teams", lambda _t, _o: ("packed1", "packed2"))
     monkeypatch.setattr(g, "_is_mirror_battle", lambda _t, _o: False)
     monkeypatch.setattr(random, "randint", lambda _a, _b: 1234)

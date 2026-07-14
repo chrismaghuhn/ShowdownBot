@@ -12,7 +12,7 @@ from showdown_bot.client.connection import ShowdownConnection, authenticate, joi
 from showdown_bot.config import Settings
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.belief.protect_priors import ProtectPriors, load_protect_priors
-from showdown_bot.engine.format_config import load_format_config
+from showdown_bot.engine.format_config import FormatConfig, load_format_config
 from showdown_bot.engine.state import BattleState, merge_request
 from showdown_bot.models.request import BattleRequest
 from showdown_bot.protocol.messages import parse_incoming, parse_message
@@ -31,6 +31,26 @@ _our_spreads: dict | None = None  # our own team's real spreads (Stage C)
 _opp_sets: dict | None = None
 _book_cache: dict[str, SpreadBook | None] = {}
 _priors_cache: dict[str, ProtectPriors | None] = {}
+_format_config_cache: dict[str, FormatConfig | None] = {}
+
+
+def reset_format_caches() -> None:
+    """Clear module-level format caches (for tests — prevents order-dependent leakage)."""
+    _book_cache.clear()
+    _priors_cache.clear()
+    _format_config_cache.clear()
+
+
+def _get_format_config(format_id: str | None) -> FormatConfig | None:
+    if not format_id:
+        return None
+    if format_id not in _format_config_cache:
+        try:
+            _format_config_cache[format_id] = load_format_config(format_id)
+        except Exception as exc:  # noqa: BLE001 - format may be unsupported
+            logger.info("no format config for %s (%s)", format_id, exc)
+            _format_config_cache[format_id] = None
+    return _format_config_cache[format_id]
 
 
 def _get_book(format_id: str | None) -> SpreadBook | None:
@@ -38,8 +58,11 @@ def _get_book(format_id: str | None) -> SpreadBook | None:
         return None
     if format_id not in _book_cache:
         try:
-            cfg = load_format_config(format_id)
-            _book_cache[format_id] = load_spread_book(cfg.meta_path("default_spreads"))
+            cfg = _get_format_config(format_id)
+            if cfg is None:
+                _book_cache[format_id] = None
+            else:
+                _book_cache[format_id] = load_spread_book(cfg.meta_path("default_spreads"))
         except Exception as exc:  # noqa: BLE001 - format may be unsupported (e.g. random)
             logger.info("no spread book for %s (%s); heuristic disabled", format_id, exc)
             _book_cache[format_id] = None
@@ -51,8 +74,11 @@ def _get_priors(format_id: str | None) -> ProtectPriors | None:
         return None
     if format_id not in _priors_cache:
         try:
-            cfg = load_format_config(format_id)
-            _priors_cache[format_id] = load_protect_priors(cfg.meta_path("protect_priors"))
+            cfg = _get_format_config(format_id)
+            if cfg is None:
+                _priors_cache[format_id] = None
+            else:
+                _priors_cache[format_id] = load_protect_priors(cfg.meta_path("protect_priors"))
         except Exception:  # noqa: BLE001
             _priors_cache[format_id] = None
     return _priors_cache[format_id]
@@ -88,9 +114,11 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
     report: list[str] = []
     if book is not None:
         priors = _get_priors(_active_format)
+        cfg = _get_format_config(_active_format)
         choose = choose_with_fallback(
             req, state=state, book=book, our_side=req.side.id, priors=priors, report=report,
             our_spreads=_our_spreads, opp_sets=_opp_sets,
+            format_config=cfg,
         )
     else:
         choose = choose_for_request(req)

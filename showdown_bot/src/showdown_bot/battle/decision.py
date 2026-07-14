@@ -264,6 +264,7 @@ def _choose_best(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
+    format_config=None,
 ) -> tuple[JointAction, float]:
     """One-ply heuristic decision core. Returns ``(chosen_ja, best_val)``.
 
@@ -538,6 +539,7 @@ def _choose_best(
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
         endgame=endgame, fast_board=fast_board,
         accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+        format_config=format_config,
     )
 
     if report is not None:
@@ -753,6 +755,7 @@ def _choose_best_ja(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
+    format_config=None,
 ) -> JointAction:
     """Thin alias for ``_choose_best`` that returns only the chosen ``JointAction``.
 
@@ -777,6 +780,7 @@ def _choose_best_ja(
         our_spreads=our_spreads,
         opp_sets=opp_sets,
         trace=trace,
+        format_config=format_config,
     )[0]
 
 
@@ -799,6 +803,7 @@ def heuristic_choose_for_request(
     our_spreads: dict | None = None,
     opp_sets: dict | None = None,
     trace=None,
+    format_config=None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -829,6 +834,7 @@ def heuristic_choose_for_request(
         our_spreads=our_spreads,
         opp_sets=opp_sets,
         trace=trace,
+        format_config=format_config,
     )
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
@@ -838,9 +844,13 @@ def _maybe_tera(
     speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights=None,
     *, endgame: bool = False, fast_board: bool = False,
     accuracy_mode: bool = False, accuracy_branch_cap: int = 4,
+    format_config=None,
 ) -> JointAction:
     """Overlay: only spend Tera if it beats the non-Tera line by a margin."""
     from showdown_bot.battle.policy import aggregate_scores
+
+    if format_config is not None and not format_config.tera:
+        return best_ja
 
     best = best_ja
     best_overlay_val = best_val
@@ -895,6 +905,7 @@ def choose_with_fallback(
     hard_timeout: float = 4.0,
     report: list[str] | None = None,
     trace=None,
+    format_config=None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
@@ -917,7 +928,8 @@ def choose_with_fallback(
         try:
             fut = ex.submit(
                 heuristic_choose_for_request,
-                req, state=state, book=book, our_side=our_side, report=report, trace=trace, **deps,
+                req, state=state, book=book, our_side=our_side, report=report, trace=trace,
+                format_config=format_config, **deps,
             )
             choice = fut.result(timeout=hard_timeout)
             _mark_selection(trace, "heuristic")

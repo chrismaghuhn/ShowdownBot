@@ -67,6 +67,7 @@ def agent_choose(
     speed_oracle=None,
     dex=None,
     override=None,
+    format_config=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -138,6 +139,7 @@ def agent_choose(
             req, state=state, book=book, our_side=our_side, priors=priors, report=report,
             our_spreads=our_spreads, opp_sets=opp_sets, trace=local_trace,
             calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
+            format_config=format_config,
         )
         if override is None:
             return heuristic_choose
@@ -149,6 +151,7 @@ def agent_choose(
         req, state=state, book=book, our_side=our_side, priors=priors, report=report,
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
         calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
+        format_config=format_config,
     )
 
 
@@ -249,7 +252,7 @@ def _load_reranker_override_from_env(*, format_id: str, dex=None, move_meta=None
 class _Client:
     """One gauntlet bot: per-room state, agent dispatch, challenge handling."""
 
-    def __init__(self, conn, name, agent, *, book, priors, format_id, packed_team, trace=False, opp_sets=None,
+    def __init__(self, conn, name, agent, *, book, priors, format_id, format_config=None, packed_team, trace=False, opp_sets=None,
                  export_runtime=None, allow_own_export=True, is_mirror=True,
                  decision_trace_writer=None, decision_trace_context=None,
                  agg_trace_writer=None, agg_trace_context=None):
@@ -259,6 +262,7 @@ class _Client:
         self.book = book
         self.priors = priors
         self.format_id = format_id
+        self.format_config = format_config
         self.packed_team = packed_team
         # Decision capture seam (candidate-vs-baseline-diff Task 4) — off by default. A caller
         # (cli.run_schedule, HERO client only) can supply a DecisionTraceWriter + a per-battle
@@ -555,6 +559,7 @@ class _Client:
                 species_resolver=self._species_type_resolver(),
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
                 override=override,
+                format_config=self.format_config,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -772,24 +777,30 @@ async def _run_client(
 
 
 def _load_belief_deps(format_id: str):
-    """Load ``(book, priors, opp_sets)`` for ``format_id`` (best-effort for book/priors,
-    mirrors run_local_gauntlet's original inline setup). Factored out so a schedule-scoped
-    export runtime (``build_schedule_export_runtime``, 2b-2.5a) can be built with the SAME
-    deps a battle-scoped one would have gotten from inside ``_Client.__init__`` — otherwise a
-    rollout-mode (``SHOWDOWN_DATASET_TEACHER=rollout``) runtime built without them would
-    silently degrade label quality relative to the per-battle path it replaces."""
+    """Load ``(format_config, book, priors, opp_sets)`` for ``format_id``.
+
+    ``format_config`` is loaded from the format yaml even when spread/prior meta
+    files fail; ``book``/``priors`` remain best-effort. When ``book`` is ``None``,
+    ``agent_choose`` short-circuits to the random agent (``book is None`` guard),
+    so ``format_config`` is not forwarded and format flags (e.g. ``tera``) are
+    not applied on that path."""
+    cfg = None
     book = None
     priors = None
     try:
         cfg = load_format_config(format_id)
-        book = load_spread_book(cfg.meta_path("default_spreads"))
-        from showdown_bot.engine.belief.protect_priors import load_protect_priors
-
-        priors = load_protect_priors(cfg.meta_path("protect_priors"))
     except Exception:  # noqa: BLE001
         pass
+    if cfg is not None:
+        try:
+            book = load_spread_book(cfg.meta_path("default_spreads"))
+            from showdown_bot.engine.belief.protect_priors import load_protect_priors
+
+            priors = load_protect_priors(cfg.meta_path("protect_priors"))
+        except Exception:  # noqa: BLE001
+            pass
     opp_sets = load_opp_sets_for_format(format_id)
-    return book, priors, opp_sets
+    return cfg, book, priors, opp_sets
 
 
 def _is_mirror_battle(team_path: str, opp_team_path: str | None) -> bool:
@@ -841,7 +852,7 @@ def build_schedule_export_runtime(format_id: str, hero_team_path: str, villain_t
     BATTLE (``_Client._decision_deps`` / ``close()``), but this runtime — and its dex — persist
     across the WHOLE schedule.
     """
-    book, priors, opp_sets = _load_belief_deps(format_id)
+    cfg, book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, _ = _resolve_side_teams(hero_team_path)
     _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
     our_spreads = our_spreads_from_packed(hero_packed) if (hero_packed and _real) else None
@@ -1048,7 +1059,7 @@ async def run_local_gauntlet(
         )
     if agg_trace_context is not None and games != 1:
         raise ValueError("agg_trace_context requires games == 1")
-    book, priors, opp_sets = _load_belief_deps(format_id)
+    cfg, book, priors, opp_sets = _load_belief_deps(format_id)
     hero_packed, villain_packed = _resolve_side_teams(team_path, opp_team_path)
     is_mirror = _is_mirror_battle(team_path, opp_team_path)
 
@@ -1069,14 +1080,14 @@ async def run_local_gauntlet(
 
     trace = os.environ.get("SHOWDOWN_TURN_TRACE", "0") == "1"
     hero = _Client(hero_conn, hero_name, hero_agent, book=book, priors=priors, format_id=format_id,
-                   packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
+                   format_config=cfg, packed_team=hero_packed, trace=trace, opp_sets=opp_sets,
                    export_runtime=export_runtime, allow_own_export=True, is_mirror=is_mirror,
                    decision_trace_writer=decision_trace_writer,
                    decision_trace_context=decision_trace_context,
                    agg_trace_writer=agg_trace_writer,
                    agg_trace_context=agg_trace_context)
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
-                       packed_team=villain_packed, opp_sets=opp_sets,
+                       format_config=cfg, packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)
 
     stats = GauntletStats()

@@ -293,6 +293,86 @@ def test_agent_choose_heuristic_reranker_falls_back_when_no_state():
     assert CHOOSE_RE.match(out)
 
 
+# ---------------------------------------------------------------------------
+# I3: FormatConfig threading — hermetic dispatch (no real Calc deps).
+# ---------------------------------------------------------------------------
+
+
+def test_agent_choose_heuristic_forwards_format_config_not_random(monkeypatch):
+    import showdown_bot.client.gauntlet as g
+
+    random_calls: list = []
+    cwf_calls: list = []
+
+    monkeypatch.setattr(
+        g,
+        "choose_for_request",
+        lambda req: random_calls.append(req) or (_ for _ in ()).throw(AssertionError("random fallback")),
+    )
+    monkeypatch.setattr(
+        g,
+        "choose_with_fallback",
+        lambda req, **kw: cwf_calls.append(kw) or f"/choose default|{req.rqid}",
+    )
+
+    cfg = load_format_config("gen9championsvgc2026regma")
+    out = agent_choose(
+        "heuristic", _req(), state=object(), book=object(), our_side="p1",
+        format_config=cfg,
+    )
+
+    assert out.startswith("/choose ")
+    assert random_calls == []
+    assert len(cwf_calls) == 1
+    assert cwf_calls[0]["format_config"] is cfg
+
+
+def test_agent_choose_heuristic_reranker_forwards_format_config(monkeypatch):
+    import showdown_bot.client.gauntlet as g
+
+    cwf_calls: list = []
+
+    monkeypatch.setattr(
+        g,
+        "choose_with_fallback",
+        lambda req, **kw: cwf_calls.append(kw) or "HEURISTIC_CHOOSE",
+    )
+    stub = _StubOverride("OVERRIDE_CHOOSE")
+    cfg = load_format_config("gen9championsvgc2026regma")
+
+    out = agent_choose(
+        "heuristic_reranker", _req(), state=object(), book=object(), our_side="p1",
+        format_config=cfg, override=stub,
+    )
+
+    assert out == "OVERRIDE_CHOOSE"
+    assert len(cwf_calls) == 1
+    assert cwf_calls[0]["format_config"] is cfg
+
+
+def test_agent_choose_max_damage_not_random_when_book_present(monkeypatch):
+    import showdown_bot.battle.baselines as baselines
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setattr(
+        g,
+        "choose_for_request",
+        lambda req: (_ for _ in ()).throw(AssertionError("random fallback")),
+    )
+    monkeypatch.setattr(
+        baselines,
+        "max_damage_choice",
+        lambda req, **kw: f"/choose default|{req.rqid}",
+    )
+
+    cfg = load_format_config("gen9championsvgc2026regma")
+    out = agent_choose(
+        "max_damage", _req(), state=object(), book=object(), our_side="p1",
+        format_config=cfg,
+    )
+    assert out.startswith("/choose ")
+
+
 def test_existing_heuristic_agent_unaffected_by_override_param(monkeypatch):
     """The plain "heuristic" branch never even looks at `override` -- passing one
     (as a stray/garbage value) must have zero effect (byte-unchanged contract)."""
