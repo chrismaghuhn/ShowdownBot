@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from showdown_bot.engine.format_config import (
+    DEFAULT_CALC_GENERATION,
     DEFAULT_STAT_INVESTMENT,
     load_format_config,
 )
@@ -19,6 +20,7 @@ def test_loads_vgc_format():
     assert cfg.tera is True
     assert cfg.mega is False
     assert cfg.stat_investment == DEFAULT_STAT_INVESTMENT
+    assert cfg.calc_generation == DEFAULT_CALC_GENERATION
 
 
 def test_loads_reg_g_format():
@@ -27,6 +29,7 @@ def test_loads_reg_g_format():
     assert cfg.tera is True
     assert cfg.mega is False
     assert cfg.stat_investment == DEFAULT_STAT_INVESTMENT
+    assert cfg.calc_generation == DEFAULT_CALC_GENERATION
 
 
 def test_meta_paths_resolved_and_exist():
@@ -59,6 +62,7 @@ def test_default_fallback_without_new_fields(tmp_path: Path):
     cfg = load_format_config("legacy_format", config_dir=tmp_path)
     assert cfg.mega is False
     assert cfg.stat_investment == DEFAULT_STAT_INVESTMENT
+    assert cfg.calc_generation == DEFAULT_CALC_GENERATION
 
 
 def test_reads_mega_and_stat_investment(tmp_path: Path):
@@ -118,6 +122,51 @@ def test_invalid_stat_investment_fail_closed(tmp_path: Path, field: str, yaml_bo
         load_format_config("bad_format", config_dir=tmp_path)
 
 
+def test_invalid_calc_generation_fail_closed(tmp_path: Path):
+    yaml_path = tmp_path / "bad_calc_gen.yaml"
+    yaml_path.write_text(
+        "\n".join(
+            [
+                "format_id: bad_calc_gen",
+                "level: 50",
+                "game_type: doubles",
+                "calc_generation: 8",
+                "meta_paths:",
+                "  default_spreads: meta/default_spreads.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="calc_generation"):
+        load_format_config("bad_calc_gen", config_dir=tmp_path)
+
+
+@pytest.mark.parametrize(
+    "calc_generation_yaml",
+    [
+        "calc_generation: false",
+        "calc_generation: 9.5",
+    ],
+)
+def test_calc_generation_rejects_non_int_yaml(tmp_path: Path, calc_generation_yaml: str):
+    yaml_path = tmp_path / "bad_calc_gen_type.yaml"
+    yaml_path.write_text(
+        "\n".join(
+            [
+                "format_id: bad_calc_gen_type",
+                "level: 50",
+                "game_type: doubles",
+                calc_generation_yaml,
+                "meta_paths:",
+                "  default_spreads: meta/default_spreads.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="calc_generation must be int"):
+        load_format_config("bad_calc_gen_type", config_dir=tmp_path)
+
+
 CHAMPIONS_PANEL_SPECIES = frozenset({
     "Aerodactyl", "Archaludon", "Basculegion", "Delphox", "Excadrill", "Froslass",
     "Garchomp", "Glaceon", "Gyarados", "Hydreigon", "Incineroar", "Kingambit",
@@ -144,6 +193,7 @@ def test_loads_champions_format():
     assert cfg.stat_investment.total == 66
     assert cfg.stat_investment.max_per_stat == 32
     assert cfg.stat_investment.iv_policy == "all_31"
+    assert cfg.calc_generation == 0
     for key in ("default_spreads", "protect_priors", "likely_sets"):
         assert cfg.meta_path(key).exists()
 

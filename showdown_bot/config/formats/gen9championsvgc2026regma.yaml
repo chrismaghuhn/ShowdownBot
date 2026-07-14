@@ -4,6 +4,7 @@ game_type: doubles
 restricted_limit: 0
 tera: false
 mega: true
+calc_generation: 0
 stat_investment:
   kind: stat_points
   total: 66

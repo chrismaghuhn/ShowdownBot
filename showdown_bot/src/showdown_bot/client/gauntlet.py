@@ -125,6 +125,7 @@ def agent_choose(
             return max_damage_choice(
                 req, state=state, book=book, our_side=our_side,
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle,
+                format_config=format_config,
                 fallback=lambda r: f"/choose default|{r.rqid}",
             )
         except Exception:  # noqa: BLE001
@@ -422,7 +423,15 @@ class _Client:
             self._decision_calc = CalcClient()
             self._decision_oracle = DamageOracle(self._decision_calc)
             try:
-                self._decision_speed_oracle = SpeedOracle(stats_backend=self._decision_calc.backend)
+                from showdown_bot.engine.calc_profile import (
+                    build_speed_oracle,
+                    calc_profile_from_config,
+                )
+
+                self._decision_speed_oracle = build_speed_oracle(
+                    self._decision_calc.backend,
+                    calc_profile_from_config(self.format_config),
+                )
             except Exception as exc:  # noqa: BLE001 - degrade like decision.py if backend unavailable
                 logger.debug("[%s] decision speed oracle unavailable: %s", self.name, exc)
                 self._decision_speed_oracle = None

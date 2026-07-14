@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from showdown_bot.engine.belief.hypotheses import OFFENSE, SpreadBook, hypothesis_from_state
 from showdown_bot.engine.calc.models import CalcMon
+from showdown_bot.engine.calc_profile import DEFAULT_CALC_PROFILE, CalcProfile
 from showdown_bot.engine.state import FieldState, PokemonState
 
 # Boost-stage multiplier for Speed (same table as other stats).
@@ -75,15 +76,16 @@ class SpeedOracle:
 
     Our mons: exact base Speed from the request stats. Opponents: a range, since
     EV/nature/item are unknown -- min (-nature, 0 EV), likely (offense preset),
-    max (+nature, 252 EV, assume Scarf).
+    max (+nature, profile max spe investment, assume Scarf).
     """
 
-    def __init__(self, stats_backend=None) -> None:
+    def __init__(self, stats_backend=None, *, profile: CalcProfile | None = None) -> None:
         if stats_backend is None:
             from showdown_bot.engine.calc.client import SubprocessCalcBackend
 
             stats_backend = SubprocessCalcBackend()
         self.backend = stats_backend
+        self.profile = profile or DEFAULT_CALC_PROFILE
         self._spe_cache: dict = {}
 
     def our_speed(self, base_speed: int, mon: PokemonState, field: FieldState, side: str) -> int:
@@ -92,11 +94,16 @@ class SpeedOracle:
     def _base_speed(self, species: str, nature: str, evs: dict) -> int:
         """Final Speed stat (no in-battle mods) for a spread, cached. VGC level
         50, IVs 31 for any stat the set doesn't specify."""
-        key = (species, nature, tuple(sorted(evs.items())))
+        key = (
+            self.profile.generation,
+            species,
+            nature,
+            tuple(sorted(evs.items())),
+        )
         cached = self._spe_cache.get(key)
         if cached is None:
             spec = CalcMon(species=species, level=50, nature=nature, evs=dict(evs), ivs={"spe": 31})
-            cached = self.backend.stats_batch([spec])[0]["spe"]
+            cached = self.backend.stats_batch([spec], gen=self.profile.generation)[0]["spe"]
             self._spe_cache[key] = cached
         return cached
 
@@ -117,14 +124,15 @@ class SpeedOracle:
         likely_nature = offense_preset.nature if offense_preset else "Hardy"
         likely_evs = dict(offense_preset.evs) if offense_preset else {}
 
+        max_spe = self.profile.max_spe_investment
         specs = [
             CalcMon(species=mon.species, level=mon.level, nature="Brave",
                     evs={"spe": 0}, ivs={"spe": 0}),
             CalcMon(species=mon.species, level=mon.level, nature=likely_nature, evs=likely_evs),
             CalcMon(species=mon.species, level=mon.level, nature="Jolly",
-                    evs={"spe": 252}, ivs={"spe": 31}),
+                    evs={"spe": max_spe}, ivs={"spe": 31}),
         ]
-        spe_stats = [s["spe"] for s in self.backend.stats_batch(specs)]
+        spe_stats = [s["spe"] for s in self.backend.stats_batch(specs, gen=self.profile.generation)]
         base_min, base_likely, base_max = spe_stats
 
         mods = speed_modifiers_from_state(mon, field, side)

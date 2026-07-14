@@ -31,6 +31,9 @@ DEFAULT_STAT_INVESTMENT = StatInvestment(
     iv_policy="flexible",
 )
 
+DEFAULT_CALC_GENERATION = 9
+_ALLOWED_CALC_GENERATIONS = frozenset({0, 9})
+
 
 @dataclass(frozen=True)
 class FormatConfig:
@@ -47,6 +50,7 @@ class FormatConfig:
     tera: bool
     mega: bool
     stat_investment: StatInvestment
+    calc_generation: int
     meta_paths: dict[str, Path] = field(default_factory=dict)
     source_path: Path | None = None
 
@@ -86,6 +90,21 @@ def _parse_stat_investment(raw: object) -> StatInvestment:
     )
 
 
+def _parse_calc_generation(raw: object) -> int:
+    if raw is None:
+        return DEFAULT_CALC_GENERATION
+    if type(raw) is not int:
+        raise ValueError(
+            f"calc_generation must be int, got {type(raw).__name__}"
+        )
+    if raw not in _ALLOWED_CALC_GENERATIONS:
+        allowed = ", ".join(str(x) for x in sorted(_ALLOWED_CALC_GENERATIONS))
+        raise ValueError(
+            f"calc_generation must be one of {{{allowed}}}, got {raw!r}"
+        )
+    return raw
+
+
 def load_format_config(format_id: str, *, config_dir: Path | None = None) -> FormatConfig:
     base = config_dir or DEFAULT_CONFIG_DIR
     path = base / f"{format_id}.yaml"
@@ -106,6 +125,7 @@ def load_format_config(format_id: str, *, config_dir: Path | None = None) -> For
         tera=bool(data.get("tera", False)),
         mega=bool(data.get("mega", False)),
         stat_investment=_parse_stat_investment(data.get("stat_investment")),
+        calc_generation=_parse_calc_generation(data.get("calc_generation")),
         meta_paths=meta_paths,
         source_path=path,
     )

@@ -143,7 +143,7 @@ def test_item_for_speed_precedence():
 
 
 class _SpeFake:
-    def stats_batch(self, specs):
+    def stats_batch(self, specs, *, gen=9):
         return [{"spe": 100} for _ in specs]
 
     def types_batch(self, species):

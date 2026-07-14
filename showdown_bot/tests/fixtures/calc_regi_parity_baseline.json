@@ -1,0 +1,335 @@
+{
+  "cases": [
+    {
+      "expected_response": {
+        "id": "stats_incineroar_adamant",
+        "stats": {
+          "atk": 149,
+          "def": 110,
+          "hp": 202,
+          "spa": 90,
+          "spd": 110,
+          "spe": 80
+        }
+      },
+      "id": "stats_incineroar_adamant",
+      "kind": "stats",
+      "request_payload": {
+        "gen": 9,
+        "id": "stats_incineroar_adamant",
+        "kind": "stats",
+        "mon": {
+          "evs": {
+            "atk": 4,
+            "hp": 252
+          },
+          "level": 50,
+          "nature": "Adamant",
+          "species": "Incineroar"
+        }
+      }
+    },
+    {
+      "expected_response": {
+        "id": "stats_flutter_mane_timid",
+        "stats": {
+          "atk": 67,
+          "def": 75,
+          "hp": 130,
+          "spa": 187,
+          "spd": 155,
+          "spe": 205
+        }
+      },
+      "id": "stats_flutter_mane_timid",
+      "kind": "stats",
+      "request_payload": {
+        "gen": 9,
+        "id": "stats_flutter_mane_timid",
+        "kind": "stats",
+        "mon": {
+          "evs": {
+            "spa": 252,
+            "spe": 252
+          },
+          "level": 50,
+          "nature": "Timid",
+          "species": "Flutter Mane"
+        }
+      }
+    },
+    {
+      "expected_response": {
+        "id": "types_incineroar",
+        "types": [
+          "Fire",
+          "Dark"
+        ]
+      },
+      "id": "types_incineroar",
+      "kind": "types",
+      "request_payload": {
+        "gen": 9,
+        "id": "types_incineroar",
+        "kind": "types",
+        "species": "Incineroar"
+      }
+    },
+    {
+      "expected_response": {
+        "id": "types_flutter_mane",
+        "types": [
+          "Ghost",
+          "Fairy"
+        ]
+      },
+      "id": "types_flutter_mane",
+      "kind": "types",
+      "request_payload": {
+        "gen": 9,
+        "id": "types_flutter_mane",
+        "kind": "types",
+        "species": "Flutter Mane"
+      }
+    },
+    {
+      "expected_response": {
+        "damage": [
+          165,
+          166,
+          169,
+          171,
+          172,
+          175,
+          177,
+          178,
+          180,
+          183,
+          184,
+          186,
+          189,
+          190,
+          192,
+          195
+        ],
+        "desc": "252+ Atk Incineroar Flare Blitz vs. 4 HP / 0 Def Flutter Mane: 165-195 (125.9 - 148.8%) -- guaranteed OHKO",
+        "id": "damage_flare_blitz_ohko",
+        "koChanceText": null,
+        "maxDamage": 195,
+        "maxHP": 131,
+        "maxPercent": 148.85496183206106,
+        "minDamage": 165,
+        "minPercent": 125.95419847328245
+      },
+      "id": "damage_flare_blitz_ohko",
+      "kind": "damage",
+      "request_payload": {
+        "attacker": {
+          "evs": {
+            "atk": 252
+          },
+          "level": 50,
+          "move": "Flare Blitz",
+          "nature": "Adamant",
+          "species": "Incineroar"
+        },
+        "defender": {
+          "evs": {
+            "hp": 4
+          },
+          "level": 50,
+          "nature": "Timid",
+          "species": "Flutter Mane"
+        },
+        "field": {
+          "gameType": "Doubles"
+        },
+        "gen": 9,
+        "id": "damage_flare_blitz_ohko",
+        "move": "Flare Blitz"
+      }
+    },
+    {
+      "expected_response": {
+        "damage": [
+          90,
+          91,
+          91,
+          93,
+          94,
+          94,
+          96,
+          97,
+          99,
+          99,
+          100,
+          102,
+          102,
+          103,
+          105,
+          106
+        ],
+        "desc": "252+ Atk Incineroar Knock Off vs. 252 HP / 0 Def Flutter Mane: 90-106 (55.5 - 65.4%) -- guaranteed 2HKO",
+        "id": "damage_knock_off",
+        "koChanceText": null,
+        "maxDamage": 106,
+        "maxHP": 162,
+        "maxPercent": 65.4320987654321,
+        "minDamage": 90,
+        "minPercent": 55.55555555555556
+      },
+      "id": "damage_knock_off",
+      "kind": "damage",
+      "request_payload": {
+        "attacker": {
+          "ability": "Intimidate",
+          "evs": {
+            "atk": 252
+          },
+          "level": 50,
+          "nature": "Adamant",
+          "species": "Incineroar"
+        },
+        "defender": {
+          "evs": {
+            "hp": 252,
+            "spd": 252
+          },
+          "level": 50,
+          "nature": "Timid",
+          "species": "Flutter Mane"
+        },
+        "field": {
+          "gameType": "Doubles"
+        },
+        "gen": 9,
+        "id": "damage_knock_off",
+        "move": "Knock Off"
+      }
+    },
+    {
+      "expected_response": {
+        "damage": [
+          38,
+          39,
+          39,
+          39,
+          40,
+          40,
+          41,
+          42,
+          42,
+          42,
+          42,
+          43,
+          44,
+          44,
+          45,
+          45
+        ],
+        "desc": "252 SpA Flutter Mane Shadow Ball vs. 252 HP / 4 SpD Incineroar: 38-45 (18.8 - 22.2%) -- possible 5HKO",
+        "id": "damage_shadow_ball",
+        "koChanceText": null,
+        "maxDamage": 45,
+        "maxHP": 202,
+        "maxPercent": 22.277227722772277,
+        "minDamage": 38,
+        "minPercent": 18.81188118811881
+      },
+      "id": "damage_shadow_ball",
+      "kind": "damage",
+      "request_payload": {
+        "attacker": {
+          "ability": "Protosynthesis",
+          "evs": {
+            "spa": 252,
+            "spe": 252
+          },
+          "level": 50,
+          "nature": "Timid",
+          "species": "Flutter Mane"
+        },
+        "defender": {
+          "evs": {
+            "hp": 252,
+            "spd": 4
+          },
+          "level": 50,
+          "nature": "Adamant",
+          "species": "Incineroar"
+        },
+        "field": {
+          "gameType": "Doubles"
+        },
+        "gen": 9,
+        "id": "damage_shadow_ball",
+        "move": "Shadow Ball"
+      }
+    },
+    {
+      "expected_response": {
+        "damage": [
+          84,
+          84,
+          85,
+          87,
+          87,
+          88,
+          90,
+          90,
+          91,
+          93,
+          93,
+          94,
+          96,
+          96,
+          97,
+          99
+        ],
+        "desc": "252 SpA Flutter Mane Moonblast vs. 252 HP / 0+ SpD Incineroar: 84-99 (41.5 - 49%) -- guaranteed 3HKO",
+        "id": "damage_moonblast",
+        "koChanceText": null,
+        "maxDamage": 99,
+        "maxHP": 202,
+        "maxPercent": 49.00990099009901,
+        "minDamage": 84,
+        "minPercent": 41.584158415841586
+      },
+      "id": "damage_moonblast",
+      "kind": "damage",
+      "request_payload": {
+        "attacker": {
+          "evs": {
+            "spa": 252
+          },
+          "level": 50,
+          "nature": "Timid",
+          "species": "Flutter Mane"
+        },
+        "defender": {
+          "evs": {
+            "hp": 252
+          },
+          "level": 50,
+          "nature": "Careful",
+          "species": "Incineroar"
+        },
+        "field": {
+          "gameType": "Doubles"
+        },
+        "gen": 9,
+        "id": "damage_moonblast",
+        "move": "Moonblast"
+      }
+    }
+  ],
+  "meta": {
+    "calc_package": "@smogon/calc",
+    "calc_version": "0.10.0",
+    "node_version": "v22.22.0",
+    "npm_version": "11.13.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "probe_count": 8,
+    "purpose": "Reg-I gen-9 parity baseline for @smogon/calc vendor bump gate (T0)"
+  }
+}

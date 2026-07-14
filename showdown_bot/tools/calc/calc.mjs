@@ -124,7 +124,7 @@ function runOne(gen, req) {
 // Shared per-request dispatch used by both one-shot and server modes.
 function dispatch(gens, req) {
   try {
-    const genNum = req.gen || 9;
+    const genNum = req.gen ?? 9;
     if (!gens.has(genNum)) gens.set(genNum, Generations.get(genNum));
     if (req.kind === "stats") return runStats(gens.get(genNum), req);
     if (req.kind === "types") return runTypes(gens.get(genNum), req);

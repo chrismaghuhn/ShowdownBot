@@ -196,10 +196,10 @@ class DatasetExportRuntime:
     ):
         """Build a RolloutLabelProvider and extend cfg_dict with rollout hashes.
 
-        Mirrors battle/decision.py:182-186 for the deps construction:
+        Mirrors battle/decision.py and baselines.max_damage_choice for deps construction:
           calc = calc or CalcClient()
           oracle = DamageOracle(calc)
-          speed_oracle = SpeedOracle(stats_backend=calc.backend)
+          speed_oracle = build_speed_oracle(calc.backend, calc_profile_from_config(format_cfg))
 
         All _CORE_DEP_KEYS (decide_adapter.py:32-34) are included:
           book, calc, oracle, speed_oracle, dex, priors, weights,
@@ -215,7 +215,11 @@ class DatasetExportRuntime:
         """
         from showdown_bot.battle.oracle import DamageOracle
         from showdown_bot.engine.calc.client import CalcClient
-        from showdown_bot.engine.speed import SpeedOracle
+        from showdown_bot.engine.calc_profile import (
+            build_speed_oracle,
+            calc_profile_from_config,
+        )
+        from showdown_bot.engine.format_config import load_format_config
         from showdown_bot.learning.label_provider import RolloutLabelProvider
         from showdown_bot.engine.belief.hypotheses import load_opp_sets_for_format
         from showdown_bot.engine.belief.move_priors import load_move_priors_for_format
@@ -226,7 +230,13 @@ class DatasetExportRuntime:
             calc = CalcClient()
         oracle = DamageOracle(calc)
         try:
-            speed_oracle = SpeedOracle(stats_backend=calc.backend)
+            format_cfg = load_format_config(format_id)
+        except FileNotFoundError:
+            format_cfg = None
+        try:
+            speed_oracle = build_speed_oracle(
+                calc.backend, calc_profile_from_config(format_cfg)
+            )
         except Exception:  # noqa: BLE001
             speed_oracle = None
 
