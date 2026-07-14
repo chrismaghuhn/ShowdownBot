@@ -4,6 +4,22 @@ from dataclasses import dataclass, field
 
 from showdown_bot.protocol.messages import parse_incoming
 
+_HP_COLOR_SUFFIX = frozenset("ryg")
+
+
+def parse_hp_integer(token: str, *, allow_color_suffix: bool = False) -> int:
+    """Parse a Showdown HP token.
+
+    Numerator tokens must be strictly numeric. Denominator tokens may carry an
+    optional single-letter Showdown color marker (r/y/g) immediately after the digits.
+    """
+    s = token.strip()
+    if allow_color_suffix and len(s) >= 2 and s[-1] in _HP_COLOR_SUFFIX and s[:-1].isdigit():
+        s = s[:-1]
+    if not s.isdigit():
+        raise ValueError(f"invalid HP integer: {token!r}")
+    return int(s)
+
 
 @dataclass(frozen=True)
 class PokemonId:
@@ -46,10 +62,10 @@ class HpStatus:
                 status = rest[0]
         if "/" in hp_part:
             cur_s, max_s = hp_part.split("/", 1)
-            current = int(cur_s)
-            maximum = int(max_s)
+            current = parse_hp_integer(cur_s)
+            maximum = parse_hp_integer(max_s, allow_color_suffix=True)
         else:
-            current = int(hp_part)
+            current = parse_hp_integer(hp_part)
             maximum = None
         if current == 0 and fainted:
             pass
