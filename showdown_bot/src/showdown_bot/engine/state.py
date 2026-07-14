@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from showdown_bot.engine.log_parser import LogEvent, parse_log
+from showdown_bot.engine.log_parser import LogEvent, parse_hp_integer, parse_log
 from showdown_bot.models.request import BattleRequest
 
 _BOOST_KEYS = ("atk", "def", "spa", "spd", "spe", "accuracy", "evasion")
@@ -244,9 +244,13 @@ def merge_request(req: BattleRequest, state: BattleState) -> BattleState:
         if "/" in cond:
             cur_s, rest = cond.split("/", 1)
             max_s = rest.split()[0]
-            if cur_s.isdigit():
-                mon.hp = int(cur_s)
-            if max_s.isdigit():
-                mon.max_hp = int(max_s)
+            try:
+                mon.hp = parse_hp_integer(cur_s)
+            except ValueError:
+                pass
+            try:
+                mon.max_hp = parse_hp_integer(max_s, allow_color_suffix=True)
+            except ValueError:
+                pass
 
     return state
