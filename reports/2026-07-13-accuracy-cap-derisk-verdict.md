@@ -21,8 +21,7 @@ plan de-risks: the accuracy-offline-gate plan's FAIL verdict at
 > than assumed inherited. Anyone reading only this report should walk away with numbers, not a
 > decision.
 
-## Glossary: what `SHOWDOWN_ACCURACY_BRANCH_CAP` and "cap-hit" mean (read this before any table
-below)
+## Glossary: what `SHOWDOWN_ACCURACY_BRANCH_CAP` and "cap-hit" mean (read this before any table below)
 
 This report claims to stand on its own for a reader who has not read the parent
 accuracy-offline-gate report, so the two terms every table below depends on are defined here
