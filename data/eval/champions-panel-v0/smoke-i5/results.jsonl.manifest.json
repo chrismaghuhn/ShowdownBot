@@ -1,0 +1,33 @@
+{
+  "cli_invocation": [
+    "C:\\Users\\chris\\Documents\\SHowdown BOt\\showdown_bot\\src\\showdown_bot\\cli.py",
+    "gauntlet",
+    "--schedule",
+    "..\\config\\eval\\schedules\\champions_v0_smoke_i5.yaml",
+    "--result-out",
+    "..\\data\\eval\\champions-panel-v0\\smoke-i5\\results.jsonl",
+    "--decision-trace-out",
+    "..\\data\\eval\\champions-panel-v0\\smoke-i5\\decision_trace.jsonl"
+  ],
+  "config_hash": "b8a0aa12b9f6c4de",
+  "dirty": false,
+  "environment": {
+    "deps": {
+      "lightgbm": "4.6.0",
+      "pydantic": "2.13.4",
+      "websockets": "16.0"
+    },
+    "node": "v22.22.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.5"
+  },
+  "git_sha": "4da007b49ceb204c76e7ab1b2511a77877281dc2",
+  "panel_hash": "aac1ea30446fde88",
+  "pythonhashseed": "0",
+  "run_id": "26f003dbcb2c6802",
+  "schedule_hash": "d6fba5070cd7cb49",
+  "seed_base": "champions-panel-v0-smoke-i5",
+  "server_patch_hash": "86e31891547e87da",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-14T19:13:26.516373+00:00"
+}

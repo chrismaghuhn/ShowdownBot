@@ -47,7 +47,7 @@ Ordered front-track work as of 2026-07-14:
 
 | | |
 |---|---|
-| **Status** | P0–P4 **PASS** on `main` / origin. P4 = dev-only **PIPELINE-READY** (harness plumbing). |
+| **Status** | P0–P4 + **I5 smoke PASS** on `feat/champions-i5-smoke` @ `4da007b`. I5 = FormatConfig + belief deps wired (not strength). |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -60,18 +60,19 @@ Ordered front-track work as of 2026-07-14:
 | P2 Team curation | PASS @ `7660d44` | `showdown_bot/teams/panel_champions_v0/`, `PROVENANCE.md` |
 | P3 Panel freeze | PASS @ `550f1ad` | `config/eval/panels/panel_champions_v0.yaml`, `showdown_bot/tests/test_panel.py` |
 | P4 Pilot smoke | PASS @ `04b0eb7` (`dirty=false`) | `reports/champions-panel-v0-pilot-smoke.md`, `data/eval/champions-panel-v0/smoke/` |
+| I5 FormatConfig smoke | PASS @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
 
 **Open blockers**
 
-- **Parser:** Champions move requests can omit `target` on some moves (observed: rain held-out /
-  Meganium / Solar Beam) → pydantic validation failure → gauntlet timeout.
-- **FormatConfig:** missing; hard blocker for strength / decision-quality eval (not for P4 smoke).
+- **Live damage path:** speed oracle uses calc gen-0 (I4); live damage scoring can still use gen-9 mechanics — thread gen-0 before strength/decision-quality claims.
+- **Mega overlay:** not modeled; strength interpretation blocked until addressed.
+- **Parser / state:** rain held-out Solar Beam choose-path fixed @ `4764a7d`; intermittent `100y`/`100g` HP suffix warnings in state build (battles still complete).
+- **Latency gate:** Champions heuristic p95 ~2.3–3.1 s vs pinned 1000 ms Reg-I budget (`eval-report` SAFETY-FAIL on latency only; not an I5 user-scope blocker).
 
 **Explicit non-claims**
 
-- P4 smoke proves **pipeline readiness only** — not strength, not decision quality, not Mega-readiness.
-- 2/6 hero wins in the 6-row pilot is **not** interpreted.
-- Rain / held-out rows were **omitted** from the committed pilot schedule until the parser gap is fixed.
+- P4 / I5 smoke prove **harness + config wiring only** — not strength, not decision quality, not Mega-readiness.
+- Hero win counts (P4 2/6, I5 3/10) are **not** interpreted.
 
 **Related**
 
@@ -212,7 +213,7 @@ Ordered front-track work as of 2026-07-14:
 
 - **Accuracy default flip** — already implemented (`8c54843`); do not relitigate without new data.
 - **poke-env foundation rewrite** — reference-only per `reports/champions-poke-env-reference-audit.md`.
-- **Strength claim from P4 Champions smoke** — explicitly forbidden.
+- **Strength claim from P4/I5 Champions smoke** — explicitly forbidden.
 - **Champions rain / held-out schedule** — until `MoveSlot.target` parser gap is fixed.
 - **Large public-log imports into eval gates** — import audit is PROPOSED, not approved.
 - **Global scalar λ tuning** — exhausted as a strength lever (see roadmap scalar-aggregation table).
@@ -239,6 +240,7 @@ Ordered front-track work as of 2026-07-14:
 |------|--------|
 | What to build next | [Current Priority](#current-priority) + `docs/ROADMAP.md` |
 | Champions panel config | `config/eval/panels/panel_champions_v0.yaml` |
-| Champions smoke schedule | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
-| Eval provenance pattern | `data/eval/champions-panel-v0/smoke/` (clean `dirty=false` example) |
+| Champions smoke schedule (P4) | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
+| Champions smoke schedule (I5) | `config/eval/schedules/champions_v0_smoke_i5.yaml` |
+| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 clean `dirty=false` + FormatConfig hashes) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |
