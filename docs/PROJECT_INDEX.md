@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-14 (I6 live-damage gen-0 @ `3bcd4b3`; HP-suffix revalidation @ `62117b5` on `main`).
+Last reconciled: 2026-07-15 (I7 Mega design spec rev. 9 **APPROVED**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
 
 ---
 
@@ -27,14 +27,19 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 ## Current Priority
 
-Ordered front-track work as of 2026-07-14 (post I6 live-damage gen-0 smoke):
+Ordered front-track work as of **2026-07-15** (post I6; protocol audit @ `fc4f251`):
 
-1. **Mega overlay** — not modeled; blocks honest strength interpretation.
+1. **I7 Mega — DESIGN APPROVED rev. 9 (not implemented)** — spec: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`; I7a plan pending Codex review.
 2. **Champions latency** — I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I gate (that run also
    contained state-degradation; no causal link to p95 established); I6 2-battle smoke measured
    **331 ms** worst p95 (safety pass, not a dedicated profile or causal improvement claim).
-3. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
-4. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+3. **Champions Strength** — **NO-GO until I7b + latency** (`Champions Strength NO-GO — opponent Mega response modeling missing`).
+4. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
+5. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+
+**Reference oracle (not runtime dependency):** `@pkmn/protocol` / `@pkmn/client` differential audit — `reports/champions-pkmn-protocol-differential-audit.md` @ `fc4f251`. Showdown sim `f8ac140` remains ground truth; `pkmn/ps` is comparison oracle only, not a rewrite target.
+
+**EPOké:** later belief-reference audit — **not** part of I7.
 
 **Closed (2026-07-14):** HP-suffix state parser — revalidated @ `62117b5`
 (`reports/champions-panel-v0-i5-hpfix-validation.md`): 0 state-degraded non-preview decisions.
@@ -50,7 +55,7 @@ Ordered front-track work as of 2026-07-14 (post I6 live-damage gen-0 smoke):
 
 | | |
 |---|---|
-| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix revalidation PASS** @ `62117b5`; **I6 live-damage gen-0 PASS** @ `3bcd4b3` on `main`. |
+| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix PASS** @ `62117b5`; **I6 PASS** @ `3bcd4b3`; audit @ `fc4f251`; **I7 Mega design APPROVED rev. 9** (not implemented). |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -69,7 +74,8 @@ Ordered front-track work as of 2026-07-14 (post I6 live-damage gen-0 smoke):
 
 **Open blockers**
 
-- **Mega overlay:** not modeled.
+- **Mega overlay:** **DESIGN APPROVED rev. 9** — `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`; **not implemented**.
+- **Opponent Mega response model (I7b):** missing — **Strength NO-GO** until complete.
 - **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I budget (that run also
   contained state-degradation; no causal link established); I6 2-battle smoke **331 ms** worst p95
   (safety pass only) — dedicated profile/budget still needed before Strength.
@@ -88,7 +94,9 @@ Ordered front-track work as of 2026-07-14 (post I6 live-damage gen-0 smoke):
 **Related**
 
 - poke-env audit (reference): `reports/champions-poke-env-reference-audit.md` @ `75bbb4b`
+- pkmn/ps protocol differential audit (I7 design input): `reports/champions-pkmn-protocol-differential-audit.md` @ `fc4f251`
 - Design: `docs/superpowers/specs/2026-07-14-champions-panel-v0-design.md`
+- I7 Mega design: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`
 
 ---
 
