@@ -1088,6 +1088,8 @@ async def run_local_gauntlet(
     next_game.set()  # allow first challenge
 
     async def on_hero_result(winner, room_frames=None, room_raw_path=None):
+        if not room_frames:
+            return
         stats.games += 1
         if winner is None:
             stats.ties += 1
