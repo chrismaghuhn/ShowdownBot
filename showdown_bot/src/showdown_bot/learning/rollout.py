@@ -106,10 +106,11 @@ def make_resolve(
         plan_them = _to_plan(opp_action, opp, c)
 
         # Build a fresh DamageModel for this cloned state.
-        # Real kwargs from battle/decision.py line 256-259:
-        #   DamageModel(state, our_side, opp_side, book=book, oracle=oracle,
-        #               field=state.field, our_spreads=our_spreads, opp_sets=opp_sets)
-        # NOTE: no 'calc' kwarg — oracle already wraps calc.
+        from showdown_bot.engine.calc_profile import calc_profile_from_config
+
+        calc_profile = deps.get("calc_profile") or calc_profile_from_config(
+            deps.get("format_config")
+        )
         model = DamageModel(
             c,
             root_our_side,
@@ -119,6 +120,7 @@ def make_resolve(
             field=c.field,
             our_spreads=deps.get("our_spreads"),
             opp_sets=deps.get("opp_sets"),
+            calc_profile=calc_profile,
         )
         model.prefetch([plan_us, plan_them])
 
