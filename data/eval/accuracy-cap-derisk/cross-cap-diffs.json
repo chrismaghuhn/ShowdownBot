@@ -2,11 +2,13 @@
   "cap4 -> cap6": {
     "action_changed_count": 0,
     "rows": [],
+    "score_changed_count": 115,
     "total": 944
   },
   "cap4 -> cap8": {
     "action_changed_count": 0,
     "rows": [],
+    "score_changed_count": 118,
     "total": 944
   },
   "off -> cap6": {
@@ -253,6 +255,7 @@
         "top_rank_score_delta": null
       }
     ],
+    "score_changed_count": 0,
     "total": 944
   },
   "off -> cap8": {
@@ -499,6 +502,7 @@
         "top_rank_score_delta": null
       }
     ],
+    "score_changed_count": 0,
     "total": 944
   }
 }

@@ -67,10 +67,14 @@ def main() -> None:
             ref, cand, direction=direction, score_comparable=score_comparable,
             score_incompatible_reason=reason,
         )
+        score_changed_count = sum(
+            1 for r in diff.rows if r.top_rank_score_changed or r.chosen_candidate_score_changed
+        )
         print(f"{direction}: {diff.action_changed_count}/{len(diff.rows)} action changes "
-              f"(score_comparable={score_comparable})")
+              f"(score_comparable={score_comparable}, score_changed_count={score_changed_count})")
         results[direction] = {
             "action_changed_count": diff.action_changed_count,
+            "score_changed_count": score_changed_count,
             "total": len(diff.rows),
             "rows": [asdict(r) for r in diff.rows if r.action_changed],  # only the changed rows, full table is large
         }
