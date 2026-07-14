@@ -90,24 +90,23 @@ def _search_topm() -> int:
 
 def _accuracy_mode() -> bool:
     """``SHOWDOWN_ACCURACY_MODE``: on/off switch for hit/miss branching in evaluate_line.
-    Off (default/unset/""/"0"/"false", case-insensitive) -> today's exact always-hit
-    resolve_turn path, byte-identical output. Uses an EXPLICIT off-list, not
-    ``bool(os.environ.get(...))`` -- that shortcut (used elsewhere in this codebase for
-    presence-only flags, e.g. SHOWDOWN_RERANKER_SHADOW) treats the STRING "0" or "false" as
-    truthy, which is wrong here: this flag needs "0"/"false" to explicitly mean off, not just
-    unset."""
-    raw = os.environ.get("SHOWDOWN_ACCURACY_MODE", "").strip().lower()
-    return raw not in ("", "0", "false")
+    Default-on when the env key is absent. Explicit off via ``""``, ``"0"``, or ``"false"``
+    (case-insensitive). Uses an EXPLICIT off-list, not ``bool(os.environ.get(...))`` --
+    that shortcut treats the STRING ``"0"`` or ``"false"`` as truthy, which is wrong here."""
+    if "SHOWDOWN_ACCURACY_MODE" not in os.environ:
+        return True
+    raw = os.environ["SHOWDOWN_ACCURACY_MODE"].strip().lower()
+    return raw not in ("0", "false", "")
 
 
 def _accuracy_branch_cap() -> int:
     """Max resolve_turn calls per resolve_turn_branches expansion
-    (SHOWDOWN_ACCURACY_BRANCH_CAP). Default 4, clamped >=1. Only consulted when
+    (SHOWDOWN_ACCURACY_BRANCH_CAP). Default 6, clamped >=1. Only consulted when
     _accuracy_mode() is on."""
     try:
-        v = int(os.environ.get("SHOWDOWN_ACCURACY_BRANCH_CAP", "4"))
+        v = int(os.environ.get("SHOWDOWN_ACCURACY_BRANCH_CAP", "6"))
     except ValueError:
-        return 4
+        return 6
     return max(1, v)
 
 

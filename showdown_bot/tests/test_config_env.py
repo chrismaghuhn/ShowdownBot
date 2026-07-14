@@ -337,8 +337,8 @@ def test_config_hash_changes_when_accuracy_branch_cap_differs_with_mode_on():
 # verified elsewhere by explicitly setting "0"/"false") to mean anything.
 
 @pytest.mark.parametrize(("raw", "expected"), [
-    (None, False),      # unset
-    ("", False),
+    (None, True),       # unset -> default-on
+    ("", False),        # conscious opt-out
     ("0", False),
     ("false", False),
     ("False", False),   # case-insensitive
@@ -355,22 +355,21 @@ def test_accuracy_mode_parser_matrix(monkeypatch, raw, expected):
     assert _accuracy_mode() is expected
 
 
-def test_unset_and_explicit_off_are_equivalent_post_refactor(monkeypatch):
-    """accuracy-offline-gate plan Task 7: a defense-in-depth pin on top of the parser
-    matrix above -- unset and explicit "0" must resolve to the exact same boolean via
-    ``_accuracy_mode()`` as it exists in this worktree TODAY, i.e. post Tasks 5/6's
-    LineEvaluation/_evaluate_line_details refactor (which touched decision.py/evaluate.py's
-    trace-population code but left this parser itself untouched -- confirmed by reading the
-    diff). The import below is a fresh, function-scoped import (same pattern as
-    ``test_accuracy_mode_parser_matrix`` above) resolved against this worktree's actual
-    ``src/`` tree, not a module imported once at collection time from some other checkout."""
+def test_unset_defaults_on_explicit_off_stays_off(monkeypatch):
+    """Default-on slice: unset resolves True; explicit \"0\" stays off -- they must differ."""
     from showdown_bot.battle.decision import _accuracy_mode
 
     monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
-    unset = _accuracy_mode()
+    assert _accuracy_mode() is True
     monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
-    explicit_off = _accuracy_mode()
-    assert unset == explicit_off == False
+    assert _accuracy_mode() is False
+
+
+def test_accuracy_branch_cap_defaults_to_six_when_unset(monkeypatch):
+    from showdown_bot.battle.decision import _accuracy_branch_cap
+
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    assert _accuracy_branch_cap() == 6
 
 
 # --- movedata_hash provenance (accuracy-slice Task 7) -----------------------------------

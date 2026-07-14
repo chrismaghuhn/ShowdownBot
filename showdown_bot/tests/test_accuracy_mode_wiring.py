@@ -68,6 +68,7 @@ def test_accuracy_mode_on_reaches_every_evaluate_line_call(decision_fixture, mon
     primary scoring path."""
     calls = _install_recorder(monkeypatch)
     monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
     req, kw = decision_fixture
 
     _choose_best(req, report=[], trace=DecisionTrace(), **kw)
@@ -77,15 +78,31 @@ def test_accuracy_mode_on_reaches_every_evaluate_line_call(decision_fixture, mon
         f"exercise the pipeline as expected (got {len(calls)})"
     )
     assert all(c["accuracy_mode"] is True for c in calls), calls
-    assert all(c["accuracy_branch_cap"] == 4 for c in calls), calls
+    assert all(c["accuracy_branch_cap"] == 6 for c in calls), calls
 
 
-def test_accuracy_mode_off_by_default_reaches_every_evaluate_line_call(decision_fixture, monkeypatch):
-    """Mirror of the above with SHOWDOWN_ACCURACY_MODE unset: every recorded call
-    carries accuracy_mode=False -- the off-by-default invariant, proven at the same
-    granularity (every call site individually), not just the final chosen action."""
+def test_accuracy_mode_on_by_default_when_unset(decision_fixture, monkeypatch):
+    """SHOWDOWN_ACCURACY_MODE unset -> every recorded call carries accuracy_mode=True
+    and accuracy_branch_cap=6 (default-on slice)."""
     calls = _install_recorder(monkeypatch)
     monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    req, kw = decision_fixture
+
+    _choose_best(req, report=[], trace=DecisionTrace(), **kw)
+
+    assert len(calls) >= 4, (
+        "too few evaluate_line calls recorded -- decision_fixture scenario didn't "
+        f"exercise the pipeline as expected (got {len(calls)})"
+    )
+    assert all(c["accuracy_mode"] is True for c in calls), calls
+    assert all(c["accuracy_branch_cap"] == 6 for c in calls), calls
+
+
+def test_accuracy_mode_explicit_off_reaches_every_evaluate_line_call(decision_fixture, monkeypatch):
+    """SHOWDOWN_ACCURACY_MODE=0 -> every recorded call carries accuracy_mode=False."""
+    calls = _install_recorder(monkeypatch)
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
     req, kw = decision_fixture
 
     _choose_best(req, report=[], trace=DecisionTrace(), **kw)
@@ -95,3 +112,15 @@ def test_accuracy_mode_off_by_default_reaches_every_evaluate_line_call(decision_
         f"exercise the pipeline as expected (got {len(calls)})"
     )
     assert all(c["accuracy_mode"] is False for c in calls), calls
+
+
+def test_explicit_accuracy_off_is_stable(decision_fixture, monkeypatch):
+    """Explicit opt-out must stay on the always-hit path and be deterministic."""
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
+    req, kw = decision_fixture
+
+    first = _choose_best(req, **kw)
+    second = _choose_best(req, **kw)
+
+    assert first[0].as_pair() == second[0].as_pair()
+    assert first[1] == second[1]
