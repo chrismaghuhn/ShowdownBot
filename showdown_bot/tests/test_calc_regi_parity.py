@@ -228,3 +228,24 @@ def test_stats_batch_gen_zero_uses_champions_formula():
     gen9 = backend.stats_batch([spec], gen=9)[0]
     assert gen0["spe"] == 112
     assert gen9["spe"] != gen0["spe"]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "evs,nature,expected",
+    [
+        ({}, "Hardy", {"hp": 165, "spe": 80}),
+        ({"spe": 1}, "Hardy", {"spe": 81}),
+        ({"spe": 2}, "Hardy", {"spe": 82}),
+        ({"spe": 32}, "Hardy", {"spe": 112}),
+        ({"atk": 32}, "Adamant", {"atk": 158}),
+    ],
+    ids=["hp-sp0-spe0", "spe-sp1", "spe-sp2", "spe-sp32", "atk-sp32-adamant"],
+)
+def test_gen0_champions_stat_vectors(evs, nature, expected):
+    """T1: pinned gen-0 stat vectors for Stat Points 0/1/2/32."""
+    backend = SubprocessCalcBackend()
+    spec = CalcMon(species="Abomasnow", level=50, nature=nature, evs=evs)
+    stats = backend.stats_batch([spec], gen=0)[0]
+    for stat, value in expected.items():
+        assert stats[stat] == value, f"{stat} expected {value}, got {stats[stat]}"
