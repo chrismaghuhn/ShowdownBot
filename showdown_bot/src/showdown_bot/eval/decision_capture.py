@@ -182,6 +182,68 @@ def _validate_v1_row(row: dict) -> None:
             raise DecisionCaptureError("candidate aggregate_score must be finite")
 
 
+def _validate_chosen_tera_slot(tera_slot) -> None:
+    if tera_slot is not None and (type(tera_slot) is not int or tera_slot not in (0, 1)):
+        raise DecisionCaptureError("chosen_tera_slot must be null or int 0/1")
+
+
+def _validate_v2_tera_overlay(row: dict, *, chosen_key: str, tera_slot: int | None) -> None:
+    normalized = row.get("normalized_action")
+    if not isinstance(normalized, dict) or normalized.get("kind") != "joint":
+        return
+    norm_slots = normalized.get("slots")
+    if not isinstance(norm_slots, list) or len(norm_slots) != 2:
+        return
+
+    tera_indices = [
+        i for i, slot in enumerate(norm_slots)
+        if slot.get("kind") == "move" and slot.get("tera") is True
+    ]
+    if tera_slot is None:
+        if tera_indices:
+            raise DecisionCaptureError(
+                "chosen_tera_slot is null but normalized_action has a tera overlay"
+            )
+    elif len(tera_indices) != 1 or tera_indices[0] != tera_slot:
+        raise DecisionCaptureError(
+            "chosen_tera_slot inconsistent with normalized_action tera overlay"
+        )
+
+    try:
+        payload = json.loads(chosen_key)
+    except json.JSONDecodeError as exc:
+        raise DecisionCaptureError("chosen_candidate_key must be valid JSON") from exc
+    key_slots = payload.get("slots")
+    if not isinstance(key_slots, list) or len(key_slots) != 2:
+        raise DecisionCaptureError("chosen_candidate_key must contain exactly two slots")
+
+    for idx, (key_slot, norm_slot) in enumerate(zip(key_slots, norm_slots, strict=True)):
+        if not isinstance(key_slot, dict) or not isinstance(norm_slot, dict):
+            raise DecisionCaptureError("chosen_candidate_key slot payload must be an object")
+        if key_slot.get("kind") != norm_slot.get("kind"):
+            raise DecisionCaptureError(
+                "chosen_candidate_key kind mismatch vs normalized_action"
+            )
+        if norm_slot.get("kind") == "move":
+            if key_slot.get("move_index") != norm_slot.get("move_index"):
+                raise DecisionCaptureError(
+                    "chosen_candidate_key move_index mismatch vs normalized_action"
+                )
+            if key_slot.get("target") != norm_slot.get("target"):
+                raise DecisionCaptureError(
+                    "chosen_candidate_key target mismatch vs normalized_action"
+                )
+            if tera_slot == idx:
+                if key_slot.get("terastallize") is not False:
+                    raise DecisionCaptureError(
+                        "pre-tera chosen_candidate_key slot must have terastallize=false"
+                    )
+            elif key_slot.get("terastallize") is True or norm_slot.get("tera") is True:
+                raise DecisionCaptureError(
+                    "unexpected tera on non-chosen slot between key and normalized_action"
+                )
+
+
 def _validate_v2_row(row: dict) -> None:
     candidates = row["candidates"]
     keys = [c.get("candidate_key") for c in candidates]
@@ -195,9 +257,28 @@ def _validate_v2_row(row: dict) -> None:
             raise DecisionCaptureError("v2 chosen_candidate_key required when candidates present")
         if chosen_key not in keys:
             raise DecisionCaptureError("v2 chosen_candidate_key must reference a traced candidate")
+
+        chosen_id = row.get("chosen_candidate_id")
+        if not isinstance(chosen_id, str) or not chosen_id:
+            raise DecisionCaptureError("v2 chosen_candidate_id must be non-empty string")
+
+        chosen_rank = row.get("chosen_rank")
+        if type(chosen_rank) is not int:
+            raise DecisionCaptureError("v2 chosen_rank must be int")
+
+        matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
+        if chosen_rank != matched.get("rank"):
+            raise DecisionCaptureError(
+                "chosen_rank must match rank of candidate under chosen_candidate_key"
+            )
+        if matched.get("candidate_id") != chosen_id:
+            raise DecisionCaptureError(
+                "chosen_candidate_id must match candidate_id for chosen_candidate_key"
+            )
+
         tera_slot = row.get("chosen_tera_slot")
-        if tera_slot is not None and tera_slot not in (0, 1):
-            raise DecisionCaptureError("chosen_tera_slot must be null, 0, or 1")
+        _validate_chosen_tera_slot(tera_slot)
+        _validate_v2_tera_overlay(row, chosen_key=chosen_key, tera_slot=tera_slot)
     else:
         for field in ("chosen_candidate_key", "chosen_candidate_id", "chosen_rank", "chosen_tera_slot"):
             if row.get(field) is not None:

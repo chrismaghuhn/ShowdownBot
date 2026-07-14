@@ -188,3 +188,32 @@ def test_resolve_chosen_candidate_legacy_tera_strip_fallback():
     )
     resolved = resolve_chosen_candidate(trace)
     assert resolved.rank == 0
+
+
+def test_build_agg_row_uses_structural_action_key(decision_fixture):
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.research.aggregation_trace import AggTraceContext, build_agg_row
+
+    req, kw = decision_fixture
+    trace = DecisionTrace()
+    choose = heuristic_choose_for_request(req, trace=trace, **kw)
+    row = build_agg_row(
+        context=AggTraceContext(
+            battle_id="b",
+            seed_index=0,
+            our_side="p1",
+            config_id="heuristic",
+            config_hash="c" * 64,
+            schedule_hash="s" * 64,
+            format_id="gen9vgc2025regi",
+            git_sha="a" * 40,
+        ),
+        trace=trace,
+        request=req,
+        choose=choose,
+        decision_index=0,
+        turn_number=1,
+    )
+    for exported, traced in zip(row["candidates"], trace.candidates, strict=True):
+        assert exported["action_key"] == candidate_identity(traced)
+        assert exported["action_key"] == traced.candidate_key

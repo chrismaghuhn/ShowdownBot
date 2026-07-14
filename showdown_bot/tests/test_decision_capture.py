@@ -254,3 +254,56 @@ def test_load_decision_trace_accepts_v1_row():
         "decision_latency_ms": 1.0,
     }
     validate_trace_row(row)
+
+
+@pytest.fixture
+def v2_trace_row(trace_context, prepared, capture_fixture, decision_fixture):
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import DecisionTrace
+
+    request, kw = decision_fixture
+    trace = DecisionTrace()
+    choose = heuristic_choose_for_request(request, trace=trace, **kw)
+    return build_trace_row(
+        context=trace_context,
+        prepared=prepared,
+        request=request,
+        choose=choose,
+        trace=trace,
+        decision_index=0,
+        decision_latency_ms=1.0,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("chosen_candidate_id", "wrong-id", "chosen_candidate_id must match"),
+        ("chosen_rank", 999, "chosen_rank must match"),
+        ("chosen_tera_slot", True, "chosen_tera_slot must be null or int"),
+    ],
+)
+def test_validate_v2_row_rejects_inconsistent_chosen_fields(v2_trace_row, field, value, match):
+    row = dict(v2_trace_row)
+    row[field] = value
+    with pytest.raises(DecisionCaptureError, match=match):
+        validate_trace_row(row)
+
+
+def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_trace_row):
+    row = dict(v2_trace_row)
+    row["chosen_rank"] = 999
+    path = tmp_path / "bad.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionCaptureError, match="chosen_rank must match"):
+        load_decision_trace(path)
+
+
+def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_trace_row):
+    row = dict(v2_trace_row)
+    row["chosen_tera_slot"] = True
+    path = tmp_path / "bad.jsonl"
+    path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionCaptureError, match="chosen_tera_slot must be null or int"):
+        load_decision_trace(path)
+

@@ -23,6 +23,7 @@ def _validate_label_prefix(trace, labels: dict) -> None:
     situation must surface as RolloutLabelError on the rollout path, never as a silent
     0-row export.
     """
+    assert_unique_candidate_identities(trace.candidates)
     if trace.candidates and not labels:
         raise ValueError("labels must not be empty for a non-empty trace")
     expected = [candidate_identity(c) for c in trace.candidates[: len(labels)]]

@@ -45,12 +45,12 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
 
     report = json.loads(GATE_REPORT.read_text(encoding="utf-8"))
     exceptions = report.get("acceptance", {}).get("exceptions", [])
-    ambiguous_hashes = {
+    ambiguous_request_hashes = {
         row["request_hash"]
         for row in exceptions
         if "ambiguous chosen_candidate" in row.get("exception", "")
     }
-    if not ambiguous_hashes:
+    if not ambiguous_request_hashes:
         pytest.skip("no historical ambiguous exceptions in gate report")
 
     manifest_rows = [
@@ -58,7 +58,14 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
         for line in MANIFEST.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    by_hash = {row["request_hash"]: row["decision_id"] for row in manifest_rows}
+    decision_id_by_request_hash = {
+        row["request_hash"]: row["decision_id"]
+        for row in manifest_rows
+        if row["request_hash"] in ambiguous_request_hashes
+    }
+    ambiguous_decision_ids = set(decision_id_by_request_hash.values())
+    if not ambiguous_decision_ids:
+        pytest.skip("no manifest decision_ids for historical ambiguous request_hashes")
 
     from showdown_bot.eval.accuracy_cap_derisk import DecisionIdComponents, compute_decision_id
     from showdown_bot.eval.room_raw_replay import RequestKind, deduplicate_battle_logs, extract_decisions_from_log
@@ -89,15 +96,26 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
         keep_priority=["run1", "run2", "prefix", "kaggle-validation"],
     )
 
-    decisions_by_hash: dict[str, object] = {}
+    decisions_by_id: dict[str, object] = {}
     for path in sorted(dedup.kept, key=str):
-        identity = dedup.kept_identities[path]
+        identity = dedup.kept_identities.get(path)
+        if identity is None:
+            continue
         for d in extract_decisions_from_log(path):
             if d.kind != RequestKind.MOVE:
                 continue
-            if d.request_hash in decisions_by_hash:
+            decision_id = compute_decision_id(DecisionIdComponents(
+                seed_base=identity.seed_base,
+                seed_index=identity.seed_index,
+                request_hash=d.request_hash,
+                log_prefix_hash=d.log_prefix_hash,
+                side=d.side,
+                rqid=d.request.rqid,
+                turn=d.turn,
+            ))
+            if decision_id in decisions_by_id:
                 continue
-            decisions_by_hash[d.request_hash] = (d, identity)
+            decisions_by_id[decision_id] = d
 
     book = load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
     calc = CalcClient()
@@ -105,10 +123,10 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
     dex = SpeciesDex(calc.backend)
 
     resolved = 0
-    for request_hash in ambiguous_hashes:
-        if request_hash not in decisions_by_hash:
+    for decision_id in ambiguous_decision_ids:
+        if decision_id not in decisions_by_id:
             continue
-        decision, _identity = decisions_by_hash[request_hash]
+        decision = decisions_by_id[decision_id]
         trace = DecisionTrace()
         import os
         os.environ["SHOWDOWN_ACCURACY_MODE"] = "1"
@@ -131,6 +149,7 @@ def test_historical_ambiguous_exceptions_resolve_with_structural_keys():
         finally:
             os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
 
-    assert resolved == len(ambiguous_hashes), (
-        f"resolved {resolved}/{len(ambiguous_hashes)} historical ambiguous decisions"
+    assert resolved == len(ambiguous_decision_ids), (
+        f"resolved {resolved}/{len(ambiguous_decision_ids)} historical ambiguous decisions "
+        f"(keyed by decision_id)"
     )

@@ -91,6 +91,34 @@ def test_validate_label_prefix_rejects_empty_for_nonempty_trace(trace_fixture):
         _validate_label_prefix(trace_fixture, {})   # empty labels for a non-empty trace -> reject
 
 
+def test_validate_label_prefix_rejects_identity_collision_outside_labeled_prefix():
+    """Legacy v1 collision in unlabeled tail must fail before prefix check accepts."""
+    from showdown_bot.battle.candidate_identity import ChosenCandidateResolutionError
+    from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
+    from showdown_bot.battle.evaluate import OutcomeBreakdown
+    from showdown_bot.learning.label_provider import _validate_label_prefix
+
+    shared = "(Knock Off->1, switch)"
+    empty_breakdown = OutcomeBreakdown()
+    trace = DecisionTrace(candidates=[
+        CandidateTrace(
+            candidate_id=shared, rank=0, aggregate_score=1.0, score_vector=[1.0],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+        CandidateTrace(
+            candidate_id=shared, rank=1, aggregate_score=0.5, score_vector=[0.5],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+        CandidateTrace(
+            candidate_id="(pass, pass)", rank=2, aggregate_score=0.0, score_vector=[0.0],
+            joint_action=None, outcome_breakdowns=[empty_breakdown], aggregate_breakdown=empty_breakdown,
+        ),
+    ])
+    labels = {shared: {k: 0 for k in LABEL_KEYS}}
+    with pytest.raises(ChosenCandidateResolutionError, match="ambiguous candidate identity"):
+        _validate_label_prefix(trace, labels)
+
+
 def test_stub_row_metadata_teacher_version(stub_ctx_and_inputs):
     """PIN: row metadata teacher_version comes from ctx.teacher_config (NOT hardcoded).
     ctx.teacher_config == StubLabelProvider().teacher_config() -> "stub-h0", trainable_label False.

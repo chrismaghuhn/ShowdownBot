@@ -102,6 +102,10 @@ class AggTraceContext:
 
 def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | None,
                    decision_index: int, turn_number: int | None = None) -> dict:
+    from showdown_bot.battle.candidate_identity import (
+        assert_unique_candidate_identities,
+        candidate_identity,
+    )
     """Build one full-fidelity aggregation-trace row.
 
     ``trace`` is a ``battle.decision_trace.DecisionTrace`` (or ``None`` for a
@@ -123,6 +127,10 @@ def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | Non
     selected_action_key = (
         _canonical_json(normalize_choose(choose, request)) if choose else None
     )
+
+    trace_candidates = [] if trace is None else list(trace.candidates)
+    if trace_candidates:
+        assert_unique_candidate_identities(trace_candidates)
 
     row = {
         "agg_trace_schema_version": AGG_TRACE_SCHEMA_VERSION,
@@ -146,11 +154,11 @@ def build_agg_row(*, context: AggTraceContext, trace, request, choose: str | Non
         "teacher_best_action_keys": [],
         "candidates": [
             {
-                "action_key": c.candidate_id,
+                "action_key": candidate_identity(c),  # structural key when trace has candidate_key
                 "exported_aggregate_score": float(c.aggregate_score),
                 "response_scores": [float(x) for x in c.score_vector],
             }
-            for c in ([] if trace is None else trace.candidates)
+            for c in trace_candidates
         ],
     }
     validate_agg_row(row)
