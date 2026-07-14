@@ -1,7 +1,7 @@
 # poke-env 0.15.x Reference Audit — Champions Solar Beam / `target`
 
-**Date:** 2026-07-14  
-**Verdict:** **Reference useful** (not a foundation swap)  
+**Date:** 2026-07-14
+**Verdict:** **Reference useful** (not a foundation swap)
 **Scope:** Isolated audit slice — no gauntlet rewrite, no DecisionTrace/Provenance changes.
 
 ## Framing
