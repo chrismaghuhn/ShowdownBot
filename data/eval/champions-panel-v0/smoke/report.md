@@ -117,4 +117,3 @@ Regenerate this report:
 ```
 python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --schedule champions_v0_smoke_pilot.yaml --panel panel_champions_v0.yaml --out <dir> --mode gate
 ```
-

@@ -1,7 +1,7 @@
 # Champions Panel v0 — P4 Pilot Smoke Verdict
 
-**Date:** 2026-07-14  
-**Verdict:** **PIPELINE-READY** (dev-only P4 smoke)  
+**Date:** 2026-07-14
+**Verdict:** **PIPELINE-READY** (dev-only P4 smoke)
 **Scope:** Harness plumbing only — not a strength or decision-quality gate.
 
 ## Question
