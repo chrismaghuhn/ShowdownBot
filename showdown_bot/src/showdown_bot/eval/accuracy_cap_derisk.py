@@ -363,3 +363,93 @@ def cap_order_for_game(game_index: int) -> list[int]:
     n = len(CAPS)
     r = game_index % n
     return CAPS[r:] + CAPS[:r]
+
+
+@dataclass(frozen=True)
+class AmbiguousCaseClassification:
+    primary_cause: str  # label_collision | chosen_candidate_missing | invalid_or_nonreconstructable_request | other_pipeline_error
+    label_collision_subtype: str | None  # switch_target_omitted | ... (only when primary_cause == label_collision)
+    companion_flags: frozenset[str]
+
+
+def classify_ambiguous_case(
+    *,
+    chosen_candidate_id: str,
+    matching_candidate_ids: list[str],
+    matching_joint_actions_distinct_switch_targets: bool,
+    matching_joint_actions_distinct_tera: bool,
+    matching_joint_actions_distinct_move_or_target: bool,
+    exact_score_tie: bool,
+    collision_spans_nonzero_rank: bool,
+    top_k_truncated: bool = False,
+    request_reconstructable: bool = True,
+    force_other_pipeline_error: bool = False,
+    other_pipeline_error_rationale: str | None = None,
+) -> AmbiguousCaseClassification:
+    """Spec Sec.3.1's two-tier scheme. Primary cause is exactly one of 4 (5 with the optional
+    other_resolution_error); companion flags are zero-or-more, independent of the primary cause.
+
+    `collision_spans_nonzero_rank` deliberately does NOT claim anything about "the chosen
+    candidate"'s rank -- this function is only ever invoked on genuinely ambiguous cases (0 or >=2
+    structural matches), where there is no single candidate that can be singled out as "the chosen
+    one" from the data available. It measures a real, honest, weaker property instead: whether the
+    SET of matching/colliding candidates collectively includes at least one non-rank-0 entry."""
+    flags: set[str] = set()
+    if exact_score_tie:
+        flags.add("exact_score_tie")
+    if collision_spans_nonzero_rank:
+        flags.add("collision_spans_nonzero_rank")
+    if matching_joint_actions_distinct_switch_targets:
+        flags.add("distinct_switch_targets_same_label")
+    if matching_joint_actions_distinct_tera:
+        flags.add("distinct_tera_state_same_label")
+    if matching_joint_actions_distinct_move_or_target:
+        flags.add("distinct_move_or_target_same_label")
+    if top_k_truncated:
+        flags.add("top_k_truncated")
+    if len(matching_candidate_ids) >= 2:
+        flags.add("multiple_structurally_equal_candidates")
+
+    if force_other_pipeline_error:
+        if not other_pipeline_error_rationale:
+            raise ValueError("other_pipeline_error requires a concrete rationale, never a bare 'other'")
+        return AmbiguousCaseClassification(
+            primary_cause="other_pipeline_error", label_collision_subtype=None,
+            companion_flags=frozenset(flags),
+        )
+
+    if not request_reconstructable:
+        return AmbiguousCaseClassification(
+            primary_cause="invalid_or_nonreconstructable_request", label_collision_subtype=None,
+            companion_flags=frozenset(flags),
+        )
+
+    if len(matching_candidate_ids) == 0:
+        return AmbiguousCaseClassification(
+            primary_cause="chosen_candidate_missing", label_collision_subtype=None,
+            companion_flags=frozenset(flags),
+        )
+
+    if len(matching_candidate_ids) >= 2:
+        if matching_joint_actions_distinct_switch_targets:
+            subtype = "switch_target_omitted"
+        elif matching_joint_actions_distinct_tera:
+            subtype = "tera_state_omitted"
+        elif matching_joint_actions_distinct_move_or_target:
+            subtype = "move_or_target_omitted"
+        else:
+            subtype = "unspecified_collision"
+        return AmbiguousCaseClassification(
+            primary_cause="label_collision", label_collision_subtype=subtype,
+            companion_flags=frozenset(flags),
+        )
+
+    # exactly one match, none of the above -- shouldn't be reachable for a genuinely "ambiguous"
+    # case, but fail with a clear reason rather than silently miscategorizing.
+    raise ValueError(
+        f"classify_ambiguous_case called on a non-ambiguous case (1 match, "
+        f"chosen_candidate_id={chosen_candidate_id!r}) -- caller should only invoke this for "
+        f"cases that genuinely failed to resolve to exactly one match on re-run (see Task 11's "
+        f"reproduction check, which routes exactly-one-match re-runs to other_pipeline_error "
+        f"instead of calling this function at all)."
+    )

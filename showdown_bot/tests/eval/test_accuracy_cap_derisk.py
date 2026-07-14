@@ -398,3 +398,61 @@ def test_cap_order_for_game_covers_all_caps_in_every_position_over_a_full_cycle(
         for position in range(3):
             caps_at_position = {order[position] for order in orders}
             assert caps_at_position == {4, 6, 8}
+
+
+from showdown_bot.eval.accuracy_cap_derisk import classify_ambiguous_case
+
+
+def test_classify_label_collision_switch_target_omitted():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.primary_cause == "label_collision"
+    assert result.label_collision_subtype == "switch_target_omitted"
+    assert "distinct_switch_targets_same_label" in result.companion_flags
+
+
+def test_classify_chosen_missing():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(nothing)", matching_candidate_ids=[],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        top_k_truncated=True,
+    )
+    assert result.primary_cause == "chosen_candidate_missing"
+    assert "top_k_truncated" in result.companion_flags
+
+
+def test_classify_primary_and_companion_flags_are_independent():
+    """A label collision WITH a simultaneous exact score tie and a collision spanning a nonzero
+    rank -- both companion facts survive, neither forces a different primary cause (spec Sec.3.1)."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=True, collision_spans_nonzero_rank=True,
+    )
+    assert result.primary_cause == "label_collision"  # unaffected by the companion facts
+    assert "exact_score_tie" in result.companion_flags
+    assert "collision_spans_nonzero_rank" in result.companion_flags
+
+
+def test_classify_other_pipeline_error_requires_rationale():
+    with pytest.raises(ValueError, match="rationale"):
+        classify_ambiguous_case(
+            chosen_candidate_id="(weird)", matching_candidate_ids=["(weird)"],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
+            force_other_pipeline_error=True,  # no rationale provided -> must raise
+        )
