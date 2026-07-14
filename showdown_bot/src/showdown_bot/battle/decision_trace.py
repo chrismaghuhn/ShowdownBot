@@ -110,12 +110,15 @@ class CandidateTrace:
     aggregate_breakdown: OutcomeBreakdown
     model_features: CandidateModelFeatures = field(default_factory=CandidateModelFeatures)
     accuracy_details: list[AccuracyResponseDetail] = field(default_factory=list)  # parallel to opponent responses; single-world only -- see AccuracyResponseDetail docstring for the K-world (world_ctx[0]) caveat
+    candidate_key: str | None = None
 
 
 @dataclass
 class DecisionTrace:
     game_mode: str | None = None
     chosen_candidate_id: str | None = None
+    chosen_candidate_key: str | None = None
+    chosen_tera_slot: int | None = None
     opponent_responses: list[Any] = field(default_factory=list)
     opponent_response_weights: list[float] = field(default_factory=list)
     candidates: list[CandidateTrace] = field(default_factory=list)  # ONLY exported top-K, rank-sorted

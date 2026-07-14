@@ -533,6 +533,7 @@ def _choose_best(
     if best_ja is None:
         raise ValueError("no best action found")
 
+    pre_tera_ja = best_ja
     best_ja = _maybe_tera(
         req, best_ja, best_val, mode, state, our_side, opp_side,
         speed_oracle, opp_resps, model, weights, risk_lambda, tera_margin, resp_weights,
@@ -585,6 +586,7 @@ def _choose_best(
                 pass
 
     if trace is not None:
+        from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key
         from showdown_bot.battle.decision_trace import (
             AccuracyEventTrace,
             AccuracyResponseDetail,
@@ -694,9 +696,12 @@ def _choose_best(
                     survives_for_sure_count=dec_survives,
                 ),
                 accuracy_details=acc_details,
+                candidate_key=joint_action_key(ja),
             ))
         trace.game_mode = getattr(mode, "name", str(mode))
+        trace.chosen_candidate_key = joint_action_key(pre_tera_ja)
         trace.chosen_candidate_id = _label_ja(req, best_ja)
+        trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
         trace.opponent_responses = [r.actions for r in opp_resps]
         trace.opponent_response_weights = resp_weights or []
         trace.candidates = cands
