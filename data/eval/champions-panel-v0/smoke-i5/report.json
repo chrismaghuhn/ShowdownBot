@@ -1,0 +1,332 @@
+{
+  "aggregates": {
+    "losing_cells": [],
+    "overall_pooled": {
+      "n": 10,
+      "wilson_hi": 0.6032267800204347,
+      "wilson_lo": 0.10778928748621183,
+      "win_rate": 0.3,
+      "wins": 3
+    },
+    "per_policy": [
+      {
+        "n": 5,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.769280067791163,
+        "wilson_lo": 0.1176182311592533,
+        "win_rate": 0.4,
+        "wins": 2
+      },
+      {
+        "n": 5,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.6244717358814613,
+        "wilson_lo": 0.03622316096978745,
+        "win_rate": 0.2,
+        "wins": 1
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.3,
+    "worst_cell": {
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "cells": [
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "opp_team_path": "teams/panel_champions_v0/goodstuff.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "64ecc8fb2e6da7f1",
+      "opp_team_path": "teams/panel_champions_v0/trick_room.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.20654329147389294,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "7b568b09f44b20fd",
+      "opp_team_path": "teams/panel_champions_v0/disruption.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "e0c96fa0cabf1def",
+      "opp_team_path": "teams/panel_champions_v0/rain_offense.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "ea99dd840d0adce2",
+      "opp_team_path": "teams/panel_champions_v0/tailwind_offense.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.20654329147389294,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "0054b6894af7215a",
+      "opp_team_path": "teams/panel_champions_v0/goodstuff.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "64ecc8fb2e6da7f1",
+      "opp_team_path": "teams/panel_champions_v0/trick_room.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "7b568b09f44b20fd",
+      "opp_team_path": "teams/panel_champions_v0/disruption.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e0c96fa0cabf1def",
+      "opp_team_path": "teams/panel_champions_v0/rain_offense.txt",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.20654329147389294,
+      "win_rate": 1.0,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "ea99dd840d0adce2",
+      "opp_team_path": "teams/panel_champions_v0/tailwind_offense.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "heldout": true,
+  "mode": "gate",
+  "paired": false,
+  "provenance": {
+    "config_hash": "b8a0aa12b9f6c4de",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.13.4",
+        "websockets": "16.0"
+      },
+      "node": "v22.22.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.5"
+    },
+    "format_id": "gen9championsvgc2026regma",
+    "git_sha": "4da007b49ceb204c76e7ab1b2511a77877281dc2",
+    "input_sha256": {
+      "manifest": "e62a59e8e4a4190d3feb7a57286b5dd5947daa42527f0a44382a2c036e769cf0",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "c59aa71b4fc3fb9630b5ec2ff83a8dc4b38b58143bd90db12e1b7a6662077fad",
+      "schedule": "5ab011f4efb037fa58e8428fa32885192c9660a0d8c049fca5e744724e591325",
+      "seedlog": "ae77a7f0bc7f8c2050df648a8450a94637183b72896c55ba5540a1940c45637b"
+    },
+    "panel_hash": "aac1ea30446fde88",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "aac1ea30446fde88",
+    "row_count": 10,
+    "run_id": "26f003dbcb2c6802",
+    "schedule_hash": "d6fba5070cd7cb49",
+    "seed_base": "champions-panel-v0-smoke-i5",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-14T19:13:26.516373+00:00"
+  },
+  "reproduction": {
+    "env": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "champions-panel-v0-smoke-i5"
+    },
+    "input_sha256": {
+      "manifest": "e62a59e8e4a4190d3feb7a57286b5dd5947daa42527f0a44382a2c036e769cf0",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "c59aa71b4fc3fb9630b5ec2ff83a8dc4b38b58143bd90db12e1b7a6662077fad",
+      "schedule": "5ab011f4efb037fa58e8428fa32885192c9660a0d8c049fca5e744724e591325",
+      "seedlog": "ae77a7f0bc7f8c2050df648a8450a94637183b72896c55ba5540a1940c45637b"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --schedule champions_v0_smoke_i5.yaml --panel panel_champions_v0.yaml --out <dir> --mode gate",
+    "run_command": "python -m showdown_bot.cli gauntlet --schedule ..\\config\\eval\\schedules\\champions_v0_smoke_i5.yaml --result-out ..\\data\\eval\\champions-panel-v0\\smoke-i5\\results.jsonl --decision-trace-out ..\\data\\eval\\champions-panel-v0\\smoke-i5\\decision_trace.jsonl",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "10 == 10",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=3235 (budget 1000)",
+      "status": "FAIL"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "10 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "aac1ea30446fde88",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "b8a0aa12b9f6c4de",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "d6fba5070cd7cb49",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "champions-panel-v0-smoke-i5",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "26f003dbcb2c6802",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "4da007b49ceb204c76e7ab1b2511a77877281dc2",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": false,
+  "schema_version": 1,
+  "verdict": "SINGLE-RUN SAFETY-FAIL",
+  "warnings": [
+    "This is a single-run safety readout, not a comparison. A single run cannot establish improvement over any baseline \u2014 it can only pass or fail the safety gates. Any strength claim requires a paired run against a pinned baseline (T6) with the positive-evidence rule.",
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim.",
+    "HELD-OUT RUN \u2014 these numbers must never inform tuning decisions."
+  ]
+}
