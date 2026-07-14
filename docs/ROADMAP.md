@@ -29,7 +29,7 @@ state (depth-2 slice, value-calibration spec).
 | Belief (item/spread/move priors) | **Not started** | — | P2, after the panel + data-identity fix |
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
-| Accuracy / hit-probability evaluation | **Default-on at branch cap 6 (2026-07-14); cap=4 frozen FAIL reference unchanged** | 9-task hit-probability plan, `af575e5`..`c93e863`, merge `3fd3b09`; 11-task offline-gate plan merged 2026-07-13; cap-derisk + Candidate-Identity refresh (`reports/2026-07-14-accuracy-default-on-decision-note.md`, Gate-B cap=6 PASS 6/944=0.64%) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; `SHOWDOWN_ACCURACY_BRANCH_CAP` **default 6**; explicit `"0"`/`"false"`/`""` opt-out; **no strength claim** — dev/strength panel measurement is the next step |
+| Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
@@ -177,8 +177,10 @@ state (depth-2 slice, value-calibration spec).
    `SHOWDOWN_ACCURACY_MODE` on and `SHOWDOWN_ACCURACY_BRANCH_CAP` to **6** when unset; explicit
    `"0"` / `"false"` / `""` remain off. Spec:
    `docs/superpowers/specs/2026-07-14-accuracy-default-on-design.md`. Decision note:
-   `reports/2026-07-14-accuracy-default-on-decision-note.md`. **No strength claim** — dev/strength
-   panel runs next, not bundled with this flip.
+   `reports/2026-07-14-accuracy-default-on-decision-note.md`. **Dev-strength A/B done**
+   (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`): SAFETY-PASS, strength
+   UNDERPOWERED (n_discordant=6); directional warning only (off favored in all discordants) —
+   not equivalence, not regression proven.
 
 ## P1 — Nächster realer Stärkeversuch
 

@@ -1,0 +1,31 @@
+{
+  "cli_invocation": [
+    "C:\\Users\\chris\\Documents\\SHowdown BOt\\.claude\\worktrees\\accuracy-default-on-measure\\showdown_bot\\src\\showdown_bot\\cli.py",
+    "gauntlet",
+    "--schedule",
+    "C:\\Users\\chris\\Documents\\SHowdown BOt\\.claude\\worktrees\\accuracy-default-on-measure\\config\\eval\\schedules\\2b4_devstrength_v001.yaml",
+    "--result-out",
+    "C:\\Users\\chris\\AppData\\Local\\sb_measure\\accuracy-default-on-devstrength-ab\\baseline\\results.jsonl"
+  ],
+  "config_hash": "a11e829fa898b254",
+  "dirty": false,
+  "environment": {
+    "deps": {
+      "lightgbm": "4.6.0",
+      "pydantic": "2.13.4",
+      "websockets": "16.0"
+    },
+    "node": "v24.16.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.5"
+  },
+  "git_sha": "a956b6b912ad0d07e0f9af50fc7128ab970e37ad",
+  "panel_hash": "760c1e5935fe0474",
+  "pythonhashseed": "0",
+  "run_id": "c9b2ba7d5dab99e2",
+  "schedule_hash": "9ce8872b75065c63",
+  "seed_base": "accuracy-default-on-v001",
+  "server_patch_hash": "86e31891547e87da",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-14T14:18:12.946555+00:00"
+}

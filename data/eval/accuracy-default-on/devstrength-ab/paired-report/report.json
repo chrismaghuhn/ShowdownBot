@@ -1,0 +1,504 @@
+{
+  "aggregates": {
+    "losing_cells": [
+      [
+        "max_damage",
+        "69f471c2740f1927"
+      ],
+      [
+        "max_damage",
+        "b0048ae65f0e9ee5"
+      ],
+      [
+        "max_damage",
+        "e622869d6c68307e"
+      ]
+    ],
+    "overall_pooled": {
+      "n": 150,
+      "wilson_hi": 0.19698150644766288,
+      "wilson_lo": 0.08799732892586415,
+      "win_rate": 0.13333333333333333,
+      "wins": 20
+    },
+    "per_policy": [
+      {
+        "n": 150,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.19698150644766288,
+        "wilson_lo": 0.08799732892586415,
+        "win_rate": 0.13333333333333333,
+        "wins": 20
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.13333333333333333,
+    "worst_cell": {
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "69f471c2740f1927",
+      "wilson_hi": 0.10495686471836953,
+      "wilson_lo": 0.0035391680889764604,
+      "win_rate": 0.02
+    }
+  },
+  "cells": [
+    {
+      "losing": true,
+      "losses": 49,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "69f471c2740f1927",
+      "opp_team_path": "teams/panel_v001/rain_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.10495686471836953,
+      "wilson_lo": 0.0035391680889764604,
+      "win_rate": 0.02,
+      "wins": 1
+    },
+    {
+      "losing": true,
+      "losses": 36,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "b0048ae65f0e9ee5",
+      "opp_team_path": "teams/panel_v001/sun_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.4166538714598967,
+      "wilson_lo": 0.17474014357680362,
+      "win_rate": 0.28,
+      "wins": 14
+    },
+    {
+      "losing": true,
+      "losses": 45,
+      "n": 50,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e622869d6c68307e",
+      "opp_team_path": "teams/panel_v001/trickroom_dev.txt",
+      "ties": 0,
+      "wilson_hi": 0.2136049033478839,
+      "wilson_lo": 0.04347512399157111,
+      "win_rate": 0.1,
+      "wins": 5
+    }
+  ],
+  "heldout": false,
+  "mode": "gate",
+  "paired": {
+    "cell_flips": [],
+    "delta": -0.04,
+    "delta_winrate_form": -0.04000000000000001,
+    "discordant_battles": [
+      {
+        "battle_id": "ea2ee12713ac84f6",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -0.37,
+        "end_hp_diff_b": 0.715385,
+        "outcome": "B won, A lost",
+        "seed_index": 51,
+        "turns_a": 7,
+        "turns_b": 11
+      },
+      {
+        "battle_id": "696c9f69f4e3ee3c",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -0.96,
+        "end_hp_diff_b": 0.692308,
+        "outcome": "B won, A lost",
+        "seed_index": 63,
+        "turns_a": 9,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "b1a69794443b6bef",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -0.94,
+        "end_hp_diff_b": 0.401523,
+        "outcome": "B won, A lost",
+        "seed_index": 64,
+        "turns_a": 9,
+        "turns_b": 8
+      },
+      {
+        "battle_id": "357edfd31e433ed0",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -0.87,
+        "end_hp_diff_b": 0.569231,
+        "outcome": "B won, A lost",
+        "seed_index": 92,
+        "turns_a": 9,
+        "turns_b": 10
+      },
+      {
+        "battle_id": "782ec4cbc2f61630",
+        "cell": [
+          "max_damage",
+          "b0048ae65f0e9ee5"
+        ],
+        "end_hp_diff_a": -0.98,
+        "end_hp_diff_b": 0.607692,
+        "outcome": "B won, A lost",
+        "seed_index": 96,
+        "turns_a": 9,
+        "turns_b": 12
+      },
+      {
+        "battle_id": "e314fe4f8ae7fecd",
+        "cell": [
+          "max_damage",
+          "69f471c2740f1927"
+        ],
+        "end_hp_diff_a": 0.0,
+        "end_hp_diff_b": 0.281535,
+        "outcome": "B won, A lost",
+        "seed_index": 149,
+        "turns_a": 11,
+        "turns_b": 11
+      }
+    ],
+    "exact_p": 0.03125,
+    "n00": 124,
+    "n01": 6,
+    "n10": 0,
+    "n11": 20,
+    "n_discordant": 6,
+    "n_discordant_claim_min": 10,
+    "n_discordant_math_floor": 6,
+    "strength_delta": -0.04,
+    "strength_n01": 6,
+    "strength_n10": 0,
+    "strength_pairs": 150,
+    "tie_flag": false,
+    "tie_rate_a": 0.0,
+    "tie_rate_b": 0.0,
+    "total": 150,
+    "underpowered": true,
+    "underpowered_banner": "UNDERPOWERED: only 6 discordant pairs. No conclusion is possible in either direction. This is not evidence of equivalence and must not be cited to unblock 2b-4.",
+    "winrate_a": 0.13333333333333333,
+    "winrate_b": 0.17333333333333334,
+    "zero_discordant_ambiguity": null
+  },
+  "provenance": {
+    "config_hash": "bc76bd1d538bb50f",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.13.4",
+        "websockets": "16.0"
+      },
+      "node": "v24.16.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.5"
+    },
+    "format_id": "gen9vgc2025regi",
+    "git_sha": "a956b6b912ad0d07e0f9af50fc7128ab970e37ad",
+    "input_sha256": {
+      "manifest": "8fc9962d1f76051fbcbcabf269ab32162b1a44a09d4911cea44e010ce3489889",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "b13e2ba55aae4d9472d1475fdb56c01286f1e67545c42ac3b4fc90fb23bcf2d0",
+      "schedule": "cf783b09ef47c1019197b1c41929c0c38894f80c7076d267922e22f8c07b1766",
+      "seedlog": "3d86390b1a925694323f174d9a982c464362af845d0e58f8e3a669bf34eaf6bd"
+    },
+    "panel_hash": "760c1e5935fe0474",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "760c1e5935fe0474",
+    "row_count": 150,
+    "run_id": "5c0b0ca928019dfb",
+    "schedule_hash": "9ce8872b75065c63",
+    "seed_base": "accuracy-default-on-v001",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-14T14:34:27.049609+00:00"
+  },
+  "provenance_b": {
+    "config_hash": "a11e829fa898b254",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.13.4",
+        "websockets": "16.0"
+      },
+      "node": "v24.16.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.5"
+    },
+    "format_id": "gen9vgc2025regi",
+    "git_sha": "a956b6b912ad0d07e0f9af50fc7128ab970e37ad",
+    "input_sha256": {
+      "manifest": "8f16b96c04e29e6924c6d4de258b204bd7ccb2e8bcac0a314581a3ad18bc3d87",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "5be32ad6b62690c111cc6ccaa4cf058d46f26c9be294a2fa2dc5a61e3156e3e3",
+      "schedule": "cf783b09ef47c1019197b1c41929c0c38894f80c7076d267922e22f8c07b1766",
+      "seedlog": "3d86390b1a925694323f174d9a982c464362af845d0e58f8e3a669bf34eaf6bd"
+    },
+    "panel_hash": "760c1e5935fe0474",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "760c1e5935fe0474",
+    "row_count": 150,
+    "run_id": "c9b2ba7d5dab99e2",
+    "schedule_hash": "9ce8872b75065c63",
+    "seed_base": "accuracy-default-on-v001",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-14T14:18:12.946555+00:00"
+  },
+  "reproduction": {
+    "env_a": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "accuracy-default-on-v001"
+    },
+    "env_b": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "accuracy-default-on-v001"
+    },
+    "input_sha256_a": {
+      "manifest": "8fc9962d1f76051fbcbcabf269ab32162b1a44a09d4911cea44e010ce3489889",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "b13e2ba55aae4d9472d1475fdb56c01286f1e67545c42ac3b4fc90fb23bcf2d0",
+      "schedule": "cf783b09ef47c1019197b1c41929c0c38894f80c7076d267922e22f8c07b1766",
+      "seedlog": "3d86390b1a925694323f174d9a982c464362af845d0e58f8e3a669bf34eaf6bd"
+    },
+    "input_sha256_b": {
+      "manifest": "8f16b96c04e29e6924c6d4de258b204bd7ccb2e8bcac0a314581a3ad18bc3d87",
+      "panel": "13474d0f6766c08be14d1e38a410f3e52ef266f6676b75d28cfd478efe56ba9c",
+      "results": "5be32ad6b62690c111cc6ccaa4cf058d46f26c9be294a2fa2dc5a61e3156e3e3",
+      "schedule": "cf783b09ef47c1019197b1c41929c0c38894f80c7076d267922e22f8c07b1766",
+      "seedlog": "3d86390b1a925694323f174d9a982c464362af845d0e58f8e3a669bf34eaf6bd"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --run-b results.jsonl --seedlog-b seeds.jsonl --schedule 2b4_devstrength_v001.yaml --panel panel_v001.yaml --out <dir> --mode gate",
+    "run_command_a": "python -m showdown_bot.cli gauntlet --schedule C:\\Users\\chris\\Documents\\SHowdown BOt\\.claude\\worktrees\\accuracy-default-on-measure\\config\\eval\\schedules\\2b4_devstrength_v001.yaml --result-out C:\\Users\\chris\\AppData\\Local\\sb_measure\\accuracy-default-on-devstrength-ab\\candidate\\results.jsonl",
+    "run_command_b": "python -m showdown_bot.cli gauntlet --schedule C:\\Users\\chris\\Documents\\SHowdown BOt\\.claude\\worktrees\\accuracy-default-on-measure\\config\\eval\\schedules\\2b4_devstrength_v001.yaml --result-out C:\\Users\\chris\\AppData\\Local\\sb_measure\\accuracy-default-on-devstrength-ab\\baseline\\results.jsonl",
+    "server_patch_hash_a": "86e31891547e87da",
+    "server_patch_hash_b": "86e31891547e87da",
+    "showdown_commit_a": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "showdown_commit_b": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "150 == 150",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=482 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "150 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "760c1e5935fe0474",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "bc76bd1d538bb50f",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "9ce8872b75065c63",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "accuracy-default-on-v001",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "5c0b0ca928019dfb",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "a956b6b912ad0d07e0f9af50fc7128ab970e37ad",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_gates_b": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "150 == 150",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=251 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "150 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "760c1e5935fe0474",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "a11e829fa898b254",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "9ce8872b75065c63",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "accuracy-default-on-v001",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "c9b2ba7d5dab99e2",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "a956b6b912ad0d07e0f9af50fc7128ab970e37ad",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": true,
+  "schema_version": 1,
+  "verdict": "UNDERPOWERED",
+  "verdict_reasons": [],
+  "warnings": [
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim.",
+    "Paired seeds share luck only up to the first differing choice: after the two configs diverge, the battles are no longer luck-matched, so per-turn comparisons past that point are not paired."
+  ],
+  "worst_cell": {
+    "n": 50,
+    "opp_policy": "max_damage",
+    "opp_team_hash": "69f471c2740f1927",
+    "wilson_hi": 0.10495686471836953,
+    "wilson_lo": 0.0035391680889764604,
+    "win_rate": 0.02
+  }
+}
