@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-14.
+Last reconciled: 2026-07-14 (I5 mixed verdict on `feat/champions-i5-smoke`).
 
 ---
 
@@ -27,17 +27,18 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 ## Current Priority
 
-Ordered front-track work as of 2026-07-14:
+Ordered front-track work as of 2026-07-14 (post-I5):
 
-1. **Champions parser gap** — make `MoveSlot.target` optional and backfill from `MoveMeta`
-   (`get_move_meta`); blocks rain held-out (`Meganium` / `Solar Beam` without `target`).
-2. **Champions `FormatConfig`** — required before strength or decision-quality runs (P4 ran with
-   `book=None` / `priors=None` by design).
-3. **Larger Champions safety / strength run** — only after parser fix + `FormatConfig`; not before.
-4. **poke-env** — reference-only for parser diffs if needed (`reports/champions-poke-env-reference-audit.md`);
-   not a foundation, not a dependency, not CI.
-5. **Accuracy larger follow-up** — user-gated only; default-on is implemented and safety-clean;
-   not the current front track unless explicitly reprioritized.
+1. **Champions HP-suffix state parser** — `100y`/`100g` HP tokens break state build → random-legal
+   `choose_for_request` degradation (5/94 non-preview decisions in I5 trace). Hard blocker before
+   strength or decision-quality claims.
+2. **Live damage → calc gen-0** — speed oracle is gen-0 (I4); live damage scoring can still use
+   gen-9 mechanics until threaded through Champions `CalcProfile`.
+3. **Mega overlay** — not modeled; blocks honest strength interpretation.
+4. **Champions latency** — worst p95 **3235 ms** vs **1000 ms** Reg-I gate (I5 STANDARD SAFETY-FAIL);
+   profile or adopt a pre-justified Champions budget before Strength.
+5. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
+6. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
 
 ---
 
@@ -47,7 +48,7 @@ Ordered front-track work as of 2026-07-14:
 
 | | |
 |---|---|
-| **Status** | P0–P4 + **I5 smoke PASS** on `feat/champions-i5-smoke` @ `4da007b`. I5 = FormatConfig + belief deps wired (not strength). |
+| **Status** | P0–P4 on main; **I5 mixed verdict** on `feat/champions-i5-smoke` @ `4da007b`: CONFIG/PROVENANCE PASS · STANDARD SAFETY FAIL (latency) · STATE-DEGRADATION FOUND. |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -60,18 +61,18 @@ Ordered front-track work as of 2026-07-14:
 | P2 Team curation | PASS @ `7660d44` | `showdown_bot/teams/panel_champions_v0/`, `PROVENANCE.md` |
 | P3 Panel freeze | PASS @ `550f1ad` | `config/eval/panels/panel_champions_v0.yaml`, `showdown_bot/tests/test_panel.py` |
 | P4 Pilot smoke | PASS @ `04b0eb7` (`dirty=false`) | `reports/champions-panel-v0-pilot-smoke.md`, `data/eval/champions-panel-v0/smoke/` |
-| I5 FormatConfig smoke | PASS @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
+| I5 FormatConfig smoke | **Mixed** @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
 
 **Open blockers**
 
-- **Live damage path:** speed oracle uses calc gen-0 (I4); live damage scoring can still use gen-9 mechanics — thread gen-0 before strength/decision-quality claims.
-- **Mega overlay:** not modeled; strength interpretation blocked until addressed.
-- **Parser / state:** rain held-out Solar Beam choose-path fixed @ `4764a7d`; intermittent `100y`/`100g` HP suffix warnings in state build (battles still complete).
-- **Latency gate:** Champions heuristic p95 ~2.3–3.1 s vs pinned 1000 ms Reg-I budget (`eval-report` SAFETY-FAIL on latency only; not an I5 user-scope blocker).
+- **HP-suffix state parser (`100y`/`100g`):** state build fails → random-legal degradation (5 degraded hero decisions in I5 trace). **Hard blocker** before strength/decision-quality.
+- **Live damage path:** speed oracle uses calc gen-0 (I4); live damage scoring can still use gen-9 mechanics.
+- **Mega overlay:** not modeled.
+- **Latency gate:** worst p95 **3235 ms** vs **1000 ms** Reg-I budget — official `eval-report` SAFETY-FAIL; profile or set Champions budget before Strength.
 
 **Explicit non-claims**
 
-- P4 / I5 smoke prove **harness + config wiring only** — not strength, not decision quality, not Mega-readiness.
+- I5 proves **config/provenance wiring + harness completion** on a 10-row panel — not strength, not full safety pass, not full heuristic fidelity.
 - Hero win counts (P4 2/6, I5 3/10) are **not** interpreted.
 
 **Related**
@@ -214,7 +215,6 @@ Ordered front-track work as of 2026-07-14:
 - **Accuracy default flip** — already implemented (`8c54843`); do not relitigate without new data.
 - **poke-env foundation rewrite** — reference-only per `reports/champions-poke-env-reference-audit.md`.
 - **Strength claim from P4/I5 Champions smoke** — explicitly forbidden.
-- **Champions rain / held-out schedule** — until `MoveSlot.target` parser gap is fixed.
 - **Large public-log imports into eval gates** — import audit is PROPOSED, not approved.
 - **Global scalar λ tuning** — exhausted as a strength lever (see roadmap scalar-aggregation table).
 - **Reranker live override** — NO-GO (2b-4); infrastructure remains in use.
@@ -226,7 +226,7 @@ Ordered front-track work as of 2026-07-14:
 1. **`docs/PROJECT_INDEX.md`** (this file) — orientation.
 2. **`docs/ROADMAP.md`** — authoritative status matrix and sequencing.
 3. **Active track report** for the task at hand, e.g.:
-   - Champions: `reports/champions-panel-v0-pilot-smoke.md`
+   - Champions: `reports/champions-panel-v0-i5-smoke.md` (I5), `reports/champions-panel-v0-pilot-smoke.md` (P4)
    - Accuracy: `reports/2026-07-14-accuracy-default-on-decision-note.md`
    - Parser follow-up: `reports/champions-poke-env-reference-audit.md`
 4. **Relevant tests** — e.g. `showdown_bot/tests/test_panel.py`, `showdown_bot/tests/eval/test_candidate_identity_replay.py`, request fixtures under `showdown_bot/tests/fixtures/`.
@@ -242,5 +242,5 @@ Ordered front-track work as of 2026-07-14:
 | Champions panel config | `config/eval/panels/panel_champions_v0.yaml` |
 | Champions smoke schedule (P4) | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
 | Champions smoke schedule (I5) | `config/eval/schedules/champions_v0_smoke_i5.yaml` |
-| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 clean `dirty=false` + FormatConfig hashes) |
+| Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (`config-manifest.json`, `dirty=false`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |

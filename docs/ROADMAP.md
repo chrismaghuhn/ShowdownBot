@@ -10,7 +10,7 @@ verify against this file and git history first.
 **New agents:** start with [`docs/PROJECT_INDEX.md`](PROJECT_INDEX.md) for orientation; this
 roadmap remains the authoritative status matrix.
 
-Last reconciled: 2026-07-14 (Champions I5 smoke PASS @ `4da007b`: 10/10 panel rows dev+held-out, dirty=false, crashes=0, invalid=0, FormatConfig+calc pin in config_hash; rain/held-out parser/harness safety PASS on `4764a7d`), against an external strategic review (adopted with two
+Last reconciled: 2026-07-14 (I5 mixed verdict: CONFIG/PROVENANCE PASS · STANDARD SAFETY FAIL latency · STATE-DEGRADATION FOUND @ `4da007b`), against an external strategic review (adopted with two
 corrections, see "Corrections to the external review" below) and this session's own verified
 state (depth-2 slice, value-calibration spec).
 
@@ -33,7 +33,7 @@ state (depth-2 slice, value-calibration spec).
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
 | Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
-| Champions panel v0 (format target) | **I5 SMOKE-PASS** (FormatConfig wired; not strength-ready) | P0–P4 on main; I4 calc pin + speed gen-0 merged `f192aff`; I5 smoke @ `4da007b` (`reports/champions-panel-v0-i5-smoke.md`): 10/10 rows (6 dev + 4 held-out), dirty=false, crashes=0, invalid=0, `format_config_hash`/`calc_pin_hash`/priors/spreads in `config_hash`; rain held-out parser @ `4764a7d` | **Live damage → calc gen-0** + Mega overlay before honest strength/decision-quality; optional `parse_battle_result` loop-hardening for `100y`/`100g` HP suffix warnings; Champions latency budget revisit (p95 ~2.3–3.1 s vs 1000 ms Reg-I gate) |
+| Champions panel v0 (format target) | **I5 CONFIG/PROVENANCE PASS · STANDARD SAFETY FAIL (latency) · STATE-DEGRADATION FOUND** | P0–P4 on main; I4 calc pin + speed gen-0 merged `f192aff`; I5 @ `4da007b` (`reports/champions-panel-v0-i5-smoke.md`): 10/10 rows, dirty=false, crashes=0, invalid=0, config manifest proves `b8a0aa12b9f6c4de`; rain Solar Beam choose-path @ `4764a7d`; **5/94** non-preview decisions random-legal after `100y`/`100g` state failures; worst p95 **3235 ms** vs **1000 ms** gate | **1)** HP-suffix state parser **2)** live damage gen-0 **3)** Mega **4)** latency profile/budget — then Strength |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
