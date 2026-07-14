@@ -15,7 +15,7 @@
 - bootstrap upper bound (one-sided 95%, B=10,000 resamples, seed 20260713, game-clustered): 0.013714 (1.37%)
 - PASS threshold: 0.05 (5.00%)
 - **verdict: PASS** -- point estimate (0.68%) is at or below the 5.00% threshold and the bootstrap upper bound (1.37%) clears it too.
-- exception_count (ambiguous_label-excluded decisions, same 63 as cap=4 -- see the ambiguous-candidate diagnostic report for the full classification): 63
+- exceptions: 63 (cap=4 also excluded 63 -- MATCHES cap=4) (ambiguous_label-excluded decisions; see the ambiguous-candidate diagnostic report for the full classification)
 
 ## Cap=4 reference row (FROZEN, cited only -- never recomputed here)
 
@@ -26,6 +26,7 @@ Cited from `data/eval/accuracy-gate/gate-b-report.json` (sha256 `cfcffd1d20ac1d7
 - point estimate: 0.129398 (12.94%)
 - bootstrap upper bound: 0.161331 (16.13%)
 - **verdict: FAIL**
+- exception_count: 63
 
 ## Action-changed counts (spec Sec.2.4/2.7 -- `compare_action_tables`, directions explicitly labeled)
 
@@ -62,6 +63,10 @@ Full list of the affected decision_ids (20):
 - `b60f1bcf13f79cd6143a91cb32bdfffeb212b99b4e8424ecd182ff1bc5df5738`
 - `b8c3dd62620e8e16eac6f875c399572d70288e3aa7d39c3e7492c78d98aa29be`
 - `f2355fefe634fcb7e60eb07bd149091276d9bd089784e7ada6dbbf9da4c7616e`
+
+## Tera-diffs (spec Sec.2.7 -- isolated as their own subset, not folded into the general diff count)
+
+- **tera_diff_count: 0 / 20** (of this cap's own off-vs-on diffs where `tera_changed` is True -- i.e. decisions where accuracy mode changed not just the chosen action but specifically whether/where Tera was spent)
 
 ## Leaf/event/incomplete distributions (spec Sec.2.7 -- own real denominator, NOT claimed to cover all 944)
 

@@ -21,6 +21,29 @@ plan de-risks: the accuracy-offline-gate plan's FAIL verdict at
 > than assumed inherited. Anyone reading only this report should walk away with numbers, not a
 > decision.
 
+## Glossary: what `SHOWDOWN_ACCURACY_BRANCH_CAP` and "cap-hit" mean (read this before any table
+below)
+
+This report claims to stand on its own for a reader who has not read the parent
+accuracy-offline-gate report, so the two terms every table below depends on are defined here
+explicitly rather than assumed known. `SHOWDOWN_ACCURACY_BRANCH_CAP` bounds how many
+`resolve_turn` expansion calls (`battle/evaluate.py`'s `resolve_turn_branches`) any single scored
+candidate line may perform while resolving accuracy-branching (hit vs. miss) for the sub-100%-
+accuracy moves in that line, before it must stop branching and fall back to the legacy always-hit
+assumption for the rest of that line's event tree. Each additional simultaneous sub-100%-accuracy
+event in a line roughly doubles the branching work needed to resolve it fully (a line with *k*
+simultaneous accuracy<100 events needs up to 2^(k+1)−1 total `resolve_turn` calls to fully resolve
+every hit/miss combination); the cap exists so that a pathological line with several such events
+can't blow the decision-time latency budget. A decision is a **"cap-hit"** when at least one of its
+scored candidate lines — specifically the *chosen* candidate, for the numerators below — actually
+exhausted this budget and had to fall back to always-hit for part of its own event tree, meaning
+that candidate's accuracy-aware score (and therefore its EV) may be less precise than a fully
+resolved line would have produced. The **cap-hit rate** in every table below is the fraction of
+real replayed decisions where this happened on the chosen candidate: a high rate means the
+accuracy machinery frequently falls back to the always-hit behavior it exists to replace
+(undermining its own purpose on those decisions); a low rate means branches are being fully
+resolved almost every time.
+
 ## What this task did
 
 1. Read `showdown_bot/scripts/render_accuracy_gate_reports.py`,
@@ -128,6 +151,10 @@ this real 85-battle/944-decision corpus.
   comparison (`legacy_frozen_score` is not proven equivalent to `top_rank_score`/
   `chosen_candidate_score` — every row states this as its own `score_incompatible_reason`); the
   action axis is not skipped and is the real, load-bearing number.
+- **Tera-diffs, isolated as their own subset (spec §2.7), not folded into the general diff count:
+  0/20 at both cap=6 and cap=8** (of each cap's own 20 off-vs-on diffs, zero have `tera_changed=
+  True` — none of the real accuracy-driven divergences on this corpus involved a Tera-decision
+  flip, at either cap).
 
 **Interpretation, stated plainly and not softened:** at this real corpus's actual decision mix,
 moving the branch cap from 4 to 6 (or 8) resolves the cap-hit rate from a decisive FAIL (12.9%) to

@@ -97,6 +97,8 @@ def build_report_object(
     `render_markdown` (and any future reader diffing this object) can trace provenance per field."""
     detail = cap_json["cap_hit_verdict_detail"]
     cap4_detail = gate_b_cap4_json["cap_hit_verdict_detail"]
+    cap4_exception_count = gate_b_cap4_json["acceptance"]["exception_count"]
+    this_cap_exception_count = cap_json["acceptance"]["exception_count"]
 
     vs_cap4 = cross_cap_json[f"cap4 -> cap{cap}"]
     vs_off = cross_cap_json[f"off -> cap{cap}"]
@@ -113,6 +115,9 @@ def build_report_object(
     events_complete_true = sum(1 for d in diffs if d["events_complete"] is True)
     events_complete_false = sum(1 for d in diffs if d["events_complete"] is False)
     mechanically_explained_true = sum(1 for d in diffs if d["mechanically_explained"] is True)
+    # Tera-diffs isolated as their own subset, not folded into the general diff count (spec
+    # Sec.2.7) -- computed fresh from this cap's own real diff rows, never hand-typed.
+    tera_diff_count = sum(1 for d in diffs if d["tera_changed"])
 
     obj = {
         "report_schema_version": REPORT_SCHEMA_VERSION,
@@ -130,7 +135,12 @@ def build_report_object(
             "bootstrap_ci_degenerate": detail.get("bootstrap_ci_degenerate"),
             "pass_threshold": PASS_THRESHOLD,
             "verdict": cap_json.get("cap_hit_verdict"),
-            "exception_count": cap_json["acceptance"]["exception_count"],
+            "exception_count": this_cap_exception_count,
+            # Derived, not hardcoded: compare this cap's own exception_count against cap4's own
+            # exception_count (fetched fresh from gate-b-report.json below), so a future re-run
+            # where these ever diverge renders an honest "DIFFERS from cap=4" line instead of a
+            # stale hardcoded claim.
+            "exception_count_matches_cap4": this_cap_exception_count == cap4_exception_count,
         },
         "cap4_reference": {
             "source_file": "data/eval/accuracy-gate/gate-b-report.json",
@@ -140,6 +150,7 @@ def build_report_object(
             "point_estimate": cap4_detail.get("point_estimate"),
             "bootstrap_ci_upper": cap4_detail.get("bootstrap_ci_upper"),
             "verdict": gate_b_cap4_json.get("cap_hit_verdict"),
+            "exception_count": cap4_exception_count,
         },
         "action_diffs": {
             "vs_cap4": {
@@ -171,6 +182,10 @@ def build_report_object(
             "events_complete_true": events_complete_true,
             "events_complete_false": events_complete_false,
             "mechanically_explained_true": mechanically_explained_true,
+        },
+        "tera_diffs": {
+            "tera_diff_count": tera_diff_count,
+            "denominator": len(diffs),
         },
         "latency": {
             "cap_trace_none": {
@@ -208,7 +223,16 @@ def render_markdown(obj: dict) -> str:
     ref = obj["cap4_reference"]
     ad = obj["action_diffs"]
     ec = obj["events_complete"]
+    td = obj["tera_diffs"]
     lat = obj["latency"]
+
+    exception_count_comparison = (
+        f"exceptions: {ch['exception_count']} (cap=4 also excluded {ref['exception_count']} -- "
+        "MATCHES cap=4)"
+        if ch["exception_count_matches_cap4"] else
+        f"exceptions: {ch['exception_count']} (cap=4 excluded {ref['exception_count']} -- "
+        "**DIFFERS from cap=4**, see the ambiguous-candidate diagnostic report for why)"
+    )
 
     lines = [
         f"# Cap={cap} Report -- Accuracy Branch-Cap De-Risk Study", "",
@@ -243,9 +267,8 @@ def render_markdown(obj: dict) -> str:
             f"verdict is {ch['verdict']} against the {_pct(ch['pass_threshold'])} threshold "
             f"(see raw detail above -- this branch is reported honestly whichever way it falls)."
         ),
-        f"- exception_count (ambiguous_label-excluded decisions, same 63 as cap=4 -- see the "
-        f"ambiguous-candidate diagnostic report for the full classification): "
-        f"{ch['exception_count']}",
+        f"- {exception_count_comparison} (ambiguous_label-excluded decisions; see the "
+        "ambiguous-candidate diagnostic report for the full classification)",
         "",
         "## Cap=4 reference row (FROZEN, cited only -- never recomputed here)", "",
         f"Cited from `{ref['source_file']}` (sha256 `{ref['source_sha256']}`):", "",
@@ -255,6 +278,7 @@ def render_markdown(obj: dict) -> str:
         f"- bootstrap upper bound: {_fmt(ref['bootstrap_ci_upper'])} "
         f"({_pct(ref['bootstrap_ci_upper'])})",
         f"- **verdict: {ref['verdict']}**",
+        f"- exception_count: {ref['exception_count']}",
         "",
         f"## Action-changed counts (spec Sec.2.4/2.7 -- `compare_action_tables`, directions "
         f"explicitly labeled)", "",
@@ -278,6 +302,12 @@ def render_markdown(obj: dict) -> str:
     for did in ad["vs_off"]["decision_ids"]:
         lines.append(f"- `{did}`")
     lines += [
+        "",
+        "## Tera-diffs (spec Sec.2.7 -- isolated as their own subset, not folded into the "
+        "general diff count)", "",
+        f"- **tera_diff_count: {td['tera_diff_count']} / {td['denominator']}** (of this cap's "
+        "own off-vs-on diffs where `tera_changed` is True -- i.e. decisions where accuracy mode "
+        "changed not just the chosen action but specifically whether/where Tera was spent)",
         "",
         "## Leaf/event/incomplete distributions (spec Sec.2.7 -- own real denominator, NOT "
         "claimed to cover all 944)", "",
