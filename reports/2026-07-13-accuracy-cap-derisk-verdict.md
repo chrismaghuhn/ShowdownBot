@@ -321,18 +321,37 @@ byte-identical to how the accuracy-offline-gate plan left them.
      plan's tasks touched or caused. This plan did not modify `movedata.json`, its generator, or
      any file under `tools/gen/`.
 
+## Post-candidate-identity measurement refresh (2026-07-14)
+
+After the candidate-identity slice merged to `main` (`9f64c28`), `run_cap_gate_verdicts.py` was
+re-run unchanged over the same 85-battle deduplicated corpus. The structural candidate-key resolver
+eliminates the 63 Gate-B exceptions that previously reduced the compared denominator:
+
+| Cap | Numerator | Denominator | Point estimate | Exceptions | Verdict | Source |
+|-----|-----------|-------------|----------------|------------|---------|--------|
+| 4 (frozen) | 114 | 881 | 12.94% | 63 (historical) | **FAIL** | `gate-b-report.json` — **not recomputed** |
+| 6 | 6 | **944** | **0.64%** | **0** | **PASS** | `cap6-report.json` @ `9f64c28` |
+| 8 | 6 | **944** | **0.64%** | **0** | **PASS** | `cap8-report.json` @ `9f64c28` |
+
+Bootstrap upper bound at cap=6/cap=8: ≈ **1.36%** (still identical between caps). Cap=4's frozen
+FAIL verdict and all cap=4-only auxiliary artifacts remain authoritative and unchanged. Cross-cap
+action/score/latency findings from the 2026-07-13 study above are not automatically re-derived here;
+only the cap=6/cap=8 Gate-B verdict numerators/denominators/exceptions were refreshed.
+
 ## Status: DONE
 
 All 12 tasks of the accuracy-cap-derisk plan are complete. Cap=4's frozen FAIL verdict is
 unchanged and cited by content hash throughout. Cap=6 and cap=8 both real-run over the full
 deduplicated 944-decision/85-battle corpus: both **PASS** the 5% cap-hit threshold decisively
-(0.68% point estimate, 1.37% bootstrap upper bound, identical between the two caps), with **zero**
-action changes relative to cap=4 (only score movement) and the same 20/944 action changes relative
-to accuracy-off that cap=6 and cap=8 share with each other. Real-corpus latency at ×5 Kaggle-scaling
-**passes** the existing 1000ms gate for both caps and both trace modes — disagreeing with, not
-confirming, the earlier single-board bench's cap=6/cap=8 FAIL finding, with the disagreement
-attributed to (not resolved by) board-representativeness rather than treated as a contradiction to
-paper over. The ambiguous-candidate diagnostic found the excluded 63 decisions completely
+(**0.64%** point estimate after the 2026-07-14 candidate-identity refresh — was 0.68% on 881/944
+with 63 exceptions before; **1.36%** bootstrap upper bound, identical between the two caps), with
+**zero** action changes relative to cap=4 (only score movement) and the same 20/944 action changes
+relative to accuracy-off that cap=6 and cap=8 share with each other. Real-corpus latency at ×5
+Kaggle-scaling **passes** the existing 1000ms gate for both caps and both trace modes —
+disagreeing with, not confirming, the earlier single-board bench's cap=6/cap=8 FAIL finding, with
+the disagreement attributed to (not resolved by) board-representativeness rather than treated as a
+contradiction to paper over. The ambiguous-candidate diagnostic found the excluded 63 decisions
+completely
 homogeneous (100% `label_collision`/`switch_target_omitted`, cap-invariant, zero unrelated defects)
 with a recommended-but-unimplemented structural-key fix direction. Full test suite green (pasted
 above). `data/eval/accuracy-gate/` carries zero git diff across this plan's entire execution.

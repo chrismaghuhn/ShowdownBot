@@ -163,6 +163,16 @@ state (depth-2 slice, value-calibration spec).
    `SHOWDOWN_ACCURACY_BRANCH_CAP`'s default, fixing `_label_ja`, and resolving the latency-margin
    disagreement (possibly via a real Kaggle-hardware check) all remain separate, explicit,
    user-owned next steps, not scheduled by this update.
+   **Update 2026-07-14 (candidate-identity slice merged, Gate-B cap=6/cap=8 re-run on
+   `9f64c28`):** the structural candidate-key resolver (`candidate_identity.py`) is now live on
+   `main`. Re-running `run_cap_gate_verdicts.py` over the same 85-battle corpus with the unchanged
+   `run_gate_b` path changes the Gate-B denominator from **881 → 944** (the 63 historically
+   ambiguous-`candidate_id` decisions now resolve cleanly; **0 exceptions** vs the prior 63).
+   **Cap=6 and cap=8 remain PASS** at **6/944 = 0.64%** point estimate (bootstrap upper ≈ 1.36%,
+   identical between caps — cap=8 still buys zero additional fidelity). **`gate-b-report.json`
+   (cap=4) stays frozen/authoritative** at 114/881 = 12.9% FAIL and was **not** recomputed. See
+   refreshed `data/eval/accuracy-cap-derisk/cap{6,8}-report.json` and
+   `reports/2026-07-13-accuracy-cap-derisk-verdict.md` (2026-07-14 addendum).
 
 ## P1 — Nächster realer Stärkeversuch
 
