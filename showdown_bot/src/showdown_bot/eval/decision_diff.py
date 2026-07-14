@@ -14,7 +14,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from showdown_bot.eval.decision_capture import TRACE_SCHEMA_VERSION
+from showdown_bot.eval.decision_capture import SUPPORTED_TRACE_SCHEMA_VERSIONS
 from showdown_bot.eval.pairing import pair_runs
 from showdown_bot.eval.stats import exact_binom_two_sided_p, mcnemar_counts, wilson_interval
 
@@ -40,7 +40,7 @@ def validate_trace_run(result_rows: list[dict], trace_rows: list[dict]) -> Valid
         raise DecisionDiffError("duplicate result battle_id")
     grouped = {}
     for row in trace_rows:
-        if row["trace_schema_version"] != TRACE_SCHEMA_VERSION:
+        if row["trace_schema_version"] not in SUPPORTED_TRACE_SCHEMA_VERSIONS:
             raise DecisionDiffError("unknown trace schema version")
         battle_id = row["battle_id"]
         if battle_id not in by_result:

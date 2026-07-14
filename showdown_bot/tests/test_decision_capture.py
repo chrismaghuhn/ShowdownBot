@@ -10,11 +10,13 @@ from showdown_bot.eval.decision_capture import (
     BattleTraceContext,
     DecisionCaptureError,
     DecisionTraceWriter,
+    TRACE_SCHEMA_VERSION_V1,
     build_trace_row,
     load_decision_trace,
     normalize_choose,
     observable_state_payload,
     prepare_capture,
+    validate_trace_row,
 )
 from showdown_bot.models.request import BattleRequest
 
@@ -217,3 +219,38 @@ def test_writer_refuses_nonempty_existing_output(tmp_path, trace_context, prepar
     path.write_text("not empty\n", encoding="utf-8")
     with pytest.raises(DecisionCaptureError, match="missing or empty"):
         DecisionTraceWriter(path)
+
+
+def test_build_trace_row_v2_fallback_without_trace(trace_context, prepared, capture_fixture):
+    request, _state = capture_fixture
+    row = build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose="/choose default|7", trace=None, decision_index=0, decision_latency_ms=1.0,
+        selection_stage_override="client_exception_default",
+        fallback_reason_override="agent_exception",
+    )
+    assert row["trace_schema_version"] == "decision-trace-v2"
+    assert row["candidates"] == []
+    assert row["chosen_candidate_key"] is None
+    assert row["chosen_candidate_id"] is None
+    assert row["chosen_rank"] is None
+    assert row["chosen_tera_slot"] is None
+    assert row["selection_stage"] == "client_exception_default"
+    assert row["fallback_reason"] == "agent_exception"
+
+
+def test_load_decision_trace_accepts_v1_row():
+    row = {
+        "trace_schema_version": TRACE_SCHEMA_VERSION_V1,
+        "battle_id": "b", "seed_index": 0, "decision_index": 0, "turn_number": 1,
+        "our_side": "p1", "config_id": "heuristic", "config_hash": "c" * 64,
+        "schedule_hash": "s" * 64, "format_id": "gen9vgc2025regi", "git_sha": "a" * 40,
+        "observable_state_hash": "0" * 64, "request_hash": "1" * 64,
+        "decision_phase": "regular_turn", "state_summary": {"turn": 1, "field": {}, "sides": {}},
+        "actual_choose_string": "/choose move 1 1, pass|1",
+        "normalized_action": {"kind": "joint", "slots": [{"kind": "pass"}, {"kind": "pass"}]},
+        "chosen_candidate_id": "(Fake Out->1, pass)", "chosen_rank": 0,
+        "candidates": [{"candidate_id": "(Fake Out->1, pass)", "rank": 0, "aggregate_score": 1.0}],
+        "decision_latency_ms": 1.0,
+    }
+    validate_trace_row(row)

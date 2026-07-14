@@ -18,7 +18,10 @@ from pathlib import Path
 from showdown_bot.engine.state import BattleState, PokemonState, to_id
 from showdown_bot.models.request import BattleRequest
 
-TRACE_SCHEMA_VERSION = "decision-trace-v1"
+TRACE_SCHEMA_VERSION_V1 = "decision-trace-v1"
+TRACE_SCHEMA_VERSION_V2 = "decision-trace-v2"
+TRACE_SCHEMA_VERSION = TRACE_SCHEMA_VERSION_V2
+SUPPORTED_TRACE_SCHEMA_VERSIONS = frozenset({TRACE_SCHEMA_VERSION_V1, TRACE_SCHEMA_VERSION_V2})
 PROTECT_IDS = frozenset({
     "protect", "detect", "wideguard", "quickguard", "spikyshield",
     "kingsshield", "banefulbunker", "silktrap", "burningbulwark", "maxguard",
@@ -172,17 +175,119 @@ class BattleTraceContext:
     our_side: str = "p1"
 
 
+def _validate_v1_row(row: dict) -> None:
+    for candidate in row["candidates"]:
+        score = candidate["aggregate_score"]
+        if not isinstance(score, (int, float)) or not math.isfinite(score):
+            raise DecisionCaptureError("candidate aggregate_score must be finite")
+
+
+def _validate_v2_row(row: dict) -> None:
+    candidates = row["candidates"]
+    keys = [c.get("candidate_key") for c in candidates]
+    if candidates:
+        if any(not isinstance(k, str) or not k for k in keys):
+            raise DecisionCaptureError("v2 candidate_key must be non-empty string")
+        if len(set(keys)) != len(keys):
+            raise DecisionCaptureError("v2 candidate_key values must be unique within row")
+        chosen_key = row.get("chosen_candidate_key")
+        if not isinstance(chosen_key, str) or not chosen_key:
+            raise DecisionCaptureError("v2 chosen_candidate_key required when candidates present")
+        if chosen_key not in keys:
+            raise DecisionCaptureError("v2 chosen_candidate_key must reference a traced candidate")
+        tera_slot = row.get("chosen_tera_slot")
+        if tera_slot is not None and tera_slot not in (0, 1):
+            raise DecisionCaptureError("chosen_tera_slot must be null, 0, or 1")
+    else:
+        for field in ("chosen_candidate_key", "chosen_candidate_id", "chosen_rank", "chosen_tera_slot"):
+            if row.get(field) is not None:
+                raise DecisionCaptureError(f"v2 fallback row must have null {field}")
+    for candidate in candidates:
+        score = candidate["aggregate_score"]
+        if not isinstance(score, (int, float)) or not math.isfinite(score):
+            raise DecisionCaptureError("candidate aggregate_score must be finite")
+
+
+_REQUIRED_TRACE_FIELDS = frozenset({
+    "trace_schema_version", "battle_id", "seed_index", "decision_index", "turn_number",
+    "our_side", "config_id", "config_hash", "schedule_hash", "format_id", "git_sha",
+    "observable_state_hash", "request_hash", "decision_phase", "state_summary",
+    "actual_choose_string", "normalized_action", "candidates", "decision_latency_ms",
+})
+_NULLABLE_TRACE_FIELDS = frozenset({
+    "chosen_candidate_id", "chosen_rank", "selection_stage", "fallback_reason",
+})
+_V2_ONLY_NULLABLE_FIELDS = frozenset({
+    "chosen_candidate_key", "chosen_tera_slot",
+})
+
+
+def validate_trace_row(row: dict) -> None:
+    version = row.get("trace_schema_version")
+    if version not in SUPPORTED_TRACE_SCHEMA_VERSIONS:
+        raise DecisionCaptureError("unknown trace schema version")
+    nullable = _NULLABLE_TRACE_FIELDS
+    if version == TRACE_SCHEMA_VERSION_V2:
+        nullable = nullable | _V2_ONLY_NULLABLE_FIELDS
+    missing = _REQUIRED_TRACE_FIELDS - set(row)
+    unknown = set(row) - _REQUIRED_TRACE_FIELDS - nullable
+    if missing or unknown:
+        raise DecisionCaptureError(f"trace fields missing={sorted(missing)} unknown={sorted(unknown)}")
+    if row["decision_phase"] not in {"team_preview", "forced_replacement", "regular_turn"}:
+        raise DecisionCaptureError("unknown decision phase")
+    for key in ("seed_index", "decision_index", "turn_number"):
+        if not isinstance(row[key], int) or row[key] < 0:
+            raise DecisionCaptureError(f"{key} must be a non-negative int")
+    for key in ("observable_state_hash", "request_hash"):
+        if not isinstance(row[key], str) or re.fullmatch(r"[0-9a-f]{64}", row[key]) is None:
+            raise DecisionCaptureError(f"{key} must be lowercase sha256 hex")
+    if not isinstance(row["decision_latency_ms"], (int, float)) or not math.isfinite(row["decision_latency_ms"]):
+        raise DecisionCaptureError("decision_latency_ms must be finite")
+    if version == TRACE_SCHEMA_VERSION_V1:
+        _validate_v1_row(row)
+    else:
+        _validate_v2_row(row)
+
+
 def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
                     request: BattleRequest, choose: str, trace, decision_index: int,
                     decision_latency_ms: float,
                     selection_stage_override: str | None = None,
                     fallback_reason_override: str | None = None) -> dict:
-    candidates = [] if trace is None else [
-        {"candidate_id": c.candidate_id, "rank": c.rank, "aggregate_score": c.aggregate_score}
-        for c in trace.candidates
-    ]
+    from showdown_bot.battle.candidate_identity import (
+        ChosenCandidateResolutionError,
+        assert_unique_candidate_identities,
+        resolve_chosen_candidate,
+    )
+
+    if trace is None or not trace.candidates:
+        candidates = []
+        chosen_candidate_id = None
+        chosen_candidate_key = None
+        chosen_rank = None
+        chosen_tera_slot = None
+    else:
+        assert_unique_candidate_identities(trace.candidates)
+        try:
+            chosen = resolve_chosen_candidate(trace)
+        except ChosenCandidateResolutionError as exc:
+            raise DecisionCaptureError(str(exc)) from exc
+        chosen_candidate_id = trace.chosen_candidate_id
+        chosen_candidate_key = trace.chosen_candidate_key
+        chosen_rank = chosen.rank
+        chosen_tera_slot = trace.chosen_tera_slot
+        candidates = [
+            {
+                "candidate_id": c.candidate_id,
+                "candidate_key": c.candidate_key,
+                "rank": c.rank,
+                "aggregate_score": c.aggregate_score,
+            }
+            for c in trace.candidates
+        ]
+
     row = {
-        "trace_schema_version": TRACE_SCHEMA_VERSION,
+        "trace_schema_version": TRACE_SCHEMA_VERSION_V2,
         "battle_id": context.battle_id,
         "seed_index": context.seed_index,
         "decision_index": decision_index,
@@ -199,10 +304,10 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
         "state_summary": prepared.state_summary,
         "actual_choose_string": choose,
         "normalized_action": normalize_choose(choose, request),
-        "chosen_candidate_id": None if trace is None else trace.chosen_candidate_id,
-        "chosen_rank": next((c.rank for c in trace.candidates
-                             if c.candidate_id == trace.chosen_candidate_id), None)
-                       if trace is not None else None,
+        "chosen_candidate_id": chosen_candidate_id,
+        "chosen_candidate_key": chosen_candidate_key,
+        "chosen_tera_slot": chosen_tera_slot,
+        "chosen_rank": chosen_rank,
         "candidates": candidates,
         "selection_stage": selection_stage_override if selection_stage_override is not None else
                            (None if trace is None else trace.selection_stage),
@@ -212,40 +317,6 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
     }
     validate_trace_row(row)
     return row
-
-
-_REQUIRED_TRACE_FIELDS = frozenset({
-    "trace_schema_version", "battle_id", "seed_index", "decision_index", "turn_number",
-    "our_side", "config_id", "config_hash", "schedule_hash", "format_id", "git_sha",
-    "observable_state_hash", "request_hash", "decision_phase", "state_summary",
-    "actual_choose_string", "normalized_action", "candidates", "decision_latency_ms",
-})
-_NULLABLE_TRACE_FIELDS = frozenset({
-    "chosen_candidate_id", "chosen_rank", "selection_stage", "fallback_reason",
-})
-
-
-def validate_trace_row(row: dict) -> None:
-    missing = _REQUIRED_TRACE_FIELDS - set(row)
-    unknown = set(row) - _REQUIRED_TRACE_FIELDS - _NULLABLE_TRACE_FIELDS
-    if missing or unknown:
-        raise DecisionCaptureError(f"trace fields missing={sorted(missing)} unknown={sorted(unknown)}")
-    if row["trace_schema_version"] != TRACE_SCHEMA_VERSION:
-        raise DecisionCaptureError("unknown trace schema version")
-    if row["decision_phase"] not in {"team_preview", "forced_replacement", "regular_turn"}:
-        raise DecisionCaptureError("unknown decision phase")
-    for key in ("seed_index", "decision_index", "turn_number"):
-        if not isinstance(row[key], int) or row[key] < 0:
-            raise DecisionCaptureError(f"{key} must be a non-negative int")
-    for key in ("observable_state_hash", "request_hash"):
-        if not isinstance(row[key], str) or re.fullmatch(r"[0-9a-f]{64}", row[key]) is None:
-            raise DecisionCaptureError(f"{key} must be lowercase sha256 hex")
-    if not isinstance(row["decision_latency_ms"], (int, float)) or not math.isfinite(row["decision_latency_ms"]):
-        raise DecisionCaptureError("decision_latency_ms must be finite")
-    for candidate in row["candidates"]:
-        score = candidate["aggregate_score"]
-        if not isinstance(score, (int, float)) or not math.isfinite(score):
-            raise DecisionCaptureError("candidate aggregate_score must be finite")
 
 
 def _open_text(path, mode: str):
