@@ -66,67 +66,57 @@ def _case(did, *, primary_cause, label_collision_subtype=None,
 
 
 def _original_exception_is_chosen_candidate_ambiguity(original_message: str) -> bool:
-    """True only if the ORIGINAL gate exception is confirmed to come from
-    accuracy_gate_b._chosen_candidate's own ambiguous/no-match RuntimeError paths -- both raise
-    RuntimeError with a fixed, distinctive message prefix (verified directly against
-    accuracy_gate_b.py this session: "ambiguous chosen_candidate_id=..." / "no candidate matches
-    chosen_candidate_id=..."), and run_gate_b records exceptions as f"{type(exc).__name__}:
-    {exc}" (verified against run_gate_b's own exception-recording line: `exceptions.append((
-    d.request_hash, f"{type(exc).__name__}: {exc}"))`). Any other exception type/message -- a
-    calc timeout, a NaN, an unrelated crash that happens to ALSO be a RuntimeError with a
-    different message -- must not be treated as a reproducible structural ambiguity, even if a
-    live re-run happens to produce an ambiguous-looking trace by coincidence."""
-    return original_message.startswith("RuntimeError: ambiguous chosen_candidate_id=") or \
-        original_message.startswith("RuntimeError: no candidate matches chosen_candidate_id=")
+    """True only if the ORIGINAL gate exception is a chosen-candidate resolution failure."""
+    prefixes = (
+        "RuntimeError: ambiguous chosen_candidate_id=",
+        "RuntimeError: no candidate matches chosen_candidate_id=",
+        "RuntimeError: ambiguous chosen_candidate_key=",
+        "RuntimeError: no candidate matches chosen_candidate_key=",
+    )
+    return any(original_message.startswith(p) for p in prefixes)
 
 
 def _classify_from_trace(trace):
-    """Bridges a real DecisionTrace to classify_ambiguous_case's structural inputs. Returns
-    (classification, is_genuinely_ambiguous) -- the caller decides other_pipeline_error routing
-    when is_genuinely_ambiguous is False (exactly one match -- did not reproduce as an ambiguity).
-
-    CORRECTED (post-Task-10/10b): supplies the now-required chosen_candidate_missing_subreason
-    when routing to that primary cause, and guards len(ja_list) >= 2 before calling any
-    structural-collision helper (rather than trusting len(matches) >= 2 transitively, since
-    CandidateTrace.joint_action is typed Any and can legitimately be None for some candidates)."""
+    """Bridges a real DecisionTrace to classify_ambiguous_case's structural inputs."""
+    from showdown_bot.battle.candidate_identity import (
+        ChosenCandidateResolutionError,
+        resolve_chosen_candidate,
+    )
     from showdown_bot.battle.decision import TOP_K_TRACE_CANDIDATES
     from showdown_bot.eval.accuracy_cap_derisk import (
-        _strip_tera, classify_ambiguous_case, distinct_move_or_targets,
+        classify_ambiguous_case, distinct_move_or_targets,
         distinct_switch_targets, distinct_tera_states,
     )
 
+    try:
+        resolve_chosen_candidate(trace)
+        return None, False
+    except ChosenCandidateResolutionError as exc:
+        msg = str(exc)
+        if "ambiguous" not in msg:
+            chosen_id = trace.chosen_candidate_id
+            top_k_truncated = len(trace.candidates) >= TOP_K_TRACE_CANDIDATES
+            subreason = (
+                "top_k_truncation_plausible" if top_k_truncated
+                else "chosen_candidate_absent_from_full_candidate_set"
+            )
+            classification = classify_ambiguous_case(
+                chosen_candidate_id=chosen_id or "<none>",
+                matching_candidate_ids=[],
+                matching_joint_actions_distinct_switch_targets=False,
+                matching_joint_actions_distinct_tera=False,
+                matching_joint_actions_distinct_move_or_target=False,
+                exact_score_tie=False, collision_spans_nonzero_rank=False,
+                top_k_truncated=top_k_truncated,
+                chosen_candidate_missing_subreason=subreason,
+            )
+            return classification, True
+
     chosen_id = trace.chosen_candidate_id
-    exact = [c for c in trace.candidates if c.candidate_id == chosen_id]
-    matches = exact
-    if not matches:
-        stripped = _strip_tera(chosen_id) if chosen_id else None
-        matches = [c for c in trace.candidates if stripped and _strip_tera(c.candidate_id) == stripped]
-
-    if len(matches) == 1:
-        return None, False  # resolves cleanly on re-run -- NOT a reproduced ambiguity
-
-    if len(matches) == 0:
-        # chosen_candidate_missing path -- classify_ambiguous_case REQUIRES a concrete
-        # sub-reason (spec Sec.3.1, enforced since Task 10's fix). Distinguish "the trace's own
-        # candidate list is already at the top-K cap, so truncation is plausible" from "the full
-        # untruncated set was returned and the chosen one still isn't in it" -- a genuinely
-        # different loss mechanism. This is diagnostic phrasing, not a proof of mechanism.
-        top_k_truncated = len(trace.candidates) >= TOP_K_TRACE_CANDIDATES
-        subreason = (
-            "top_k_truncation_plausible" if top_k_truncated
-            else "chosen_candidate_absent_from_full_candidate_set"
-        )
-        classification = classify_ambiguous_case(
-            chosen_candidate_id=chosen_id or "<none>",
-            matching_candidate_ids=[],
-            matching_joint_actions_distinct_switch_targets=False,
-            matching_joint_actions_distinct_tera=False,
-            matching_joint_actions_distinct_move_or_target=False,
-            exact_score_tie=False, collision_spans_nonzero_rank=False,
-            top_k_truncated=top_k_truncated,
-            chosen_candidate_missing_subreason=subreason,
-        )
-        return classification, True
+    if trace.chosen_candidate_key:
+        matches = [c for c in trace.candidates if c.candidate_key == trace.chosen_candidate_key]
+    else:
+        matches = [c for c in trace.candidates if c.candidate_id == chosen_id]
 
     # len(matches) >= 2 -- genuine label collision
     ja_list = [c.joint_action for c in matches if c.joint_action is not None]

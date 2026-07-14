@@ -212,9 +212,10 @@ def main() -> None:
     # identically here and in any later Task 10 run using this same recipe, so it does not bias
     # a pre-vs-post-refactor diff.
     _tera_fallback_count = 0
-
-    def _strip_tera(label: str) -> str:
-        return label.replace(" tera", "")
+    from showdown_bot.battle.candidate_identity import (
+        ChosenCandidateResolutionError,
+        resolve_chosen_candidate,
+    )
 
     def _chooser(decision, *, accuracy_mode: bool):
         nonlocal _tera_fallback_count
@@ -224,19 +225,13 @@ def main() -> None:
             decision.request, state=decision.state, book=book, our_side=decision.side,
             calc=calc, oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=dex, trace=trace,
         )
-        exact = [c for c in trace.candidates if c.candidate_id == trace.chosen_candidate_id]
-        if exact:
-            return chosen, exact[0].aggregate_score
-        stripped_target = _strip_tera(trace.chosen_candidate_id or "")
-        fallback = [c for c in trace.candidates if _strip_tera(c.candidate_id) == stripped_target]
-        if len(fallback) == 1:
+        try:
+            resolved = resolve_chosen_candidate(trace)
+        except ChosenCandidateResolutionError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if trace.chosen_candidate_key is None and trace.chosen_candidate_id != resolved.candidate_id:
             _tera_fallback_count += 1
-            return chosen, fallback[0].aggregate_score
-        raise RuntimeError(
-            f"could not resolve chosen_candidate_id={trace.chosen_candidate_id!r} against "
-            f"trace.candidates={[c.candidate_id for c in trace.candidates]!r} "
-            f"(exact=0, tera-stripped matches={len(fallback)}) -- refusing to guess a score"
-        )
+        return chosen, resolved.aggregate_score
 
     # --- Step 5 (dry run): 50-decision timed sample for a runtime ESTIMATE only, discarded.
     # Gate B's confirmatory run (Task 10) always uses the full deduplicated corpus (spec Sec.6

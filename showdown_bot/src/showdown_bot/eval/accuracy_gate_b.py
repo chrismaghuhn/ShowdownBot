@@ -12,6 +12,11 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from showdown_bot.battle.candidate_identity import (
+    ChosenCandidateResolutionError,
+    candidate_identity,
+    resolve_chosen_candidate,
+)
 from showdown_bot.battle.decision import heuristic_choose_for_request
 from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
 from showdown_bot.eval.accuracy_gate_stats import Verdict, verdict_for_cap_hit_rate
@@ -83,66 +88,12 @@ def _by_rank(trace: DecisionTrace, rank: int) -> CandidateTrace | None:
     return None
 
 
-def _strip_tera_suffix(candidate_id: str) -> str:
-    """`_label_ja` (decision.py) appends ' tera' per-slot when that slot terastallizes. Needed
-    because of a confirmed pre-existing bug (found and independently verified during Task 4):
-    `_maybe_tera` can overlay a Tera flag onto the chosen line AFTER `trace.candidates` was
-    already built from the pre-Tera candidate set, so `trace.chosen_candidate_id` can legitimately
-    contain a ' tera' suffix that matches no `candidate_id` in `trace.candidates` verbatim. Tera is
-    never part of the enumerated candidate space itself, so at most one slot's suffix needs
-    stripping and the stripped match is guaranteed unique when it exists -- same proof Task 4's
-    `accuracy_baseline.py` driver already established and validated against a real occurrence
-    (1/944 real decisions)."""
-    return candidate_id.replace(" tera", "")
-
-
 def _chosen_candidate(trace: DecisionTrace) -> CandidateTrace:
-    """Raises RuntimeError (not silently returns a possibly-wrong candidate) if the chosen
-    candidate cannot be UNAMBIGUOUSLY resolved -- a silent wrong answer here would make
-    `run_gate_b`'s cap-hit rule read a DIFFERENT candidate's accuracy telemetry into the gate's
-    one headline statistic, silently biasing the gate's own verdict. Fail loud instead;
-    `run_gate_b`'s existing per-decision try/except already turns this into a reported exception
-    rather than crashing the whole run.
-
-    Two distinct, independently confirmed reasons `chosen_candidate_id` can fail to resolve to
-    exactly one candidate via a naive first-match search:
-
-    1. (non-uniqueness) `_label_ja` (decision.py) renders every NON-move slot action as the bare
-       string `sa.kind` (e.g. `"switch"`, with NO target-mon info) -- so two structurally
-       different joint actions that switch to DIFFERENT benched mons in the same slot (with the
-       same other-slot action) can render byte-identical `candidate_id` labels, e.g. both
-       `"(switch, pass)"`. A plain first-match loop would silently return whichever of the two
-       happens to appear first in `trace.candidates`, even though their boards -- and therefore
-       their accuracy telemetry -- can genuinely differ. Found in Task 10's code review,
-       independently confirmed by reading `_label_ja`'s source directly.
-    2. (tera-suffix mismatch) `_maybe_tera` (decision.py) can overlay a Tera flag onto the
-       already-chosen best_ja AFTER `trace.candidates` was already built from the pre-Tera
-       candidate set, so `trace.chosen_candidate_id` can carry a ' tera' suffix matching no
-       `candidate_id` in `trace.candidates` verbatim. Found and independently verified during
-       Task 4 (1/944 real decisions); the tera-stripped fallback below recovers it, and is
-       guaranteed unique when it exists since Tera is never itself a dimension of the enumerated
-       candidate space.
-    """
-    exact = [c for c in trace.candidates if c.candidate_id == trace.chosen_candidate_id]
-    if len(exact) == 1:
-        return exact[0]
-    if len(exact) > 1:
-        raise RuntimeError(
-            f"ambiguous chosen_candidate_id={trace.chosen_candidate_id!r} matches "
-            f"{len(exact)} candidates -- _label_ja's non-injective switch-slot labeling "
-            f"(decision.py's _label_ja renders every non-move slot action as the bare kind "
-            f"string, e.g. 'switch', dropping the target mon) makes candidate_id ambiguous "
-            f"here; refusing to guess which one was actually chosen"
-        )
-    stripped_target = _strip_tera_suffix(trace.chosen_candidate_id or "")
-    fallback = [c for c in trace.candidates if _strip_tera_suffix(c.candidate_id) == stripped_target]
-    if len(fallback) == 1:
-        return fallback[0]
-    raise RuntimeError(
-        f"no candidate matches chosen_candidate_id={trace.chosen_candidate_id!r} "
-        f"(exact or tera-stripped); found {len(fallback)} stripped matches, expected exactly 1 -- "
-        f"candidate_ids present: {[c.candidate_id for c in trace.candidates]}"
-    )
+    """Resolve chosen candidate via structural key when available, else legacy label path."""
+    try:
+        return resolve_chosen_candidate(trace)
+    except ChosenCandidateResolutionError as exc:
+        raise RuntimeError(str(exc)) from exc
 
 
 def candidate_any_cap_hit(candidate: CandidateTrace) -> bool:
@@ -160,63 +111,51 @@ def candidate_events_complete(candidate: CandidateTrace) -> bool:
     return all(d.events_complete for d in candidate.accuracy_details)
 
 
-def _label_counts(candidates: list[CandidateTrace]) -> dict[str, int]:
+def _identity_counts(candidates: list[CandidateTrace]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for c in candidates:
-        counts[c.candidate_id] = counts.get(c.candidate_id, 0) + 1
+        ident = candidate_identity(c)
+        counts[ident] = counts.get(ident, 0) + 1
     return counts
+
+
+def pair_candidates_by_identity(
+    off_trace: DecisionTrace, on_trace: DecisionTrace,
+) -> tuple[dict[str, tuple[CandidateTrace, CandidateTrace]], list[str], list[str]]:
+    """Pair off/on candidates by structural identity when available, else legacy label."""
+    off_counts = _identity_counts(off_trace.candidates)
+    on_counts = _identity_counts(on_trace.candidates)
+    ambiguous = {ident for ident, n in off_counts.items() if n > 1} | \
+        {ident for ident, n in on_counts.items() if n > 1}
+
+    off_by = {
+        candidate_identity(c): c for c in off_trace.candidates
+        if candidate_identity(c) not in ambiguous
+    }
+    on_by = {
+        candidate_identity(c): c for c in on_trace.candidates
+        if candidate_identity(c) not in ambiguous
+    }
+
+    common = set(off_by) & set(on_by)
+    left_top_k = sorted(set(off_by) - set(on_by))
+    entered_top_k = sorted(set(on_by) - set(off_by))
+    paired = {ident: (off_by[ident], on_by[ident]) for ident in common}
+    return paired, entered_top_k, left_top_k
 
 
 def pair_candidates_by_id(
     off_trace: DecisionTrace, on_trace: DecisionTrace,
 ) -> tuple[dict[str, tuple[CandidateTrace, CandidateTrace]], list[str], list[str]]:
-    """Spec Sec.5: off-run and on-run candidates for the "same" nominal action are paired by
-    candidate_id, never by rank or list position -- accuracy_mode can reorder or reshuffle
-    top-K membership. Returns (paired_by_id, entered_top_k, left_top_k), both sorted lists.
-
-    `candidate_id` is not a guaranteed-unique key across ONE trace's own candidate list (see
-    `_chosen_candidate`'s docstring on `_label_ja`'s non-injective switch-slot labeling -- e.g.
-    two different switch targets in the same slot can both render `"(switch, pass)"`). A naive
-    `{c.candidate_id: c for c in candidates}` comprehension would silently collapse such a
-    collision to whichever duplicate is last in list order.
-
-    An id ambiguous in EITHER trace is excluded from BOTH sides' dicts entirely -- not just the
-    side where it's ambiguous. Excluding it from only its own (ambiguous) side while leaving it
-    in the other side's dict would make the plain set-difference below spuriously report it as
-    "entered_top_k"/"left_top_k" (it would look like a brand-new id that "appeared", when really
-    it was present-but-unresolvable on the other side too) -- confirmed by this fix's own first
-    draft failing exactly that way in testing.
-
-    Unlike `_chosen_candidate` (which raises on ambiguity, because misresolving the ONE chosen
-    line would corrupt the gate's headline cap-hit numerator), this function drops ambiguous ids
-    entirely instead of raising: its output only feeds the spec Sec.5 diff-capture schema
-    (investigative-only, not the headline statistic), and it runs inside `run_gate_b`'s SAME
-    per-decision try/except that the headline cap-hit numerator is recorded from -- raising here
-    would let a lower-stakes diff-schema collision drop an otherwise-valid decision's cap-hit
-    contribution from the numerator too. Silently omitting an unresolvable id from the diff
-    schema is honest (it never claims a specific pairing/entered/left status it cannot back up);
-    silently guessing which duplicate is which -- or which side it "really" belongs to -- would
-    not be."""
-    off_counts = _label_counts(off_trace.candidates)
-    on_counts = _label_counts(on_trace.candidates)
-    ambiguous_ids = {cid for cid, n in off_counts.items() if n > 1} | \
-        {cid for cid, n in on_counts.items() if n > 1}
-
-    off_by_id = {c.candidate_id: c for c in off_trace.candidates if c.candidate_id not in ambiguous_ids}
-    on_by_id = {c.candidate_id: c for c in on_trace.candidates if c.candidate_id not in ambiguous_ids}
-
-    common = set(off_by_id) & set(on_by_id)
-    left_top_k = sorted(set(off_by_id) - set(on_by_id))
-    entered_top_k = sorted(set(on_by_id) - set(off_by_id))
-    paired = {cid: (off_by_id[cid], on_by_id[cid]) for cid in common}
-    return paired, entered_top_k, left_top_k
+    """Compatibility wrapper -- pairs by structural identity."""
+    return pair_candidates_by_identity(off_trace, on_trace)
 
 
 def _diff_row_from_traces(
     *, request_hash: str, off_action: str, on_action: str,
     off_trace: DecisionTrace, on_trace: DecisionTrace, request,
 ) -> DecisionDiffRow:
-    _paired, entered_top_k, left_top_k = pair_candidates_by_id(off_trace, on_trace)
+    _paired, entered_top_k, left_top_k = pair_candidates_by_identity(off_trace, on_trace)
     off_top = _by_rank(off_trace, 0)
     on_top = _by_rank(on_trace, 0)
     off_runner_up = _by_rank(off_trace, 1)

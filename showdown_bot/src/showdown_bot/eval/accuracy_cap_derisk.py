@@ -195,12 +195,12 @@ def _canonical_action(chosen_action: str, request) -> str:
 
 
 def build_action_table_row(decision_id: str, chosen_action: str, trace, request) -> ActionTableRow:
-    """Spec Sec.2.3: resolve the structurally-chosen candidate the SAME way
-    accuracy_gate_b.py::_chosen_candidate does (exact match, then tera-suffix-stripped fallback),
-    but NEVER raise -- report a status instead, since this table must still carry a row (with its
-    real chosen_action_raw) for decisions where trace-based resolution fails, unlike run_gate_b's
-    own exception path. `request` MUST be the real BattleRequest this specific decision was answered
-    against -- normalize_choose is request-specific, never a shared/default value across rows."""
+    """Resolve chosen candidate via shared identity resolver; never raise."""
+    from showdown_bot.battle.candidate_identity import (
+        ChosenCandidateResolutionError,
+        resolve_chosen_candidate,
+    )
+
     canonical = _canonical_action(chosen_action, request)
     candidates = list(trace.candidates)
     top = next((c for c in candidates if c.rank == 0), None)
@@ -214,26 +214,26 @@ def build_action_table_row(decision_id: str, chosen_action: str, trace, request)
             top_rank_score=top_rank_score, chosen_candidate_score=cc_score,
         )
 
-    chosen_id = trace.chosen_candidate_id
-    if chosen_id is None:
+    if not candidates or trace.chosen_candidate_id is None:
         return _row("chosen_missing")
 
-    exact = [c for c in candidates if c.candidate_id == chosen_id]
-    if len(exact) == 1:
-        resolved, status = exact[0], "exact"
-    elif len(exact) > 1:
-        return _row("ambiguous_label")
-    else:
-        stripped_target = _strip_tera(chosen_id)
-        fallback = [c for c in candidates if _strip_tera(c.candidate_id) == stripped_target]
-        if len(fallback) == 1:
-            resolved, status = fallback[0], "tera_stripped"
-        elif len(fallback) > 1:
+    try:
+        resolved = resolve_chosen_candidate(trace)
+    except ChosenCandidateResolutionError as exc:
+        msg = str(exc)
+        if "ambiguous" in msg:
             return _row("ambiguous_label")
-        else:
-            return _row("chosen_missing")
+        return _row("chosen_missing")
 
-    return _row(status, rank=resolved.rank, rank_mismatch=(resolved.rank != 0), cc_score=resolved.aggregate_score)
+    status = "exact"
+    if trace.chosen_candidate_key is None and trace.chosen_candidate_id != resolved.candidate_id:
+        status = "tera_stripped"
+    return _row(
+        status,
+        rank=resolved.rank,
+        rank_mismatch=(resolved.rank != 0),
+        cc_score=resolved.aggregate_score,
+    )
 
 
 @dataclass(frozen=True)
