@@ -369,6 +369,7 @@ def cap_order_for_game(game_index: int) -> list[int]:
 class AmbiguousCaseClassification:
     primary_cause: str  # label_collision | chosen_candidate_missing | invalid_or_nonreconstructable_request | other_pipeline_error
     label_collision_subtype: str | None  # switch_target_omitted | ... (only when primary_cause == label_collision)
+    chosen_candidate_missing_subreason: str | None  # e.g. top_k_truncation | filtering | ... (only when primary_cause == chosen_candidate_missing)
     companion_flags: frozenset[str]
 
 
@@ -382,12 +383,14 @@ def classify_ambiguous_case(
     exact_score_tie: bool,
     collision_spans_nonzero_rank: bool,
     top_k_truncated: bool = False,
+    chosen_candidate_missing_subreason: str | None = None,
     request_reconstructable: bool = True,
     force_other_pipeline_error: bool = False,
     other_pipeline_error_rationale: str | None = None,
 ) -> AmbiguousCaseClassification:
-    """Spec Sec.3.1's two-tier scheme. Primary cause is exactly one of 4 (5 with the optional
-    other_resolution_error); companion flags are zero-or-more, independent of the primary cause.
+    """Spec Sec.3.1's two-tier scheme. Primary cause is exactly one of: label_collision,
+    chosen_candidate_missing, invalid_or_nonreconstructable_request, other_pipeline_error --
+    companion flags are zero-or-more, independent of the primary cause.
 
     `collision_spans_nonzero_rank` deliberately does NOT claim anything about "the chosen
     candidate"'s rank -- this function is only ever invoked on genuinely ambiguous cases (0 or >=2
@@ -415,18 +418,28 @@ def classify_ambiguous_case(
             raise ValueError("other_pipeline_error requires a concrete rationale, never a bare 'other'")
         return AmbiguousCaseClassification(
             primary_cause="other_pipeline_error", label_collision_subtype=None,
+            chosen_candidate_missing_subreason=None,
             companion_flags=frozenset(flags),
         )
 
     if not request_reconstructable:
         return AmbiguousCaseClassification(
             primary_cause="invalid_or_nonreconstructable_request", label_collision_subtype=None,
+            chosen_candidate_missing_subreason=None,
             companion_flags=frozenset(flags),
         )
 
     if len(matching_candidate_ids) == 0:
+        if not chosen_candidate_missing_subreason:
+            raise ValueError(
+                "chosen_candidate_missing requires a concrete sub-reason (e.g. 'top_k_truncation', "
+                "'filtering', or another named loss mechanism) -- spec Sec.3.1 requires this, "
+                "analogous to label_collision_subtype, never a bare missing classification"
+            )
         return AmbiguousCaseClassification(
-            primary_cause="chosen_candidate_missing", label_collision_subtype=None,
+            primary_cause="chosen_candidate_missing",
+            label_collision_subtype=None,
+            chosen_candidate_missing_subreason=chosen_candidate_missing_subreason,
             companion_flags=frozenset(flags),
         )
 
@@ -441,6 +454,7 @@ def classify_ambiguous_case(
             subtype = "unspecified_collision"
         return AmbiguousCaseClassification(
             primary_cause="label_collision", label_collision_subtype=subtype,
+            chosen_candidate_missing_subreason=None,
             companion_flags=frozenset(flags),
         )
 

@@ -424,10 +424,23 @@ def test_classify_chosen_missing():
         matching_joint_actions_distinct_tera=False,
         matching_joint_actions_distinct_move_or_target=False,
         exact_score_tie=False, collision_spans_nonzero_rank=False,
-        top_k_truncated=True,
+        top_k_truncated=True, chosen_candidate_missing_subreason="top_k_truncation",
     )
     assert result.primary_cause == "chosen_candidate_missing"
+    assert result.chosen_candidate_missing_subreason == "top_k_truncation"
     assert "top_k_truncated" in result.companion_flags
+
+
+def test_classify_chosen_candidate_missing_requires_subreason():
+    with pytest.raises(ValueError, match="sub-reason"):
+        classify_ambiguous_case(
+            chosen_candidate_id="(nothing)", matching_candidate_ids=[],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
+            # no chosen_candidate_missing_subreason -> must raise
+        )
 
 
 def test_classify_primary_and_companion_flags_are_independent():
@@ -455,4 +468,69 @@ def test_classify_other_pipeline_error_requires_rationale():
             matching_joint_actions_distinct_move_or_target=False,
             exact_score_tie=False, collision_spans_nonzero_rank=False,
             force_other_pipeline_error=True,  # no rationale provided -> must raise
+        )
+
+
+def test_classify_request_reconstructable_false_overrides_label_collision():
+    """invalid_or_nonreconstructable_request takes priority even when the candidate-set shape
+    would otherwise resolve to label_collision (spec Sec.3.1's priority order)."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        request_reconstructable=False,
+    )
+    assert result.primary_cause == "invalid_or_nonreconstructable_request"
+
+
+def test_classify_force_other_pipeline_error_succeeds_with_rationale():
+    """The successful override path -- force_other_pipeline_error=True WITH a real rationale
+    must win over what would otherwise be label_collision, not just raise on a missing one."""
+    result = classify_ambiguous_case(
+        chosen_candidate_id="(switch, pass)",
+        matching_candidate_ids=["(switch, pass)", "(switch, pass)"],
+        matching_joint_actions_distinct_switch_targets=True,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=False,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+        force_other_pipeline_error=True, other_pipeline_error_rationale="transient calc timeout",
+    )
+    assert result.primary_cause == "other_pipeline_error"
+
+
+def test_classify_label_collision_subtype_priority_tera_over_move_or_target():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="X", matching_candidate_ids=["X", "X"],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=True,
+        matching_joint_actions_distinct_move_or_target=True,  # both true -- tera wins by priority
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.label_collision_subtype == "tera_state_omitted"
+
+
+def test_classify_label_collision_subtype_move_or_target_omitted():
+    result = classify_ambiguous_case(
+        chosen_candidate_id="X", matching_candidate_ids=["X", "X"],
+        matching_joint_actions_distinct_switch_targets=False,
+        matching_joint_actions_distinct_tera=False,
+        matching_joint_actions_distinct_move_or_target=True,
+        exact_score_tie=False, collision_spans_nonzero_rank=False,
+    )
+    assert result.label_collision_subtype == "move_or_target_omitted"
+
+
+def test_classify_raises_on_non_ambiguous_single_match():
+    """The 1-match fallthrough -- this function must never be called on a genuinely resolvable
+    case, and must fail loudly (not silently misclassify) if it is."""
+    with pytest.raises(ValueError, match="non-ambiguous"):
+        classify_ambiguous_case(
+            chosen_candidate_id="X", matching_candidate_ids=["X"],
+            matching_joint_actions_distinct_switch_targets=False,
+            matching_joint_actions_distinct_tera=False,
+            matching_joint_actions_distinct_move_or_target=False,
+            exact_score_tie=False, collision_spans_nonzero_rank=False,
         )
