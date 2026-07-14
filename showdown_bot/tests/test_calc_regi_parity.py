@@ -1,4 +1,4 @@
-"""T0 Reg-I parity and T2 gen-0 damage smoke on vendored @smogon/calc (I4 commit 3)."""
+"""T0 Reg-I parity and T2 gen-0 damage smoke on vendored @smogon/calc (I4 commit 3+5)."""
 from __future__ import annotations
 
 import json
@@ -7,13 +7,20 @@ from pathlib import Path
 
 import pytest
 
+from showdown_bot.engine.calc.client import (
+    CalcClient,
+    PersistentCalcBackend,
+    SubprocessCalcBackend,
+)
+from showdown_bot.engine.calc.models import CalcMon, DamageRequest, DamageResult
+
 TESTS_DIR = Path(__file__).resolve().parent
 FIXTURES_DIR = TESTS_DIR / "fixtures"
 BASELINE_FIXTURE = FIXTURES_DIR / "calc_regi_parity_baseline.json"
 GEN0_FIXTURE = FIXTURES_DIR / "calc_gen0_damage_upstream.json"
 CALC_DIR = TESTS_DIR.parent / "tools" / "calc"
 
-# Gen-0 smoke probes the vendored package directly. calc.mjs gen-0 routing is commit 5.
+# Direct package API probe (T2 package-level smoke; bridge path tested separately below).
 _GEN0_PROBE = r"""
 import { readFileSync } from "node:fs";
 import { calculate, Generations, Move, Pokemon } from "@smogon/calc";
@@ -56,6 +63,43 @@ process.stdout.write(
   }),
 );
 """
+
+
+def _load_gen0_fixture() -> dict:
+    return json.loads(GEN0_FIXTURE.read_text(encoding="utf-8"))
+
+
+def _gen0_damage_request(fixture: dict | None = None) -> DamageRequest:
+    payload = (fixture or _load_gen0_fixture())["case"]["request_payload"]
+    attacker = payload["attacker"]
+    defender = payload["defender"]
+    return DamageRequest(
+        id=payload["id"],
+        gen=payload["gen"],
+        attacker=CalcMon(
+            species=attacker["species"],
+            ability=attacker.get("ability"),
+            item=attacker.get("item"),
+        ),
+        defender=CalcMon(
+            species=defender["species"],
+            ability=defender.get("ability"),
+        ),
+        move=payload["move"],
+    )
+
+
+def _damage_result_to_probe_dict(result: DamageResult) -> dict:
+    return {
+        "id": result.id,
+        "damage": result.rolls,
+        "minDamage": result.min_damage,
+        "maxDamage": result.max_damage,
+        "maxHP": result.max_hp,
+        "minPercent": result.min_percent,
+        "maxPercent": result.max_percent,
+        "desc": result.desc,
+    }
 
 
 def _run_calc_mjs(payloads: list[dict]) -> list[dict]:
@@ -120,7 +164,7 @@ def test_regi_parity_matches_baseline_fixture():
 @pytest.mark.integration
 def test_gen0_damage_smoke_matches_upstream_fixture():
     """T2: vendored @smogon/calc gen-0 Body Slam pin (39-46) via package API."""
-    fixture = json.loads(GEN0_FIXTURE.read_text(encoding="utf-8"))
+    fixture = _load_gen0_fixture()
     proc = subprocess.run(
         ["node", "--input-type=module", "-e", _GEN0_PROBE, str(GEN0_FIXTURE)],
         capture_output=True,
@@ -133,3 +177,54 @@ def test_gen0_damage_smoke_matches_upstream_fixture():
         pytest.fail(f"gen-0 probe failed (rc={proc.returncode}): {proc.stderr.strip()}")
     actual = json.loads(proc.stdout)
     _assert_case_matches(fixture["case"], actual)
+
+
+@pytest.mark.integration
+def test_gen0_body_slam_via_calc_mjs():
+    """T2 bridge: gen-0 Body Slam through calc.mjs (req.gen ?? 9)."""
+    fixture = _load_gen0_fixture()
+    payload = fixture["case"]["request_payload"]
+    results = _run_calc_mjs([payload])
+    _assert_case_matches(fixture["case"], results[0])
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("backend_factory", [SubprocessCalcBackend, PersistentCalcBackend])
+def test_gen0_body_slam_via_python_backend(backend_factory):
+    """T2 bridge: gen-0 Body Slam through Python calc backend."""
+    fixture = _load_gen0_fixture()
+    backend = backend_factory()
+    try:
+        result = backend.calc_batch([_gen0_damage_request(fixture)])[0]
+    finally:
+        backend.close()
+    _assert_case_matches(fixture["case"], _damage_result_to_probe_dict(result))
+
+
+@pytest.mark.integration
+def test_gen0_body_slam_via_calc_client():
+    """T2 bridge: gen-0 Body Slam through CalcClient."""
+    fixture = _load_gen0_fixture()
+    client = CalcClient(backend=SubprocessCalcBackend())
+    try:
+        result = client.damage(_gen0_damage_request(fixture))
+    finally:
+        client.close()
+    _assert_case_matches(fixture["case"], _damage_result_to_probe_dict(result))
+
+
+@pytest.mark.integration
+def test_stats_batch_defaults_to_gen_nine():
+    backend = SubprocessCalcBackend()
+    spec = CalcMon(species="Flutter Mane", level=50, nature="Timid", evs={"spe": 252})
+    assert backend.stats_batch([spec]) == backend.stats_batch([spec], gen=9)
+
+
+@pytest.mark.integration
+def test_stats_batch_gen_zero_uses_champions_formula():
+    backend = SubprocessCalcBackend()
+    spec = CalcMon(species="Abomasnow", level=50, nature="Hardy", evs={"spe": 32})
+    gen0 = backend.stats_batch([spec], gen=0)[0]
+    gen9 = backend.stats_batch([spec], gen=9)[0]
+    assert gen0["spe"] == 112
+    assert gen9["spe"] != gen0["spe"]

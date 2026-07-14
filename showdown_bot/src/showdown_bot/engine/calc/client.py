@@ -109,13 +109,13 @@ class SubprocessCalcBackend:
             raise CalcError(f"calc error: {data['error']}")
         return data
 
-    def stats_batch(self, specs: list) -> list[dict]:
+    def stats_batch(self, specs: list, *, gen: int = 9) -> list[dict]:
         """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
         if not specs:
             return []
         payload = []
         for idx, spec in enumerate(specs):
-            payload.append({"id": f"s{idx}", "kind": "stats", "gen": 9, "mon": spec.to_payload()})
+            payload.append({"id": f"s{idx}", "kind": "stats", "gen": gen, "mon": spec.to_payload()})
         data = self._run(payload)
         return [item["stats"] for item in data]
 
@@ -282,12 +282,12 @@ class PersistentCalcBackend:
         # same as SubprocessCalcBackend; CalcClient.damage_batch raises CalcError on .error.
         return [DamageResult.from_json(item) for item in data]
 
-    def stats_batch(self, specs: list) -> list[dict]:
+    def stats_batch(self, specs: list, *, gen: int = 9) -> list[dict]:
         """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
         if not specs:
             return []
         payload = [
-            {"id": f"s{i}", "kind": "stats", "gen": 9, "mon": s.to_payload()}
+            {"id": f"s{i}", "kind": "stats", "gen": gen, "mon": s.to_payload()}
             for i, s in enumerate(specs)
         ]
         return [item["stats"] for item in self._run(payload)]
