@@ -3,6 +3,12 @@ level: 50
 game_type: doubles
 restricted_limit: 0
 tera: true
+mega: false
+stat_investment:
+  kind: ev
+  total: 510
+  max_per_stat: 252
+  iv_policy: flexible
 meta_paths:
   default_spreads: meta/default_spreads.yaml
   protect_priors: meta/protect_priors.yaml
