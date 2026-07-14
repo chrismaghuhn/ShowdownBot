@@ -1,0 +1,135 @@
+"""T0 Reg-I parity and T2 gen-0 damage smoke on vendored @smogon/calc (I4 commit 3)."""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+import pytest
+
+TESTS_DIR = Path(__file__).resolve().parent
+FIXTURES_DIR = TESTS_DIR / "fixtures"
+BASELINE_FIXTURE = FIXTURES_DIR / "calc_regi_parity_baseline.json"
+GEN0_FIXTURE = FIXTURES_DIR / "calc_gen0_damage_upstream.json"
+CALC_DIR = TESTS_DIR.parent / "tools" / "calc"
+
+# Gen-0 smoke probes the vendored package directly. calc.mjs gen-0 routing is commit 5.
+_GEN0_PROBE = r"""
+import { readFileSync } from "node:fs";
+import { calculate, Generations, Move, Pokemon } from "@smogon/calc";
+
+function toRolls(damage) {
+  if (typeof damage === "number") return [damage];
+  if (Array.isArray(damage) && damage.length > 0 && Array.isArray(damage[0])) {
+    const hits = damage;
+    return hits[0].map((_, i) => hits.reduce((sum, h) => sum + h[i], 0));
+  }
+  return Array.from(damage);
+}
+
+const fixture = JSON.parse(readFileSync(process.argv[1], "utf8"));
+const req = fixture.case.request_payload;
+const gen = Generations.get(req.gen);
+const attacker = new Pokemon(gen, req.attacker.species, {
+  ability: req.attacker.ability,
+  item: req.attacker.item,
+});
+const defender = new Pokemon(gen, req.defender.species, {
+  ability: req.defender.ability,
+});
+const move = new Move(gen, req.move);
+const result = calculate(gen, attacker, defender, move);
+const rolls = toRolls(result.damage);
+const minDamage = Math.min(...rolls);
+const maxDamage = Math.max(...rolls);
+const maxHP = defender.maxHP();
+process.stdout.write(
+  JSON.stringify({
+    id: req.id,
+    damage: rolls,
+    minDamage,
+    maxDamage,
+    maxHP,
+    minPercent: (minDamage / maxHP) * 100,
+    maxPercent: (maxDamage / maxHP) * 100,
+    desc: result.desc(),
+  }),
+);
+"""
+
+
+def _run_calc_mjs(payloads: list[dict]) -> list[dict]:
+    proc = subprocess.run(
+        ["node", "calc.mjs"],
+        input=json.dumps(payloads),
+        capture_output=True,
+        text=True,
+        cwd=str(CALC_DIR),
+        timeout=60.0,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise AssertionError(
+            f"calc.mjs failed (rc={proc.returncode}): {proc.stderr.strip()}"
+        )
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise AssertionError(f"calc.mjs returned invalid JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise AssertionError(f"expected JSON array from calc.mjs, got {type(data).__name__}")
+    return data
+
+
+def _assert_case_matches(case: dict, actual: dict) -> None:
+    if actual.get("error"):
+        pytest.fail(f"probe {case['id']!r} error: {actual['error']}")
+    expected = case["expected_response"]
+    assert actual["id"] == expected["id"]
+    kind = case["kind"]
+    if kind == "stats":
+        assert actual["stats"] == expected["stats"]
+    elif kind == "types":
+        assert actual["types"] == expected["types"]
+    elif kind == "damage":
+        assert actual["damage"] == expected["damage"]
+        assert actual["minDamage"] == expected["minDamage"]
+        assert actual["maxDamage"] == expected["maxDamage"]
+        assert actual["maxHP"] == expected["maxHP"]
+        assert actual["minPercent"] == expected["minPercent"]
+        assert actual["maxPercent"] == expected["maxPercent"]
+        assert actual["desc"] == expected["desc"]
+    else:
+        pytest.fail(f"unknown probe kind: {kind!r}")
+
+
+@pytest.mark.integration
+def test_regi_parity_matches_baseline_fixture():
+    """T0: vendored calc gen-9 stats/types/damage match Reg-I @0.10.0 baseline."""
+    baseline = json.loads(BASELINE_FIXTURE.read_text(encoding="utf-8"))
+    cases = baseline["cases"]
+    payloads = [case["request_payload"] for case in cases]
+    results = _run_calc_mjs(payloads)
+    by_id = {item["id"]: item for item in results}
+    assert len(by_id) == len(cases)
+    for case in cases:
+        assert case["id"] in by_id, f"missing result for {case['id']!r}"
+        _assert_case_matches(case, by_id[case["id"]])
+
+
+@pytest.mark.integration
+def test_gen0_damage_smoke_matches_upstream_fixture():
+    """T2: vendored @smogon/calc gen-0 Body Slam pin (39-46) via package API."""
+    fixture = json.loads(GEN0_FIXTURE.read_text(encoding="utf-8"))
+    proc = subprocess.run(
+        ["node", "--input-type=module", "-e", _GEN0_PROBE, str(GEN0_FIXTURE)],
+        capture_output=True,
+        text=True,
+        cwd=str(CALC_DIR),
+        timeout=30.0,
+        check=False,
+    )
+    if proc.returncode != 0:
+        pytest.fail(f"gen-0 probe failed (rc={proc.returncode}): {proc.stderr.strip()}")
+    actual = json.loads(proc.stdout)
+    _assert_case_matches(fixture["case"], actual)
