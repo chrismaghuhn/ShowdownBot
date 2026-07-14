@@ -576,7 +576,35 @@ def test_distinct_tera_states_true_when_terastallize_differs():
     assert distinct_tera_states([ja1, ja2]) is True
 
 
+def test_distinct_tera_states_true_when_terastallize_differs_on_slot1():
+    """Both existing distinct_tera_states/distinct_move_or_targets tests only varied slot0 -- a
+    regression that accidentally dropped slot1 from the comparison tuple would still pass them.
+    This exercises the slot1 half of the tuple explicitly."""
+    ja1 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, terastallize=False))
+    ja2 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, terastallize=True))
+    assert distinct_tera_states([ja1, ja2]) is True
+
+
+def test_distinct_tera_states_false_when_identical():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, terastallize=True), SlotAction(kind="pass"))
+    assert distinct_tera_states([ja1, ja2]) is False
+
+
 def test_distinct_move_or_targets_true_when_move_index_differs():
     ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
     ja2 = _ja(SlotAction(kind="move", move_index=2, target=1), SlotAction(kind="pass"))
     assert distinct_move_or_targets([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_true_when_slot1_target_differs():
+    """Same slot1-coverage gap as distinct_tera_states above, for the move/target tuple."""
+    ja1 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, target=1))
+    ja2 = _ja(SlotAction(kind="pass"), SlotAction(kind="move", move_index=1, target=2))
+    assert distinct_move_or_targets([ja1, ja2]) is True
+
+
+def test_distinct_move_or_targets_false_when_identical():
+    ja1 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    ja2 = _ja(SlotAction(kind="move", move_index=1, target=1), SlotAction(kind="pass"))
+    assert distinct_move_or_targets([ja1, ja2]) is False
