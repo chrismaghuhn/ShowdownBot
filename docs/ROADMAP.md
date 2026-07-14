@@ -134,6 +134,35 @@ state (depth-2 slice, value-calibration spec).
    at the gate-consumption layer only, per Task 10's own scoping) — these 63 decisions must not
    simply vanish from future decision-diff/accuracy analyses; they need either a `_label_ja` fix
    (switch target disambiguation) or an explicit, tracked sampling/analysis plan of their own.
+   **Update 2026-07-13 (accuracy-cap-derisk plan, the concrete next step above, now done —
+   `reports/2026-07-13-accuracy-cap-derisk-verdict.md`):** the offline comparison this item asked
+   for was run for real, on the same 85-battle/944-decision corpus. **Cap-hit rate: both cap=6 and
+   cap=8 PASS the pinned 5% threshold decisively** (numerator 6/881 = 0.68% point estimate, 1.37%
+   bootstrap upper bound — both numerically **identical** between cap=6 and cap=8, i.e. cap=8 buys
+   zero additional fidelity over cap=6 on this corpus), versus cap=4's frozen 114/881 = 12.9% FAIL
+   (cited unchanged, never recomputed). **Zero chosen-action changes** at cap=6 or cap=8 relative
+   to cap=4 (only score movement, 115/118 decisions respectively) — raising the cap only refines
+   scores here, it never flips a winner on this corpus. **Latency: both cap=6 and cap=8, both
+   trace modes, PASS the existing ×5-scaled 1000ms gate on this real corpus** (worst case
+   `cap8_trace_enabled` p95×5 ≈ 968ms, a thin ~3.2% margin) — this **disagrees with** the earlier
+   accuracy-hit-probability slice's single-board bench, which found cap=6/cap=8 FAILing the same
+   scaled gate (`reports/2026-07-12-accuracy-slice-latency-gate.md`); the disagreement is
+   attributed to that board being deliberately built to stress accuracy branching harder than this
+   real corpus's average decision, not resolved as a contradiction — flagged for whoever weighs a
+   real Kaggle-hardware check, since the ×5 multiplier itself is an estimate, not a measured
+   constant. **The ambiguous-candidate diagnosis asked for above is now done too:** all 63 excluded
+   decisions, at all three caps, classify identically as `label_collision`/`switch_target_omitted`
+   (100%, zero `other_pipeline_error`, zero `chosen_candidate_missing`), and the exclusion set is
+   completely cap-invariant (`all_three=63`, `cap4_only=cap6_only=cap8_only=0`) — confirming this
+   is a pure `_label_ja` labeling defect, not a cap artifact. A fix-feasibility investigation
+   (no code change) recommends a stable structural candidate key (per-slot `(kind, move_index,
+   target, target_ident, terastallize)`) as the preferred long-term fix, needing either a new
+   `DecisionTrace.chosen_joint_action`-style field or a key assigned at enumeration time — still
+   unimplemented, still open. **Per the report's own explicit framing: none of the above is a
+   default-on decision, a strength claim, or Depth-2 Stage 3 work** — raising
+   `SHOWDOWN_ACCURACY_BRANCH_CAP`'s default, fixing `_label_ja`, and resolving the latency-margin
+   disagreement (possibly via a real Kaggle-hardware check) all remain separate, explicit,
+   user-owned next steps, not scheduled by this update.
 
 ## P1 — Nächster realer Stärkeversuch
 
