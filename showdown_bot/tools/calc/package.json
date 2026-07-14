@@ -6,9 +6,10 @@
   "description": "Node bridge to @smogon/calc for the VGC Showdown bot engine.",
   "main": "calc.mjs",
   "scripts": {
-    "calc": "node calc.mjs"
+    "calc": "node calc.mjs",
+    "verify-pin": "node scripts/verify_pinned_calc.mjs"
   },
   "dependencies": {
-    "@smogon/calc": "^0.10.0"
+    "@smogon/calc": "file:vendor/@smogon+calc-0.11.0+commit6287bda.tgz"
   }
 }

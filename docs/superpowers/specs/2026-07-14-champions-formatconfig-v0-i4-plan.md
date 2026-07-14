@@ -110,8 +110,8 @@ showdown_bot/tools/calc/
 | `upstream_commit` | `6287bda767daeee7eec3ad10f70a0f94fbd4e803` |
 | `calc_subdirectory` | `calc` |
 | `package_name` / `package_version` | `@smogon/calc` / `0.11.0` |
-| `source_tree_sha256` | `git archive` at commit |
-| `lockfile_sha256` | upstream `calc/package-lock.json` at commit |
+| `source_tree_sha256` | SHA-256 of `git archive` tarball for **full upstream commit** (includes `bundler.js`, root lock, `calc/`) |
+| `root_lockfile_sha256` | SHA-256 of upstream **repo-root** `package-lock.json` at commit (input to `npm ci` in build script) |
 | `artifact_sha256` | SHA-256 of committed `.tgz` |
 | `artifact_filename` | basename of `.tgz` |
 
@@ -119,7 +119,7 @@ showdown_bot/tools/calc/
 
 ### 4.3 Merge gates
 
-1. `tools/calc/scripts/build_pinned_calc.mjs` — fetch commit, `npm ci && npm test && npm run build`, `npm pack`, verify hashes.
+1. `tools/calc/scripts/build_pinned_calc.mjs` — fetch commit, repo-root `npm ci`, calc `npm test -- --runInBand` (pretest build + jest + posttest lint), `npm pack`, verify hashes.
 2. Clean checkout: `cd showdown_bot/tools/calc && npm ci` succeeds.
 3. Upstream **`npm test`** at pin passes in build script (before pack).
 

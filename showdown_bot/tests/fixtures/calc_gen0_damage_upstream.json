@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "purpose": "Pinned gen-0 damage smoke (T2) — upstream calc.test.ts Mega Sol Body Slam",
+    "upstream_commit": "6287bda767daeee7eec3ad10f70a0f94fbd4e803",
+    "calc_package": "@smogon/calc",
+    "calc_version": "0.11.0"
+  },
+  "case": {
+    "id": "gen0_body_slam_mega_sol",
+    "kind": "damage",
+    "request_payload": {
+      "id": "gen0_body_slam_mega_sol",
+      "gen": 0,
+      "attacker": {
+        "species": "Meganium-Mega",
+        "ability": "Mega Sol",
+        "item": "Meganiumite"
+      },
+      "defender": {
+        "species": "Abomasnow",
+        "ability": "Soundproof"
+      },
+      "move": "Body Slam"
+    },
+    "expected_response": {
+      "id": "gen0_body_slam_mega_sol",
+      "damage": [
+        39,
+        39,
+        40,
+        40,
+        40,
+        41,
+        41,
+        42,
+        42,
+        43,
+        43,
+        44,
+        44,
+        45,
+        45,
+        46
+      ],
+      "minDamage": 39,
+      "maxDamage": 46,
+      "maxHP": 165,
+      "minPercent": 23.636363636363637,
+      "maxPercent": 27.878787878787882,
+      "desc": "0 Atk Meganium-Mega Body Slam vs. 0 HP / 0 Def Abomasnow: 39-46 (23.6 - 27.8%) -- 81.3% chance to 4HKO"
+    }
+  }
+}
