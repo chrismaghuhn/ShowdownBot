@@ -63,3 +63,29 @@ def test_curated_file_loads_and_has_team_species():
                 "tornadus", "urshifurapidstrike"):
         assert sid in sets
     assert sets["fluttermane"].defense.evs == {"spa": 252, "spd": 4, "spe": 252}
+
+
+def test_champions_likely_sets_panel_derived():
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.state import to_id
+
+    expected = {
+        "Aerodactyl", "Archaludon", "Basculegion", "Delphox", "Excadrill", "Froslass",
+        "Garchomp", "Glaceon", "Gyarados", "Hydreigon", "Incineroar", "Kingambit",
+        "Lucario", "Meganium", "Milotic", "Pelipper", "Roserade", "Rotom-Heat",
+        "Rotom-Wash", "Scovillain", "Sinistcha", "Sneasler", "Spiritomb", "Talonflame",
+        "Tyranitar",
+    }
+    cfg = load_format_config("gen9championsvgc2026regma")
+    sets = load_likely_sets(cfg.meta_path("likely_sets"))
+    assert set(sets) == {to_id(s) for s in expected}
+    # spot-check hero-derived spread
+    scov = sets["scovillain"]
+    assert scov.offense.nature == "Timid"
+    assert scov.offense.evs == {"hp": 32, "spa": 32, "spe": 2}
+    assert scov.offense.items == ["Scovillainite"]
+    for sid, spreads in sets.items():
+        assert spreads.offense == spreads.defense
+        total = sum(spreads.offense.evs.values())
+        assert total <= 66
+        assert all(0 < v <= 32 for v in spreads.offense.evs.values())

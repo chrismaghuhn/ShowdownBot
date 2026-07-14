@@ -1,0 +1,241 @@
+# Champions panel v0 worst-case spread book (Stat Points scale).
+# Derived from committed hero + panel team pastes; hero file wins on duplicate species.
+# Conflicts (item/nature only; same 32/32/2 budgets): Garchomp Adamant (hero) vs Jolly (panel);
+# Kingambit Chople (hero) vs Black Glasses (tailwind); Sneasler Focus Sash (hero) vs White Herb (panel).
+
+default:
+  offense:
+    nature: Timid
+    evs: {spa: 32, spe: 32, hp: 2}
+    items: [Life Orb, Choice Specs, Focus Sash]
+  defense:
+    nature: Bold
+    evs: {hp: 32, def: 32, spd: 2}
+    items: [Leftovers, Sitrus Berry]
+
+species:
+  Scovillain:
+    offense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Scovillainite]
+    defense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Scovillainite]
+  Aerodactyl:
+    offense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Aerodactylite]
+    defense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Aerodactylite]
+  Garchomp:
+    offense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spe: 2}
+      items: [Sitrus Berry]
+    defense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spe: 2}
+      items: [Sitrus Berry]
+  Kingambit:
+    offense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Chople Berry]
+    defense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Chople Berry]
+  Basculegion:
+    offense:
+      nature: Adamant
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Choice Scarf]
+    defense:
+      nature: Adamant
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Choice Scarf]
+  Sneasler:
+    offense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Focus Sash]
+    defense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Focus Sash]
+  Milotic:
+    offense:
+      nature: Bold
+      evs: {hp: 32, def: 32, spd: 2}
+      items: [Leftovers]
+    defense:
+      nature: Bold
+      evs: {hp: 32, def: 32, spd: 2}
+      items: [Leftovers]
+  Lucario:
+    offense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Lucarionite]
+    defense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Lucarionite]
+  Spiritomb:
+    offense:
+      nature: Sassy
+      evs: {hp: 32, def: 32, spd: 2}
+      items: [Sitrus Berry]
+    defense:
+      nature: Sassy
+      evs: {hp: 32, def: 32, spd: 2}
+      items: [Sitrus Berry]
+  Glaceon:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Never-Melt Ice]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Never-Melt Ice]
+  Roserade:
+    offense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Focus Sash]
+    defense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Focus Sash]
+  Incineroar:
+    offense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Sitrus Berry]
+    defense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Sitrus Berry]
+  Rotom-Wash:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Leftovers]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Leftovers]
+  Delphox:
+    offense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Delphoxite]
+    defense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Delphoxite]
+  Meganium:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Meganiumite]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Meganiumite]
+  Pelipper:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Focus Sash]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Focus Sash]
+  Archaludon:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spd: 2}
+      items: [Leftovers]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spd: 2}
+      items: [Leftovers]
+  Froslass:
+    offense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Froslassite]
+    defense:
+      nature: Timid
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Froslassite]
+  Talonflame:
+    offense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: []
+    defense:
+      nature: Jolly
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: []
+  Tyranitar:
+    offense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Tyranitarite]
+    defense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spd: 2}
+      items: [Tyranitarite]
+  Excadrill:
+    offense:
+      nature: Adamant
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Focus Sash]
+    defense:
+      nature: Adamant
+      evs: {hp: 2, atk: 32, spe: 32}
+      items: [Focus Sash]
+  Rotom-Heat:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Leftovers]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Leftovers]
+  Gyarados:
+    offense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spe: 2}
+      items: [Sitrus Berry]
+    defense:
+      nature: Adamant
+      evs: {hp: 32, atk: 32, spe: 2}
+      items: [Sitrus Berry]
+  Sinistcha:
+    offense:
+      nature: Bold
+      evs: {hp: 32, def: 32, spa: 2}
+      items: [Mental Herb]
+    defense:
+      nature: Bold
+      evs: {hp: 32, def: 32, spa: 2}
+      items: [Mental Herb]
+  Hydreigon:
+    offense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Haban Berry]
+    defense:
+      nature: Modest
+      evs: {hp: 32, spa: 32, spe: 2}
+      items: [Haban Berry]

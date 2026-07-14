@@ -1,0 +1,15 @@
+format_id: gen9championsvgc2026regma
+level: 50
+game_type: doubles
+restricted_limit: 0
+tera: false
+mega: true
+stat_investment:
+  kind: stat_points
+  total: 66
+  max_per_stat: 32
+  iv_policy: all_31
+meta_paths:
+  default_spreads: meta/champions/default_spreads.yaml
+  protect_priors: meta/champions/protect_priors.yaml
+  likely_sets: meta/champions/likely_sets.yaml

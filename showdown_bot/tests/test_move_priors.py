@@ -34,3 +34,7 @@ def test_load_for_format_delegates_and_missing_is_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(mod, "load_format_config", lambda fmt: _FakeConfig())
 
     assert load_move_priors_for_format("gen9vgc2024regg") == {}
+
+
+def test_champions_missing_move_priors_degrades_to_empty():
+    assert load_move_priors_for_format("gen9championsvgc2026regma") == {}

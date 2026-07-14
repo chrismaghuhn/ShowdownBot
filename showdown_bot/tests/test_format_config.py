@@ -116,3 +116,48 @@ def test_invalid_stat_investment_fail_closed(tmp_path: Path, field: str, yaml_bo
     )
     with pytest.raises(ValueError, match="stat_investment"):
         load_format_config("bad_format", config_dir=tmp_path)
+
+
+CHAMPIONS_PANEL_SPECIES = frozenset({
+    "Aerodactyl", "Archaludon", "Basculegion", "Delphox", "Excadrill", "Froslass",
+    "Garchomp", "Glaceon", "Gyarados", "Hydreigon", "Incineroar", "Kingambit",
+    "Lucario", "Meganium", "Milotic", "Pelipper", "Roserade", "Rotom-Heat",
+    "Rotom-Wash", "Scovillain", "Sinistcha", "Sneasler", "Spiritomb", "Talonflame",
+    "Tyranitar",
+})
+
+
+def _assert_stat_point_spread(evs: dict[str, int], *, max_per_stat: int = 32, total: int = 66) -> None:
+    assert sum(evs.values()) <= total
+    assert all(0 < v <= max_per_stat for v in evs.values())
+
+
+def test_loads_champions_format():
+    cfg = load_format_config("gen9championsvgc2026regma")
+    assert cfg.format_id == "gen9championsvgc2026regma"
+    assert cfg.level == 50
+    assert cfg.game_type == "doubles"
+    assert cfg.restricted_limit == 0
+    assert cfg.tera is False
+    assert cfg.mega is True
+    assert cfg.stat_investment.kind == "stat_points"
+    assert cfg.stat_investment.total == 66
+    assert cfg.stat_investment.max_per_stat == 32
+    assert cfg.stat_investment.iv_policy == "all_31"
+    for key in ("default_spreads", "protect_priors", "likely_sets"):
+        assert cfg.meta_path(key).exists()
+
+
+def test_champions_default_spreads_loads_panel_species():
+    from showdown_bot.engine.belief.hypotheses import SpreadBook, load_spread_book
+
+    cfg = load_format_config("gen9championsvgc2026regma")
+    book: SpreadBook = load_spread_book(cfg.meta_path("default_spreads"))
+    assert set(book.species) == CHAMPIONS_PANEL_SPECIES
+    _assert_stat_point_spread(book.default.offense.evs)
+    _assert_stat_point_spread(book.default.defense.evs)
+    for species, spreads in book.species.items():
+        _assert_stat_point_spread(spreads.offense.evs)
+        _assert_stat_point_spread(spreads.defense.evs)
+        assert spreads.offense.nature
+        assert spreads.defense.nature

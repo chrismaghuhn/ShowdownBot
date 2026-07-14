@@ -1,0 +1,5 @@
+# Champions panel v0 protect priors — global defaults only (species map empty).
+default: 0.18
+threatened_bump: 0.45
+consecutive_penalty: 0.4
+species: {}

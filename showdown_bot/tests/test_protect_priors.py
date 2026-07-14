@@ -37,3 +37,10 @@ def test_predict_responses_weights_sum_to_one_with_priors():
     # protect read carries the configured prior weight after normalization
     protect = [r for r in resps if "protect" in r.label]
     assert protect and protect[0].weight > 0
+
+
+def test_champions_protect_priors_load():
+    cfg = load_format_config("gen9championsvgc2026regma")
+    priors = load_protect_priors(cfg.meta_path("protect_priors"))
+    assert priors.default == 0.18
+    assert priors.species == {}

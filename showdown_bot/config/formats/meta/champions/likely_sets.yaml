@@ -1,0 +1,179 @@
+# panel-derived v0 prior — NOT general Champions meta.
+# Single spread per species from committed hero + panel pastes (hero wins duplicates).
+# source: showdown_bot/teams/fixed_champions_v0.txt + panel_champions_v0/*.txt
+
+species:
+  Scovillain:
+    set_id: panel_v0_scovillain
+    nature: Timid
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Scovillainite
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Aerodactyl:
+    set_id: panel_v0_aerodactyl
+    nature: Jolly
+    evs: {hp: 2, atk: 32, spe: 32}
+    item: Aerodactylite
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Garchomp:
+    set_id: panel_v0_garchomp
+    nature: Adamant
+    evs: {hp: 32, atk: 32, spe: 2}
+    item: Sitrus Berry
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Kingambit:
+    set_id: panel_v0_kingambit
+    nature: Adamant
+    evs: {hp: 32, atk: 32, spd: 2}
+    item: Chople Berry
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Basculegion:
+    set_id: panel_v0_basculegion
+    nature: Adamant
+    evs: {hp: 2, atk: 32, spe: 32}
+    item: Choice Scarf
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Sneasler:
+    set_id: panel_v0_sneasler
+    nature: Jolly
+    evs: {hp: 2, atk: 32, spe: 32}
+    item: Focus Sash
+    source: panel_derived_v0
+    provenance: fixed_champions_v0.txt
+  Milotic:
+    set_id: panel_v0_milotic
+    nature: Bold
+    evs: {hp: 32, def: 32, spd: 2}
+    item: Leftovers
+    source: panel_derived_v0
+    provenance: disruption.txt
+  Lucario:
+    set_id: panel_v0_lucario
+    nature: Jolly
+    evs: {hp: 2, atk: 32, spe: 32}
+    item: Lucarionite
+    source: panel_derived_v0
+    provenance: disruption.txt
+  Spiritomb:
+    set_id: panel_v0_spiritomb
+    nature: Sassy
+    evs: {hp: 32, def: 32, spd: 2}
+    item: Sitrus Berry
+    source: panel_derived_v0
+    provenance: disruption.txt
+  Glaceon:
+    set_id: panel_v0_glaceon
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Never-Melt Ice
+    source: panel_derived_v0
+    provenance: disruption.txt
+  Roserade:
+    set_id: panel_v0_roserade
+    nature: Timid
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Focus Sash
+    source: panel_derived_v0
+    provenance: disruption.txt
+  Incineroar:
+    set_id: panel_v0_incineroar
+    nature: Adamant
+    evs: {hp: 32, atk: 32, spd: 2}
+    item: Sitrus Berry
+    source: panel_derived_v0
+    provenance: goodstuff.txt
+  Rotom-Wash:
+    set_id: panel_v0_rotom_wash
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Leftovers
+    source: panel_derived_v0
+    provenance: goodstuff.txt
+  Delphox:
+    set_id: panel_v0_delphox
+    nature: Timid
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Delphoxite
+    source: panel_derived_v0
+    provenance: goodstuff.txt
+  Meganium:
+    set_id: panel_v0_meganium
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Meganiumite
+    source: panel_derived_v0
+    provenance: rain_offense.txt
+  Pelipper:
+    set_id: panel_v0_pelipper
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Focus Sash
+    source: panel_derived_v0
+    provenance: rain_offense.txt
+  Archaludon:
+    set_id: panel_v0_archaludon
+    nature: Modest
+    evs: {hp: 32, spa: 32, spd: 2}
+    item: Leftovers
+    source: panel_derived_v0
+    provenance: rain_offense.txt
+  Froslass:
+    set_id: panel_v0_froslass
+    nature: Timid
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Froslassite
+    source: panel_derived_v0
+    provenance: tailwind_offense.txt
+  Talonflame:
+    set_id: panel_v0_talonflame
+    nature: Jolly
+    evs: {hp: 2, atk: 32, spe: 32}
+    source: panel_derived_v0
+    provenance: tailwind_offense.txt
+  Tyranitar:
+    set_id: panel_v0_tyranitar
+    nature: Adamant
+    evs: {hp: 32, atk: 32, spd: 2}
+    item: Tyranitarite
+    source: panel_derived_v0
+    provenance: trick_room.txt
+  Excadrill:
+    set_id: panel_v0_excadrill
+    nature: Adamant
+    evs: {hp: 2, atk: 32, spe: 32}
+    item: Focus Sash
+    source: panel_derived_v0
+    provenance: trick_room.txt
+  Rotom-Heat:
+    set_id: panel_v0_rotom_heat
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Leftovers
+    source: panel_derived_v0
+    provenance: trick_room.txt
+  Gyarados:
+    set_id: panel_v0_gyarados
+    nature: Adamant
+    evs: {hp: 32, atk: 32, spe: 2}
+    item: Sitrus Berry
+    source: panel_derived_v0
+    provenance: trick_room.txt
+  Sinistcha:
+    set_id: panel_v0_sinistcha
+    nature: Bold
+    evs: {hp: 32, def: 32, spa: 2}
+    item: Mental Herb
+    source: panel_derived_v0
+    provenance: trick_room.txt
+  Hydreigon:
+    set_id: panel_v0_hydreigon
+    nature: Modest
+    evs: {hp: 32, spa: 32, spe: 2}
+    item: Haban Berry
+    source: panel_derived_v0
+    provenance: trick_room.txt
