@@ -108,3 +108,22 @@ def test_end_reason_crash_takes_priority_over_timeout():
         "|win|HeroBot",
     ]
     assert parse_battle_result(frames)["end_reason"] == "crash"
+
+
+def test_champions_hp_suffix_y_does_not_block_winner_parse():
+    """Champions rain held-out: damage lines can carry max-HP suffix '100y'. A ValueError
+    here used to abort the whole parse loop before |win|, leaving winner_name=None."""
+    frames = [
+        "|player|p1|HeuristicBot|1|",
+        "|player|p2|BaselineBot|1|",
+        "|switch|p1a: Garchomp|Garchomp, L50|215/215",
+        "|switch|p2b: Basculegion|Basculegion, L50|197/197",
+        "|turn|1",
+        "|-damage|p2b: Basculegion|20/100y",
+        "|turn|2",
+        "|win|BaselineBot",
+    ]
+    r = parse_battle_result(frames)
+    assert r["winner_name"] == "BaselineBot"
+    assert r["turns"] == 2
+    assert r["hp_by_slot"] is not None

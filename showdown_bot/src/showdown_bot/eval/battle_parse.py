@@ -17,7 +17,7 @@ from showdown_bot.eval.room_dump import _iter_lines
 
 
 def _hp_fraction(hp_field: str):
-    """Parse a Showdown HP field ('202/202', '160/202', '0 fnt', '100/100 par') -> [0,1] or None."""
+    """Parse a Showdown HP field ('202/202', '160/202', '0 fnt', '100/100 par', '20/100y') -> [0,1] or None."""
     s = hp_field.strip()
     if "fnt" in s:
         return 0.0
@@ -25,7 +25,13 @@ def _hp_fraction(hp_field: str):
     if "/" not in tok:
         return None
     cur_s, mx_s = tok.split("/", 1)
-    cur, mx = float(cur_s), float(mx_s)
+    # Champions payloads can append a single-letter max-HP flag without a space (e.g. 100y).
+    cur_s = cur_s.rstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    mx_s = mx_s.rstrip("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+    try:
+        cur, mx = float(cur_s), float(mx_s)
+    except ValueError:
+        return None
     return 0.0 if mx <= 0 else cur / mx
 
 

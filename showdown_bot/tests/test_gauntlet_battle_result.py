@@ -57,6 +57,22 @@ def test_unknown_winner_raises():
                               invalid_choices=0, crashes=0, decision_latency_p95_ms=0, room_raw_path=None)
 
 
+def test_champions_hp_suffix_y_before_win_records_villain():
+    frames = ["\n".join([
+        "|player|p1|HeroBot|1|",
+        "|player|p2|VillBot|1|",
+        "|switch|p1a: Garchomp|Garchomp, L50|215/215",
+        "|switch|p2b: Basculegion|Basculegion, L50|197/197",
+        "|turn|1",
+        "|-damage|p2b: Basculegion|20/100y",
+        "|turn|2",
+        "|win|VillBot",
+    ])]
+    r = _battle_result_record("HeroBot", "VillBot", frames, invalid_choices=0, crashes=0,
+                              decision_latency_p95_ms=0, room_raw_path=None)
+    assert r["winner"] == "villain"
+
+
 def test_end_hp_diff_null_when_side_mapping_unreliable():
     # No |player| lines -> can't map hero/villain to slots -> end_hp_diff null (not guessed).
     frames = ["\n".join(["|switch|p1a: X|X, L50|100/100", "|win|HeroBot"])]
