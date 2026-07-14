@@ -7,6 +7,9 @@ Northstar docs) as the single source of truth for *current status and next decis
 **not versioned with the code** and must not be read as an up-to-date execution plan —
 verify against this file and git history first.
 
+**New agents:** start with [`docs/PROJECT_INDEX.md`](PROJECT_INDEX.md) for orientation; this
+roadmap remains the authoritative status matrix.
+
 Last reconciled: 2026-07-14 (Champions panel v0 P4 pilot smoke PIPELINE-READY, clean provenance), against an external strategic review (adopted with two
 corrections, see "Corrections to the external review" below) and this session's own verified
 state (depth-2 slice, value-calibration spec).
