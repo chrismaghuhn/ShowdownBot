@@ -10,7 +10,7 @@ verify against this file and git history first.
 **New agents:** start with [`docs/PROJECT_INDEX.md`](PROJECT_INDEX.md) for orientation; this
 roadmap remains the authoritative status matrix.
 
-Last reconciled: 2026-07-14 (Champions panel v0 P4 pilot smoke PIPELINE-READY, clean provenance), against an external strategic review (adopted with two
+Last reconciled: 2026-07-14 (Champions rain/held-out parser/harness safety PASS on `4764a7d`: Solar Beam targetless choose + `100y` HP suffix result recording; 2/2 result rows, invalid=0, crashes=0), against an external strategic review (adopted with two
 corrections, see "Corrections to the external review" below) and this session's own verified
 state (depth-2 slice, value-calibration spec).
 
@@ -33,7 +33,7 @@ state (depth-2 slice, value-calibration spec).
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
 | Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
-| Champions panel v0 (format target) | **P4 PASS — PIPELINE-READY** | P0–P3 on main; P4 dev-only smoke @ `04b0eb7` (`dirty=false`): 6/6 rows, crashes=0, invalid=0; schedule `e8a58dc`; verdict `reports/champions-panel-v0-pilot-smoke.md` | **FormatConfig + Champions move parser** before strength/decision-quality; rain held-out blocked (Solar Beam target gap) |
+| Champions panel v0 (format target) | **P4 PIPELINE-READY + rain held-out parser/harness safety PASS** | P0–P3 on main; P4 dev-only smoke @ `04b0eb7` (`dirty=false`): 6/6 rows, crashes=0, invalid=0; rain held-out validation @ `4764a7d` (`reports/champions-rain-heldout-parser-validation.md`): choose-path + result-row PASS, 2/2 rows, invalid=0, crashes=0 | **Champions FormatConfig** before strength/decision-quality; optional `parse_battle_result` loop-hardening (HP failures must not abort winner/turn/player parse) |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
