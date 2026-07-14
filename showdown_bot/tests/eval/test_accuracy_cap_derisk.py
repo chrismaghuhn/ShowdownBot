@@ -297,6 +297,19 @@ def test_stage1_passes_when_raw_diff_set_and_on_actions_match_frozen_exactly():
     assert result.raw_diff_decision_ids == {"id2"}
 
 
+def test_stage1_raises_on_decision_id_set_mismatch():
+    """Check (a): even before comparing any action values, the auxiliary rows and the frozen
+    off-actions must cover the exact same decision_id set -- a caller's pre-filtering bug
+    (e.g. wrong exclusion of the 63/wrong inclusion in the 881-eligible set) must be caught
+    here, not silently produce a wrong diff-ID count downstream."""
+    aux = [_aux_row("id1", "/choose move 1")]
+    frozen_off_actions = {"id1": "/choose move 1", "id2": "/choose move 2"}  # id2 missing from aux
+    frozen_on_actions_for_20 = {}
+    with pytest.raises(Stage1ReproductionError) as exc_info:
+        run_stage1_raw_reproduction(aux, frozen_off_actions, frozen_on_actions_for_20)
+    assert "id2" in str(exc_info.value)
+
+
 def test_stage1_raises_on_unexpected_raw_diff():
     aux = [_aux_row("id1", "/choose move 99")]  # unexpectedly differs
     frozen_off_actions = {"id1": "/choose move 1"}
