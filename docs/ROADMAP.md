@@ -173,6 +173,8 @@ state (depth-2 slice, value-calibration spec).
    (cap=4) stays frozen/authoritative** at 114/881 = 12.9% FAIL and was **not** recomputed. See
    refreshed `data/eval/accuracy-cap-derisk/cap{6,8}-report.json` and
    `reports/2026-07-13-accuracy-cap-derisk-verdict.md` (2026-07-14 addendum).
+   Decision-note draft: `reports/2026-07-14-accuracy-default-on-decision-note.md` proposes a
+   cap=6 default-on path; pending user approval, with no default-status flip in this roadmap row.
 
 ## P1 — Nächster realer Stärkeversuch
 
