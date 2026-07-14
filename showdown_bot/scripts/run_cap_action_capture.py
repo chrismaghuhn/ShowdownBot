@@ -126,6 +126,15 @@ def main() -> None:
     if dedup_report.final_g != EXPECTED_FINAL_G:
         raise SystemExit(f"BLOCKED: expected final_g == {EXPECTED_FINAL_G}, got {dedup_report.final_g}")
 
+    missing_identity = [p for p in dedup_report.kept if p not in dedup_report.kept_identities]
+    if missing_identity:
+        raise SystemExit(
+            f"BLOCKED: {len(missing_identity)} kept file(s) have no SeedIdentity in "
+            f"kept_identities (content-hash-fallback-kept) -- this plan's decision_id scheme "
+            f"assumes every kept file has one, verified true for this corpus as of writing; "
+            f"re-verify before proceeding. Files: {missing_identity}"
+        )
+
     all_decisions = []
     for p in sorted(dedup_report.kept, key=str):
         identity = dedup_report.kept_identities[p]
