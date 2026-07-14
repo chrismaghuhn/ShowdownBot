@@ -35,6 +35,36 @@ OUT_DIR = DATA_EVAL / "accuracy-cap-derisk"
 FORMAT_ID = "gen9vgc2025regi"
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write content to path atomically: full write to a sibling temp file, then os.replace
+    (atomic on both POSIX and Windows) -- matches this project's established convention
+    (build_decision_id_manifest.py's _atomic_write_text) for a script shaped like this one: an
+    existence-guard paired with an expensive, non-idempotent computation. Without this, a crash
+    mid-write would leave a truncated file the existence guard can't distinguish from a real
+    success."""
+    tmp_path = path.with_name(path.name + ".tmp")
+    tmp_path.write_text(content, encoding="utf-8", newline="\n")
+    os.replace(tmp_path, path)
+
+
+def _case(did, *, primary_cause, label_collision_subtype=None,
+          chosen_candidate_missing_subreason=None, companion_flags=None, rationale=None):
+    """Uniform 6-key case-dict constructor -- every case dict this script produces (all 4
+    construction sites in main()) carries the SAME key set, with None/[] for whichever fields
+    don't apply to that branch. Without this, the other_pipeline_error branches (which never set
+    chosen_candidate_missing_subreason) and the genuine-classification branch (which never sets
+    rationale) would silently diverge into mixed schemas across the cases array whenever a future
+    re-run actually hits the error/missing branches (this run's cases all happened to share one
+    schema by luck -- 0 cases hit those branches) -- breaking naive downstream consumption
+    (KeyError, inconsistent columns)."""
+    return {
+        "decision_id": did, "primary_cause": primary_cause,
+        "label_collision_subtype": label_collision_subtype,
+        "chosen_candidate_missing_subreason": chosen_candidate_missing_subreason,
+        "companion_flags": companion_flags or [], "rationale": rationale,
+    }
+
+
 def _original_exception_is_chosen_candidate_ambiguity(original_message: str) -> bool:
     """True only if the ORIGINAL gate exception is confirmed to come from
     accuracy_gate_b._chosen_candidate's own ambiguous/no-match RuntimeError paths -- both raise
@@ -229,11 +259,10 @@ def main() -> None:
             d = decisions_by_did.get(did)
             original_message = per_cap_original_message_by_decision_id[cap_label][did]
             if d is None:
-                cases.append({
-                    "decision_id": did, "primary_cause": "other_pipeline_error",
-                    "label_collision_subtype": None, "companion_flags": [],
-                    "rationale": f"decision_id not found in re-extraction; original exception: {original_message}",
-                })
+                cases.append(_case(
+                    did, primary_cause="other_pipeline_error",
+                    rationale=f"decision_id not found in re-extraction; original exception: {original_message}",
+                ))
                 continue
 
             # Always attempt the live re-run first, regardless of the original exception's type --
@@ -259,33 +288,30 @@ def main() -> None:
             # no-match RuntimeError paths -- a re-run that coincidentally looks ambiguous does
             # not, by itself, prove that was the original decision's real exclusion cause.
             if not _original_exception_is_chosen_candidate_ambiguity(original_message):
-                cases.append({
-                    "decision_id": did, "primary_cause": "other_pipeline_error",
-                    "label_collision_subtype": None, "companion_flags": [],
-                    "rationale": f"original exception is not a _chosen_candidate ambiguity/"
-                                 f"no-match RuntimeError (original: {original_message!r}); "
-                                 f"{new_observation} -- not treated as a reproducible structural "
-                                 f"ambiguity regardless of the re-run's own outcome.",
-                })
+                cases.append(_case(
+                    did, primary_cause="other_pipeline_error",
+                    rationale=f"original exception is not a _chosen_candidate ambiguity/"
+                              f"no-match RuntimeError (original: {original_message!r}); "
+                              f"{new_observation} -- not treated as a reproducible structural "
+                              f"ambiguity regardless of the re-run's own outcome.",
+                ))
                 continue
 
             if not is_ambiguous:
-                cases.append({
-                    "decision_id": did, "primary_cause": "other_pipeline_error",
-                    "label_collision_subtype": None, "companion_flags": [],
-                    "rationale": f"original exception confirmed as a _chosen_candidate ambiguity/"
-                                 f"no-match RuntimeError, but did not reproduce on re-run "
-                                 f"({new_observation}); original exception: {original_message}",
-                })
+                cases.append(_case(
+                    did, primary_cause="other_pipeline_error",
+                    rationale=f"original exception confirmed as a _chosen_candidate ambiguity/"
+                              f"no-match RuntimeError, but did not reproduce on re-run "
+                              f"({new_observation}); original exception: {original_message}",
+                ))
                 continue
 
-            cases.append({
-                "decision_id": did,
-                "primary_cause": classification.primary_cause,
-                "label_collision_subtype": classification.label_collision_subtype,
-                "chosen_candidate_missing_subreason": classification.chosen_candidate_missing_subreason,
-                "companion_flags": sorted(classification.companion_flags),
-            })
+            cases.append(_case(
+                did, primary_cause=classification.primary_cause,
+                label_collision_subtype=classification.label_collision_subtype,
+                chosen_candidate_missing_subreason=classification.chosen_candidate_missing_subreason,
+                companion_flags=sorted(classification.companion_flags),
+            ))
         os.environ.pop("SHOWDOWN_ACCURACY_MODE", None)
         os.environ.pop("SHOWDOWN_ACCURACY_BRANCH_CAP", None)
         report["per_cap"][cap_label] = {"count": len(cases), "cases": cases}
@@ -311,7 +337,7 @@ def main() -> None:
         "all_three": sorted(ids_by_cap["cap4"] & ids_by_cap["cap6"] & ids_by_cap["cap8"]),
     }
 
-    out_path.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    _atomic_write_text(out_path, json.dumps(report, indent=2, sort_keys=True))
     print(f"wrote {out_path}")
 
 
