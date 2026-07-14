@@ -66,3 +66,19 @@ def test_struggle_only_slot_is_a_selectable_move_action():
     req = BattleRequest.model_validate(data)
     actions = _slot_move_actions(0, req)
     assert any(a.kind == "move" and a.move_index == 1 for a in actions)
+
+
+def test_parse_champions_solarbeam_without_target():
+    """Champions rain held-out: Showdown can omit target on Solar Beam."""
+    data = json.loads((FIXTURES / "request_champions_solarbeam_no_target.json").read_text())
+    req = BattleRequest.model_validate(data)
+    solar = req.active[1].moves[3]
+    assert solar.id == "solarbeam"
+    assert solar.target == get_move_meta("solarbeam").target == "normal"
+
+
+def test_champions_solarbeam_without_target_is_selectable():
+    data = json.loads((FIXTURES / "request_champions_solarbeam_no_target.json").read_text())
+    req = BattleRequest.model_validate(data)
+    actions = _slot_move_actions(1, req)
+    assert any(a.kind == "move" and a.move_index == 4 for a in actions)

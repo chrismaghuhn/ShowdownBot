@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Self
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class MoveSlot(BaseModel):
@@ -10,8 +12,18 @@ class MoveSlot(BaseModel):
     # entirely (T6 held-out finding, seed t6heldout2026 idx 23).
     pp: int | None = None
     maxpp: int | None = None
-    target: str
+    # Champions payloads can omit target on some moves (rain held-out / Meganium
+    # Solar Beam); backfill from MoveMeta after parse (same pattern as pp/maxpp).
+    target: str | None = None
     disabled: bool = False
+
+    @model_validator(mode="after")
+    def _backfill_target_from_move_meta(self) -> Self:
+        if self.target is None:
+            from showdown_bot.engine.moves import get_move_meta
+
+            self.target = get_move_meta(self.id).target
+        return self
 
 
 class ActiveSlot(BaseModel):
