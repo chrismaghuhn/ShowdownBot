@@ -295,7 +295,14 @@ def _choose_best(
     oracle = oracle or DamageOracle(calc)
     if speed_oracle is None:
         try:
-            speed_oracle = SpeedOracle(stats_backend=calc.backend)
+            from showdown_bot.engine.calc_profile import (
+                build_speed_oracle,
+                calc_profile_from_config,
+            )
+
+            speed_oracle = build_speed_oracle(
+                calc.backend, calc_profile_from_config(format_config)
+            )
         except Exception:
             speed_oracle = None
     if dex is None:
@@ -581,7 +588,13 @@ def _choose_best(
             try:
                 from showdown_bot.battle.baselines import max_damage_choice
 
-                md = max_damage_choice(req, state=state, book=book, our_side=our_side)
+                md = max_damage_choice(
+                    req,
+                    state=state,
+                    book=book,
+                    our_side=our_side,
+                    format_config=format_config,
+                )
                 report.append(f"max_damage would: {md}")
             except Exception:  # noqa: BLE001
                 pass
@@ -947,7 +960,14 @@ def choose_with_fallback(
         from showdown_bot.battle.baselines import max_damage_choice
 
         if state is not None and book is not None:
-            choice = max_damage_choice(req, state=state, book=book, our_side=our_side, **deps)
+            choice = max_damage_choice(
+                req,
+                state=state,
+                book=book,
+                our_side=our_side,
+                format_config=format_config,
+                **deps,
+            )
             _mark_selection(trace, "max_damage_fallback", fallback_reason)
             return choice
     except Exception as exc:  # noqa: BLE001

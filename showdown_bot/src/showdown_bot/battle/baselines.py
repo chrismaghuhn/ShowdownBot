@@ -27,6 +27,7 @@ def max_damage_choice(
     calc: CalcClient | None = None,
     oracle: DamageOracle | None = None,
     speed_oracle: SpeedOracle | None = None,
+    format_config=None,
     fallback=None,
     **_ignored,
 ) -> str:
@@ -54,7 +55,14 @@ def max_damage_choice(
     oracle = oracle or DamageOracle(calc)
     if speed_oracle is None:
         try:
-            speed_oracle = SpeedOracle(stats_backend=calc.backend)
+            from showdown_bot.engine.calc_profile import (
+                build_speed_oracle,
+                calc_profile_from_config,
+            )
+
+            speed_oracle = build_speed_oracle(
+                calc.backend, calc_profile_from_config(format_config)
+            )
         except Exception:
             speed_oracle = None
 

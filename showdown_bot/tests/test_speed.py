@@ -50,7 +50,7 @@ class FakeStatsBackend:
     def __init__(self, spe_values):
         self._spe = spe_values
 
-    def stats_batch(self, specs):
+    def stats_batch(self, specs, *, gen=9):
         return [{"spe": v} for v in self._spe]
 
 
@@ -88,7 +88,7 @@ class FakeBackend:
         self.spe = spe
         self.calls = 0
 
-    def stats_batch(self, specs):
+    def stats_batch(self, specs, *, gen=9):
         self.calls += 1
         return [{"spe": self.spe} for _ in specs]
 
