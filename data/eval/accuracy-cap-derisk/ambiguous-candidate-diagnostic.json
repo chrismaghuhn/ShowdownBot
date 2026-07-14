@@ -1,0 +1,2357 @@
+{
+  "overlap": {
+    "all_three": [
+      "0754e4edd9ce79a7e9bd6c3e361760d1dff0641e621f7a0f6d1d239e7cf3f5b6",
+      "0793773c18bd56563bdbf60a32671304680598a42ffd7dc2ff8e8b4cca915aa3",
+      "0dc01f071c57ff4020fd43e1fc30484a090109e129ac223a4c020362edf40fd4",
+      "0f353114759db1401b06ca98b6ad5fe53d64481b64ed5820fdeb8bd83c9df01c",
+      "1c49b5e220590c5f74a7df8a45f9e053d88acf14e6e843afdb91d6856e0edd33",
+      "210a2ab364bc37b3076b70da779c5736c05c63bcda7e7f299f388c88eb5327c9",
+      "26174e7cfe7dcba70e9df72e64cfff20c3ef84ecf2e98a8e26225c498d1ca804",
+      "27597a38c6fa660fd018840765151a33b5c7dbbde276a258a85e9c6e5bf9de3f",
+      "293edd6eae4adb590e3184116c04f29f494d70a50924b283c028efeb2b942a51",
+      "3666619748c5c99f24aa4fa813c323bb3728a7194ef76a3b251d531e5dce3494",
+      "36f1e3691c6af8a58c16e3b294dc369ebc008fb062814cf50fbae76539dd462a",
+      "37eb037558752b901d2d42bae9f56b65543579a72514e5e99b9fce6548c788fa",
+      "389e54ce295b1ddb64d5534486543c108b7f729c562b8c095b4b6a74202c8d2b",
+      "3dd928d1f9255637d0be1a5c416ef2ce6f4538bb5ab3af679b4d4cb5e6471593",
+      "428429e13c6e837c2d90140a774a0013b1e8975bffd4c2a657f1a5c6cc686c64",
+      "4362e11d5294d9db03b681603418e67f9a6f46fabcbcc1379fff6251a26605c0",
+      "491f6a86386ffb0a0774b770df213d1809c3a2d0e02ec65c7411984de0d726c5",
+      "4d5f28147951c0eeb40ae671c525de189ce4807a81847f7f4917b36e6bb7a5f8",
+      "4ec0a5a8db2ada2e92f69471a757188323495fe947b64e6b29f885cae2265cc5",
+      "4eec21ee0e78422486a045f205c518a911f4f9ea95dfb11541027573f5a91925",
+      "555200576f19ee642b9d4e645654dde1309b8f23652dcfc9b4ddb4581cfbd425",
+      "5cc4a4c7d41d89554db93bbbf66b51528d5856c6553de5984c50ca3a92a56f3c",
+      "5d33db4db54006138d4df75d48ae06d4dbca9c38285059bf5b8b40a5209b6616",
+      "6a4dfa9d102d5be294e1f65bfb932a85a96a22d20dcb167887e19e5ced8d1ad8",
+      "6e062c385dbf74b1d9bee5b642d35a7b5a61270c7375bb424656a8fb883ca08d",
+      "6e39bcae7f95e5afac4874f6475342b35e55d5cc824a2cb709ffb395ab97333c",
+      "6ff1be903ce0240e38085a87429149ecfa4536076df0af49cfab870924e5e3ea",
+      "72adabe3fe056b3b187c6c0c56c5e39e572a9f1751b121d284a7ae4c9da37986",
+      "776f68448761772e36df080ebdb069f87fcbaa5f5a43937d3fb9807235b4ede9",
+      "78a9a8262e24c89040dd72ecf5d4f0856eef667d6743fd59739d2b5b68beafed",
+      "7b8fe0868c4a942a796cdaf413a029a3cc1a0a03bce79112b83206ebcd6f2541",
+      "81b7d0028773c182f7724d9cfcd869d33b4eca090cffcadf2dd41d60bbd69104",
+      "81c4b1fc30709fccf5582e622907e70d5db4675a9051dfb6fc3025353127ed58",
+      "8e97cc1665de85fce29bda08578de2e8defbca6f1a4aed7c26ac913078ccd19b",
+      "8ef1ca141841b41de0d54145730e3a8f4c5e0f8213a6c0c22834360fc37044a0",
+      "9286d6c31dd8b844839872672eb5a086c6b58e774a1e79d60d42403b681e83e7",
+      "9866839e1724f5566431826e8d24812f1bb2564827a0c1db8063bc571650b120",
+      "9a4bcb4a22c079e93f2082c2c296e526800bbde1131da30921bab4fade8c04a7",
+      "9b9f4dbaab3ec1481261665c77992dd7eb94e9d2e900a9dfc8a3988b9776d71d",
+      "9e049ee5d53c98cc45cad8e13f74a1274efb7596e9dbede525e8fadb27227b75",
+      "a856233530c63405626d550fdca4a188b9f98c63d5acb39ae3848ec49cc9c2c2",
+      "b030679ebd30c68d838f54e0454229cd1c97d6b76b5565b2150d088f2a993264",
+      "b0e79069bdbb6650cd2a62bf167b6fc33137d0702ab405389b8b9f0b2d8df980",
+      "b1226e086e6e838cfdac56b85b31886808b4ebfe2a0520af1e11f8a952f72402",
+      "b41e64d2d7b531d7739c44183d02c05f85958128556577c5d9829963df068b01",
+      "b466e50bab144f3fa7467f9768edf793f49c228f521a4d4b6e87db4663b075a8",
+      "b48f4584ee3d934e455b2693fa446fe72795a0abe2213b89f7d2b23086b0fb91",
+      "b49c15dbbad109e611c2bf510fcaeb5fc8171f5c884019d4ceffcef5cd48126f",
+      "c18e0547f449a686f9b2bdf3e81684f9e2f996f14ac7088fb624e53de7eda9e2",
+      "c228ef423efe2035701f1ddc625a2059cb13b494d31b260f61798780e32946c7",
+      "c230999dc2e9b315f336bab73e98a55ebd7c4d2bca9b97c88fb544a51704a307",
+      "c6406eda206457658e66a7e3e8a64b92fbfc2b0e531111c1ac1bf7450627ad91",
+      "c802b8e5a03b142073dc9e0bee278001f5d8c41daeaafcc1d8b59c4de176ca7d",
+      "cb43452573f5b82f24e04debc19116dfdedbc0c6dbf03d309bf732857fefcaa7",
+      "d14a45d04d30f5569cb1fe48a9151dbe63955a0a682108e6b9817fb998a87025",
+      "d4106956f68c697cee4acf11d82c96ff4aa10e4d448abc49bc35c8d4cb917aa1",
+      "dbdde8e20c9a4858544d244904870cba4585d7bbef0325867e81498d0c4e6808",
+      "e6a988f7003bfd6680e417f966e3a455786d79aefca79d8113731b04fa8ed895",
+      "e7af7d6ad518e7b32b0f772eced851a3eefe33fec12e8e98a6df285423e13fb1",
+      "ee79aa1b07d239c777a04e070fcd37c369fbba871d56bbd9fae6e66393c3e2f8",
+      "ef585aee81c903ad1e4ffe63f6e62f0e0c0e6688968737612f5d8d23e5a1a8bd",
+      "f6ea620da901aa81d545b7eccb6136385f9c68113e6da49a542318c9901c708f",
+      "fb5dcb98ea0bf3e34ef3f8a492575aa663f0b8097bbff5060d33e8ab5fb30d3a"
+    ],
+    "cap4_only": [],
+    "cap6_only": [],
+    "cap8_only": []
+  },
+  "per_cap": {
+    "cap4": {
+      "cases": [
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0754e4edd9ce79a7e9bd6c3e361760d1dff0641e621f7a0f6d1d239e7cf3f5b6",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0793773c18bd56563bdbf60a32671304680598a42ffd7dc2ff8e8b4cca915aa3",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0dc01f071c57ff4020fd43e1fc30484a090109e129ac223a4c020362edf40fd4",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0f353114759db1401b06ca98b6ad5fe53d64481b64ed5820fdeb8bd83c9df01c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "1c49b5e220590c5f74a7df8a45f9e053d88acf14e6e843afdb91d6856e0edd33",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "210a2ab364bc37b3076b70da779c5736c05c63bcda7e7f299f388c88eb5327c9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "26174e7cfe7dcba70e9df72e64cfff20c3ef84ecf2e98a8e26225c498d1ca804",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "27597a38c6fa660fd018840765151a33b5c7dbbde276a258a85e9c6e5bf9de3f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "293edd6eae4adb590e3184116c04f29f494d70a50924b283c028efeb2b942a51",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3666619748c5c99f24aa4fa813c323bb3728a7194ef76a3b251d531e5dce3494",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "36f1e3691c6af8a58c16e3b294dc369ebc008fb062814cf50fbae76539dd462a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "37eb037558752b901d2d42bae9f56b65543579a72514e5e99b9fce6548c788fa",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "389e54ce295b1ddb64d5534486543c108b7f729c562b8c095b4b6a74202c8d2b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3dd928d1f9255637d0be1a5c416ef2ce6f4538bb5ab3af679b4d4cb5e6471593",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "428429e13c6e837c2d90140a774a0013b1e8975bffd4c2a657f1a5c6cc686c64",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4362e11d5294d9db03b681603418e67f9a6f46fabcbcc1379fff6251a26605c0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "491f6a86386ffb0a0774b770df213d1809c3a2d0e02ec65c7411984de0d726c5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4d5f28147951c0eeb40ae671c525de189ce4807a81847f7f4917b36e6bb7a5f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4ec0a5a8db2ada2e92f69471a757188323495fe947b64e6b29f885cae2265cc5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4eec21ee0e78422486a045f205c518a911f4f9ea95dfb11541027573f5a91925",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "555200576f19ee642b9d4e645654dde1309b8f23652dcfc9b4ddb4581cfbd425",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5cc4a4c7d41d89554db93bbbf66b51528d5856c6553de5984c50ca3a92a56f3c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5d33db4db54006138d4df75d48ae06d4dbca9c38285059bf5b8b40a5209b6616",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6a4dfa9d102d5be294e1f65bfb932a85a96a22d20dcb167887e19e5ced8d1ad8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e062c385dbf74b1d9bee5b642d35a7b5a61270c7375bb424656a8fb883ca08d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e39bcae7f95e5afac4874f6475342b35e55d5cc824a2cb709ffb395ab97333c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6ff1be903ce0240e38085a87429149ecfa4536076df0af49cfab870924e5e3ea",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "72adabe3fe056b3b187c6c0c56c5e39e572a9f1751b121d284a7ae4c9da37986",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "776f68448761772e36df080ebdb069f87fcbaa5f5a43937d3fb9807235b4ede9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "78a9a8262e24c89040dd72ecf5d4f0856eef667d6743fd59739d2b5b68beafed",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "7b8fe0868c4a942a796cdaf413a029a3cc1a0a03bce79112b83206ebcd6f2541",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81b7d0028773c182f7724d9cfcd869d33b4eca090cffcadf2dd41d60bbd69104",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81c4b1fc30709fccf5582e622907e70d5db4675a9051dfb6fc3025353127ed58",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8e97cc1665de85fce29bda08578de2e8defbca6f1a4aed7c26ac913078ccd19b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8ef1ca141841b41de0d54145730e3a8f4c5e0f8213a6c0c22834360fc37044a0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9286d6c31dd8b844839872672eb5a086c6b58e774a1e79d60d42403b681e83e7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9866839e1724f5566431826e8d24812f1bb2564827a0c1db8063bc571650b120",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9a4bcb4a22c079e93f2082c2c296e526800bbde1131da30921bab4fade8c04a7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9b9f4dbaab3ec1481261665c77992dd7eb94e9d2e900a9dfc8a3988b9776d71d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9e049ee5d53c98cc45cad8e13f74a1274efb7596e9dbede525e8fadb27227b75",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "a856233530c63405626d550fdca4a188b9f98c63d5acb39ae3848ec49cc9c2c2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b030679ebd30c68d838f54e0454229cd1c97d6b76b5565b2150d088f2a993264",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b0e79069bdbb6650cd2a62bf167b6fc33137d0702ab405389b8b9f0b2d8df980",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b1226e086e6e838cfdac56b85b31886808b4ebfe2a0520af1e11f8a952f72402",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b41e64d2d7b531d7739c44183d02c05f85958128556577c5d9829963df068b01",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b466e50bab144f3fa7467f9768edf793f49c228f521a4d4b6e87db4663b075a8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b48f4584ee3d934e455b2693fa446fe72795a0abe2213b89f7d2b23086b0fb91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b49c15dbbad109e611c2bf510fcaeb5fc8171f5c884019d4ceffcef5cd48126f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c18e0547f449a686f9b2bdf3e81684f9e2f996f14ac7088fb624e53de7eda9e2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c228ef423efe2035701f1ddc625a2059cb13b494d31b260f61798780e32946c7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c230999dc2e9b315f336bab73e98a55ebd7c4d2bca9b97c88fb544a51704a307",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c6406eda206457658e66a7e3e8a64b92fbfc2b0e531111c1ac1bf7450627ad91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c802b8e5a03b142073dc9e0bee278001f5d8c41daeaafcc1d8b59c4de176ca7d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "cb43452573f5b82f24e04debc19116dfdedbc0c6dbf03d309bf732857fefcaa7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d14a45d04d30f5569cb1fe48a9151dbe63955a0a682108e6b9817fb998a87025",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d4106956f68c697cee4acf11d82c96ff4aa10e4d448abc49bc35c8d4cb917aa1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "dbdde8e20c9a4858544d244904870cba4585d7bbef0325867e81498d0c4e6808",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e6a988f7003bfd6680e417f966e3a455786d79aefca79d8113731b04fa8ed895",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e7af7d6ad518e7b32b0f772eced851a3eefe33fec12e8e98a6df285423e13fb1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ee79aa1b07d239c777a04e070fcd37c369fbba871d56bbd9fae6e66393c3e2f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ef585aee81c903ad1e4ffe63f6e62f0e0c0e6688968737612f5d8d23e5a1a8bd",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "f6ea620da901aa81d545b7eccb6136385f9c68113e6da49a542318c9901c708f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "fb5dcb98ea0bf3e34ef3f8a492575aa663f0b8097bbff5060d33e8ab5fb30d3a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        }
+      ],
+      "count": 63
+    },
+    "cap6": {
+      "cases": [
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0754e4edd9ce79a7e9bd6c3e361760d1dff0641e621f7a0f6d1d239e7cf3f5b6",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0793773c18bd56563bdbf60a32671304680598a42ffd7dc2ff8e8b4cca915aa3",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0dc01f071c57ff4020fd43e1fc30484a090109e129ac223a4c020362edf40fd4",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0f353114759db1401b06ca98b6ad5fe53d64481b64ed5820fdeb8bd83c9df01c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "1c49b5e220590c5f74a7df8a45f9e053d88acf14e6e843afdb91d6856e0edd33",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "210a2ab364bc37b3076b70da779c5736c05c63bcda7e7f299f388c88eb5327c9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "26174e7cfe7dcba70e9df72e64cfff20c3ef84ecf2e98a8e26225c498d1ca804",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "27597a38c6fa660fd018840765151a33b5c7dbbde276a258a85e9c6e5bf9de3f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "293edd6eae4adb590e3184116c04f29f494d70a50924b283c028efeb2b942a51",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3666619748c5c99f24aa4fa813c323bb3728a7194ef76a3b251d531e5dce3494",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "36f1e3691c6af8a58c16e3b294dc369ebc008fb062814cf50fbae76539dd462a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "37eb037558752b901d2d42bae9f56b65543579a72514e5e99b9fce6548c788fa",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "389e54ce295b1ddb64d5534486543c108b7f729c562b8c095b4b6a74202c8d2b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3dd928d1f9255637d0be1a5c416ef2ce6f4538bb5ab3af679b4d4cb5e6471593",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "428429e13c6e837c2d90140a774a0013b1e8975bffd4c2a657f1a5c6cc686c64",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4362e11d5294d9db03b681603418e67f9a6f46fabcbcc1379fff6251a26605c0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "491f6a86386ffb0a0774b770df213d1809c3a2d0e02ec65c7411984de0d726c5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4d5f28147951c0eeb40ae671c525de189ce4807a81847f7f4917b36e6bb7a5f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4ec0a5a8db2ada2e92f69471a757188323495fe947b64e6b29f885cae2265cc5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4eec21ee0e78422486a045f205c518a911f4f9ea95dfb11541027573f5a91925",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "555200576f19ee642b9d4e645654dde1309b8f23652dcfc9b4ddb4581cfbd425",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5cc4a4c7d41d89554db93bbbf66b51528d5856c6553de5984c50ca3a92a56f3c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5d33db4db54006138d4df75d48ae06d4dbca9c38285059bf5b8b40a5209b6616",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6a4dfa9d102d5be294e1f65bfb932a85a96a22d20dcb167887e19e5ced8d1ad8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e062c385dbf74b1d9bee5b642d35a7b5a61270c7375bb424656a8fb883ca08d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e39bcae7f95e5afac4874f6475342b35e55d5cc824a2cb709ffb395ab97333c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6ff1be903ce0240e38085a87429149ecfa4536076df0af49cfab870924e5e3ea",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "72adabe3fe056b3b187c6c0c56c5e39e572a9f1751b121d284a7ae4c9da37986",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "776f68448761772e36df080ebdb069f87fcbaa5f5a43937d3fb9807235b4ede9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "78a9a8262e24c89040dd72ecf5d4f0856eef667d6743fd59739d2b5b68beafed",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "7b8fe0868c4a942a796cdaf413a029a3cc1a0a03bce79112b83206ebcd6f2541",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81b7d0028773c182f7724d9cfcd869d33b4eca090cffcadf2dd41d60bbd69104",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81c4b1fc30709fccf5582e622907e70d5db4675a9051dfb6fc3025353127ed58",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8e97cc1665de85fce29bda08578de2e8defbca6f1a4aed7c26ac913078ccd19b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8ef1ca141841b41de0d54145730e3a8f4c5e0f8213a6c0c22834360fc37044a0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9286d6c31dd8b844839872672eb5a086c6b58e774a1e79d60d42403b681e83e7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9866839e1724f5566431826e8d24812f1bb2564827a0c1db8063bc571650b120",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9a4bcb4a22c079e93f2082c2c296e526800bbde1131da30921bab4fade8c04a7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9b9f4dbaab3ec1481261665c77992dd7eb94e9d2e900a9dfc8a3988b9776d71d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9e049ee5d53c98cc45cad8e13f74a1274efb7596e9dbede525e8fadb27227b75",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "a856233530c63405626d550fdca4a188b9f98c63d5acb39ae3848ec49cc9c2c2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b030679ebd30c68d838f54e0454229cd1c97d6b76b5565b2150d088f2a993264",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b0e79069bdbb6650cd2a62bf167b6fc33137d0702ab405389b8b9f0b2d8df980",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b1226e086e6e838cfdac56b85b31886808b4ebfe2a0520af1e11f8a952f72402",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b41e64d2d7b531d7739c44183d02c05f85958128556577c5d9829963df068b01",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b466e50bab144f3fa7467f9768edf793f49c228f521a4d4b6e87db4663b075a8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b48f4584ee3d934e455b2693fa446fe72795a0abe2213b89f7d2b23086b0fb91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b49c15dbbad109e611c2bf510fcaeb5fc8171f5c884019d4ceffcef5cd48126f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c18e0547f449a686f9b2bdf3e81684f9e2f996f14ac7088fb624e53de7eda9e2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c228ef423efe2035701f1ddc625a2059cb13b494d31b260f61798780e32946c7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c230999dc2e9b315f336bab73e98a55ebd7c4d2bca9b97c88fb544a51704a307",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c6406eda206457658e66a7e3e8a64b92fbfc2b0e531111c1ac1bf7450627ad91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c802b8e5a03b142073dc9e0bee278001f5d8c41daeaafcc1d8b59c4de176ca7d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "cb43452573f5b82f24e04debc19116dfdedbc0c6dbf03d309bf732857fefcaa7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d14a45d04d30f5569cb1fe48a9151dbe63955a0a682108e6b9817fb998a87025",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d4106956f68c697cee4acf11d82c96ff4aa10e4d448abc49bc35c8d4cb917aa1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "dbdde8e20c9a4858544d244904870cba4585d7bbef0325867e81498d0c4e6808",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e6a988f7003bfd6680e417f966e3a455786d79aefca79d8113731b04fa8ed895",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e7af7d6ad518e7b32b0f772eced851a3eefe33fec12e8e98a6df285423e13fb1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ee79aa1b07d239c777a04e070fcd37c369fbba871d56bbd9fae6e66393c3e2f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ef585aee81c903ad1e4ffe63f6e62f0e0c0e6688968737612f5d8d23e5a1a8bd",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "f6ea620da901aa81d545b7eccb6136385f9c68113e6da49a542318c9901c708f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "fb5dcb98ea0bf3e34ef3f8a492575aa663f0b8097bbff5060d33e8ab5fb30d3a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        }
+      ],
+      "count": 63
+    },
+    "cap8": {
+      "cases": [
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0754e4edd9ce79a7e9bd6c3e361760d1dff0641e621f7a0f6d1d239e7cf3f5b6",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0793773c18bd56563bdbf60a32671304680598a42ffd7dc2ff8e8b4cca915aa3",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0dc01f071c57ff4020fd43e1fc30484a090109e129ac223a4c020362edf40fd4",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "0f353114759db1401b06ca98b6ad5fe53d64481b64ed5820fdeb8bd83c9df01c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "1c49b5e220590c5f74a7df8a45f9e053d88acf14e6e843afdb91d6856e0edd33",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "210a2ab364bc37b3076b70da779c5736c05c63bcda7e7f299f388c88eb5327c9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "26174e7cfe7dcba70e9df72e64cfff20c3ef84ecf2e98a8e26225c498d1ca804",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "27597a38c6fa660fd018840765151a33b5c7dbbde276a258a85e9c6e5bf9de3f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "293edd6eae4adb590e3184116c04f29f494d70a50924b283c028efeb2b942a51",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3666619748c5c99f24aa4fa813c323bb3728a7194ef76a3b251d531e5dce3494",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "36f1e3691c6af8a58c16e3b294dc369ebc008fb062814cf50fbae76539dd462a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "37eb037558752b901d2d42bae9f56b65543579a72514e5e99b9fce6548c788fa",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "389e54ce295b1ddb64d5534486543c108b7f729c562b8c095b4b6a74202c8d2b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "3dd928d1f9255637d0be1a5c416ef2ce6f4538bb5ab3af679b4d4cb5e6471593",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "428429e13c6e837c2d90140a774a0013b1e8975bffd4c2a657f1a5c6cc686c64",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4362e11d5294d9db03b681603418e67f9a6f46fabcbcc1379fff6251a26605c0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "491f6a86386ffb0a0774b770df213d1809c3a2d0e02ec65c7411984de0d726c5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4d5f28147951c0eeb40ae671c525de189ce4807a81847f7f4917b36e6bb7a5f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4ec0a5a8db2ada2e92f69471a757188323495fe947b64e6b29f885cae2265cc5",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "4eec21ee0e78422486a045f205c518a911f4f9ea95dfb11541027573f5a91925",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "555200576f19ee642b9d4e645654dde1309b8f23652dcfc9b4ddb4581cfbd425",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5cc4a4c7d41d89554db93bbbf66b51528d5856c6553de5984c50ca3a92a56f3c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "5d33db4db54006138d4df75d48ae06d4dbca9c38285059bf5b8b40a5209b6616",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6a4dfa9d102d5be294e1f65bfb932a85a96a22d20dcb167887e19e5ced8d1ad8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e062c385dbf74b1d9bee5b642d35a7b5a61270c7375bb424656a8fb883ca08d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6e39bcae7f95e5afac4874f6475342b35e55d5cc824a2cb709ffb395ab97333c",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "6ff1be903ce0240e38085a87429149ecfa4536076df0af49cfab870924e5e3ea",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "72adabe3fe056b3b187c6c0c56c5e39e572a9f1751b121d284a7ae4c9da37986",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "776f68448761772e36df080ebdb069f87fcbaa5f5a43937d3fb9807235b4ede9",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "78a9a8262e24c89040dd72ecf5d4f0856eef667d6743fd59739d2b5b68beafed",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "7b8fe0868c4a942a796cdaf413a029a3cc1a0a03bce79112b83206ebcd6f2541",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81b7d0028773c182f7724d9cfcd869d33b4eca090cffcadf2dd41d60bbd69104",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "81c4b1fc30709fccf5582e622907e70d5db4675a9051dfb6fc3025353127ed58",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8e97cc1665de85fce29bda08578de2e8defbca6f1a4aed7c26ac913078ccd19b",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "8ef1ca141841b41de0d54145730e3a8f4c5e0f8213a6c0c22834360fc37044a0",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9286d6c31dd8b844839872672eb5a086c6b58e774a1e79d60d42403b681e83e7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9866839e1724f5566431826e8d24812f1bb2564827a0c1db8063bc571650b120",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9a4bcb4a22c079e93f2082c2c296e526800bbde1131da30921bab4fade8c04a7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9b9f4dbaab3ec1481261665c77992dd7eb94e9d2e900a9dfc8a3988b9776d71d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "9e049ee5d53c98cc45cad8e13f74a1274efb7596e9dbede525e8fadb27227b75",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "a856233530c63405626d550fdca4a188b9f98c63d5acb39ae3848ec49cc9c2c2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b030679ebd30c68d838f54e0454229cd1c97d6b76b5565b2150d088f2a993264",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b0e79069bdbb6650cd2a62bf167b6fc33137d0702ab405389b8b9f0b2d8df980",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b1226e086e6e838cfdac56b85b31886808b4ebfe2a0520af1e11f8a952f72402",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b41e64d2d7b531d7739c44183d02c05f85958128556577c5d9829963df068b01",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b466e50bab144f3fa7467f9768edf793f49c228f521a4d4b6e87db4663b075a8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b48f4584ee3d934e455b2693fa446fe72795a0abe2213b89f7d2b23086b0fb91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "b49c15dbbad109e611c2bf510fcaeb5fc8171f5c884019d4ceffcef5cd48126f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c18e0547f449a686f9b2bdf3e81684f9e2f996f14ac7088fb624e53de7eda9e2",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c228ef423efe2035701f1ddc625a2059cb13b494d31b260f61798780e32946c7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c230999dc2e9b315f336bab73e98a55ebd7c4d2bca9b97c88fb544a51704a307",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c6406eda206457658e66a7e3e8a64b92fbfc2b0e531111c1ac1bf7450627ad91",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "c802b8e5a03b142073dc9e0bee278001f5d8c41daeaafcc1d8b59c4de176ca7d",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "cb43452573f5b82f24e04debc19116dfdedbc0c6dbf03d309bf732857fefcaa7",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d14a45d04d30f5569cb1fe48a9151dbe63955a0a682108e6b9817fb998a87025",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "d4106956f68c697cee4acf11d82c96ff4aa10e4d448abc49bc35c8d4cb917aa1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "dbdde8e20c9a4858544d244904870cba4585d7bbef0325867e81498d0c4e6808",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e6a988f7003bfd6680e417f966e3a455786d79aefca79d8113731b04fa8ed895",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "e7af7d6ad518e7b32b0f772eced851a3eefe33fec12e8e98a6df285423e13fb1",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ee79aa1b07d239c777a04e070fcd37c369fbba871d56bbd9fae6e66393c3e2f8",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "ef585aee81c903ad1e4ffe63f6e62f0e0c0e6688968737612f5d8d23e5a1a8bd",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "f6ea620da901aa81d545b7eccb6136385f9c68113e6da49a542318c9901c708f",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        },
+        {
+          "chosen_candidate_missing_subreason": null,
+          "companion_flags": [
+            "collision_spans_nonzero_rank",
+            "distinct_switch_targets_same_label",
+            "exact_score_tie",
+            "multiple_structurally_equal_candidates"
+          ],
+          "decision_id": "fb5dcb98ea0bf3e34ef3f8a492575aa663f0b8097bbff5060d33e8ab5fb30d3a",
+          "label_collision_subtype": "switch_target_omitted",
+          "primary_cause": "label_collision"
+        }
+      ],
+      "count": 63
+    }
+  }
+}
