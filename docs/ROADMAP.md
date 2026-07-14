@@ -7,7 +7,7 @@ Northstar docs) as the single source of truth for *current status and next decis
 **not versioned with the code** and must not be read as an up-to-date execution plan —
 verify against this file and git history first.
 
-Last reconciled: 2026-07-14 (Champions panel v0 P2 team curation PASS), against an external strategic review (adopted with two
+Last reconciled: 2026-07-14 (Champions panel v0 P3 panel freeze PASS), against an external strategic review (adopted with two
 corrections, see "Corrections to the external review" below) and this session's own verified
 state (depth-2 slice, value-calibration spec).
 
@@ -30,7 +30,7 @@ state (depth-2 slice, value-calibration spec).
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
 | Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
-| Champions panel v0 (format target) | **P2 PASS** | P0/P1 on main; P2: hero + 5 panel teams @ `gen9championsvgc2026regma` exit 0, Stat Points 66/32, no Tera; `PROVENANCE.md` (goodstuff **composite — NOT tournament-exact**; 4/5 opponents tournament-exact); `.txt` + `.packed` committed | **P3 panel freeze** user-gated (`panel_champions_v0.yaml`, `panel_hash`, `.packed` repro check); FormatConfig / Mega-readiness still block strength runs |
+| Champions panel v0 (format target) | **P3 PASS** | P2 teams + provenance @ `7660d44`; P3: `panel_champions_v0.yaml`, `panel_hash=aac1ea30446fde88`, gauntlet-relative paths, `.packed` repro test in `test_panel.py` | **P4 pilot smoke** user-gated (schedule + gauntlet); FormatConfig / Mega-readiness still block strength runs |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 

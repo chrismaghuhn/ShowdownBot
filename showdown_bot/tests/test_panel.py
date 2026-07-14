@@ -148,3 +148,52 @@ def test_panel_hash_changes_with_policy_list(tmp_path):
     body2 = _BODY.replace("[heuristic, max_damage]", "[heuristic, max_damage, greedy_protect]")
     h2 = load_panel(_panel_yaml(tmp_path, body2), teams_root=str(tmp_path)).panel_hash
     assert h1 != h2  # policy list participates in panel_hash
+
+
+def test_panel_champions_v0_real_pool_loads():
+    showdown_bot = Path(__file__).resolve().parents[1]
+    panel_path = showdown_bot.parent / "config" / "eval" / "panels" / "panel_champions_v0.yaml"
+    panel = load_panel(str(panel_path), teams_root=str(showdown_bot))
+    assert panel.version == "champions_v0"
+    assert panel.policies == ("heuristic", "max_damage")
+    assert [t.team_id for t in panel.dev_teams] == ["goodstuff", "tailwind_offense", "trick_room"]
+    assert [t.team_id for t in panel.heldout_teams] == ["rain_offense", "disruption"]
+    for t in panel.dev_teams + panel.heldout_teams:
+        assert t.team_path.startswith("teams/panel_champions_v0/")
+        assert not t.team_path.startswith("showdown_bot/")
+    hashes = [t.team_hash for t in panel.dev_teams + panel.heldout_teams]
+    assert all(hashes) and len(set(hashes)) == len(hashes)
+    assert panel.panel_hash
+
+
+def test_panel_champions_v0_panel_hash_pinned():
+    showdown_bot = Path(__file__).resolve().parents[1]
+    panel_path = showdown_bot.parent / "config" / "eval" / "panels" / "panel_champions_v0.yaml"
+    panel = load_panel(str(panel_path), teams_root=str(showdown_bot))
+    assert panel.panel_hash == "aac1ea30446fde88"
+
+
+def test_panel_champions_v0_packed_reproducible_from_txt():
+    """P3 gate: committed .packed must match pack-team output from .txt (panel + hero)."""
+    import subprocess
+
+    showdown_bot = Path(__file__).resolve().parents[1]
+    panel_path = showdown_bot.parent / "config" / "eval" / "panels" / "panel_champions_v0.yaml"
+    panel = load_panel(str(panel_path), teams_root=str(showdown_bot))
+    ps = Path.home() / ".cache" / "showdownbot" / "pokemon-showdown" / "pokemon-showdown"
+    if not ps.exists():
+        pytest.skip("pinned pokemon-showdown not installed")
+    paths = [t.team_path for t in panel.dev_teams + panel.heldout_teams]
+    paths.append("teams/fixed_champions_v0.txt")
+    for rel in paths:
+        txt = showdown_bot / rel
+        packed = txt.with_suffix(".packed")
+        proc = subprocess.run(
+            ["node", str(ps), "pack-team"],
+            input=txt.read_text(encoding="utf-8"),
+            text=True,
+            capture_output=True,
+            cwd=str(showdown_bot),
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout == packed.read_text(encoding="utf-8"), rel

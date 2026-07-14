@@ -1,0 +1,13 @@
+# Champions panel v0 — M-A opponent pool (P3 freeze).
+# 3 dev + 2 held-out; gauntlet-relative team_path from showdown_bot/ working dir.
+# Hero (not in panel): teams/fixed_champions_v0.txt — see PROVENANCE.md.
+# Policies: pilot-minimal per spec §5.3 (heuristic + max_damage only).
+version: champions_v0
+policies: [heuristic, max_damage]
+dev_teams:
+  - {team_id: goodstuff, team_path: teams/panel_champions_v0/goodstuff.txt, archetype: balance_goodstuff}
+  - {team_id: tailwind_offense, team_path: teams/panel_champions_v0/tailwind_offense.txt, archetype: tailwind_offense}
+  - {team_id: trick_room, team_path: teams/panel_champions_v0/trick_room.txt, archetype: trick_room}
+heldout_teams:
+  - {team_id: rain_offense, team_path: teams/panel_champions_v0/rain_offense.txt, archetype: weather_rain}
+  - {team_id: disruption, team_path: teams/panel_champions_v0/disruption.txt, archetype: bulky_disruption}
