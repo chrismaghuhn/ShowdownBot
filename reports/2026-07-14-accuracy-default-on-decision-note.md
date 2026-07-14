@@ -1,8 +1,8 @@
 # Accuracy Default-On Decision Note
 
 **Date:** 2026-07-14  
-**Status:** PROPOSED - user review required before any code slice  
-**Commit basis:** `main` / `origin/main` at `01f065a`
+**Status:** IMPLEMENTED — default-on slice landed at `8c54843` (no strength claim)
+**Commit basis:** `8c54843` (`feat(accuracy): default-on mode and branch cap 6`)
 
 ## The one thing this note is not allowed to bury
 
@@ -158,8 +158,21 @@ measured accuracy-off vs cap 6 difference: 20/944 chosen-action changes on the r
   `_pre-rerun-2026-07-14-candidate-identity/` archive.
 - No new file under `docs/superpowers/specs/`.
 
+## Implementation (2026-07-14)
+
+| Item | Detail |
+|------|--------|
+| Code commit | `8c54843` — `feat(accuracy): default-on mode and branch cap 6` |
+| Spec | `docs/superpowers/specs/2026-07-14-accuracy-default-on-design.md` |
+| Parser | unset → accuracy on, branch cap 6; `"0"` / `"false"` / `""` → off |
+| Tests | focused spec run 109 passed; full suite 1788 passed (1 skipped, 1 xfailed) |
+| Strength claim | **none** — checklist item 6 (dev/strength panel) remains open |
+
+Go/no-go checklist items 1–5 are satisfied. Item 6 (strength / dev-panel measurement) is the
+explicit next step and was not part of the implementation slice.
+
 ## Proposed next step
 
-If the user accepts this note, write a small implementation plan for the default-change slice:
-accuracy mode default-on, branch cap default 6, explicit opt-out behavior, focused parser/config
-tests, and no strength claim.
+Run the dev-generalization / strength panel under the new default-on configuration (explicit
+opt-out still available via `SHOWDOWN_ACCURACY_MODE=0`). No strength claim until that measurement
+exists and is reviewed.

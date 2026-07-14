@@ -29,7 +29,7 @@ state (depth-2 slice, value-calibration spec).
 | Belief (item/spread/move priors) | **Not started** | — | P2, after the panel + data-identity fix |
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
-| Accuracy / hit-probability evaluation | **Accuracy-Modell mechanisch implementiert, Default-on-Gate wegen 12,9 % Chosen-Line-Cap-Hits nicht bestanden** | 9-task hit-probability plan, `af575e5`..`c93e863`, merge `3fd3b09`; 11-task offline-gate plan merged 2026-07-13; `reports/2026-07-13-accuracy-offline-gate-verdict.md` (real Gate B run, 85 battles/944 decisions, cap-hit rate 114/881=12.9% vs 5% threshold, FAIL; robust under worst-case exclusion treatment, 12.1–18.8%) | `SHOWDOWN_ACCURACY_MODE` stays **default-off**; no new strength claim; Depth-2 Stage 3 stays blocked until the cap/fallback is re-derisked (see new P0 follow-up item below) — not a green light for any of the three decisions this gate was built to inform |
+| Accuracy / hit-probability evaluation | **Default-on at branch cap 6 (2026-07-14); cap=4 frozen FAIL reference unchanged** | 9-task hit-probability plan, `af575e5`..`c93e863`, merge `3fd3b09`; 11-task offline-gate plan merged 2026-07-13; cap-derisk + Candidate-Identity refresh (`reports/2026-07-14-accuracy-default-on-decision-note.md`, Gate-B cap=6 PASS 6/944=0.64%) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; `SHOWDOWN_ACCURACY_BRANCH_CAP` **default 6**; explicit `"0"`/`"false"`/`""` opt-out; **no strength claim** — dev/strength panel measurement is the next step |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
@@ -173,8 +173,12 @@ state (depth-2 slice, value-calibration spec).
    (cap=4) stays frozen/authoritative** at 114/881 = 12.9% FAIL and was **not** recomputed. See
    refreshed `data/eval/accuracy-cap-derisk/cap{6,8}-report.json` and
    `reports/2026-07-13-accuracy-cap-derisk-verdict.md` (2026-07-14 addendum).
-   Decision-note draft: `reports/2026-07-14-accuracy-default-on-decision-note.md` proposes a
-   cap=6 default-on path; pending user approval, with no default-status flip in this roadmap row.
+   **Update 2026-07-14 (default-on slice, `8c54843`):** production env parsers now default
+   `SHOWDOWN_ACCURACY_MODE` on and `SHOWDOWN_ACCURACY_BRANCH_CAP` to **6** when unset; explicit
+   `"0"` / `"false"` / `""` remain off. Spec:
+   `docs/superpowers/specs/2026-07-14-accuracy-default-on-design.md`. Decision note:
+   `reports/2026-07-14-accuracy-default-on-decision-note.md`. **No strength claim** — dev/strength
+   panel runs next, not bundled with this flip.
 
 ## P1 — Nächster realer Stärkeversuch
 
