@@ -11,6 +11,8 @@ from showdown_bot.eval.decision_capture import (
     DecisionCaptureError,
     DecisionTraceWriter,
     TRACE_SCHEMA_VERSION_V1,
+    TRACE_SCHEMA_VERSION_V2,
+    TRACE_SCHEMA_VERSION_V3,
     build_trace_row,
     load_decision_trace,
     normalize_choose,
@@ -221,7 +223,9 @@ def test_writer_refuses_nonempty_existing_output(tmp_path, trace_context, prepar
         DecisionTraceWriter(path)
 
 
-def test_build_trace_row_v2_fallback_without_trace(trace_context, prepared, capture_fixture):
+def test_build_trace_row_v3_fallback_without_trace(trace_context, prepared, capture_fixture):
+    # All new writes are v3 (Task 1 migration): the three chosen-* keys are
+    # always present, even when their value is null (no trace/no candidates).
     request, _state = capture_fixture
     row = build_trace_row(
         context=trace_context, prepared=prepared, request=request,
@@ -229,16 +233,21 @@ def test_build_trace_row_v2_fallback_without_trace(trace_context, prepared, capt
         selection_stage_override="client_exception_default",
         fallback_reason_override="agent_exception",
     )
-    assert row["trace_schema_version"] == "decision-trace-v2"
+    assert row["trace_schema_version"] == TRACE_SCHEMA_VERSION_V3
     assert row["candidates"] == []
+    assert "chosen_candidate_key" in row
+    assert "chosen_mega_slot" in row
+    assert "chosen_tera_slot" in row
     assert row["chosen_candidate_key"] is None
     assert row["chosen_candidate_id"] is None
     assert row["chosen_rank"] is None
     assert row["chosen_tera_slot"] is None
+    assert row["chosen_mega_slot"] is None
     assert row["selection_stage"] == "client_exception_default"
     assert row["fallback_reason"] == "agent_exception"
 
 
+# T37: legacy v1 trace rows remain loadable, untouched by the v3 migration.
 def test_load_decision_trace_accepts_v1_row():
     row = {
         "trace_schema_version": TRACE_SCHEMA_VERSION_V1,
@@ -361,3 +370,85 @@ def test_load_decision_trace_rejects_v2_switch_target_mismatch(tmp_path):
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(DecisionCaptureError, match="switch target_ident mismatch"):
         load_decision_trace(path)
+
+
+# T36: legacy v2 trace rows (v1-shaped candidate keys under the v2 schema) remain
+# loadable, validated via the unchanged _validate_v2_row code path.
+def test_minimal_v2_row_still_loads_unchanged():
+    row = _minimal_v2_switch_row()
+    validate_trace_row(row)
+
+
+# ---------------------------------------------------------------------------
+# Task 1 (I7a-B): candidate-key v2 and trace-v3.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def valid_v3_row(v2_trace_row):
+    row = copy.deepcopy(v2_trace_row)
+    row["trace_schema_version"] = TRACE_SCHEMA_VERSION_V3
+    row["chosen_mega_slot"] = None
+    for candidate in row["candidates"]:
+        payload = json.loads(candidate["candidate_key"])
+        payload["version"] = 2
+        for slot in payload["slots"]:
+            slot["mega_evolve"] = False
+        candidate["candidate_key"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    old_chosen = row["chosen_candidate_key"]
+    old_to_new = {
+        v2["candidate_key"]: v3["candidate_key"]
+        for v2, v3 in zip(v2_trace_row["candidates"], row["candidates"], strict=True)
+    }
+    row["chosen_candidate_key"] = old_to_new[old_chosen]
+    return row
+
+
+def mutate_v3_row(row, mutation):
+    row = copy.deepcopy(row)
+    payload = json.loads(row["candidates"][0]["candidate_key"])
+    if mutation == "v1_key":
+        payload["version"] = 1
+    elif mutation == "missing_mega_field":
+        del payload["slots"][0]["mega_evolve"]
+    elif mutation == "unknown_slot_field":
+        payload["slots"][0]["extra"] = 1
+    elif mutation == "non_bool_tera":
+        payload["slots"][0]["terastallize"] = 1
+    elif mutation == "dual_overlay":
+        payload["slots"][0]["terastallize"] = True
+        payload["slots"][0]["mega_evolve"] = True
+    elif mutation == "duplicate_key":
+        row["candidates"][1]["candidate_key"] = row["candidates"][0]["candidate_key"]
+        return row
+    else:
+        raise AssertionError(mutation)
+    row["candidates"][0]["candidate_key"] = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+    return row
+
+
+def test_valid_v3_row_validates(valid_v3_row):
+    validate_trace_row(valid_v3_row)
+
+
+@pytest.mark.parametrize("mutation", [
+    "v1_key", "missing_mega_field", "unknown_slot_field",
+    "non_bool_tera", "dual_overlay", "duplicate_key",
+])
+def test_v3_rejects_invalid_candidate_keys(valid_v3_row, mutation):
+    row = mutate_v3_row(valid_v3_row, mutation)
+    with pytest.raises(DecisionCaptureError):
+        validate_trace_row(row)
+
+
+@pytest.mark.parametrize("missing_field", [
+    "chosen_candidate_key", "chosen_mega_slot", "chosen_tera_slot",
+])
+def test_v3_rejects_row_missing_chosen_key_field(valid_v3_row, missing_field):
+    # v3 requires the three chosen-* keys to be PRESENT (value may be null) --
+    # entirely omitting the key (as opposed to setting it to null) must fail.
+    row = copy.deepcopy(valid_v3_row)
+    del row[missing_field]
+    with pytest.raises(DecisionCaptureError):
+        validate_trace_row(row)

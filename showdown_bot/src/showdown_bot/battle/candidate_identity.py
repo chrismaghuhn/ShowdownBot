@@ -28,10 +28,40 @@ def _slot_payload(sa: SlotAction) -> dict:
 
 
 def joint_action_key(ja: JointAction) -> str:
-    """Versioned, canonical JSON structural key over both slot actions."""
+    """Versioned, canonical JSON structural key over both slot actions.
+
+    This is the v1 payload (no ``mega_evolve`` field) -- kept byte-for-byte
+    unchanged, still used to validate historical v2 trace rows. New writes use
+    ``joint_action_key_v2`` instead (see decision-trace-v3, I7a-B Task 1).
+    """
     payload = {
         "version": 1,
         "slots": [_slot_payload(ja.slot0), _slot_payload(ja.slot1)],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def _slot_payload_v2(sa: SlotAction) -> dict:
+    return {
+        "kind": sa.kind,
+        "move_index": sa.move_index,
+        "target": sa.target,
+        "target_ident": sa.target_ident,
+        "terastallize": sa.terastallize,
+        "mega_evolve": sa.mega_evolve,
+    }
+
+
+def joint_action_key_v2(ja: JointAction) -> str:
+    """Candidate key v2: adds ``mega_evolve`` to each slot payload (I7a-B Task 1).
+
+    Used for all new candidate/chosen keys once trace-v3 is written; the
+    JointAction/SlotAction identity itself is unchanged, only the serialized
+    key schema gains the Mega overlay flag alongside Tera's.
+    """
+    payload = {
+        "version": 2,
+        "slots": [_slot_payload_v2(ja.slot0), _slot_payload_v2(ja.slot1)],
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 

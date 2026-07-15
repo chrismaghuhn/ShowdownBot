@@ -119,6 +119,9 @@ class DecisionTrace:
     chosen_candidate_id: str | None = None
     chosen_candidate_key: str | None = None
     chosen_tera_slot: int | None = None
+    # Mutually exclusive with chosen_tera_slot (I7a-B Task 1, decision-trace-v3).
+    # Always None until the Mega ranking slice (Task 2+) actually selects Mega.
+    chosen_mega_slot: int | None = None
     opponent_responses: list[Any] = field(default_factory=list)
     opponent_response_weights: list[float] = field(default_factory=list)
     candidates: list[CandidateTrace] = field(default_factory=list)  # ONLY exported top-K, rank-sorted

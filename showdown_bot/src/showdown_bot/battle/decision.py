@@ -230,7 +230,8 @@ def _plan_my_actions(
 
 
 def _label_ja(req: BattleRequest, ja: JointAction) -> str:
-    """Readable label for a JointAction (for decision diagnostics)."""
+    """Readable label for a JointAction (for decision diagnostics). Labels are
+    diagnostic only -- structural resolution uses candidate-key-v2."""
     labels: list[str] = []
     for i, sa in enumerate((ja.slot0, ja.slot1)):
         active = req.active[i] if i < len(req.active) else None
@@ -239,7 +240,8 @@ def _label_ja(req: BattleRequest, ja: JointAction) -> str:
             name = moves[sa.move_index - 1].move if sa.move_index - 1 < len(moves) else f"move{sa.move_index}"
             tgt = f"->{sa.target}" if sa.target else ""
             tera = " tera" if sa.terastallize else ""
-            labels.append(f"{name}{tgt}{tera}")
+            mega = " mega" if sa.mega_evolve else ""
+            labels.append(f"{name}{tgt}{tera}{mega}")
         else:
             labels.append(sa.kind)
     return "(" + ", ".join(labels) + ")"
@@ -606,7 +608,7 @@ def _choose_best(
                 pass
 
     if trace is not None:
-        from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key
+        from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key_v2
         from showdown_bot.battle.decision_trace import (
             AccuracyEventTrace,
             AccuracyResponseDetail,
@@ -721,12 +723,15 @@ def _choose_best(
                     survives_for_sure_count=dec_survives,
                 ),
                 accuracy_details=acc_details,
-                candidate_key=joint_action_key(ja),
+                candidate_key=joint_action_key_v2(ja),
             ))
         trace.game_mode = getattr(mode, "name", str(mode))
-        trace.chosen_candidate_key = joint_action_key(pre_tera_ja)
+        trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)
         trace.chosen_candidate_id = _label_ja(req, best_ja)
         trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
+        # Task 1 (I7a-B) is identity/schema-only -- no Mega candidates are
+        # ranked yet, so this stays null until the Mega ranking slice (Task 2+).
+        trace.chosen_mega_slot = None
         trace.opponent_responses = [r.actions for r in opp_resps]
         trace.opponent_response_weights = resp_weights or []
         trace.candidates = cands
