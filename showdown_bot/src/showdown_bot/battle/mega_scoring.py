@@ -6,7 +6,6 @@ from showdown_bot.battle.actions import JointAction
 from showdown_bot.battle.decision import _plan_my_actions
 from showdown_bot.battle.evaluate import DamageModel
 from showdown_bot.battle.mega_variants import (
-    _active_mon,
     expand_mega_variants,
     filter_projectable_variants,
 )
@@ -14,19 +13,14 @@ from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.engine.belief.hypotheses import SpreadBook
 from showdown_bot.engine.calc_profile import CalcProfile
-from showdown_bot.engine.mega_form import mega_form_for
 from showdown_bot.engine.mega_projection import (
     MegaProjectionResult,
-    UnsupportedMegaAbilityError,
     copy_battle_state,
-    project_mega,
 )
-from showdown_bot.engine.speed import MissingMegaSpreadError, SpeedOracle
+from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.species_meta import SpeciesFormMeta
-from showdown_bot.engine.state import BattleState, FieldState, parse_details
+from showdown_bot.engine.state import BattleState, FieldState
 from showdown_bot.models.request import BattleRequest
-
-_ACTIVE_SLOTS = ("a", "b")
 
 
 @dataclass
@@ -104,38 +98,21 @@ def _mega_context(
     book: SpreadBook,
     oracle: DamageOracle,
     speed_oracle: SpeedOracle,
-    species_meta: dict[str, SpeciesFormMeta],
     our_spreads: dict | None,
     opp_sets: dict | None,
     calc_profile: CalcProfile,
     variant_joints: list[JointAction],
+    proj: MegaProjectionResult,
 ) -> MegaEvaluationContext | None:
-    """The "we Mega evolved ``own_mega_slot`` this turn" branch. Re-derives the
-    ``MegaProjectionResult`` (already proven projectable by the caller's
-    ``filter_projectable_variants`` pass) to get an independent projected-state
-    copy plus the projected form's post-Mega speed, and feeds that speed
-    straight into ``_plan_my_actions`` via ``planned_speed_overrides_by_slot``
-    (spec Sec.5.2: move order after Mega uses POST-Mega speed)."""
-    mon = _active_mon(req, own_mega_slot)
-    if mon is None:
-        return None
-    species = parse_details(mon.details).species
-    item = mon.item
-    if not item:
-        return None
-    form = mega_form_for(species, item)
-    if form is None:
-        return None
-    slot_letter = _ACTIVE_SLOTS[own_mega_slot]
-    try:
-        proj: MegaProjectionResult = project_mega(
-            state, our_side, slot_letter, form,
-            species_meta=species_meta, speed_oracle=speed_oracle,
-            spread_lookup=our_spreads or {}, calc_profile=calc_profile,
-        )
-    except (UnsupportedMegaAbilityError, MissingMegaSpreadError, ValueError):
-        return None
-
+    """The "we Mega evolved ``own_mega_slot`` this turn" branch. Consumes the
+    ``MegaProjectionResult`` the caller's ``filter_projectable_variants`` pass
+    already computed while proving this slot projectable, instead of calling
+    ``project_mega`` again (that call is a full ``copy_battle_state`` deepcopy
+    plus species/spread lookups -- not worth doubling per slot). Builds an
+    independent projected-state copy plus the projected form's post-Mega
+    speed, and feeds that speed straight into ``_plan_my_actions`` via
+    ``planned_speed_overrides_by_slot`` (spec Sec.5.2: move order after Mega
+    uses POST-Mega speed)."""
     projected_state = proj.projected_state
     overrides = {own_mega_slot: proj.effective_speed}
     plans = {
@@ -202,22 +179,29 @@ def build_own_mega_contexts(
     ]
 
     variants = expand_mega_variants(list(my_actions), req, state, our_side)
+    projections: dict[int, MegaProjectionResult] = {}
     variants = filter_projectable_variants(
         variants, req, state, our_side, species_meta=species_meta,
         speed_oracle=speed_oracle, our_spreads=our_spreads or {},
-        calc_profile=calc_profile,
+        calc_profile=calc_profile, projections=projections,
     )
     surviving_slots = sorted(
         {v.own_mega_slot for v in variants if v.own_mega_slot is not None}
     )
 
     for slot_idx in surviving_slots:
+        proj = projections.get(slot_idx)
+        if proj is None:
+            # Should not happen: filter_projectable_variants only keeps a
+            # slot in `variants` after successfully populating `projections`
+            # for it. Guard defensively rather than assume the invariant.
+            continue
         variant_joints = [v.joint for v in variants if v.own_mega_slot == slot_idx]
         ctx = _mega_context(
             req, state, own_mega_slot=slot_idx, our_side=our_side, opp_side=opp_side,
             book=book, oracle=oracle, speed_oracle=speed_oracle,
-            species_meta=species_meta, our_spreads=our_spreads, opp_sets=opp_sets,
-            calc_profile=calc_profile, variant_joints=variant_joints,
+            our_spreads=our_spreads, opp_sets=opp_sets,
+            calc_profile=calc_profile, variant_joints=variant_joints, proj=proj,
         )
         if ctx is not None:
             contexts.append(ctx)

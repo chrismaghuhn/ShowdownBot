@@ -6,6 +6,7 @@ from showdown_bot.battle.actions import JointAction
 from showdown_bot.engine.calc_profile import CalcProfile
 from showdown_bot.engine.mega_form import mega_form_for
 from showdown_bot.engine.mega_projection import (
+    MegaProjectionResult,
     UnsupportedMegaAbilityError,
     project_mega,
 )
@@ -79,7 +80,17 @@ def filter_projectable_variants(
     speed_oracle: SpeedOracle,
     our_spreads: dict,
     calc_profile: CalcProfile,
+    projections: dict[int, MegaProjectionResult] | None = None,
 ) -> list[ScoredMegaVariant]:
+    """Keep only variants whose ``own_mega_slot`` (if any) survives a
+    ``project_mega`` projectability check.
+
+    If ``projections`` is passed, it is populated in place with the
+    ``MegaProjectionResult`` computed here for each surviving
+    ``own_mega_slot`` (one entry per unique slot), so a caller that also
+    needs the projection result (e.g. ``mega_scoring._mega_context``) can
+    reuse it instead of calling ``project_mega`` again for the same slot.
+    """
     kept: list[ScoredMegaVariant] = []
     projected_slots: set[int] = set()
 
@@ -105,7 +116,7 @@ def filter_projectable_variants(
             continue
         slot = _ACTIVE_SLOTS[active_index]
         try:
-            project_mega(
+            result = project_mega(
                 state,
                 our_side,
                 slot,
@@ -118,6 +129,8 @@ def filter_projectable_variants(
         except (UnsupportedMegaAbilityError, MissingMegaSpreadError, ValueError):
             continue
         projected_slots.add(variant.own_mega_slot)
+        if projections is not None:
+            projections[variant.own_mega_slot] = result
         kept.append(variant)
 
     return kept
