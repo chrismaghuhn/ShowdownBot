@@ -40,7 +40,7 @@ class MegaReconcileReducer:
         if event.type == "mega":
             pending = self.pending_detailschange.pop(key, None)
             if pending is None:
-                raise MegaReconcileError("mega_without_detailschange")
+                raise MegaReconcileError(f"mega_without_detailschange: {event.pokemon.raw}")
             return [MegaReconcileEvent(
                 pokemon=event.pokemon,
                 mega_species_details=pending.details or "",

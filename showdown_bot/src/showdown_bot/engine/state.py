@@ -205,8 +205,6 @@ class BattleState:
         # Minimal I7a-C Task 1 slice: species-only. Rollback/item/ability/
         # side_mega_spent handling is Task 2's job.
         pid = event.pokemon
-        if pid is None:
-            return
         side = self.sides.setdefault(pid.side, {})
         mon = side.get(pid.slot)
         if mon is None:
