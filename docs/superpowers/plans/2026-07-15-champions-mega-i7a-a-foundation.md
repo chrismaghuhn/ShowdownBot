@@ -53,7 +53,9 @@
 ```python
 def test_itemdata_exposes_mega_stone_target():
     items = _load("items/itemdata.json")["items"]
-    assert items["aerodactylite"]["megaStone"] == "Aerodactyl-Mega"
+    assert items["aerodactylite"]["megaStone"] == {
+        "Aerodactyl": "Aerodactyl-Mega",
+    }
 
 
 def test_speciesdata_exposes_mega_form_metadata():
@@ -144,7 +146,7 @@ def charizard_y_gt():
     return json.loads((SHOWDOWN_BOT_ROOT / "tests/fixtures/i7a_charizard_mega_y_gt.json").read_text())
 ```
 
-Tests must prove `ItemMeta.mega_stone == "Charizard-Mega-Y"`, `get_species_form_meta("Charizard-Mega-Y")`, `mega_form_for("Charizard", "Charizardite Y")`, unknown item returns `None`, and tampering with either embedded `data_hash` raises the loader-specific stale-data error after clearing its cache.
+Tests must prove `ItemMeta.mega_stone == {"charizard": "Charizard-Mega-Y"}`, `get_species_form_meta("Charizard-Mega-Y")`, `mega_form_for("Charizard", "Charizardite Y")`, unknown item returns `None`, and tampering with either embedded `data_hash` raises the loader-specific stale-data error after clearing its cache. Add a multi-base regression (`Tatsugirinite`) so the loader cannot collapse the mapping back to a scalar.
 
 - [ ] **Step 2: Run the focused RED tests**
 
@@ -175,6 +177,29 @@ class MegaForm:
     form_species_id: str
     form_species_name: str
     stone_item_id: str
+```
+
+Extend `ItemMeta` with a normalized base-species mapping, not a scalar target:
+
+```python
+@dataclass(frozen=True)
+class ItemMeta:
+    id: str
+    name: str
+    is_berry: bool = False
+    is_choice: bool = False
+    classes: tuple[str, ...] = ()
+    params: dict = field(default_factory=dict, compare=False)
+    mega_stone: dict[str, str] = field(default_factory=dict, compare=False)
+```
+
+`_item_table()` converts the raw display-name keys once:
+
+```python
+mega_stone={
+    to_id(base_species): form_name
+    for base_species, form_name in (rec.get("megaStone") or {}).items()
+},
 ```
 
 Expose `itemdata_content_hash()` and `speciesdata_content_hash()` as the embedded 16-hex `data_hash` after re-computing it with the same canonical JSON contract used by the generator. Never fall back to a file hash when the embedded hash is stale.
@@ -208,7 +233,10 @@ def mega_form_for(
     item = items.get(to_id(item_id))
     if item is None or not item.mega_stone:
         return None
-    form = forms.get(to_id(item.mega_stone))
+    form_name = item.mega_stone.get(base_id)
+    if form_name is None:
+        return None
+    form = forms.get(to_id(form_name))
     if form is None or form.base_species_id != base_id:
         return None
     return MegaForm(base_id, form.form_species_id, form.form_species_name, item.id)
