@@ -11,6 +11,8 @@ from showdown_bot.eval.decision_capture import (
     DecisionCaptureError,
     DecisionTraceWriter,
     TRACE_SCHEMA_VERSION_V1,
+    TRACE_SCHEMA_VERSION_V2,
+    TRACE_SCHEMA_VERSION_V3,
     build_trace_row,
     load_decision_trace,
     normalize_choose,
@@ -221,7 +223,9 @@ def test_writer_refuses_nonempty_existing_output(tmp_path, trace_context, prepar
         DecisionTraceWriter(path)
 
 
-def test_build_trace_row_v2_fallback_without_trace(trace_context, prepared, capture_fixture):
+def test_build_trace_row_v3_fallback_without_trace(trace_context, prepared, capture_fixture):
+    # All new writes are v3 (Task 1 migration): the three chosen-* keys are
+    # always present, even when their value is null (no trace/no candidates).
     request, _state = capture_fixture
     row = build_trace_row(
         context=trace_context, prepared=prepared, request=request,
@@ -229,16 +233,21 @@ def test_build_trace_row_v2_fallback_without_trace(trace_context, prepared, capt
         selection_stage_override="client_exception_default",
         fallback_reason_override="agent_exception",
     )
-    assert row["trace_schema_version"] == "decision-trace-v2"
+    assert row["trace_schema_version"] == TRACE_SCHEMA_VERSION_V3
     assert row["candidates"] == []
+    assert "chosen_candidate_key" in row
+    assert "chosen_mega_slot" in row
+    assert "chosen_tera_slot" in row
     assert row["chosen_candidate_key"] is None
     assert row["chosen_candidate_id"] is None
     assert row["chosen_rank"] is None
     assert row["chosen_tera_slot"] is None
+    assert row["chosen_mega_slot"] is None
     assert row["selection_stage"] == "client_exception_default"
     assert row["fallback_reason"] == "agent_exception"
 
 
+# T37: legacy v1 trace rows remain loadable, untouched by the v3 migration.
 def test_load_decision_trace_accepts_v1_row():
     row = {
         "trace_schema_version": TRACE_SCHEMA_VERSION_V1,
@@ -275,6 +284,28 @@ def v2_trace_row(trace_context, prepared, capture_fixture, decision_fixture):
     )
 
 
+@pytest.fixture
+def v2_only_trace_row(v2_trace_row):
+    """A genuinely v2-schema row.
+
+    ``v2_trace_row`` is built via ``build_trace_row``, which (since Task 1's
+    v3 migration) always emits a v3-schema row -- despite the fixture's name.
+    This fixture derives a row that actually dispatches to ``_validate_v2_row``
+    (not ``_validate_v3_row``): force ``trace_schema_version`` back to v2 and
+    drop ``chosen_mega_slot``, which is not a recognized v2 field. The
+    candidate_key strings retain their v2-key-format ``mega_evolve`` field,
+    but ``_validate_v2_row`` treats candidate_key as an opaque non-empty
+    string (schema-shape enforcement is v3-only via
+    ``_validate_candidate_key_v2``), so this is still exercising
+    ``_validate_v2_row``'s own chosen_rank/chosen_candidate_id/tera_slot-type
+    checks, which is what the tests below need.
+    """
+    row = dict(v2_trace_row)
+    row["trace_schema_version"] = TRACE_SCHEMA_VERSION_V2
+    del row["chosen_mega_slot"]
+    return row
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
@@ -283,15 +314,15 @@ def v2_trace_row(trace_context, prepared, capture_fixture, decision_fixture):
         ("chosen_tera_slot", True, "chosen_tera_slot must be null or int"),
     ],
 )
-def test_validate_v2_row_rejects_inconsistent_chosen_fields(v2_trace_row, field, value, match):
-    row = dict(v2_trace_row)
+def test_validate_v2_row_rejects_inconsistent_chosen_fields(v2_only_trace_row, field, value, match):
+    row = dict(v2_only_trace_row)
     row[field] = value
     with pytest.raises(DecisionCaptureError, match=match):
         validate_trace_row(row)
 
 
-def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_trace_row):
-    row = dict(v2_trace_row)
+def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_only_trace_row):
+    row = dict(v2_only_trace_row)
     row["chosen_rank"] = 999
     path = tmp_path / "bad.jsonl"
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
@@ -299,8 +330,8 @@ def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_
         load_decision_trace(path)
 
 
-def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_trace_row):
-    row = dict(v2_trace_row)
+def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_only_trace_row):
+    row = dict(v2_only_trace_row)
     row["chosen_tera_slot"] = True
     path = tmp_path / "bad.jsonl"
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
@@ -361,3 +392,165 @@ def test_load_decision_trace_rejects_v2_switch_target_mismatch(tmp_path):
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
     with pytest.raises(DecisionCaptureError, match="switch target_ident mismatch"):
         load_decision_trace(path)
+
+
+# T36: legacy v2 trace rows (v1-shaped candidate keys under the v2 schema) remain
+# loadable, validated via the unchanged _validate_v2_row code path.
+def test_minimal_v2_row_still_loads_unchanged():
+    row = _minimal_v2_switch_row()
+    validate_trace_row(row)
+
+
+# ---------------------------------------------------------------------------
+# Task 1 (I7a-B): candidate-key v2 and trace-v3.
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def valid_v3_row(v2_trace_row):
+    row = copy.deepcopy(v2_trace_row)
+    row["trace_schema_version"] = TRACE_SCHEMA_VERSION_V3
+    row["chosen_mega_slot"] = None
+    for candidate in row["candidates"]:
+        payload = json.loads(candidate["candidate_key"])
+        payload["version"] = 2
+        for slot in payload["slots"]:
+            slot["mega_evolve"] = False
+        candidate["candidate_key"] = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    old_chosen = row["chosen_candidate_key"]
+    old_to_new = {
+        v2["candidate_key"]: v3["candidate_key"]
+        for v2, v3 in zip(v2_trace_row["candidates"], row["candidates"], strict=True)
+    }
+    row["chosen_candidate_key"] = old_to_new[old_chosen]
+    return row
+
+
+def mutate_v3_row(row, mutation):
+    row = copy.deepcopy(row)
+    payload = json.loads(row["candidates"][0]["candidate_key"])
+    if mutation == "v1_key":
+        payload["version"] = 1
+    elif mutation == "missing_mega_field":
+        del payload["slots"][0]["mega_evolve"]
+    elif mutation == "unknown_slot_field":
+        payload["slots"][0]["extra"] = 1
+    elif mutation == "non_bool_tera":
+        payload["slots"][0]["terastallize"] = 1
+    elif mutation == "dual_overlay":
+        payload["slots"][0]["terastallize"] = True
+        payload["slots"][0]["mega_evolve"] = True
+    elif mutation == "duplicate_key":
+        row["candidates"][1]["candidate_key"] = row["candidates"][0]["candidate_key"]
+        return row
+    elif mutation == "non_canonical_json":
+        # Same payload, valid JSON, but not the canonical serialization
+        # (extra whitespace after the colon) -- must fail-closed (I7a-B Task 4).
+        # Mutate chosen_candidate_key in lockstep (when it originally matched
+        # candidates[0]'s key) so this isolates the canonical-format check
+        # itself, rather than accidentally tripping the unrelated "chosen_key
+        # must reference a traced candidate" check via a now-mismatched
+        # literal string.
+        original_key = row["candidates"][0]["candidate_key"]
+        mutated_key = json.dumps(payload, sort_keys=True, separators=(",", ": "))
+        row["candidates"][0]["candidate_key"] = mutated_key
+        if row.get("chosen_candidate_key") == original_key:
+            row["chosen_candidate_key"] = mutated_key
+        return row
+    else:
+        raise AssertionError(mutation)
+    row["candidates"][0]["candidate_key"] = json.dumps(
+        payload, sort_keys=True, separators=(",", ":")
+    )
+    return row
+
+
+def test_valid_v3_row_validates(valid_v3_row):
+    validate_trace_row(valid_v3_row)
+
+
+@pytest.mark.parametrize("mutation", [
+    "v1_key", "missing_mega_field", "unknown_slot_field",
+    "non_bool_tera", "dual_overlay", "duplicate_key", "non_canonical_json",
+])
+def test_v3_rejects_invalid_candidate_keys(valid_v3_row, mutation):
+    row = mutate_v3_row(valid_v3_row, mutation)
+    with pytest.raises(DecisionCaptureError):
+        validate_trace_row(row)
+
+
+# ---------------------------------------------------------------------------
+# I7a-B merge-blocker follow-up (Task 4): candidate-key-v2 must be canonical,
+# not merely well-formed JSON matching the schema.
+# ---------------------------------------------------------------------------
+
+_CANONICAL_KEY_PAYLOAD = {
+    "version": 2,
+    "slots": [
+        {
+            "kind": "pass", "move_index": None, "target": None,
+            "target_ident": None, "terastallize": False, "mega_evolve": False,
+        },
+        {
+            "kind": "pass", "move_index": None, "target": None,
+            "target_ident": None, "terastallize": False, "mega_evolve": False,
+        },
+    ],
+}
+
+
+def test_validate_candidate_key_v2_accepts_canonical_serialization():
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    _validate_candidate_key_v2(canonical)  # must not raise
+
+
+def test_validate_candidate_key_v2_rejects_non_canonical_single_key():
+    """A single key string that is valid JSON, matches the schema, and
+    round-trips to the SAME payload as the canonical serialization, but is
+    not byte-for-byte the canonical string itself, must fail-closed."""
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    non_canonical = canonical.replace(":", ": ")  # extra whitespace after each colon
+    assert non_canonical != canonical
+    assert json.loads(non_canonical) == json.loads(canonical)
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(non_canonical)
+
+
+def test_validate_candidate_key_v2_rejects_two_textually_different_semantically_identical_keys():
+    """Two key strings that decode to the EXACT same payload (semantically
+    identical) but are textually different from each other and from the
+    canonical serialization -- both must be individually fail-closed
+    rejected, not just one of them."""
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    key_a = canonical.replace(":", ": ")   # extra space after colons
+    key_b = canonical.replace(",", ", ")   # extra space after commas
+    assert key_a != key_b
+    assert json.loads(key_a) == json.loads(key_b) == json.loads(canonical)
+
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(key_a)
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(key_b)
+
+
+@pytest.mark.parametrize("missing_field", [
+    "chosen_candidate_key", "chosen_mega_slot", "chosen_tera_slot",
+])
+def test_v3_rejects_row_missing_chosen_key_field(valid_v3_row, missing_field):
+    # v3 requires the three chosen-* keys to be PRESENT (value may be null) --
+    # entirely omitting the key (as opposed to setting it to null) must fail.
+    row = copy.deepcopy(valid_v3_row)
+    del row[missing_field]
+    with pytest.raises(DecisionCaptureError):
+        validate_trace_row(row)

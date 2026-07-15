@@ -20,8 +20,11 @@ from showdown_bot.models.request import BattleRequest
 
 TRACE_SCHEMA_VERSION_V1 = "decision-trace-v1"
 TRACE_SCHEMA_VERSION_V2 = "decision-trace-v2"
-TRACE_SCHEMA_VERSION = TRACE_SCHEMA_VERSION_V2
-SUPPORTED_TRACE_SCHEMA_VERSIONS = frozenset({TRACE_SCHEMA_VERSION_V1, TRACE_SCHEMA_VERSION_V2})
+TRACE_SCHEMA_VERSION_V3 = "decision-trace-v3"
+TRACE_SCHEMA_VERSION = TRACE_SCHEMA_VERSION_V3  # all new writes (I7a-B Task 1)
+SUPPORTED_TRACE_SCHEMA_VERSIONS = frozenset({
+    TRACE_SCHEMA_VERSION_V1, TRACE_SCHEMA_VERSION_V2, TRACE_SCHEMA_VERSION_V3,
+})
 PROTECT_IDS = frozenset({
     "protect", "detect", "wideguard", "quickguard", "spikyshield",
     "kingsshield", "banefulbunker", "silktrap", "burningbulwark", "maxguard",
@@ -111,7 +114,9 @@ def prepare_capture(state: BattleState | None, request: BattleRequest) -> Prepar
     )
 
 
-_MOVE_RE = re.compile(r"^move (?P<index>\d+)(?: (?P<target>-?\d+))?(?: (?P<tera>terastallize))?$")
+_MOVE_RE = re.compile(
+    r"^move (?P<index>\d+)(?: (?P<target>-?\d+))?(?: (?P<overlay>terastallize|mega))?$"
+)
 
 
 def _slot_action(token: str, request: BattleRequest, slot_index: int) -> dict:
@@ -131,12 +136,14 @@ def _slot_action(token: str, request: BattleRequest, slot_index: int) -> dict:
     if active is None or not 1 <= move_index <= len(active.moves):
         raise DecisionCaptureError(f"move index {move_index} unavailable for slot {slot_index}")
     move_id = to_id(active.moves[move_index - 1].id)
+    overlay = match.group("overlay")
     return {
         "kind": "move",
         "move_index": move_index,
         "move_id": move_id,
         "target": int(match.group("target")) if match.group("target") is not None else None,
-        "tera": match.group("tera") is not None,
+        "tera": overlay == "terastallize",
+        "mega": overlay == "mega",
         "is_protect": move_id in PROTECT_IDS,
     }
 
@@ -185,6 +192,28 @@ def _validate_v1_row(row: dict) -> None:
 def _validate_chosen_tera_slot(tera_slot) -> None:
     if tera_slot is not None and (type(tera_slot) is not int or tera_slot not in (0, 1)):
         raise DecisionCaptureError("chosen_tera_slot must be null or int 0/1")
+
+
+def _check_chosen_candidate_id_matches(matched: dict, chosen_id, tera_slot: int | None) -> None:
+    """``chosen_candidate_key`` is always PRE-Tera (Tera is an overlay applied
+    only to the winning action, never enumerated as its own candidate -- see
+    ``decision.py``'s ``trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)``),
+    so ``matched`` (the candidate resolved via that key) carries a PRE-Tera
+    ``candidate_id``. ``chosen_candidate_id`` may carry the POST-Tera ``' tera'``
+    label (``trace.chosen_candidate_id = _label_ja(req, best_ja)`` where
+    ``best_ja`` is POST-Tera) when ``chosen_tera_slot`` is set. Comparing them
+    tera-stripped (only when ``tera_slot is not None``) is NOT a first-match
+    fallback: ``matched`` was already resolved via the authoritative exact key
+    match upstream -- this only adjusts how its label is compared, never which
+    candidate is picked."""
+    from showdown_bot.battle.candidate_identity import strip_tera_suffix
+
+    expected = strip_tera_suffix(chosen_id) if tera_slot is not None else chosen_id
+    if matched.get("candidate_id") != expected:
+        raise DecisionCaptureError(
+            "chosen_candidate_id must match candidate_id for chosen_candidate_key "
+            "(Tera-stripped when chosen_tera_slot is set)"
+        )
 
 
 def _validate_v2_tera_overlay(row: dict, *, chosen_key: str, tera_slot: int | None) -> None:
@@ -286,23 +315,206 @@ def _validate_v2_row(row: dict) -> None:
         if type(chosen_rank) is not int:
             raise DecisionCaptureError("v2 chosen_rank must be int")
 
+        tera_slot = row.get("chosen_tera_slot")
+        _validate_chosen_tera_slot(tera_slot)
+
         matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
         if chosen_rank != matched.get("rank"):
             raise DecisionCaptureError(
                 "chosen_rank must match rank of candidate under chosen_candidate_key"
             )
-        if matched.get("candidate_id") != chosen_id:
-            raise DecisionCaptureError(
-                "chosen_candidate_id must match candidate_id for chosen_candidate_key"
-            )
+        _check_chosen_candidate_id_matches(matched, chosen_id, tera_slot)
 
-        tera_slot = row.get("chosen_tera_slot")
-        _validate_chosen_tera_slot(tera_slot)
         _validate_v2_tera_overlay(row, chosen_key=chosen_key, tera_slot=tera_slot)
     else:
         for field in ("chosen_candidate_key", "chosen_candidate_id", "chosen_rank", "chosen_tera_slot"):
             if row.get(field) is not None:
                 raise DecisionCaptureError(f"v2 fallback row must have null {field}")
+    for candidate in candidates:
+        score = candidate["aggregate_score"]
+        if not isinstance(score, (int, float)) or not math.isfinite(score):
+            raise DecisionCaptureError("candidate aggregate_score must be finite")
+
+
+# ---------------------------------------------------------------------------
+# Trace-v3 (I7a-B Task 1): candidate key v2 (adds mega_evolve) + chosen_mega_slot.
+# v1/v2 validators above are untouched.
+# ---------------------------------------------------------------------------
+
+_CANDIDATE_KEY_V2_TOP_KEYS = frozenset({"version", "slots"})
+_CANDIDATE_KEY_V2_SLOT_KEYS = frozenset({
+    "kind", "move_index", "target", "target_ident", "terastallize", "mega_evolve",
+})
+
+
+def _validate_candidate_key_v2(key: str) -> None:
+    """Exact-schema validator for a single ``candidate_key`` (or
+    ``chosen_candidate_key``) string under candidate-key-v2: canonical JSON,
+    exact top-level/slot key sets (no unknown fields), strict types (``type(x)
+    is bool``/``is int`` -- NOT ``isinstance`` -- since ``isinstance(True,
+    int)`` is ``True`` in Python and would let 1/0 slip through as booleans),
+    and per-slot Tera/Mega mutual exclusion. Cross-candidate concerns
+    (uniqueness within a row) are the caller's job -- this validates one key
+    in isolation.
+    """
+    try:
+        payload = json.loads(key)
+    except json.JSONDecodeError as exc:
+        raise DecisionCaptureError("candidate_key must be valid JSON") from exc
+    if key != _canonical_json(payload):
+        raise DecisionCaptureError(
+            "candidate_key must be the canonical JSON serialization "
+            "(sort_keys=True, separators=(',', ':'))"
+        )
+    if not isinstance(payload, dict) or set(payload) != _CANDIDATE_KEY_V2_TOP_KEYS:
+        raise DecisionCaptureError(
+            f"candidate_key top-level keys must be exactly {sorted(_CANDIDATE_KEY_V2_TOP_KEYS)}"
+        )
+    if payload.get("version") != 2:
+        raise DecisionCaptureError("candidate_key version must be 2")
+    slots = payload.get("slots")
+    if not isinstance(slots, list) or len(slots) != 2:
+        raise DecisionCaptureError("candidate_key must contain exactly two slots")
+    for slot in slots:
+        if not isinstance(slot, dict) or set(slot) != _CANDIDATE_KEY_V2_SLOT_KEYS:
+            raise DecisionCaptureError(
+                f"candidate_key slot keys must be exactly {sorted(_CANDIDATE_KEY_V2_SLOT_KEYS)}"
+            )
+        if slot.get("kind") not in ("move", "switch", "pass"):
+            raise DecisionCaptureError("candidate_key slot kind must be move/switch/pass")
+        move_index = slot.get("move_index")
+        if move_index is not None and type(move_index) is not int:
+            raise DecisionCaptureError("candidate_key slot move_index must be int or null")
+        target = slot.get("target")
+        if target is not None and type(target) is not int:
+            raise DecisionCaptureError("candidate_key slot target must be int or null")
+        target_ident = slot.get("target_ident")
+        if target_ident is not None and not isinstance(target_ident, str):
+            raise DecisionCaptureError("candidate_key slot target_ident must be str or null")
+        terastallize = slot.get("terastallize")
+        if type(terastallize) is not bool:
+            raise DecisionCaptureError("candidate_key slot terastallize must be bool")
+        mega_evolve = slot.get("mega_evolve")
+        if type(mega_evolve) is not bool:
+            raise DecisionCaptureError("candidate_key slot mega_evolve must be bool")
+        if terastallize and mega_evolve:
+            raise DecisionCaptureError(
+                "candidate_key slot cannot have both terastallize and mega_evolve true"
+            )
+
+
+def _validate_chosen_mega_slot(mega_slot) -> None:
+    if mega_slot is not None and (type(mega_slot) is not int or mega_slot not in (0, 1)):
+        raise DecisionCaptureError("chosen_mega_slot must be null or int 0/1")
+
+
+def _validate_mutual_exclusion_v3(tera_slot, mega_slot) -> None:
+    if tera_slot is not None and mega_slot is not None:
+        raise DecisionCaptureError("chosen_tera_slot and chosen_mega_slot cannot both be set")
+
+
+def _validate_v3_mega_overlay(row: dict, *, chosen_key: str | None, mega_slot: int | None) -> None:
+    """Mirrors ``_validate_v2_tera_overlay`` for the Mega overlay: checks the
+    normalized_action's ``mega`` marker agrees with ``chosen_mega_slot`` (T35),
+    and that the chosen candidate_key's ``mega_evolve`` flags agree with
+    ``chosen_mega_slot`` (T34). Unlike Tera, Mega candidates keep their FULL
+    key (mega_evolve flags in place) rather than a pre-overlay-stripped key --
+    see Sec.13.3 of the design spec.
+    """
+    normalized = row.get("normalized_action")
+    if isinstance(normalized, dict) and normalized.get("kind") == "joint":
+        norm_slots = normalized.get("slots")
+        if isinstance(norm_slots, list) and len(norm_slots) == 2:
+            mega_indices = [
+                i for i, slot in enumerate(norm_slots)
+                if slot.get("kind") == "move" and slot.get("mega") is True
+            ]
+            if mega_slot is None:
+                if mega_indices:
+                    raise DecisionCaptureError(
+                        "chosen_mega_slot is null but normalized_action has a mega overlay"
+                    )
+            elif len(mega_indices) != 1 or mega_indices[0] != mega_slot:
+                raise DecisionCaptureError(
+                    "chosen_mega_slot inconsistent with normalized_action mega overlay"
+                )
+
+    if mega_slot is None:
+        return
+    if not isinstance(chosen_key, str) or not chosen_key:
+        raise DecisionCaptureError("chosen_mega_slot set but chosen_candidate_key is missing")
+    try:
+        payload = json.loads(chosen_key)
+    except json.JSONDecodeError as exc:
+        raise DecisionCaptureError("chosen_candidate_key must be valid JSON") from exc
+    key_slots = payload.get("slots")
+    if not isinstance(key_slots, list) or len(key_slots) != 2:
+        raise DecisionCaptureError("chosen_candidate_key must contain exactly two slots")
+    for idx, slot in enumerate(key_slots):
+        if not isinstance(slot, dict):
+            raise DecisionCaptureError("chosen_candidate_key slot payload must be an object")
+        expected = idx == mega_slot
+        if bool(slot.get("mega_evolve")) != expected:
+            raise DecisionCaptureError(
+                "chosen_candidate_key mega_evolve flags inconsistent with chosen_mega_slot"
+            )
+
+
+_V3_CHOSEN_KEYS = ("chosen_candidate_key", "chosen_mega_slot", "chosen_tera_slot")
+
+
+def _validate_v3_row(row: dict) -> None:
+    missing_chosen = [key for key in _V3_CHOSEN_KEYS if key not in row]
+    if missing_chosen:
+        raise DecisionCaptureError(f"v3 row missing required keys: {sorted(missing_chosen)}")
+
+    candidates = row["candidates"]
+    keys = [c.get("candidate_key") for c in candidates]
+    if candidates:
+        if any(not isinstance(k, str) or not k for k in keys):
+            raise DecisionCaptureError("v3 candidate_key must be non-empty string")
+        for key in keys:
+            _validate_candidate_key_v2(key)
+        if len(set(keys)) != len(keys):
+            raise DecisionCaptureError("v3 candidate_key values must be unique within row")
+
+        chosen_key = row.get("chosen_candidate_key")
+        if not isinstance(chosen_key, str) or not chosen_key:
+            raise DecisionCaptureError("v3 chosen_candidate_key required when candidates present")
+        _validate_candidate_key_v2(chosen_key)
+        if chosen_key not in keys:
+            raise DecisionCaptureError("v3 chosen_candidate_key must reference a traced candidate")
+
+        chosen_id = row.get("chosen_candidate_id")
+        if not isinstance(chosen_id, str) or not chosen_id:
+            raise DecisionCaptureError("v3 chosen_candidate_id must be non-empty string")
+
+        chosen_rank = row.get("chosen_rank")
+        if type(chosen_rank) is not int:
+            raise DecisionCaptureError("v3 chosen_rank must be int")
+
+        tera_slot = row.get("chosen_tera_slot")
+        _validate_chosen_tera_slot(tera_slot)
+        mega_slot = row.get("chosen_mega_slot")
+        _validate_chosen_mega_slot(mega_slot)
+        _validate_mutual_exclusion_v3(tera_slot, mega_slot)
+
+        matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
+        if chosen_rank != matched.get("rank"):
+            raise DecisionCaptureError(
+                "chosen_rank must match rank of candidate under chosen_candidate_key"
+            )
+        _check_chosen_candidate_id_matches(matched, chosen_id, tera_slot)
+
+        _validate_v2_tera_overlay(row, chosen_key=chosen_key, tera_slot=tera_slot)
+        _validate_v3_mega_overlay(row, chosen_key=chosen_key, mega_slot=mega_slot)
+    else:
+        for field in (
+            "chosen_candidate_key", "chosen_candidate_id", "chosen_rank",
+            "chosen_tera_slot", "chosen_mega_slot",
+        ):
+            if row.get(field) is not None:
+                raise DecisionCaptureError(f"v3 fallback row must have null {field}")
     for candidate in candidates:
         score = candidate["aggregate_score"]
         if not isinstance(score, (int, float)) or not math.isfinite(score):
@@ -321,6 +533,9 @@ _NULLABLE_TRACE_FIELDS = frozenset({
 _V2_ONLY_NULLABLE_FIELDS = frozenset({
     "chosen_candidate_key", "chosen_tera_slot",
 })
+_V3_ONLY_NULLABLE_FIELDS = frozenset({
+    "chosen_candidate_key", "chosen_tera_slot", "chosen_mega_slot",
+})
 
 
 def validate_trace_row(row: dict) -> None:
@@ -330,6 +545,8 @@ def validate_trace_row(row: dict) -> None:
     nullable = _NULLABLE_TRACE_FIELDS
     if version == TRACE_SCHEMA_VERSION_V2:
         nullable = nullable | _V2_ONLY_NULLABLE_FIELDS
+    elif version == TRACE_SCHEMA_VERSION_V3:
+        nullable = nullable | _V3_ONLY_NULLABLE_FIELDS
     missing = _REQUIRED_TRACE_FIELDS - set(row)
     unknown = set(row) - _REQUIRED_TRACE_FIELDS - nullable
     if missing or unknown:
@@ -346,8 +563,10 @@ def validate_trace_row(row: dict) -> None:
         raise DecisionCaptureError("decision_latency_ms must be finite")
     if version == TRACE_SCHEMA_VERSION_V1:
         _validate_v1_row(row)
-    else:
+    elif version == TRACE_SCHEMA_VERSION_V2:
         _validate_v2_row(row)
+    else:
+        _validate_v3_row(row)
 
 
 def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
@@ -367,6 +586,7 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
         chosen_candidate_key = None
         chosen_rank = None
         chosen_tera_slot = None
+        chosen_mega_slot = None
     else:
         assert_unique_candidate_identities(trace.candidates)
         try:
@@ -377,6 +597,7 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
         chosen_candidate_key = trace.chosen_candidate_key
         chosen_rank = chosen.rank
         chosen_tera_slot = trace.chosen_tera_slot
+        chosen_mega_slot = trace.chosen_mega_slot
         candidates = [
             {
                 "candidate_id": c.candidate_id,
@@ -388,7 +609,7 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
         ]
 
     row = {
-        "trace_schema_version": TRACE_SCHEMA_VERSION_V2,
+        "trace_schema_version": TRACE_SCHEMA_VERSION,
         "battle_id": context.battle_id,
         "seed_index": context.seed_index,
         "decision_index": decision_index,
@@ -408,6 +629,7 @@ def build_trace_row(*, context: BattleTraceContext, prepared: PreparedCapture,
         "chosen_candidate_id": chosen_candidate_id,
         "chosen_candidate_key": chosen_candidate_key,
         "chosen_tera_slot": chosen_tera_slot,
+        "chosen_mega_slot": chosen_mega_slot,
         "chosen_rank": chosen_rank,
         "candidates": candidates,
         "selection_stage": selection_stage_override if selection_stage_override is not None else

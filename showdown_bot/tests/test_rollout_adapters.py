@@ -234,3 +234,121 @@ def test_make_decide_deterministic(decision_fixture):
     them_ja1 = decide_fn(state, THEM)
     them_ja2 = decide_fn(state, THEM)
     assert them_ja1.as_pair() == them_ja2.as_pair(), "THEM decide must be deterministic"
+
+
+# ---------------------------------------------------------------------------
+# I7a-B Task 5: format_config/calc_profile threading through make_resolve /
+# decide_adapter.decide, and RolloutConfig(H=0, use_leaf=False) semantics.
+# ---------------------------------------------------------------------------
+
+def test_make_resolve_no_typeerror_with_format_config_and_calc_profile_both_in_deps(decision_fixture):
+    """deps carrying BOTH 'format_config' and 'calc_profile' (as
+    export_runtime._build_rollout_provider now populates) must not raise a
+    TypeError anywhere in make_resolve's resolve() closure -- specifically
+    the ``deps.get("calc_profile") or calc_profile_from_config(...)`` line
+    (learning/rollout.py) must not accidentally splat calc_profile as a
+    keyword into something that does not accept it."""
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import (
+        DEFAULT_STAT_INVESTMENT, FormatConfig,
+    )
+    from showdown_bot.learning.decide_adapter import decide
+    from showdown_bot.learning.rollout import make_resolve
+
+    req, kw = decision_fixture
+    state = kw["state"]
+    roster, movesets, stats = _combined_beliefs()
+    meta = _move_table()
+
+    format_config = FormatConfig(
+        format_id="test-mega", level=50, game_type="doubles", restricted_limit=0,
+        tera=False, mega=True, stat_investment=DEFAULT_STAT_INVESTMENT, calc_generation=9,
+    )
+    deps = {k: v for k, v in kw.items() if k not in ("state", "our_side")}
+    deps["format_config"] = format_config
+    deps["calc_profile"] = calc_profile_from_config(format_config)
+
+    resolve = make_resolve(
+        root_our_side="p1", roster_by_side=roster, movesets_by_side=movesets,
+        stats_by_side=stats, move_meta=meta, deps=deps, weights=None,
+    )
+
+    p1_r, p1_m, p1_s = _p1_beliefs()
+    p2_r, p2_m, p2_s = _p2_fake_beliefs()
+    our_ja = decide(state, "p1", roster=p1_r, movesets=p1_m, stats=p1_s, move_meta=meta, deps=deps)
+    opp_ja = decide(state, "p2", roster=p2_r, movesets=p2_m, stats=p2_s, move_meta=meta, deps=deps)
+
+    nxt, reward = resolve(state, our_ja, opp_ja)  # must not raise TypeError
+    assert isinstance(reward, float)
+    assert nxt is not state
+
+
+def test_decide_adapter_decide_accepts_mega_format_config_and_drops_calc_profile(decision_fixture):
+    """decide_adapter.decide's ``_core_deps`` filter must accept a deps dict
+    containing format_config (mega=True) AND calc_profile without raising --
+    calc_profile is not one of decide_adapter._CORE_DEP_KEYS, so it must be
+    silently dropped rather than splatted into _choose_best (which does not
+    accept a calc_profile kwarg)."""
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import (
+        DEFAULT_STAT_INVESTMENT, FormatConfig,
+    )
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.learning.decide_adapter import decide
+
+    req, kw = decision_fixture
+    state = kw["state"]
+    meta = _move_table()
+    format_config = FormatConfig(
+        format_id="test-mega", level=50, game_type="doubles", restricted_limit=0,
+        tera=False, mega=True, stat_investment=DEFAULT_STAT_INVESTMENT, calc_generation=9,
+    )
+    deps = {k: v for k, v in kw.items() if k not in ("state", "our_side")}
+    deps["format_config"] = format_config
+    deps["calc_profile"] = calc_profile_from_config(format_config)
+
+    p1_r, p1_m, p1_s = _p1_beliefs()
+    ja = decide(state, "p1", roster=p1_r, movesets=p1_m, stats=p1_s, move_meta=meta, deps=deps)
+    assert isinstance(ja, JointAction)
+
+
+def test_decide_adapter_decide_routes_through_mega_ranking_on_a_mega_capable_board(
+    mega_decision_fixture, monkeypatch,
+):
+    """End-to-end proof that the export/rollout wiring (decide_adapter.decide,
+    which _core_deps-filters into _choose_best) actually REACHES the Mega
+    ranking path Task 4 built: on a genuinely Mega-capable board (Aerodactyl
+    holding Aerodactylite) with format_config.mega=True in deps,
+    mega_scoring.build_own_mega_contexts must be invoked (proving real
+    routing, not just 'didn't crash'), and the returned JointAction's
+    mega_evolve fields must be valid bools -- the field CAN be True on this
+    board (never guaranteed by heuristic ranking on a single decision, but
+    the code path must be genuinely reachable, not dead)."""
+    import showdown_bot.battle.mega_scoring as mega_scoring_mod
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.engine.moves import _move_table
+    from showdown_bot.learning.decide_adapter import decide
+
+    calls = {"build": 0}
+    real_build = mega_scoring_mod.build_own_mega_contexts
+
+    def spy_build(*a, **kw):
+        calls["build"] += 1
+        return real_build(*a, **kw)
+
+    monkeypatch.setattr(mega_scoring_mod, "build_own_mega_contexts", spy_build)
+
+    req, kw = mega_decision_fixture
+    state = kw["state"]
+    deps = {k: v for k, v in kw.items() if k not in ("state", "our_side")}
+
+    roster = {"p1": {}}
+    movesets = {"p1": {"Aerodactyl": ["rockslide"], "Whimsicott": ["moonblast"]}}
+    stats = {"p1": {"Aerodactyl": {"spe": 100}, "Whimsicott": {"spe": 100}}}
+    meta = _move_table()
+
+    ja = decide(state, "p1", roster=roster, movesets=movesets, stats=stats, move_meta=meta, deps=deps)
+    assert isinstance(ja, JointAction)
+    assert calls["build"] == 1, "decide() must route into build_own_mega_contexts exactly once"
+    assert ja.slot0.mega_evolve in (True, False)
+    assert ja.slot1.mega_evolve in (True, False)

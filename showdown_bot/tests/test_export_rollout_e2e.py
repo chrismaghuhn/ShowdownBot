@@ -400,6 +400,83 @@ def test_from_env_rollout_deps_threads_priors(tmp_path, monkeypatch):
 # method in isolation).
 # ---------------------------------------------------------------------------
 
+def test_rollout_labels_with_format_config_and_calc_profile_keys_by_candidate_key(
+    decision_fixture,
+):
+    """I7a-B Task 5: deps carrying BOTH 'format_config' (mega=True) and
+    'calc_profile' -- mirroring export_runtime._build_rollout_provider's
+    deps dict -- must not raise a TypeError anywhere in the rollout_labels /
+    make_resolve / make_decide / make_leaf chain, and the returned labels
+    dict must be keyed by the structural v3 candidate_key (candidate_identity
+    resolves to CandidateTrace.candidate_key when present -- see
+    battle/candidate_identity.py), matching resolve_chosen_candidate(trace).
+
+    The decision_fixture board has no Mega-capable mon, so format_config.mega
+    =True here exercises the Mega ranking code path (_choose_best_mega /
+    build_own_mega_contexts) with zero surviving Mega variants -- a real
+    plumbing exercise, not a no-op skip of the Mega branch.
+    """
+    from showdown_bot.battle.candidate_identity import (
+        candidate_identity, resolve_chosen_candidate,
+    )
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+    from showdown_bot.battle.decision_trace import DecisionTrace
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import DEFAULT_STAT_INVESTMENT, FormatConfig
+    from showdown_bot.engine.moves import _move_table
+    from showdown_bot.learning.rollout import rollout_labels
+    from showdown_bot.learning.teacher import RolloutConfig
+
+    req, kw = decision_fixture
+    format_config = FormatConfig(
+        format_id="test-mega", level=50, game_type="doubles", restricted_limit=0,
+        tera=False, mega=True, stat_investment=DEFAULT_STAT_INVESTMENT, calc_generation=9,
+    )
+    kw = dict(kw)
+    kw["format_config"] = format_config
+
+    trace = DecisionTrace()
+    heuristic_choose_for_request(req, trace=trace, **kw)
+    state = kw["state"]
+
+    deps = _fake_deps(kw["book"])
+    deps["speed_oracle"] = kw["speed_oracle"]
+    deps["format_config"] = format_config
+    deps["calc_profile"] = calc_profile_from_config(format_config)
+
+    # Beliefs matching the decision_fixture board (tests/conftest.py's _state):
+    # p1 = Incineroar (a) + Rillaboom (b), p2 = Flutter Mane (a) + Tornadus (b).
+    roster = {"p1": {}, "p2": {}}
+    movesets = {
+        "p1": {
+            "Incineroar": ["fakeout", "flareblitz", "protect", "knockoff"],
+            "Rillaboom": ["heatwave", "earthpower", "protect", "solarbeam"],
+        },
+        "p2": {
+            "Flutter Mane": ["moonblast", "shadowball", "protect", "dazzlinggleam"],
+            "Tornadus": ["tailwind", "bleakwindstorm", "protect", "u-turn"],
+        },
+    }
+    stats = {
+        "p1": {"Incineroar": {"spe": 100}, "Rillaboom": {"spe": 100}},
+        "p2": {"Flutter Mane": {"spe": 151}, "Tornadus": {"spe": 120}},
+    }
+    meta = _move_table()
+    cfg = RolloutConfig(H=0, gamma=0.75, top_k=1, use_leaf=False)
+
+    labels = rollout_labels(
+        trace, state,
+        root_our_side="p1",
+        roster_by_side=roster, movesets_by_side=movesets, stats_by_side=stats,
+        move_meta=meta, deps=deps, cfg=cfg,
+    )  # must not raise TypeError
+
+    resolved = resolve_chosen_candidate(trace)
+    assert list(labels.keys()) == [candidate_identity(resolved)]
+    assert resolved.candidate_key is not None
+    assert list(labels.keys()) == [resolved.candidate_key]
+
+
 def test_from_env_rollout_close_closes_the_built_calc_client(tmp_path, monkeypatch):
     """Guard: from_env's real rollout path (provider=None, mode=rollout) must thread
     the CalcClient it builds into the runtime so close() can tear it down. Before the

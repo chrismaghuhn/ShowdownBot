@@ -2,15 +2,25 @@ from __future__ import annotations
 
 import copy
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from showdown_bot.battle.evaluate import DamageModel, evaluate_line
 from showdown_bot.battle.opponent import OppResponse, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import aggregate_scores, pick_best
-from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.battle.resolve import PlannedAction, TurnOutcome
 from showdown_bot.engine.belief.game_mode import GameMode
 from showdown_bot.engine.belief.hypotheses import SpreadBook
 from showdown_bot.engine.state import BattleState
+
+if TYPE_CHECKING:
+    # Deferred (TYPE_CHECKING-only) import: mega_scoring.py already imports
+    # from decision.py, and decision.py imports depth2_value from this module
+    # -- a real module-level import of mega_scoring here would create a
+    # decision -> search -> mega_scoring -> decision import cycle. The type
+    # name is only needed for annotations (safe under `from __future__ import
+    # annotations`, never evaluated at runtime).
+    from showdown_bot.battle.mega_scoring import MegaEvaluationContext
 
 
 def approx_turn2_state(state: BattleState, *, our_side: str,
@@ -167,3 +177,56 @@ def depth2_value(
     # to only prove out the argmax-by-key half of its contract.
     best_scores = next((scores for key, scores in items if key == best_ja), [])
     return aggregate_scores(best_scores, mode, risk_lambda=risk_lambda, weights=resp_weights)
+
+
+def _applied_damage_from_outcome(
+    outcome: TurnOutcome, state: BattleState
+) -> dict[tuple[str, str], float]:
+    """Absolute-HP damage per (side, slot) from a turn-1 ``TurnOutcome``, for
+    ``approx_turn2_state``. Local duplicate of ``decision._applied_damage_from_
+    outcome`` (search.py has no module-level dependency on decision.py; kept
+    behaviorally identical -- ``hp_delta`` is FRACTIONAL, <=0 for damage,
+    converted to absolute HP via ``state``'s CURRENT max_hp; heals contribute
+    no subtraction)."""
+    dmg: dict[tuple[str, str], float] = {}
+    for (side, slot), delta in outcome.hp_delta.items():
+        if delta >= 0:
+            continue
+        mon = state.sides.get(side, {}).get(slot)
+        if mon is not None:
+            dmg[(side, slot)] = -delta * mon.max_hp
+    return dmg
+
+
+def depth2_value_for_mega_context(
+    ctx: "MegaEvaluationContext",
+    outcome: TurnOutcome,
+    *,
+    our_side: str,
+    mode: GameMode,
+    risk_lambda: float,
+    top_m: int,
+    book: SpreadBook | None,
+    predict_kwargs: dict | None = None,
+    model_kwargs: dict | None = None,
+    eval_kwargs: dict | None = None,
+) -> float:
+    """Depth-2 leaf value for one (Mega evaluation context, turn-1 response)
+    frontier entry (I7a-B Task 3 depth-2 binding rule).
+
+    ALWAYS bound to ``ctx``'s own ``projected_state`` and ``damage_model.oracle``
+    -- the coarse turn-2 successor state is derived from ``ctx.projected_state``
+    (never the unprojected base ``state``, and never a different variant's or a
+    different Mega branch's context), and the shared calc oracle used for the
+    turn-2 refinement is ``ctx.damage_model.oracle`` (the same oracle every
+    context in this decision already shares -- see ``build_own_mega_contexts``),
+    never a standalone/foreign oracle. This is what lets a Mega branch's
+    depth-2 refinement see the projected Mega'd species/ability/speed at turn 2
+    instead of silently falling back to the pre-Mega mon.
+    """
+    applied_damage = _applied_damage_from_outcome(outcome, ctx.projected_state)
+    return depth2_value(
+        ctx.projected_state, our_side=our_side, applied_damage=applied_damage, mode=mode,
+        risk_lambda=risk_lambda, top_m=top_m, book=book, oracle=ctx.damage_model.oracle,
+        predict_kwargs=predict_kwargs, model_kwargs=model_kwargs, eval_kwargs=eval_kwargs,
+    )

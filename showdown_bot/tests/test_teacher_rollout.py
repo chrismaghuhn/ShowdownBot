@@ -84,6 +84,41 @@ def test_rejects_negative_weight():
                              decide=decide, resolve=resolve, leaf=leaf, cfg=cfg)
 
 
+def test_h0_use_leaf_false_top_k1_reduces_to_zero_reward_never_calls_decide_or_leaf():
+    """I7a-B Task 5 export-consumer spec: RolloutConfig(H=0, gamma=0.75,
+    top_k=1, use_leaf=False) over a single non-switch candidate/response pair
+    whose resolve() reward is exactly 0.0 must reduce counterfactual_value to
+    exactly 0.0 -- H=0 means zero follow-up transitions and use_leaf=False
+    means no bootstrap, so decide()/leaf() must never be called at all."""
+    from showdown_bot.models.actions import SlotAction
+
+    called = {"decide": 0, "leaf": 0}
+
+    def decide(state, side):
+        called["decide"] += 1
+        raise AssertionError("H=0 must never call decide")
+
+    def resolve(state, our_action, opp_action):
+        return state, 0.0
+
+    def leaf(state):
+        called["leaf"] += 1
+        raise AssertionError("use_leaf=False must never call leaf")
+
+    # A non-switch PlannedAction-shaped candidate (a plain move SlotAction pair
+    # is enough -- counterfactual_value/resolve() treat `candidate` opaquely).
+    candidate = SlotAction(kind="move", move_index=0, target=None, target_ident=None)
+
+    cfg = RolloutConfig(H=0, gamma=0.75, top_k=1, use_leaf=False)
+    v = counterfactual_value(
+        start_state="s0", candidate=candidate, responses=[("opp_move", 1.0)],
+        decide=decide, resolve=resolve, leaf=leaf, cfg=cfg,
+    )
+    assert v == 0.0
+    assert called["decide"] == 0
+    assert called["leaf"] == 0
+
+
 def test_rollout_config_rejects_invalid_values():
     with pytest.raises(ValueError, match="H must be"):
         RolloutConfig(H=-1)

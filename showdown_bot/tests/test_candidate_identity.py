@@ -12,6 +12,7 @@ from showdown_bot.battle.candidate_identity import (
     candidate_identity,
     derive_tera_slot,
     joint_action_key,
+    joint_action_key_v2,
     resolve_chosen_candidate,
 )
 from showdown_bot.battle.decision_trace import CandidateTrace, DecisionTrace
@@ -65,6 +66,39 @@ def test_joint_action_key_includes_terastallize():
     assert joint_action_key(JointAction(base, SlotAction(kind="pass"))) != joint_action_key(
         JointAction(tera, SlotAction(kind="pass"))
     )
+
+
+def test_joint_action_key_v2_contains_mega_flag():
+    base = JointAction(SlotAction("move", move_index=1), SlotAction("pass"))
+    mega = base.with_mega(0)
+    assert joint_action_key_v2(base) != joint_action_key_v2(mega)
+    assert json.loads(joint_action_key_v2(mega))["version"] == 2
+
+
+def test_joint_action_key_v2_round_trips_all_slot_fields():
+    ja = JointAction(
+        slot0=SlotAction(kind="move", move_index=2, target=1, terastallize=False, mega_evolve=True),
+        slot1=SlotAction(kind="switch", target_ident="Flutter Mane"),
+    )
+    payload = json.loads(joint_action_key_v2(ja))
+    assert payload == {
+        "version": 2,
+        "slots": [
+            {
+                "kind": "move", "move_index": 2, "target": 1,
+                "target_ident": None, "terastallize": False, "mega_evolve": True,
+            },
+            {
+                "kind": "switch", "move_index": None, "target": None,
+                "target_ident": "Flutter Mane", "terastallize": False, "mega_evolve": False,
+            },
+        ],
+    }
+
+
+def test_joint_action_key_v2_differs_from_v1_key_for_same_action():
+    ja = JointAction(SlotAction("move", move_index=1, target=1), SlotAction("pass"))
+    assert joint_action_key(ja) != joint_action_key_v2(ja)
 
 
 def test_derive_tera_slot_none_when_identical():

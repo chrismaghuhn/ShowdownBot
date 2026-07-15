@@ -125,7 +125,7 @@ def agent_choose(
             return max_damage_choice(
                 req, state=state, book=book, our_side=our_side,
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle,
-                format_config=format_config,
+                format_config=format_config, our_spreads=our_spreads,
                 fallback=lambda r: f"/choose default|{r.rqid}",
             )
         except Exception:  # noqa: BLE001
