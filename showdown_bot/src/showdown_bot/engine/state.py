@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import copy
 import re
 from dataclasses import dataclass, field as dc_field
 
 from showdown_bot.engine.log_parser import LogEvent, parse_hp_integer, parse_log
-from showdown_bot.engine.mega_reconcile import MegaReconcileEvent, ReducedLogEvent
+from showdown_bot.engine.mega_form import mega_form_for
+from showdown_bot.engine.mega_reconcile import (
+    MegaReconcileError,
+    MegaReconcileEvent,
+    ReducedLogEvent,
+    reduce_log_events,
+)
+from showdown_bot.engine.species_meta import get_species_form_meta
 from showdown_bot.models.request import BattleRequest
 
 _BOOST_KEYS = ("atk", "def", "spa", "spd", "spe", "accuracy", "evasion")
@@ -200,24 +208,82 @@ class BattleState:
             mon.item = None
             mon.item_known = True
             mon.item_lost = True
+        elif et == "detailschange":
+            # Ordinary (non-Mega) permanent forme change, e.g. Zygarde-Complete
+            # or Wishiwashi School. Refresh species/types/ability from
+            # speciesdata; item and side_mega_spent are untouched here -- those
+            # are exclusively a MegaReconcileEvent concern.
+            if event.details:
+                details = parse_details(event.details)
+                mon.species = details.species
+                form_meta = get_species_form_meta(details.species)
+                if form_meta is not None:
+                    mon.types = list(form_meta.types)
+                    mon.ability = form_meta.ability_slot0
 
     def _apply_mega_reconcile(self, event: MegaReconcileEvent) -> None:
-        # Minimal I7a-C Task 1 slice: species-only. Rollback/item/ability/
-        # side_mega_spent handling is Task 2's job.
         pid = event.pokemon
         side = self.sides.setdefault(pid.side, {})
         mon = side.get(pid.slot)
         if mon is None:
-            return
-        details = parse_details(event.mega_species_details)
-        mon.species = details.species
+            raise MegaReconcileError(f"mega_reconcile_unknown_pokemon: {pid.raw}")
+
+        snapshot = copy.deepcopy(mon)
+        spent_snapshot = self.side_mega_spent.get(pid.side, False)
+
+        try:
+            details = parse_details(event.mega_species_details)
+
+            # Coherence: the reconcile event's claimed actor must match the
+            # Pokemon actually occupying this slot (guards against a
+            # misrouted/mismatched -mega pairing reaching state application).
+            if mon.base_species_id != to_id(event.base_species):
+                raise MegaReconcileError(
+                    f"mega_reconcile_actor_mismatch: slot={pid.raw} "
+                    f"holds base_species_id={mon.base_species_id!r}, "
+                    f"event claims base_species={event.base_species!r}"
+                )
+
+            mega_form = mega_form_for(event.base_species, event.stone_display)
+            if mega_form is None or to_id(mega_form.form_species_name) != to_id(details.species):
+                raise MegaReconcileError(
+                    f"mega_reconcile_incoherent: base_species={event.base_species!r} "
+                    f"stone={event.stone_display!r} details_species={details.species!r}"
+                )
+
+            stone_id = to_id(event.stone_display)
+            if mon.item_known:
+                if to_id(mon.item or "") != stone_id:
+                    raise MegaReconcileError(
+                        f"mega_reconcile_item_conflict: known item={mon.item!r} "
+                        f"!= stone={event.stone_display!r}"
+                    )
+                # Known item already matches the stone: keep as-is.
+            else:
+                mon.item = event.stone_display
+                mon.item_known = True
+                mon.item_lost = False
+
+            mon.species = details.species
+            mon.base_species_id = to_id(event.base_species)
+            form_meta = get_species_form_meta(details.species)
+            if form_meta is not None:
+                mon.types = list(form_meta.types)
+                mon.ability = form_meta.ability_slot0
+
+            # No synthetic weather here: unlike mega_projection.project_mega
+            # (our own pre-decision projection), the reconcile path applies
+            # OBSERVED protocol only. -weather / ability-trigger log lines
+            # remain the sole authority for weather.
+            self.side_mega_spent[pid.side] = True
+        except MegaReconcileError:
+            side[pid.slot] = snapshot
+            self.side_mega_spent[pid.side] = spent_snapshot
+            raise
 
     @classmethod
     def from_log(cls, events: list[LogEvent]) -> "BattleState":
-        state = cls()
-        for event in events:
-            state.apply_event(event)
-        return state
+        return cls.from_reduced_log(reduce_log_events(events))
 
     @classmethod
     def from_reduced_log(cls, events: list[ReducedLogEvent]) -> "BattleState":

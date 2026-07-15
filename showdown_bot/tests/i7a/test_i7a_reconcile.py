@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from showdown_bot.engine.log_parser import LogEvent, parse_log_line
+from showdown_bot.engine.log_parser import LogEvent, PokemonId, parse_log, parse_log_line
 from showdown_bot.engine.mega_reconcile import (
     MegaReconcileError,
     MegaReconcileEvent,
     MegaReconcileReducer,
     reduce_log_events,
 )
-from showdown_bot.engine.state import BattleState
+from showdown_bot.engine.mega_projection import copy_battle_state
+from showdown_bot.engine.state import BattleState, PokemonState
 
 # ---------------------------------------------------------------------------
 # I7a-C Task 1: parse and reduce Mega protocol events
@@ -135,3 +136,152 @@ def test_reducer_feed_returns_pending_on_second_detailschange_for_same_ident():
     assert emitted == [first_change]
     tail = reducer.flush_pending()
     assert tail == [second_change]
+
+
+# ---------------------------------------------------------------------------
+# I7a-C Task 2: apply reconciliation with rollback and persistent belief
+# updates (T41-T46)
+# ---------------------------------------------------------------------------
+
+RAW_MEGA_LOG = """\
+|switch|p1a: Charizard|Charizard, L50|100/100
+|switch|p2a: Incineroar|Incineroar, L50|100/100
+|turn|1
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+"""
+
+
+@pytest.fixture
+def state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Charizard", item=None, item_known=False)
+    return st
+
+
+@pytest.fixture
+def book():
+    from showdown_bot.engine.belief.hypotheses import load_spread_book
+    from showdown_bot.engine.format_config import load_format_config
+
+    cfg = load_format_config("gen9vgc2025regi")
+    return load_spread_book(cfg.meta_path("default_spreads"))
+
+
+def reconcile_event() -> MegaReconcileEvent:
+    return MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1a: Charizard"),
+        mega_species_details="Charizard-Mega-Y, L50",
+        base_species="Charizard",
+        stone_display="Charizardite Y",
+    )
+
+
+# T41: item conflict -> no spend, state unchanged (rollback).
+def test_item_conflict_rolls_back_every_mega_field(state):
+    state.active("p1", "a").item = "Leftovers"
+    state.active("p1", "a").item_known = True
+    before = copy_battle_state(state)
+    event = reconcile_event()
+    with pytest.raises(MegaReconcileError):
+        state.apply_event(event)
+    assert state == before
+    mon = state.active("p1", "a")
+    assert mon.species == "Charizard"
+    assert mon.item == "Leftovers"
+    assert mon.item_known is True
+    assert mon.base_species_id == "charizard"
+    assert mon.ability is None
+    assert state.side_mega_spent["p1"] is False
+
+
+# T42: full room log rebuild (BattleState.from_log_text) applies the mega.
+def test_full_log_rebuild_applies_mega_reconcile():
+    state = BattleState.from_log_text(RAW_MEGA_LOG)
+    mon = state.active("p1", "a")
+    assert mon.species == "Charizard-Mega-Y"
+    assert mon.ability == "Drought"
+    assert mon.types == ["Fire", "Flying"]
+    assert mon.item == "Charizardite Y"
+    assert mon.item_known is True
+    assert mon.base_species_id == "charizard"
+    assert state.side_mega_spent["p1"] is True
+    # No synthetic weather from the mega ability's side effect.
+    assert state.field.weather is None
+
+
+# T43: BeliefTracker.feed batch reaches the same end state as a full rebuild
+# via from_log_text (cross-call reducer wiring, not a manual reducer call).
+def test_belief_tracker_feed_matches_full_log_rebuild(book):
+    from showdown_bot.engine.belief.tracker import BeliefTracker
+
+    expected = BattleState.from_log_text(RAW_MEGA_LOG)
+
+    tracker = BeliefTracker.from_state(BattleState(), book)
+    tracker.feed(parse_log(RAW_MEGA_LOG))
+
+    mon = tracker.state.active("p1", "a")
+    expected_mon = expected.active("p1", "a")
+    assert mon.species == expected_mon.species
+    assert mon.ability == expected_mon.ability
+    assert mon.types == expected_mon.types
+    assert mon.item == expected_mon.item
+    assert mon.item_known == expected_mon.item_known
+    assert mon.base_species_id == expected_mon.base_species_id
+    assert tracker.state.side_mega_spent == expected.side_mega_spent
+
+
+# T44: detailschange without -mega -> form-only apply, no side_mega_spent set.
+def test_standalone_trailing_detailschange_applies_form_only():
+    raw = (
+        "|switch|p2a: Zygarde|Zygarde, L50|100/100\n"
+        "|detailschange|p2a: Zygarde|Zygarde-Complete, L50\n"
+    )
+    state = BattleState.from_log_text(raw)
+    mon = state.active("p2", "a")
+    assert mon.species == "Zygarde-Complete"
+    # No mega item/spend side effects for an ordinary forme change.
+    assert mon.item is None
+    assert mon.item_known is False
+    assert state.side_mega_spent["p2"] is False
+
+
+# T45: -mega without a pending detailschange fails closed all the way through
+# apply_event/from_log_text, not just at the reducer level (see
+# test_mega_without_pending_detailschange_fails_closed above for the
+# reducer-only case, which the reducer raises before state is ever touched).
+def test_orphan_mega_fails_closed_through_from_log_text():
+    raw = "|switch|p1a: Charizard|Charizard, L50|100/100\n|-mega|p1a: Charizard|Charizard|Charizardite Y\n"
+    with pytest.raises(MegaReconcileError):
+        BattleState.from_log_text(raw)
+
+
+# T46: wrong ident pairing / wrong actor -> no mutation.
+def test_wrong_actor_reconcile_event_rolls_back_without_mutation(state):
+    before = copy_battle_state(state)
+    # base_species claims Blastoise, but p1a actually holds Charizard: the
+    # reconcile event does not match the actual occupant of the slot.
+    event = MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1a: Charizard"),
+        mega_species_details="Blastoise-Mega, L50",
+        base_species="Blastoise",
+        stone_display="Blastoisinite",
+    )
+    with pytest.raises(MegaReconcileError):
+        state.apply_event(event)
+    assert state == before
+    assert state.active("p1", "a").species == "Charizard"
+    assert state.side_mega_spent["p1"] is False
+
+
+# Cross-call persistence: update() (not feed()) must pair detailschange and
+# -mega across two separate calls via the tracker's persistent reducer.
+def test_belief_update_pairs_events_across_calls(state, book):
+    from showdown_bot.engine.belief.tracker import BeliefTracker
+
+    tracker = BeliefTracker.from_state(state, book)
+    tracker.update(detailschange_event())
+    assert tracker.state.active("p1", "a").species == "Charizard"
+    tracker.update(mega_event())
+    assert tracker.state.active("p1", "a").species == "Charizard-Mega-Y"
+    assert tracker.state.side_mega_spent["p1"] is True
