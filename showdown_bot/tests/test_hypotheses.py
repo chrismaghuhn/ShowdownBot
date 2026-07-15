@@ -6,7 +6,11 @@ from showdown_bot.engine.belief.hypotheses import (
     DEFENSE,
     OFFENSE,
     SetHypothesis,
+    SpreadBook,
+    SpreadPreset,
+    SpeciesSpreads,
     build_hypotheses,
+    hypothesis_from_state,
     load_spread_book,
 )
 from showdown_bot.engine.calc.client import CalcClient, SubprocessCalcBackend
@@ -51,6 +55,58 @@ def test_build_hypotheses_for_opponent_side():
     hyps = build_hypotheses(state, cfg, "p2")
     assert "a" in hyps
     assert hyps["a"].ability == "Protosynthesis"
+
+
+def _distinctive_spreads() -> SpeciesSpreads:
+    """A committed spread that is deliberately NOT the book default, so a test
+    asserting we got THIS spread (not the default fallback) is meaningful."""
+    offense = SpreadPreset(nature="Naive", evs={"atk": 4, "spa": 252, "spe": 252}, items=["Life Orb"])
+    defense = SpreadPreset(nature="Impish", evs={"hp": 252, "def": 252, "spe": 4}, items=["Leftovers"])
+    return SpeciesSpreads(offense=offense, defense=defense)
+
+
+def _default_spreads() -> SpeciesSpreads:
+    offense = SpreadPreset(nature="Hardy", evs={}, items=[])
+    defense = SpreadPreset(nature="Hardy", evs={}, items=[])
+    return SpeciesSpreads(offense=offense, defense=defense)
+
+
+def test_hypothesis_from_state_resolves_post_mega_species_to_base_species_spread():
+    """P1.2: after Mega evolution mon.species is the post-Mega display name
+    ("Aerodactyl-Mega") while base_species_id correctly stays the pre-Mega base
+    id ("aerodactyl"). hypothesis_from_state must resolve the committed spread
+    via the base species id, not the raw post-Mega species string, else it
+    silently falls back to the book default (worst-case) instead of the
+    actually-committed spread."""
+    committed = _distinctive_spreads()
+    book = SpreadBook(default=_default_spreads(), species={"aerodactyl": committed})
+    mon = PokemonState(species="Aerodactyl-Mega", base_species_id="aerodactyl")
+
+    hyp = hypothesis_from_state(mon, book)
+
+    assert hyp.spreads is committed
+    assert hyp.spreads.offense.nature == "Naive"
+    assert hyp.spreads.offense.evs == {"atk": 4, "spa": 252, "spe": 252}
+    assert hyp.spreads.defense.nature == "Impish"
+    assert hyp.spreads.defense.evs == {"hp": 252, "def": 252, "spe": 4}
+    # not the book default (that would mean the lookup missed and fell back).
+    assert hyp.spreads is not book.default
+
+
+def test_hypothesis_from_state_non_mega_lookup_unchanged():
+    """Regression: for a never-Mega'd mon, base_species_id already equals
+    to_id(species) via PokemonState.__post_init__, so the spread_lookup_key
+    based resolution must produce the exact same result as a raw species-id
+    lookup did before this fix."""
+    committed = _distinctive_spreads()
+    book = SpreadBook(default=_default_spreads(), species={"incineroar": committed})
+    mon = PokemonState(species="Incineroar")
+
+    assert mon.base_species_id == "incineroar"
+    hyp = hypothesis_from_state(mon, book)
+
+    assert hyp.spreads is committed
+    assert hyp.spreads is book.species["incineroar"]
 
 
 @pytest.mark.integration

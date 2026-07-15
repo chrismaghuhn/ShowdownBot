@@ -8,6 +8,7 @@ from showdown_bot.engine.belief.hypotheses import (
     hypothesis_from_state,
 )
 from showdown_bot.engine.log_parser import LogEvent
+from showdown_bot.engine.mega_reconcile import MegaReconcileReducer, ReducedLogEvent
 from showdown_bot.engine.state import BattleState
 
 
@@ -30,6 +31,7 @@ class BeliefTracker:
     book: SpreadBook
     hypotheses: dict[str, dict[str, SetHypothesis]] = field(default_factory=dict)
     speed_observations: list[tuple[str, str]] = field(default_factory=list)
+    _mega_reducer: MegaReconcileReducer = field(default_factory=MegaReconcileReducer)
 
     @classmethod
     def from_state(cls, state: BattleState, book: SpreadBook) -> "BeliefTracker":
@@ -54,21 +56,29 @@ class BeliefTracker:
             return
         self.hypotheses.setdefault(side, {})[slot] = hypothesis_from_state(mon, self.book)
 
-    def update(self, event: LogEvent) -> None:
+    def _apply_reduced(self, event: ReducedLogEvent) -> None:
         # Record move-order info before mutating state (Phase 2 speed inference).
-        if event.type == "move" and event.pokemon is not None:
+        if isinstance(event, LogEvent) and event.type == "move" and event.pokemon is not None:
             self.speed_observations.append((event.pokemon.side, event.pokemon.slot))
 
         self.state.apply_event(event)
 
-        if event.type == "switch" and event.pokemon is not None:
-            self._resync_slot(event.pokemon.side, event.pokemon.slot)
-        elif event.pokemon is not None:
-            self._resync_slot(event.pokemon.side, event.pokemon.slot)
+        pokemon = event.pokemon
+        if pokemon is not None:
+            self._resync_slot(pokemon.side, pokemon.slot)
+
+    def update(self, event: LogEvent) -> None:
+        # Never flushes: a pending detailschange may pair with a -mega that
+        # arrives on a later update() call. feed() defines the batch
+        # boundary and flushes at the end.
+        for reduced in self._mega_reducer.feed(event):
+            self._apply_reduced(reduced)
 
     def feed(self, events: list[LogEvent]) -> None:
         for event in events:
             self.update(event)
+        for reduced in self._mega_reducer.flush_pending():
+            self._apply_reduced(reduced)
 
     def hypotheses_for(self, side: str) -> dict[str, SetHypothesis]:
         return self.hypotheses.get(side, {})

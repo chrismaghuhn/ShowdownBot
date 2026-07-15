@@ -105,6 +105,59 @@ def test_likely_speed_reads_scarf_only_from_item_for_speed():
     assert oracle.likely_speed(mon, field, "p2", preset, None) == 100
 
 
+class NatureAwareBackend:
+    """Returns a distinct spe stat keyed by (species, nature, evs) so a test can
+    prove WHICH spread was actually selected, not just that some value came
+    back."""
+
+    def __init__(self, table: dict[tuple, int], default: int = 999):
+        self.table = table
+        self.default = default
+
+    def stats_batch(self, specs, *, gen=9):
+        out = []
+        for s in specs:
+            key = (s.species, s.nature, tuple(sorted(s.evs.items())))
+            out.append({"spe": self.table.get(key, self.default)})
+        return out
+
+
+def test_speed_oracle_opponent_range_resolves_post_mega_species_via_base_id():
+    """P1.2 integration: engine/speed.py's SpeedOracle.opponent_range calls
+    hypothesis_from_state(mon, book) to get the "likely" preset for its middle
+    (likely) speed estimate. For a post-Mega mon (species="Aerodactyl-Mega",
+    base_species_id="aerodactyl"), the book is keyed by base species id, so the
+    likely speed must reflect the committed "aerodactyl" spread's nature/evs,
+    not the book default -- proving evaluate/speed consumers get the correct
+    identity through the normal hypothesis_from_state call path."""
+    committed_offense = SpreadPreset(nature="Naive", evs={"spe": 100})
+    committed_defense = SpreadPreset(nature="Impish", evs={"hp": 100})
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadBook
+
+    book = SpreadBook(
+        default=SpeciesSpreads(
+            offense=SpreadPreset(nature="Hardy", evs={}),
+            defense=SpreadPreset(nature="Hardy", evs={}),
+        ),
+        species={"aerodactyl": SpeciesSpreads(offense=committed_offense, defense=committed_defense)},
+    )
+    backend = NatureAwareBackend(
+        table={
+            ("Aerodactyl-Mega", "Brave", (("spe", 0),)): 80,
+            ("Aerodactyl-Mega", "Naive", (("spe", 100),)): 130,  # the committed likely spread
+            ("Aerodactyl-Mega", "Jolly", (("spe", 252),)): 200,
+            # default-book values, if the lookup wrongly fell back to them:
+            ("Aerodactyl-Mega", "Hardy", ()): 999,
+        }
+    )
+    oracle = SpeedOracle(stats_backend=backend)
+    mon = PokemonState(species="Aerodactyl-Mega", base_species_id="aerodactyl")
+
+    rng = oracle.opponent_range(mon, FieldState(), "p2", book=book)
+
+    assert rng.likely == effective_speed(130)  # resolved the committed spread, not the 999 default
+
+
 def test_base_speed_is_cached():
     fb = FakeBackend(spe=100)
     oracle = SpeedOracle(stats_backend=fb)

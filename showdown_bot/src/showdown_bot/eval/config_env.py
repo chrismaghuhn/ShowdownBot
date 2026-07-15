@@ -176,7 +176,8 @@ def behavior_env(environ=None) -> dict[str, str]:
 
 def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=None,
                           model_hash=None, model_manifest_hash=None, movedata_hash=None,
-                          format_config_hash=None, calc_pin_hash=None) -> dict:
+                          format_config_hash=None, calc_pin_hash=None,
+                          itemdata_hash=None, speciesdata_hash=None) -> dict:
     """Assemble the effective-config manifest that ``make_config_hash`` hashes.
 
     ``env`` defaults to ``behavior_env()``. ``model_hash``/``model_manifest_hash`` are
@@ -188,7 +189,11 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
     config lineage even when the accuracy feature itself is off.
 
     ``format_config_hash`` / ``calc_pin_hash`` pin the resolved format yaml and vendored
-    ``@smogon/calc`` artifact (I4 §5). Included whenever provided by the caller."""
+    ``@smogon/calc`` artifact (I4 §5). Included whenever provided by the caller.
+
+    ``itemdata_hash`` / ``speciesdata_hash`` (I7a §14) pin ``config/items/itemdata.json``
+    and ``config/species/speciesdata.json`` -- Mega depends on both (megaStone mapping /
+    required_item). Included whenever provided by the caller."""
     manifest = {
         "agent": agent,
         "format_id": format_id,
@@ -206,17 +211,83 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
         manifest["format_config_hash"] = format_config_hash
     if calc_pin_hash is not None:
         manifest["calc_pin_hash"] = calc_pin_hash
+    if itemdata_hash is not None:
+        manifest["itemdata_hash"] = itemdata_hash
+    if speciesdata_hash is not None:
+        manifest["speciesdata_hash"] = speciesdata_hash
     return manifest
 
 
+def file_content_hash(path) -> str | None:
+    """sha1[:16] of a file's bytes, or None if it can't be read (T3f config_hash provenance).
+
+    Public/exported so every caller that needs a provenance file hash (the CLI's live
+    config_hash computation, a dedicated config-manifest freeze helper, ad-hoc scripts)
+    shares this one implementation instead of each keeping its own private copy."""
+    import hashlib
+    from pathlib import Path
+
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
+        return None
+
+
+def effective_config_manifest(
+    *, agent: str, format_id: str, env: dict[str, str] | None = None,
+    model_hash: str | None = None, model_manifest_hash: str | None = None,
+) -> dict:
+    """The single canonical config payload for ``(agent, format_id)`` -- exactly what
+    ``make_config_hash`` hashes into the run's effective ``config_hash`` (I7a-C P1.4).
+
+    This is the ONE place that assembles priors_hash/spreads_hash/movedata_hash plus
+    ``config_provenance_for_format``'s format/calc/item/species hashes into a
+    ``build_config_manifest`` payload. Both the CLI's live per-(agent, format) config_hash
+    cache and any dedicated config-manifest freeze helper MUST call this function rather
+    than re-deriving the same hashes locally -- a second, independently-written assembly is
+    exactly the drift risk this function exists to close.
+
+    ``env`` defaults to ``behavior_env()`` (matching ``build_config_manifest``'s own
+    default) when not provided."""
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.moves import movedata_path
+
+    priors_hash = spreads_hash = None
+    try:
+        cfg = load_format_config(format_id)
+        priors_hash = file_content_hash(cfg.meta_path("protect_priors"))
+        spreads_hash = file_content_hash(cfg.meta_path("default_spreads"))
+    except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
+        pass
+    movedata_hash = file_content_hash(movedata_path())
+    provenance = config_provenance_for_format(format_id)
+    return build_config_manifest(
+        agent=agent, format_id=format_id,
+        priors_hash=priors_hash, spreads_hash=spreads_hash, env=env,
+        model_hash=model_hash, model_manifest_hash=model_manifest_hash,
+        movedata_hash=movedata_hash,
+        format_config_hash=provenance["format_config_hash"],
+        calc_pin_hash=provenance["calc_pin_hash"],
+        itemdata_hash=provenance["itemdata_hash"],
+        speciesdata_hash=provenance["speciesdata_hash"],
+    )
+
+
 def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
-    """Format yaml + calc pin hashes for ``build_config_manifest``.
+    """Format yaml + calc pin + item/species data hashes for ``build_config_manifest``.
 
     Missing format yaml -> ``format_config_hash`` is None. Malformed yaml/schema
     errors propagate. Calc pin errors always propagate (§5.4 fail-closed).
+
+    ``itemdata_hash`` / ``speciesdata_hash`` are FAIL-CLOSED (I7a §14): they call
+    ``itemdata_content_hash()`` / ``speciesdata_content_hash()`` unguarded, so a stale
+    embedded generator hash (``ItemdataStaleError`` / ``SpeciesMetaStaleError``)
+    propagates straight out of this function -- there is no fallback to a raw file SHA.
     """
     from showdown_bot.engine.calc.pin import calc_pin_hash, format_config_hash
     from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.items import itemdata_content_hash
+    from showdown_bot.engine.species_meta import speciesdata_content_hash
 
     fmt_hash: str | None = None
     try:
@@ -227,4 +298,9 @@ def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
         fmt_hash = format_config_hash(cfg.source_path)
 
     pin = calc_pin_hash()
-    return {"format_config_hash": fmt_hash, "calc_pin_hash": pin}
+    return {
+        "format_config_hash": fmt_hash,
+        "calc_pin_hash": pin,
+        "itemdata_hash": itemdata_content_hash(),
+        "speciesdata_hash": speciesdata_content_hash(),
+    }

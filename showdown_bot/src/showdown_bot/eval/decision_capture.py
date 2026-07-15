@@ -97,8 +97,28 @@ def request_payload(request: BattleRequest) -> dict:
     return request.model_dump(mode="json", by_alias=True, exclude_none=False)
 
 
-def prepare_capture(state: BattleState | None, request: BattleRequest) -> PreparedCapture:
-    state_payload = observable_state_payload(state)
+def prepare_capture(
+    state: BattleState | None, request: BattleRequest, *, our_spreads: dict | None = None,
+) -> PreparedCapture:
+    """``our_spreads``, when the caller has it (the same packed-team knowledge the live
+    decision core uses), lets the capture seam apply the hero's own-team item truth
+    (``team.spreads.apply_own_team_knowledge``) to a PRIVATE deep copy of ``state`` before
+    serializing/hashing it. This closes a capture-boundary gap: gauntlet.handle_request
+    calls this BEFORE agent_choose's own apply_own_team_knowledge call ever runs on the
+    live state, so without this, the captured state_summary/hash would show item=None/
+    item_known=False even when the live decision correctly saw and acted on the real held
+    item. The caller's ``state`` is never mutated -- only the private copy is enriched,
+    and only that copy is serialized/hashed. ``request_hash`` is unaffected either way, as
+    it hashes only the canonical request payload."""
+    capture_state = state
+    if state is not None:
+        import copy
+
+        from showdown_bot.team.spreads import apply_own_team_knowledge
+
+        capture_state = copy.deepcopy(state)
+        apply_own_team_knowledge(capture_state, request, our_spreads)
+    state_payload = observable_state_payload(capture_state)
     req_payload = request_payload(request)
     if request.team_preview:
         phase = "team_preview"

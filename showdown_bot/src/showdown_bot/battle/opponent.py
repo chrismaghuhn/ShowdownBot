@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.engine.moves import MoveMeta, get_move_meta, to_id
+from showdown_bot.engine.spread_lookup import lookup_opp_set
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 from showdown_bot.engine.typechart import effectiveness
 
@@ -155,14 +156,20 @@ def _item_for_speed(mon, curated_items):
 
 def _opponent_speed(mon, field, opp_side, *, speed_oracle, book, opp_sets):
     """Resolver speed for an opponent mon: the realistic likely-set point for a
-    curated species (Scarf-aware), else the pessimistic opponent_range.max."""
+    curated species (Scarf-aware), else the pessimistic opponent_range.max.
+
+    Looks up the curated preset via ``lookup_opp_set`` (base-species-id aware),
+    not a raw ``to_id(mon.species)`` key, so an already-observed Mega evolution
+    (``mon.species`` = post-Mega display name, ``mon.base_species_id`` = the
+    pre-Mega base id that ``opp_sets`` is actually keyed by) still resolves to
+    its curated set instead of silently falling back to the pessimistic max."""
+    preset_spreads = lookup_opp_set(opp_sets, mon) if opp_sets else None
     use_likely = (
         os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0"
-        and opp_sets
-        and to_id(mon.species) in opp_sets
+        and preset_spreads is not None
     )
     if use_likely:
-        preset = opp_sets[to_id(mon.species)].defense
+        preset = preset_spreads.defense
         return speed_oracle.likely_speed(
             mon, field, opp_side, preset, _item_for_speed(mon, preset.items)
         )

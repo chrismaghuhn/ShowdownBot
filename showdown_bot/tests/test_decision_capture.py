@@ -20,6 +20,7 @@ from showdown_bot.eval.decision_capture import (
     prepare_capture,
     validate_trace_row,
 )
+from showdown_bot.engine.state import BattleState, PokemonState
 from showdown_bot.models.request import BattleRequest
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -70,6 +71,142 @@ def test_prepare_capture_forced_replacement_phase():
     request = BattleRequest.model_validate(data)
     capture = prepare_capture(None, request)
     assert capture.decision_phase == "forced_replacement"
+
+
+# ---------------------------------------------------------------------------
+# I7a-C capture-boundary fix: prepare_capture must reflect the hero's own-team
+# item truth (apply_own_team_knowledge), not just what merge_request populated.
+# Root cause: gauntlet.handle_request calls prepare_capture(state, req) BEFORE
+# agent_choose -> _choose_best -> apply_own_team_knowledge ever runs on `state`,
+# so the captured state_summary/hash saw item=None/item_known=False even when
+# the live decision correctly knew (and acted on) the real held item.
+# ---------------------------------------------------------------------------
+
+
+def _aerodactyl_own_side_request(*, item: str | None) -> BattleRequest:
+    poke = {
+        "ident": "p1: Aerodactyl", "details": "Aerodactyl, L50", "condition": "100/100",
+        "active": True, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        "moves": ["rockslide"], "baseTypes": ["Rock", "Flying"],
+    }
+    if item is not None:
+        poke["item"] = item
+    return BattleRequest.model_validate({
+        "active": [{"moves": [
+            {"move": "Rock Slide", "id": "rockslide", "pp": 8, "maxpp": 8,
+             "target": "normal", "disabled": False},
+        ], "canMegaEvo": True}],
+        "side": {"name": "Player1", "id": "p1", "pokemon": [poke]},
+        "rqid": 1,
+    })
+
+
+def _aerodactyl_state() -> BattleState:
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Aerodactyl", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    return st
+
+
+def test_prepare_capture_enriches_own_side_item_from_request():
+    """Counterexample for the capture-boundary defect: the request already carries the
+    hero's own item (Showdown always sends it for our own side), so a correctly-scoped
+    capture must reflect it -- not merely what the pre-enrichment live state happened to
+    have observed via protocol reveal."""
+    request = _aerodactyl_own_side_request(item="aerodactylite")
+    state = _aerodactyl_state()
+
+    capture = prepare_capture(state, request)
+
+    mon = capture.state_summary["sides"]["p1"]["a"]
+    assert mon["item"] == "aerodactylite"
+    assert mon["item_known"] is True
+
+
+def test_prepare_capture_enriches_own_side_item_from_our_spreads_when_request_omits_it():
+    """When the request's item field is genuinely absent (Rule 1 has nothing to assert),
+    the caller's packed-team knowledge (Rule 3 fallback in apply_own_team_knowledge) must
+    still be available to the capture seam, exactly as it is to the live decision."""
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+
+    request = _aerodactyl_own_side_request(item=None)
+    state = _aerodactyl_state()
+    our_spreads = {
+        "aerodactyl": SpeciesSpreads(
+            offense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+            defense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+        ),
+    }
+
+    capture = prepare_capture(state, request, our_spreads=our_spreads)
+
+    mon = capture.state_summary["sides"]["p1"]["a"]
+    assert mon["item"] == "Aerodactylite"
+    assert mon["item_known"] is True
+
+
+def test_prepare_capture_does_not_mutate_caller_state():
+    """The enrichment must happen on a private copy: the caller's live BattleState (the
+    SAME object the real decision core is about to mutate itself, via its own
+    apply_own_team_knowledge call inside _choose_best) must be untouched by capture."""
+    request = _aerodactyl_own_side_request(item="aerodactylite")
+    state = _aerodactyl_state()
+    before = copy.deepcopy(state)
+
+    capture = prepare_capture(state, request)
+
+    assert state == before
+    assert state.sides["p1"]["a"].item is None
+    assert state.sides["p1"]["a"].item_known is False
+    # Sanity: the returned capture DID see the enrichment (proves the copy, not a no-op).
+    assert capture.state_summary["sides"]["p1"]["a"]["item_known"] is True
+
+
+def test_prepare_capture_without_our_spreads_kwarg_is_backward_compatible():
+    """Every existing 2-positional-arg call site (tests and production) must keep working
+    unchanged -- our_spreads is optional and keyword-only."""
+    request = _aerodactyl_own_side_request(item="aerodactylite")
+    state = _aerodactyl_state()
+
+    capture = prepare_capture(state, request)  # no our_spreads kwarg at all
+
+    assert capture.state_summary["sides"]["p1"]["a"]["item"] == "aerodactylite"
+
+
+def test_prepare_capture_request_hash_unchanged_by_our_spreads():
+    """request_hash is defined as a hash of ONLY the canonical request payload -- supplying
+    our_spreads (which affects nothing about the request itself) must not perturb it."""
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+
+    request = _aerodactyl_own_side_request(item=None)
+    state = _aerodactyl_state()
+    our_spreads = {
+        "aerodactyl": SpeciesSpreads(
+            offense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+            defense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+        ),
+    }
+
+    without = prepare_capture(state, request)
+    with_spreads = prepare_capture(state, request, our_spreads=our_spreads)
+
+    assert without.request_hash == with_spreads.request_hash
+    # Sanity: the state-dependent hash DOES change (proves our_spreads actually did something).
+    assert without.observable_state_hash != with_spreads.observable_state_hash
+
+
+def test_prepare_capture_opponent_items_remain_hidden():
+    """Only the requesting side's own legitimate private knowledge may be enriched --
+    apply_own_team_knowledge is scoped to request.side.id, so the opponent's item must
+    stay exactly as unknown as it was before capture."""
+    request = _aerodactyl_own_side_request(item="aerodactylite")
+    state = _aerodactyl_state()
+
+    capture = prepare_capture(state, request)
+
+    opp_mon = capture.state_summary["sides"]["p2"]["a"]
+    assert opp_mon["item"] is None
+    assert opp_mon["item_known"] is False
 
 
 @pytest.mark.parametrize(

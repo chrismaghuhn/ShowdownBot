@@ -7,7 +7,8 @@ import yaml
 
 from showdown_bot.engine.calc.models import CalcMon
 from showdown_bot.engine.format_config import FormatConfig
-from showdown_bot.engine.state import BattleState, PokemonState
+from showdown_bot.engine.spread_lookup import spread_lookup_key
+from showdown_bot.engine.state import BattleState, PokemonState, to_id
 
 # Mode -> role mapping, fixed up front so game_mode (Task 7) cannot invert it:
 #   "offense" preset = max offense + min defense (hits hardest / takes most).
@@ -38,7 +39,17 @@ class SpreadBook:
     species: dict[str, SpeciesSpreads] = field(default_factory=dict)
 
     def get(self, species: str) -> SpeciesSpreads:
-        return self.species.get(species, self.default)
+        """Lookup is to_id-normalized (case/format-insensitive): ``self.species``
+        keys are the display-form names from the YAML source (e.g.
+        "Landorus-Therian"), while callers may pass a raw species string, a
+        to_id-normalized id, or (via ``hypothesis_from_state``) a mon's
+        pre-Mega ``base_species_id``. Normalizing both sides here is what lets
+        a post-Mega mon's base species resolve against its pre-Mega book entry."""
+        key = to_id(species)
+        for name, spreads in self.species.items():
+            if to_id(name) == key:
+                return spreads
+        return self.default
 
 
 def _preset_from_dict(data: dict) -> SpreadPreset:
@@ -129,7 +140,7 @@ def hypothesis_from_state(mon: PokemonState, book: SpreadBook) -> SetHypothesis:
         tera_type=mon.tera_type if mon.terastallized else None,
         boosts=dict(mon.boosts),
         status=mon.status,
-        spreads=book.get(mon.species),
+        spreads=book.get(spread_lookup_key(mon)),
     )
 
 

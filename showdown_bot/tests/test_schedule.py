@@ -250,3 +250,23 @@ def test_invalid_panel_split_fails_fast(tmp_path):
     body = _VALID_WITH_SPLIT.replace("panel_split: dev", "panel_split: bogus")
     with pytest.raises(ScheduleError):
         load_schedule(_write(tmp_path, body))
+
+
+# --- I7a-C Task 4: committed I7a Mega smoke schedule (2 battles) -------------------------
+
+def test_i7a_mega_smoke_schedule_loads_and_shapes():
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]  # tests/ -> showdown_bot/ -> <repo>
+    schedule_path = (
+        repo_root / "config" / "eval" / "schedules" / "champions_v0_smoke_i7a_2battle.yaml"
+    )
+    sched = load_schedule(str(schedule_path))
+
+    assert len(sched.rows) == 2
+    assert sched.panel_hash == "aac1ea30446fde88"
+    assert all(r.format_id == "gen9championsvgc2026regma" for r in sched.rows)
+    assert [r.seed_index for r in sched.rows] == [0, 1]
+    assert isinstance(sched.schedule_hash, str) and sched.schedule_hash  # non-empty, deterministic
+    # Re-loading must reproduce the same hash (determinism, not just non-empty).
+    assert load_schedule(str(schedule_path)).schedule_hash == sched.schedule_hash
