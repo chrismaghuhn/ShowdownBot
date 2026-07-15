@@ -606,6 +606,58 @@ def test_capture_on_writes_bound_row_without_changing_dispatch(monkeypatch, deci
 
 
 # ---------------------------------------------------------------------------
+# I7a-C capture-boundary fix: handle_request must thread self.our_spreads into
+# prepare_capture, so the captured state reflects the hero's own-team item
+# truth exactly as the live decision (_choose_best's own
+# apply_own_team_knowledge call) does -- not merely what protocol-driven
+# merge_request populated before agent_choose ever runs.
+# ---------------------------------------------------------------------------
+
+
+def test_handle_request_passes_our_spreads_to_prepare_capture(monkeypatch, decision_fixture):
+    import showdown_bot.client.gauntlet as gauntlet
+    import showdown_bot.eval.decision_capture as decision_capture_mod
+    from showdown_bot.eval.decision_capture import BattleTraceContext
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    context = BattleTraceContext(
+        battle_id="battle-x", seed_index=0, config_id="heuristic",
+        config_hash="cfg-hash", schedule_hash="sched-hash",
+        format_id="gen9vgc2025regi", git_sha="a" * 40,
+    )
+    writer = _FakeCaptureWriter()
+    # A sentinel that is truthy but matches no real species -- proves identity/threading
+    # without needing apply_own_team_knowledge to actually find a match.
+    sentinel_spreads = {"__sentinel_species__": None}
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"], packed_team="",
+        decision_trace_writer=writer, decision_trace_context=context,
+    )
+    client.our_spreads = sentinel_spreads
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(gauntlet, "agent_choose", lambda *args, **kwargs: f"/choose default|{req.rqid}")
+
+    calls: list = []
+    real_prepare_capture = decision_capture_mod.prepare_capture
+
+    def _spy(state, request, *, our_spreads=None):
+        calls.append(our_spreads)
+        return real_prepare_capture(state, request, our_spreads=our_spreads)
+
+    monkeypatch.setattr(decision_capture_mod, "prepare_capture", _spy)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert calls == [sentinel_spreads]
+    # Threading our_spreads through capture must not perturb the actual dispatch: the
+    # enrichment happens on a private capture-only copy, never on the live `state` that
+    # agent_choose (and its own apply_own_team_knowledge call) sees.
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]
+
+
+# ---------------------------------------------------------------------------
 # 2c-Slice-0b Task 3: full-fidelity aggregation-trace sidecar wired into
 # handle_request. A SECOND, INDEPENDENT optional writer/context from decision
 # capture above (Task 4) -- same off-by-default discipline and the same

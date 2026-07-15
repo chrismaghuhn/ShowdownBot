@@ -303,3 +303,100 @@ def test_bind_protocol_mega_pair_fails_closed_on_log_hash_mismatch():
             stone_display="Charizardite Y",
             expected_normalized_log_sha256="0" * 64,  # wrong hash
         )
+
+
+# ---------------------------------------------------------------------------
+# I7a-C capture-boundary fix integration: a realistic pre-click Aerodactyl row
+# produced from the ENRICHED prepare_capture (not a hand-rolled dict) plus a
+# later Aerodactyl-Mega row must let derive_mega_evidence return evidence.
+# This is the exact live-smoke failure mode the fix addresses: before the fix,
+# prepare_capture's state_summary showed item=None/item_known=False for the
+# hero's own Aerodactyl even though the request carried "aerodactylite" and
+# the live decision correctly chose Mega -- derive_mega_evidence raised
+# MegaEvidenceError instead of returning evidence.
+# ---------------------------------------------------------------------------
+
+
+def _capture_row(*, decision_index, chosen_mega_slot, actual_choose_string,
+                  chosen_candidate_key, species_b, item):
+    from showdown_bot.eval.decision_capture import prepare_capture
+    from showdown_bot.engine.state import BattleState, PokemonState
+    from showdown_bot.models.request import BattleRequest
+
+    poke = {
+        "ident": "p1: Aerodactyl", "details": f"{species_b}, L50", "condition": "100/100",
+        "active": True, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        "moves": ["rockslide"], "baseTypes": ["Rock", "Flying"],
+    }
+    if item is not None:
+        poke["item"] = item
+    request = BattleRequest.model_validate({
+        "active": [
+            {"moves": [{"move": "Sneasler move", "id": "closecombat", "pp": 8, "maxpp": 8,
+                        "target": "normal", "disabled": False}], "canMegaEvo": False},
+            {"moves": [{"move": "Rock Slide", "id": "rockslide", "pp": 8, "maxpp": 8,
+                        "target": "normal", "disabled": False}], "canMegaEvo": True},
+        ],
+        "side": {"name": "Player1", "id": "p1", "pokemon": [
+            {"ident": "p1: Sneasler", "details": "Sneasler, L50", "condition": "100/100",
+             "active": True, "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+             "moves": ["closecombat"], "baseTypes": ["Fighting", "Poison"]},
+            poke,
+        ]},
+        "rqid": decision_index + 1,
+    })
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(species="Sneasler", hp=100, max_hp=100)
+    state.sides["p1"]["b"] = PokemonState(species=species_b, hp=100, max_hp=100)
+    state.sides["p2"]["a"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+
+    prepared = prepare_capture(state, request)
+    return {
+        "battle_id": "b0",
+        "decision_index": decision_index,
+        "turn_number": decision_index + 1,
+        "decision_phase": "regular_turn",
+        "chosen_mega_slot": chosen_mega_slot,
+        "actual_choose_string": actual_choose_string,
+        "chosen_candidate_key": chosen_candidate_key,
+        "state_summary": prepared.state_summary,
+        "our_side": "p1",
+    }
+
+
+def test_derive_mega_evidence_succeeds_on_enriched_pre_click_capture_row():
+    pre_click = _capture_row(
+        decision_index=0, chosen_mega_slot=1,
+        actual_choose_string="/choose move 1 2, move 4 2 mega|1",
+        chosen_candidate_key="k1", species_b="Aerodactyl", item="aerodactylite",
+    )
+    post_click = _capture_row(
+        decision_index=1, chosen_mega_slot=None, actual_choose_string="/choose move 1 2, move 4|2",
+        chosen_candidate_key=None, species_b="Aerodactyl-Mega", item="aerodactylite",
+    )
+
+    evidence = derive_mega_evidence([pre_click, post_click], our_side="p1")
+
+    assert evidence is not None
+    assert evidence.mega_decision_index == 0
+    assert evidence.post_mega_decision_index == 1
+    assert evidence.post_mega_species == "Aerodactyl-Mega"
+
+
+def test_derive_mega_evidence_still_fails_closed_without_the_capture_fix():
+    """Regression pin: WITHOUT item enrichment (item=None), the pre-click row cannot
+    verify the claimed Mega form at all -- this is the exact failure the capture-boundary
+    fix eliminates for a real live capture, and it must remain a hard, fail-closed error
+    (not silently accepted) for a genuinely unenriched capture."""
+    pre_click = _capture_row(
+        decision_index=0, chosen_mega_slot=1,
+        actual_choose_string="/choose move 1 2, move 4 2 mega|1",
+        chosen_candidate_key="k1", species_b="Aerodactyl", item=None,
+    )
+    post_click = _capture_row(
+        decision_index=1, chosen_mega_slot=None, actual_choose_string="/choose move 1 2, move 4|2",
+        chosen_candidate_key=None, species_b="Aerodactyl-Mega", item=None,
+    )
+
+    with pytest.raises(MegaEvidenceError, match="item"):
+        derive_mega_evidence([pre_click, post_click], our_side="p1")

@@ -546,7 +546,7 @@ class _Client:
         if self.decision_trace_writer is not None:
             from showdown_bot.eval.decision_capture import prepare_capture
 
-            prepared_capture = prepare_capture(state, req)
+            prepared_capture = prepare_capture(state, req, our_spreads=self.our_spreads)
         # Client-owned decision deps (2b-2.5a Kaggle-OOM root-cause fix): built once
         # per battle (heuristic/max_damage/heuristic_reranker only) and threaded into
         # every decision so the core reuses ONE calc instead of spawning a fresh Node
