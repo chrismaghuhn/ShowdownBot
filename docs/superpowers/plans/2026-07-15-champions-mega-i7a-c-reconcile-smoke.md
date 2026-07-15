@@ -415,6 +415,29 @@ Set-Content -NoNewline "$env:TEMP\task17a_head_i7a.txt" $env:TASK17A_HEAD
 
 **Files:** frozen eval directory, report, ROADMAP, PROJECT_INDEX.
 
+**P1.3/P1.4 hardening (Codex I7a-C review, 2026-07-15):** the external review found this
+task's original Step 3 evidence bar ("at least one evaluated Mega-capable species is
+observed") too weak -- a run could pass without the bot ever actually clicking Mega. Do
+NOT start this task until:
+
+- `showdown_bot/src/showdown_bot/eval/mega_evidence.py`'s `derive_mega_evidence` is used to
+  gate the verdict (requires an observed `chosen_mega_slot`, a `/choose` string containing
+  `"mega"`, and a later non-team-preview decision whose `state_summary` proves the bot's
+  own slot rebuilt into its post-Mega species -- see that module's docstring for exactly
+  what it does and does not prove);
+- `showdown_bot/src/showdown_bot/eval/config_manifest_freeze.py`'s
+  `write_config_manifest_sidecar` is used to freeze `results.jsonl.config-manifest.json`
+  (calls the same `effective_config_manifest` the CLI's live `config_hash` uses -- no
+  ad-hoc re-derivation).
+
+**A prior live-smoke run already exists** at
+`data/eval/champions-panel-v0/smoke-i7a-mega/` (untracked). Its manifest records
+`git_sha=cb1934e233044f9195ffd8d0ce8da6ffd2c1c019` -- the schedule commit, BEFORE the
+P1.1 (`8932786`) and P1.2 (`838ef2c`) reconciliation/belief fixes existed. **That run does
+not count as evidence for this task** (pre-fix code, and it predates this hardened
+evidence gate regardless) and must not be cited, frozen, or built upon. Delete or ignore it
+and start Step 1 fresh only after explicit sign-off to run a live smoke.
+
 - [ ] **Step 1: Start one fresh Showdown server outside the repository**
 
 Use the pinned server checkout and a single process. Record its PID in the local run log; do not commit server data.
@@ -443,18 +466,37 @@ python -m showdown_bot.cli eval-report `
   --output-dir "..\data\eval\champions-panel-v0\smoke-i7a-mega"
 ```
 
-Assert 2/2 rows, zero crashes/invalid choices, every row `dirty=false`, every `git_sha == $env:TASK17A_HEAD`, v3 trace rows load, at least one evaluated Mega-capable species is observed, and every active Scovillain slot has `mega_evolve=false` in all evaluated candidate keys. The smoke is inconclusive if no Mega-capable non-Scovillain candidate is exposed; do not silently call that PASS.
+Assert 2/2 rows, zero crashes/invalid choices, every row `dirty=false`, every `git_sha == $env:TASK17A_HEAD`, v3 trace rows load, and every active Scovillain slot has `mega_evolve=false` in all evaluated candidate keys.
+
+Then run `derive_mega_evidence` (per battle, `our_side` = hero's side) over the loaded v3
+trace rows. If it raises `MegaEvidenceError`, that is a real defect -- stop and fix it, do
+not paper over it. If it returns `None` for every battle, the smoke is **INCONCLUSIVE**:
+do not silently retry with other seeds, do not change any production threshold or scoring
+to force a Mega click, and do not write `PASS`. Only if it returns a `MegaEvidence` for at
+least one battle may the verdict proceed to the remaining gates.
+
+Write the derived evidence (not raw logs) to `mega-evidence.json`: `battle_id`,
+`mega_decision_index`, `turn_number`, `mega_slot`, `chosen_candidate_key`,
+`post_mega_decision_index`, `post_mega_species`, plus the bound `config_hash`/`git_sha`
+from that battle's result row and the sha256 of the decision-trace file it was derived
+from. No raw room-log content.
 
 - [ ] **Step 4: Freeze only reproducible non-raw evidence and update docs**
 
-Write `task17a_head.txt` from `$env:TASK17A_HEAD` only after the run. Set committed `room_raw_path` values to null without changing normalized log hashes. Commit results, manifest, config manifest, seeds, trace, report JSON/MD, HEAD artifact, verdict note, ROADMAP, and PROJECT_INDEX. Do not commit `_local`, raw rooms, client logs, server data, or helper scripts.
+Write `task17a_head.txt` from `$env:TASK17A_HEAD` only after the run. Set committed `room_raw_path` values to null without changing normalized log hashes.
 
-Verdict language is exactly: `I7a OWN-MEGA SAFETY PASS` only if every gate passes; otherwise name the failed axis. Always include `NO I7b · NO STRENGTH CLAIM`.
+Freeze the config manifest with `write_config_manifest_sidecar` (`eval/config_manifest_freeze.py`) -- do not hand-write `results.jsonl.config-manifest.json`; it must be produced by that function so it is guaranteed to rehash to every row's `config_hash`.
+
+**After the `room_raw_path=null` mutation** (or any other post-hoc edit to a frozen result row), re-run result validation, regenerate `eval-report`, and re-verify the `write_config_manifest_sidecar` binding (its hash check will itself fail closed if the mutation altered anything hashed) -- only commit after that re-verification passes.
+
+Commit results, manifest, config manifest, seeds, trace, `mega-evidence.json`, report JSON/MD, HEAD artifact, verdict note, ROADMAP, and PROJECT_INDEX. Do not commit `_local`, raw rooms, client logs, server data, or helper scripts.
+
+Verdict language is exactly: `I7a OWN-MEGA SAFETY PASS` only if every gate passes AND `derive_mega_evidence` returned evidence for at least one battle; otherwise name the failed axis, or write `I7a OWN-MEGA SAFETY INCONCLUSIVE — no full Mega path observed` if every other gate passed but no evidence was derived. Always include `NO I7b · NO STRENGTH CLAIM`.
 
 - [ ] **Step 5: Re-run frozen checks and commit evidence**
 
 ```powershell
-python -m pytest tests/i7a tests/test_decision_capture.py tests/test_candidate_identity.py -q
+python -m pytest tests/i7a tests/test_decision_capture.py tests/test_candidate_identity.py tests/test_mega_evidence.py tests/test_config_manifest_freeze.py -q
 git diff --check
 git status --short
 git add ..\data\eval\champions-panel-v0\smoke-i7a-mega ..\reports\champions-panel-v0-i7a-mega-smoke.md ..\docs\ROADMAP.md ..\docs\PROJECT_INDEX.md
@@ -468,5 +510,6 @@ git commit -m "eval(champions): record I7a own-Mega safety smoke"
 - Item conflict restores species, base id, types, ability, item knowledge, and side-spend state.
 - Config provenance includes verified embedded item/species data hashes at every actual manifest caller.
 - Full suite passes before smoke.
-- Frozen smoke has 2/2 clean result rows, zero invalid/crash, v3 traces, explicit Scovillain fail-closed evidence, and no committed raw logs.
+- Frozen smoke has 2/2 clean result rows, zero invalid/crash, v3 traces, explicit Scovillain fail-closed evidence, no committed raw logs, and `derive_mega_evidence` returned a `MegaEvidence` (not `None`) for at least one battle -- otherwise the verdict is INCONCLUSIVE, not PASS.
+- `results.jsonl.config-manifest.json` was written by `write_config_manifest_sidecar` (not hand-authored) and its hash matches every result row's `config_hash`.
 - No I7b, latency-budget, or Strength claim is introduced.
