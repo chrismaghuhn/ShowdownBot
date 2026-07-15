@@ -1,0 +1,19 @@
+version: champions_v0
+panel_hash: aac1ea30446fde88
+rows:
+- format_id: gen9championsvgc2026regma
+  hero_team_path: teams/fixed_champions_v0.txt
+  opp_policy: heuristic
+  opp_team_path: teams/panel_champions_v0/goodstuff.txt
+  seed_index: 0
+  hero_team_hash: 1d3a4cf5a4042532
+  opp_team_hash: 0054b6894af7215a
+  panel_split: dev
+- format_id: gen9championsvgc2026regma
+  hero_team_path: teams/fixed_champions_v0.txt
+  opp_policy: max_damage
+  opp_team_path: teams/panel_champions_v0/rain_offense.txt
+  seed_index: 1
+  hero_team_hash: 1d3a4cf5a4042532
+  opp_team_hash: e0c96fa0cabf1def
+  panel_split: heldout
