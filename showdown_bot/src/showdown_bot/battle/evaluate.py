@@ -22,6 +22,7 @@ from showdown_bot.engine.belief.hypotheses import (
 from showdown_bot.engine.calc.models import DamageRequest
 from showdown_bot.engine.calc_profile import DEFAULT_CALC_PROFILE, CalcProfile
 from showdown_bot.engine.moves import hit_probability
+from showdown_bot.engine.spread_lookup import lookup_opp_set, lookup_our_spreads
 from showdown_bot.engine.state import BattleState, FieldState, to_id
 
 _WEATHER_MAP = {
@@ -226,10 +227,14 @@ class DamageModel:
         for side, slots in state.sides.items():
             for slot, mon in slots.items():
                 hyp = hypothesis_from_state(mon, book)
-                if side == our_side and our_spreads and mon.species in our_spreads:
-                    hyp.spreads = our_spreads[mon.species]
-                elif side == opp_side and opp_sets and to_id(mon.species) in opp_sets:
-                    hyp.spreads = opp_sets[to_id(mon.species)]
+                if side == our_side and our_spreads:
+                    preset = lookup_our_spreads(our_spreads, mon)
+                    if preset is not None:
+                        hyp.spreads = preset
+                elif side == opp_side and opp_sets:
+                    preset = lookup_opp_set(opp_sets, mon)
+                    if preset is not None:
+                        hyp.spreads = preset
                 self.hyps[(side, slot)] = hyp
 
     def _request(self, action: PlannedAction, target_key: SlotId) -> DamageRequest:
