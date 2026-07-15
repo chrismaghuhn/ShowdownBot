@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from showdown_bot.engine.belief.hypotheses import OFFENSE, SpreadBook, hypothesis_from_state
 from showdown_bot.engine.calc.models import CalcMon
 from showdown_bot.engine.calc_profile import DEFAULT_CALC_PROFILE, CalcProfile
+from showdown_bot.engine.spread_lookup import lookup_opp_set, lookup_our_spreads
 from showdown_bot.engine.state import FieldState, PokemonState
 
 # Boost-stage multiplier for Speed (same table as other stats).
@@ -69,6 +70,10 @@ class SpeedRange:
     min: int
     likely: int
     max: int
+
+
+class MissingMegaSpreadError(RuntimeError):
+    """Raised when an own-side mega projection lacks a spread for base_species_id."""
 
 
 class SpeedOracle:
@@ -141,3 +146,32 @@ class SpeedOracle:
         spe_likely = effective_speed(base_likely, **mods)
         spe_max = effective_speed(base_max, **{**mods, "scarf": True})
         return SpeedRange(min=spe_min, likely=spe_likely, max=spe_max)
+
+    def speed_for_species(
+        self,
+        *,
+        species_name: str,
+        base_species_id: str,
+        side: str,
+        mon: PokemonState,
+        field: FieldState,
+        our_spreads: dict | None,
+        opp_sets: dict | None,
+        book: SpreadBook | None,
+        is_ours: bool,
+    ) -> int:
+        if is_ours:
+            preset = lookup_our_spreads(our_spreads, mon)
+            if preset is None:
+                raise MissingMegaSpreadError(base_species_id)
+            base = self._base_speed(species_name, preset.offense.nature, preset.offense.evs)
+            return effective_speed_from_state(base, mon, field, side)
+        hyp = hypothesis_from_state(mon, book) if book is not None else None
+        offense_preset = hyp.spreads.offense if hyp and hyp.spreads else None
+        if offense_preset is None and opp_sets is not None:
+            spreads = lookup_opp_set(opp_sets, mon)
+            offense_preset = spreads.offense if spreads else None
+        if offense_preset is None:
+            raise MissingMegaSpreadError(base_species_id)
+        base = self._base_speed(species_name, offense_preset.nature, offense_preset.evs)
+        return effective_speed_from_state(base, mon, field, side)
