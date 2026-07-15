@@ -284,6 +284,28 @@ def v2_trace_row(trace_context, prepared, capture_fixture, decision_fixture):
     )
 
 
+@pytest.fixture
+def v2_only_trace_row(v2_trace_row):
+    """A genuinely v2-schema row.
+
+    ``v2_trace_row`` is built via ``build_trace_row``, which (since Task 1's
+    v3 migration) always emits a v3-schema row -- despite the fixture's name.
+    This fixture derives a row that actually dispatches to ``_validate_v2_row``
+    (not ``_validate_v3_row``): force ``trace_schema_version`` back to v2 and
+    drop ``chosen_mega_slot``, which is not a recognized v2 field. The
+    candidate_key strings retain their v2-key-format ``mega_evolve`` field,
+    but ``_validate_v2_row`` treats candidate_key as an opaque non-empty
+    string (schema-shape enforcement is v3-only via
+    ``_validate_candidate_key_v2``), so this is still exercising
+    ``_validate_v2_row``'s own chosen_rank/chosen_candidate_id/tera_slot-type
+    checks, which is what the tests below need.
+    """
+    row = dict(v2_trace_row)
+    row["trace_schema_version"] = TRACE_SCHEMA_VERSION_V2
+    del row["chosen_mega_slot"]
+    return row
+
+
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
@@ -292,15 +314,15 @@ def v2_trace_row(trace_context, prepared, capture_fixture, decision_fixture):
         ("chosen_tera_slot", True, "chosen_tera_slot must be null or int"),
     ],
 )
-def test_validate_v2_row_rejects_inconsistent_chosen_fields(v2_trace_row, field, value, match):
-    row = dict(v2_trace_row)
+def test_validate_v2_row_rejects_inconsistent_chosen_fields(v2_only_trace_row, field, value, match):
+    row = dict(v2_only_trace_row)
     row[field] = value
     with pytest.raises(DecisionCaptureError, match=match):
         validate_trace_row(row)
 
 
-def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_trace_row):
-    row = dict(v2_trace_row)
+def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_only_trace_row):
+    row = dict(v2_only_trace_row)
     row["chosen_rank"] = 999
     path = tmp_path / "bad.jsonl"
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")
@@ -308,8 +330,8 @@ def test_load_decision_trace_rejects_v2_row_with_wrong_chosen_rank(tmp_path, v2_
         load_decision_trace(path)
 
 
-def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_trace_row):
-    row = dict(v2_trace_row)
+def test_load_decision_trace_rejects_v2_row_with_bool_tera_slot(tmp_path, v2_only_trace_row):
+    row = dict(v2_only_trace_row)
     row["chosen_tera_slot"] = True
     path = tmp_path / "bad.jsonl"
     path.write_text(json.dumps(row) + "\n", encoding="utf-8")

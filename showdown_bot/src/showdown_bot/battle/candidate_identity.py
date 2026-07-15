@@ -42,14 +42,7 @@ def joint_action_key(ja: JointAction) -> str:
 
 
 def _slot_payload_v2(sa: SlotAction) -> dict:
-    return {
-        "kind": sa.kind,
-        "move_index": sa.move_index,
-        "target": sa.target,
-        "target_ident": sa.target_ident,
-        "terastallize": sa.terastallize,
-        "mega_evolve": sa.mega_evolve,
-    }
+    return {**_slot_payload(sa), "mega_evolve": sa.mega_evolve}
 
 
 def joint_action_key_v2(ja: JointAction) -> str:
