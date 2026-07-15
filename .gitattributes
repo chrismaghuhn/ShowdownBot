@@ -40,3 +40,7 @@ data/eval/2b4/** -text
 # test_report_matches_golden. The reporting code writes LF (newline="\n"), so CRLF
 # rewriting on checkout would break the comparison — keep them LF-stable.
 showdown_bot/tests/generalisation/golden/** -text
+
+# Pinned calc manifest is hashed byte-for-byte by calc_pin_hash(). core.autocrlf on
+# Windows would rewrite checkout to CRLF and drift the pin hash — force LF.
+showdown_bot/tools/calc/PINNED_CALC.json text eol=lf
