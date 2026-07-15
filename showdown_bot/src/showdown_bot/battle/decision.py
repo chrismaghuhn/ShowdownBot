@@ -183,6 +183,38 @@ def _map_target(slot_action: SlotAction, meta, our_side: str, opp_side: str, my_
     return (opp_side, "a")
 
 
+def _planned_speed_for_slot(
+    *,
+    active_index: int,
+    actives: list,
+    state: BattleState,
+    our_side: str,
+    speed_oracle: SpeedOracle | None,
+    planned_speed_overrides_by_slot: dict[int, int] | None,
+) -> int:
+    """Speed to stamp on this slot's ``PlannedAction`` this turn.
+
+    An explicit override (post-Mega ``speed_for_species`` result, keyed by
+    active index) always wins -- that's how Mega evaluation contexts inject
+    the projected form's speed (spec Sec.5.2: move order after Mega uses
+    POST-Mega speed, not the request's pre-Mega ``stats["spe"]``). Absent an
+    override, this is byte-identical to the inline logic ``_plan_my_actions``
+    used before this helper existed.
+    """
+    overrides = planned_speed_overrides_by_slot or {}
+    if active_index in overrides:
+        return int(overrides[active_index])
+    base_spe = (
+        int(actives[active_index].stats.get("spe", 0))
+        if active_index < len(actives)
+        else 0
+    )
+    mon = state.side(our_side).get(_SLOTS[active_index])
+    if speed_oracle is not None and mon is not None:
+        return speed_oracle.our_speed(base_spe, mon, state.field, our_side)
+    return base_spe
+
+
 def _plan_my_actions(
     req: BattleRequest,
     ja: JointAction,
@@ -191,19 +223,17 @@ def _plan_my_actions(
     our_side: str,
     opp_side: str,
     speed_oracle: SpeedOracle | None,
+    planned_speed_overrides_by_slot: dict[int, int] | None = None,
 ) -> list[PlannedAction]:
     actives = _active_pokemon(req)
     plans: list[PlannedAction] = []
     for i, sa in enumerate((ja.slot0, ja.slot1)):
         slot = _SLOTS[i]
-        base_spe = 0
-        if i < len(actives):
-            base_spe = int(actives[i].stats.get("spe", 0))
-        mon = state.side(our_side).get(slot)
-        if speed_oracle is not None and mon is not None:
-            speed = speed_oracle.our_speed(base_spe, mon, state.field, our_side)
-        else:
-            speed = base_spe
+        speed = _planned_speed_for_slot(
+            active_index=i, actives=actives, state=state, our_side=our_side,
+            speed_oracle=speed_oracle,
+            planned_speed_overrides_by_slot=planned_speed_overrides_by_slot,
+        )
 
         if sa.kind == "pass":
             plans.append(PlannedAction(our_side, slot, "pass", speed=speed, is_ours=True))
@@ -223,7 +253,7 @@ def _plan_my_actions(
         plans.append(
             PlannedAction(
                 our_side, slot, kind, speed=speed, move=meta, target=target,
-                is_ours=True, is_tera=sa.terastallize,
+                is_ours=True, is_tera=sa.terastallize, is_mega=sa.mega_evolve,
             )
         )
     return plans
