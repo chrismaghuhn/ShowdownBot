@@ -8,11 +8,15 @@ def format_slot_action(action: SlotAction) -> str:
         return "pass"
     if action.kind == "switch":
         return f"switch {action.target_ident}"
+    if action.mega_evolve and action.terastallize:
+        raise ValueError("illegal dual overlay: mega_evolve and terastallize")
     parts = ["move", str(action.move_index)]
     if action.target is not None:
         parts.append(str(action.target))
     if action.terastallize:
         parts.append("terastallize")
+    if action.mega_evolve:
+        parts.append("mega")
     return " ".join(parts)
 
 

@@ -123,6 +123,10 @@ def _slot_move_actions(
                 actions.append(
                     SlotAction(kind="move", move_index=i, target=target, terastallize=True)
                 )
+            if active.can_mega_evo:
+                actions.append(
+                    SlotAction(kind="move", move_index=i, target=target, mega_evolve=True)
+                )
     # If filtering left nothing selectable (e.g. the mon is already locked into
     # Protect), fall back to the unfiltered list so we never emit zero actions.
     if not actions and skipped_nondamaging:
@@ -166,6 +170,11 @@ def enumerate_slot_pairs(req: BattleRequest) -> list[SlotPair]:
         # Showdown only allows ONE Terastallization per side per battle;
         # drop illegal double-tera pairs before they can be sampled.
         if a0.terastallize and a1.terastallize:
+            continue
+        # One Mega per side per battle; no dual-mega or mega+tera on same slot.
+        if a0.mega_evolve and a1.mega_evolve:
+            continue
+        if (a0.mega_evolve and a0.terastallize) or (a1.mega_evolve and a1.terastallize):
             continue
         pairs.append(SlotPair(slot0=a0, slot1=a1))
     return pairs

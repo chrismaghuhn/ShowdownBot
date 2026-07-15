@@ -38,6 +38,14 @@ class JointAction:
             return replace(self, slot1=replace(self.slot1, terastallize=True))
         return self
 
+    def with_mega(self, slot_index: int) -> "JointAction":
+        """Return a copy where the given slot's move mega evolves."""
+        if slot_index == 0 and self.slot0.kind == "move":
+            return replace(self, slot0=replace(self.slot0, mega_evolve=True))
+        if slot_index == 1 and self.slot1.kind == "move":
+            return replace(self, slot1=replace(self.slot1, mega_evolve=True))
+        return self
+
 
 def _voluntary_switches(req: BattleRequest, active_index: int) -> list[SlotAction]:
     """Single-slot voluntary switch targets (legal_actions only emits switches on
@@ -82,7 +90,7 @@ def _slot_actions(
     moves = [
         a
         for a in _slot_move_actions(active_index, req, drop_first_turn=drop_first_turn)
-        if not a.terastallize
+        if not a.terastallize and not a.mega_evolve
     ]
     return moves + _voluntary_switches(req, active_index)
 
