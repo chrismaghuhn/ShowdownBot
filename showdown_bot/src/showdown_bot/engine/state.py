@@ -228,12 +228,35 @@ class BattleState:
         if mon is None:
             raise MegaReconcileError(f"mega_reconcile_unknown_pokemon: {pid.raw}")
 
+        details = parse_details(event.mega_species_details)
+        target_base_id = to_id(event.base_species)
+        stone_id = to_id(event.stone_display)
+
+        # Showdown allows exactly one Mega Evolution per side per battle. If
+        # this side has already spent its Mega, only an EXACT replay of the
+        # SAME already-applied event (same slot, same resulting species/
+        # base-species/stone) is tolerated -- as an idempotent no-op. Any
+        # other Mega attempt on an already-spent side (a different slot/
+        # actor, or the same slot with a different stone/form) must fail
+        # closed without mutating state.
+        if self.side_mega_spent.get(pid.side, False):
+            already_matches = (
+                mon.species == details.species
+                and mon.base_species_id == target_base_id
+                and mon.item_known
+                and to_id(mon.item or "") == stone_id
+            )
+            if already_matches:
+                return  # idempotent replay of the same already-applied event
+            raise MegaReconcileError(
+                f"mega_reconcile_side_already_spent: side={pid.side!r} already "
+                f"used its Mega this battle; rejecting {pid.raw} -> {details.species!r}"
+            )
+
         snapshot = copy.deepcopy(mon)
         spent_snapshot = self.side_mega_spent.get(pid.side, False)
 
         try:
-            details = parse_details(event.mega_species_details)
-
             # Coherence: the reconcile event's claimed actor must match the
             # Pokemon actually occupying this slot (guards against a
             # misrouted/mismatched -mega pairing reaching state application).
@@ -251,7 +274,6 @@ class BattleState:
                     f"stone={event.stone_display!r} details_species={details.species!r}"
                 )
 
-            stone_id = to_id(event.stone_display)
             if mon.item_known:
                 if to_id(mon.item or "") != stone_id:
                     raise MegaReconcileError(

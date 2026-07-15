@@ -285,3 +285,122 @@ def test_belief_update_pairs_events_across_calls(state, book):
     tracker.update(mega_event())
     assert tracker.state.active("p1", "a").species == "Charizard-Mega-Y"
     assert tracker.state.side_mega_spent["p1"] is True
+
+
+# ---------------------------------------------------------------------------
+# I7a-C P1.1 fix: enforce one Mega per side per battle (side-wide invariant).
+# ---------------------------------------------------------------------------
+
+
+def second_slot_mega_event() -> MegaReconcileEvent:
+    return MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1b: Aerodactyl"),
+        mega_species_details="Aerodactyl-Mega, L50",
+        base_species="Aerodactyl",
+        stone_display="Aerodactylite",
+    )
+
+
+@pytest.fixture
+def two_mon_state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Charizard", item=None, item_known=False)
+    st.sides["p1"]["b"] = PokemonState(species="Aerodactyl", item=None, item_known=False)
+    return st
+
+
+# T47: a second, DIFFERENT Mega on the same side (different slot/actor) must
+# fail closed, even though the first Mega succeeded normally.
+def test_second_different_mega_on_same_side_rejected(two_mon_state):
+    two_mon_state.apply_event(reconcile_event())
+    assert two_mon_state.side_mega_spent["p1"] is True
+
+    before = copy_battle_state(two_mon_state)
+    with pytest.raises(MegaReconcileError):
+        two_mon_state.apply_event(second_slot_mega_event())
+
+    # Zero trace: state is byte-identical to right after the first Mega,
+    # including the untouched p1b Aerodactyl.
+    assert two_mon_state == before
+    mon_a = two_mon_state.active("p1", "a")
+    assert mon_a.species == "Charizard-Mega-Y"
+    mon_b = two_mon_state.active("p1", "b")
+    assert mon_b.species == "Aerodactyl"
+    assert mon_b.item is None
+    assert mon_b.item_known is False
+    assert mon_b.base_species_id == "aerodactyl"
+    assert two_mon_state.side_mega_spent["p1"] is True
+
+
+# T48: an exact replay of the SAME already-applied Mega event is an
+# idempotent no-op -- no exception, state unchanged.
+def test_exact_replay_of_same_mega_event_is_idempotent_noop(state):
+    state.apply_event(reconcile_event())
+    before = copy_battle_state(state)
+
+    # Re-apply the identical event a second time.
+    state.apply_event(reconcile_event())
+
+    assert state == before
+    mon = state.active("p1", "a")
+    assert mon.species == "Charizard-Mega-Y"
+    assert mon.item == "Charizardite Y"
+    assert mon.item_known is True
+    assert state.side_mega_spent["p1"] is True
+
+
+# T49: a replay for the SAME slot/actor but with a DIFFERENT stone/form must
+# fail closed (not silently accepted as "close enough").
+def test_same_slot_different_form_replay_rejected(state):
+    state.apply_event(reconcile_event())
+    before = copy_battle_state(state)
+
+    different_form_event = MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1a: Charizard"),
+        mega_species_details="Charizard-Mega-X, L50",
+        base_species="Charizard",
+        stone_display="Charizardite X",
+    )
+    with pytest.raises(MegaReconcileError):
+        state.apply_event(different_form_event)
+
+    assert state == before
+    mon = state.active("p1", "a")
+    assert mon.species == "Charizard-Mega-Y"
+    assert mon.item == "Charizardite Y"
+    assert state.side_mega_spent["p1"] is True
+
+
+# T50: BeliefTracker.feed and a full raw-log rebuild agree on a same-side
+# double-mega sequence -- both reject the second, different Mega the same
+# way (same exception type, same resulting state after the rejection).
+RAW_DOUBLE_MEGA_LOG = """\
+|switch|p1a: Charizard|Charizard, L50|100/100
+|switch|p1b: Aerodactyl|Aerodactyl, L50|100/100
+|switch|p2a: Incineroar|Incineroar, L50|100/100
+|switch|p2b: Landorus|Landorus, L50|100/100
+|turn|1
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+|detailschange|p1b: Aerodactyl|Aerodactyl-Mega, L50
+|-mega|p1b: Aerodactyl|Aerodactyl|Aerodactylite
+"""
+
+
+def test_belief_tracker_feed_matches_full_log_rebuild_for_double_mega(book):
+    from showdown_bot.engine.belief.tracker import BeliefTracker
+
+    with pytest.raises(MegaReconcileError):
+        BattleState.from_log_text(RAW_DOUBLE_MEGA_LOG)
+
+    tracker = BeliefTracker.from_state(BattleState(), book)
+    with pytest.raises(MegaReconcileError):
+        tracker.feed(parse_log(RAW_DOUBLE_MEGA_LOG))
+
+    # Both entry points must reject at exactly the same point: the first
+    # Mega succeeded, the second (different slot) did not.
+    mon_a = tracker.state.active("p1", "a")
+    assert mon_a.species == "Charizard-Mega-Y"
+    mon_b = tracker.state.active("p1", "b")
+    assert mon_b.species == "Aerodactyl"
+    assert tracker.state.side_mega_spent["p1"] is True
