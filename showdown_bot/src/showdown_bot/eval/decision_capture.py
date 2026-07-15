@@ -194,6 +194,28 @@ def _validate_chosen_tera_slot(tera_slot) -> None:
         raise DecisionCaptureError("chosen_tera_slot must be null or int 0/1")
 
 
+def _check_chosen_candidate_id_matches(matched: dict, chosen_id, tera_slot: int | None) -> None:
+    """``chosen_candidate_key`` is always PRE-Tera (Tera is an overlay applied
+    only to the winning action, never enumerated as its own candidate -- see
+    ``decision.py``'s ``trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)``),
+    so ``matched`` (the candidate resolved via that key) carries a PRE-Tera
+    ``candidate_id``. ``chosen_candidate_id`` may carry the POST-Tera ``' tera'``
+    label (``trace.chosen_candidate_id = _label_ja(req, best_ja)`` where
+    ``best_ja`` is POST-Tera) when ``chosen_tera_slot`` is set. Comparing them
+    tera-stripped (only when ``tera_slot is not None``) is NOT a first-match
+    fallback: ``matched`` was already resolved via the authoritative exact key
+    match upstream -- this only adjusts how its label is compared, never which
+    candidate is picked."""
+    from showdown_bot.battle.candidate_identity import strip_tera_suffix
+
+    expected = strip_tera_suffix(chosen_id) if tera_slot is not None else chosen_id
+    if matched.get("candidate_id") != expected:
+        raise DecisionCaptureError(
+            "chosen_candidate_id must match candidate_id for chosen_candidate_key "
+            "(Tera-stripped when chosen_tera_slot is set)"
+        )
+
+
 def _validate_v2_tera_overlay(row: dict, *, chosen_key: str, tera_slot: int | None) -> None:
     normalized = row.get("normalized_action")
     if not isinstance(normalized, dict) or normalized.get("kind") != "joint":
@@ -293,18 +315,16 @@ def _validate_v2_row(row: dict) -> None:
         if type(chosen_rank) is not int:
             raise DecisionCaptureError("v2 chosen_rank must be int")
 
+        tera_slot = row.get("chosen_tera_slot")
+        _validate_chosen_tera_slot(tera_slot)
+
         matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
         if chosen_rank != matched.get("rank"):
             raise DecisionCaptureError(
                 "chosen_rank must match rank of candidate under chosen_candidate_key"
             )
-        if matched.get("candidate_id") != chosen_id:
-            raise DecisionCaptureError(
-                "chosen_candidate_id must match candidate_id for chosen_candidate_key"
-            )
+        _check_chosen_candidate_id_matches(matched, chosen_id, tera_slot)
 
-        tera_slot = row.get("chosen_tera_slot")
-        _validate_chosen_tera_slot(tera_slot)
         _validate_v2_tera_overlay(row, chosen_key=chosen_key, tera_slot=tera_slot)
     else:
         for field in ("chosen_candidate_key", "chosen_candidate_id", "chosen_rank", "chosen_tera_slot"):
@@ -341,6 +361,11 @@ def _validate_candidate_key_v2(key: str) -> None:
         payload = json.loads(key)
     except json.JSONDecodeError as exc:
         raise DecisionCaptureError("candidate_key must be valid JSON") from exc
+    if key != _canonical_json(payload):
+        raise DecisionCaptureError(
+            "candidate_key must be the canonical JSON serialization "
+            "(sort_keys=True, separators=(',', ':'))"
+        )
     if not isinstance(payload, dict) or set(payload) != _CANDIDATE_KEY_V2_TOP_KEYS:
         raise DecisionCaptureError(
             f"candidate_key top-level keys must be exactly {sorted(_CANDIDATE_KEY_V2_TOP_KEYS)}"
@@ -468,21 +493,19 @@ def _validate_v3_row(row: dict) -> None:
         if type(chosen_rank) is not int:
             raise DecisionCaptureError("v3 chosen_rank must be int")
 
-        matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
-        if chosen_rank != matched.get("rank"):
-            raise DecisionCaptureError(
-                "chosen_rank must match rank of candidate under chosen_candidate_key"
-            )
-        if matched.get("candidate_id") != chosen_id:
-            raise DecisionCaptureError(
-                "chosen_candidate_id must match candidate_id for chosen_candidate_key"
-            )
-
         tera_slot = row.get("chosen_tera_slot")
         _validate_chosen_tera_slot(tera_slot)
         mega_slot = row.get("chosen_mega_slot")
         _validate_chosen_mega_slot(mega_slot)
         _validate_mutual_exclusion_v3(tera_slot, mega_slot)
+
+        matched = next(c for c in candidates if c.get("candidate_key") == chosen_key)
+        if chosen_rank != matched.get("rank"):
+            raise DecisionCaptureError(
+                "chosen_rank must match rank of candidate under chosen_candidate_key"
+            )
+        _check_chosen_candidate_id_matches(matched, chosen_id, tera_slot)
+
         _validate_v2_tera_overlay(row, chosen_key=chosen_key, tera_slot=tera_slot)
         _validate_v3_mega_overlay(row, chosen_key=chosen_key, mega_slot=mega_slot)
     else:

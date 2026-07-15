@@ -442,6 +442,20 @@ def mutate_v3_row(row, mutation):
     elif mutation == "duplicate_key":
         row["candidates"][1]["candidate_key"] = row["candidates"][0]["candidate_key"]
         return row
+    elif mutation == "non_canonical_json":
+        # Same payload, valid JSON, but not the canonical serialization
+        # (extra whitespace after the colon) -- must fail-closed (I7a-B Task 4).
+        # Mutate chosen_candidate_key in lockstep (when it originally matched
+        # candidates[0]'s key) so this isolates the canonical-format check
+        # itself, rather than accidentally tripping the unrelated "chosen_key
+        # must reference a traced candidate" check via a now-mismatched
+        # literal string.
+        original_key = row["candidates"][0]["candidate_key"]
+        mutated_key = json.dumps(payload, sort_keys=True, separators=(",", ": "))
+        row["candidates"][0]["candidate_key"] = mutated_key
+        if row.get("chosen_candidate_key") == original_key:
+            row["chosen_candidate_key"] = mutated_key
+        return row
     else:
         raise AssertionError(mutation)
     row["candidates"][0]["candidate_key"] = json.dumps(
@@ -456,12 +470,78 @@ def test_valid_v3_row_validates(valid_v3_row):
 
 @pytest.mark.parametrize("mutation", [
     "v1_key", "missing_mega_field", "unknown_slot_field",
-    "non_bool_tera", "dual_overlay", "duplicate_key",
+    "non_bool_tera", "dual_overlay", "duplicate_key", "non_canonical_json",
 ])
 def test_v3_rejects_invalid_candidate_keys(valid_v3_row, mutation):
     row = mutate_v3_row(valid_v3_row, mutation)
     with pytest.raises(DecisionCaptureError):
         validate_trace_row(row)
+
+
+# ---------------------------------------------------------------------------
+# I7a-B merge-blocker follow-up (Task 4): candidate-key-v2 must be canonical,
+# not merely well-formed JSON matching the schema.
+# ---------------------------------------------------------------------------
+
+_CANONICAL_KEY_PAYLOAD = {
+    "version": 2,
+    "slots": [
+        {
+            "kind": "pass", "move_index": None, "target": None,
+            "target_ident": None, "terastallize": False, "mega_evolve": False,
+        },
+        {
+            "kind": "pass", "move_index": None, "target": None,
+            "target_ident": None, "terastallize": False, "mega_evolve": False,
+        },
+    ],
+}
+
+
+def test_validate_candidate_key_v2_accepts_canonical_serialization():
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    _validate_candidate_key_v2(canonical)  # must not raise
+
+
+def test_validate_candidate_key_v2_rejects_non_canonical_single_key():
+    """A single key string that is valid JSON, matches the schema, and
+    round-trips to the SAME payload as the canonical serialization, but is
+    not byte-for-byte the canonical string itself, must fail-closed."""
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    non_canonical = canonical.replace(":", ": ")  # extra whitespace after each colon
+    assert non_canonical != canonical
+    assert json.loads(non_canonical) == json.loads(canonical)
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(non_canonical)
+
+
+def test_validate_candidate_key_v2_rejects_two_textually_different_semantically_identical_keys():
+    """Two key strings that decode to the EXACT same payload (semantically
+    identical) but are textually different from each other and from the
+    canonical serialization -- both must be individually fail-closed
+    rejected, not just one of them."""
+    from showdown_bot.eval.decision_capture import _validate_candidate_key_v2
+
+    canonical = json.dumps(
+        _CANONICAL_KEY_PAYLOAD, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    )
+    key_a = canonical.replace(":", ": ")   # extra space after colons
+    key_b = canonical.replace(",", ", ")   # extra space after commas
+    assert key_a != key_b
+    assert json.loads(key_a) == json.loads(key_b) == json.loads(canonical)
+
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(key_a)
+    with pytest.raises(DecisionCaptureError, match="canonical"):
+        _validate_candidate_key_v2(key_b)
 
 
 @pytest.mark.parametrize("missing_field", [

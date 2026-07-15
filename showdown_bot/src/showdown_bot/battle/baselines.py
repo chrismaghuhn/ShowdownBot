@@ -29,6 +29,7 @@ def max_damage_choice(
     speed_oracle: SpeedOracle | None = None,
     format_config=None,
     fallback=None,
+    our_spreads: dict | None = None,
     **_ignored,
 ) -> str:
     """max_damage baseline: pick the legal joint action with the most immediate
@@ -79,7 +80,7 @@ def max_damage_choice(
         return _max_damage_choice_mega(
             req, state=state, book=book, our_side=our_side, opp_side=opp_side,
             oracle=oracle, speed_oracle=speed_oracle, calc_profile=calc_profile,
-            my_actions=my_actions, fallback=_fb,
+            my_actions=my_actions, fallback=_fb, our_spreads=our_spreads,
         )
 
     plans = {
@@ -130,6 +131,7 @@ def _max_damage_choice_mega(
     calc_profile,
     my_actions,
     fallback,
+    our_spreads: dict | None = None,
 ) -> str:
     """Mega-aware max_damage (I7a-B Task 5): own-Mega variants are scored as
     first-class candidates in the SAME grid as base (non-Mega) actions, via
@@ -144,6 +146,22 @@ def _max_damage_choice_mega(
     species are reflected. Still NEVER evaluates incoming damage, NEVER calls
     ``evaluate.evaluate_line`` or any opponent-response modeling, and NEVER
     applies Tera -- max_damage stays a pure outgoing-damage baseline.
+
+    Iterates the ``evaluated_variants`` list ``build_own_mega_contexts``
+    returns (the true ``expand_mega_variants``/``filter_projectable_variants``
+    order, interleaved per base joint, NOT grouped by ``own_mega_slot``) --
+    never a double loop over ``contexts``/``ctx.plans.items()`` (that order
+    groups every non-Mega variant ahead of every Mega variant and breaks the
+    strict first-wins ``score > best_score`` tie-break; Codex I7a-B
+    merge-blocker).
+
+    ``our_spreads`` is threaded straight through to ``build_own_mega_contexts``
+    (never hardcoded to ``None``) -- without a real spread lookup,
+    ``project_mega`` always raises ``MissingMegaSpreadError`` for every real
+    species and ``filter_projectable_variants`` fail-closes every own-Mega
+    variant before scoring ever happens, so a Mega candidate could never even
+    exist in the evaluated set regardless of how much more damage it would
+    deal (Codex I7a-B merge-blocker #2).
     """
     from showdown_bot.battle.mega_scoring import build_own_mega_contexts
     from showdown_bot.engine.species_meta import species_meta_table
@@ -151,10 +169,10 @@ def _max_damage_choice_mega(
     if speed_oracle is None:
         raise ValueError("Mega-enabled max_damage requires a speed_oracle")
 
-    contexts = build_own_mega_contexts(
+    contexts, evaluated_variants = build_own_mega_contexts(
         req, state, our_side=our_side, opp_side=opp_side, book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
-        our_spreads=None, opp_sets=None, calc_profile=calc_profile,
+        our_spreads=our_spreads, opp_sets=None, calc_profile=calc_profile,
         my_actions=my_actions,
     )
     # build_own_mega_contexts already enqueued every context's plans into the
@@ -163,29 +181,31 @@ def _max_damage_choice_mega(
     # matching the non-Mega loop's model.prefetch() (enqueue + one flush).
     oracle.flush()
 
+    ctx_by_slot = {c.own_mega_slot: c for c in contexts}
+
     best_ja = None
     best_score = float("-inf")
-    # Deterministic order: contexts as build_own_mega_contexts returns them
-    # (None-branch first, then ascending own_mega_slot), and within each
-    # context, ctx.plans insertion order (mirrors my_actions/variant_joints
-    # enumeration order) -- so ties keep the same strict first-wins semantics
-    # as the non-Mega loop.
-    for ctx in contexts:
-        for ja, plan in ctx.plans.items():
-            score = 0.0
-            for action in plan:
-                if action.kind != "move" or action.move is None or not action.move.is_damaging:
-                    continue
-                if action.target is None:
-                    continue
-                frac = ctx.damage_model.damage_fn(action, None)
-                score += frac
-                target_mon = ctx.projected_state.sides.get(action.target[0], {}).get(action.target[1])
-                if target_mon is not None and frac >= target_mon.hp_fraction > 0:
-                    score += _KO_BONUS
-            if score > best_score:
-                best_score = score
-                best_ja = ja
+    # Deterministic order: evaluated_variants' own expand order (interleaved
+    # per base joint -- base, then its own Mega variants) -- so ties keep the
+    # same strict first-wins semantics as the non-Mega loop.
+    for variant in evaluated_variants:
+        ctx = ctx_by_slot[variant.own_mega_slot]
+        ja = variant.joint
+        plan = ctx.plans[ja]
+        score = 0.0
+        for action in plan:
+            if action.kind != "move" or action.move is None or not action.move.is_damaging:
+                continue
+            if action.target is None:
+                continue
+            frac = ctx.damage_model.damage_fn(action, None)
+            score += frac
+            target_mon = ctx.projected_state.sides.get(action.target[0], {}).get(action.target[1])
+            if target_mon is not None and frac >= target_mon.hp_fraction > 0:
+                score += _KO_BONUS
+        if score > best_score:
+            best_score = score
+            best_ja = ja
 
     if best_ja is None:
         return fallback(req)

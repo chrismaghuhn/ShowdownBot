@@ -118,7 +118,7 @@ def _build_aerodactyl_contexts(speed_oracle, aerodactyl_spreads, calc_profile):
     book = SpreadBook(default=aerodactyl_spreads)
     oracle = DamageOracle()
     my_actions = enumerate_my_actions(req)
-    contexts = build_own_mega_contexts(
+    contexts, _evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
@@ -181,7 +181,7 @@ def test_build_own_mega_contexts_does_not_mutate_live_state_or_request(
     before_mega_spent = copy.deepcopy(state.side_mega_spent)
     before_req = req.model_copy(deep=True)
 
-    contexts = build_own_mega_contexts(
+    contexts, _evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
@@ -224,7 +224,7 @@ def test_mega_context_plan_speed_overrides_to_projected_222(
     before_state = copy.deepcopy(state)
     before_req_stats = copy.deepcopy(req.side.pokemon[0].stats)
 
-    contexts = build_own_mega_contexts(
+    contexts, _evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
@@ -264,7 +264,7 @@ def test_mega_sol_fire_boosted_water_weakened_partner_and_foe_unchanged(
     oracle = DamageOracle()
     my_actions = enumerate_my_actions(req)
 
-    contexts = build_own_mega_contexts(
+    contexts, _evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
@@ -674,17 +674,12 @@ def test_t17_full_grid_counterproof_beats_score_base_then_overlay(
     oracle = DamageOracle(calc)
     my_actions = enumerate_my_actions(req)
 
-    contexts = build_own_mega_contexts(
+    contexts, evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
         my_actions=my_actions,
     )
-    evaluated = [
-        ScoredMegaVariant(joint=ja, own_mega_slot=ctx.own_mega_slot)
-        for ctx in contexts
-        for ja in ctx.plans
-    ]
     records = score_evaluated_variants(
         evaluated, contexts, req=req, state=state, book=book, our_side="p1",
         opp_side="p2", calc=calc, oracle=oracle, speed_oracle=speed_oracle,
@@ -716,6 +711,461 @@ def test_t17_full_grid_counterproof_beats_score_base_then_overlay(
     assert best is b_mega
     assert best.variant.own_mega_slot == 0
     assert best.variant.joint.slot0.mega_evolve is True
+
+
+# ---------------------------------------------------------------------------
+# I7a-B Task 1 (merge-blocker follow-up): depth-2 must be wired into the real
+# Mega decision path, not just exist as an isolated helper
+# (search.depth2_value_for_mega_context, see the binding-rule test above).
+# ---------------------------------------------------------------------------
+
+
+def test_choose_best_mega_depth2_wraps_top_n_top_m_frontier(
+    speed_oracle, aerodactyl_spreads, calc_profile, monkeypatch,
+):
+    """At SHOWDOWN_SEARCH_DEPTH=2 the Mega path must actually call
+    ``search.depth2_value_for_mega_context`` to refine the top-N/top-M
+    frontier -- driven through the real ``_choose_best`` -> ``_choose_best_mega``
+    -> ``mega_scoring.score_evaluated_variants`` production path. An isolated
+    ``depth2_value_for_mega_context`` unit test (see
+    ``test_depth2_value_for_mega_context_binds_to_matching_context_never_another``
+    above) is NOT sufficient -- that helper existing and being unit-tested in
+    isolation, with zero real callers, is exactly the Codex I7a-B merge-blocker
+    this test guards against."""
+    import showdown_bot.battle.mega_scoring as mega_scoring_mod
+    from showdown_bot.battle.decision import _choose_best
+
+    for var in ("SHOWDOWN_SEARCH_TOPN", "SHOWDOWN_SEARCH_TOPM", "SHOWDOWN_WORLD_SAMPLES"):
+        monkeypatch.delenv(var, raising=False)
+
+    def _fresh_req_state():
+        req = _build_req(
+            a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle", "Pound"],
+            a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+        )
+        state = _build_state("Aerodactyl", "Aerodactylite", "Whimsicott", "Incineroar")
+        return req, state
+
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _T17Calc()
+    real_score_evaluated_variants = mega_scoring_mod.score_evaluated_variants
+
+    def _run(*, capture: dict | None, depth2_spy=None):
+        if depth2_spy is not None:
+            monkeypatch.setattr(mega_scoring_mod, "depth2_value_for_mega_context", depth2_spy)
+        if capture is not None:
+            def _capturing(*a, **k):
+                records = real_score_evaluated_variants(*a, **k)
+                capture.update({r.variant.joint: list(r.score_vector) for r in records})
+                return records
+            monkeypatch.setattr(mega_scoring_mod, "score_evaluated_variants", _capturing)
+        req, state = _fresh_req_state()
+        result = _choose_best(
+            req, state=state, book=book, our_side="p1", calc=calc,
+            oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=None,
+            our_spreads=spreads, format_config=_champions_mega_cfg(), risk_lambda=0.0,
+        )
+        monkeypatch.setattr(mega_scoring_mod, "score_evaluated_variants", real_score_evaluated_variants)
+        return result
+
+    # --- baseline: depth=1, capture every candidate's 1-ply score vector ---
+    monkeypatch.delenv("SHOWDOWN_SEARCH_DEPTH", raising=False)
+    baseline_records: dict = {}
+    _run(capture=baseline_records)
+
+    # --- depth=2 run: spy on depth2_value_for_mega_context + capture final vectors ---
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    calls = []
+    import showdown_bot.battle.search as search_mod
+    real_d2 = search_mod.depth2_value_for_mega_context
+
+    def _spy(*a, **k):
+        calls.append((a, k))
+        return real_d2(*a, **k)
+
+    d2_records: dict = {}
+    best_ja, best_val = _run(capture=d2_records, depth2_spy=_spy)
+
+    assert calls, "depth2_value_for_mega_context was never invoked from the real decision path"
+    import math
+    assert math.isfinite(best_val)
+    assert best_ja in d2_records
+
+    # Frontier bound: exactly N(=2, default SHOWDOWN_SEARCH_TOPN) records get
+    # refined, each contributing at most M(=2, default SHOWDOWN_SEARCH_TOPM)
+    # depth2_value_for_mega_context calls.
+    changed = {ja for ja, vec in d2_records.items() if vec != baseline_records.get(ja)}
+    assert 0 < len(changed) <= 2
+    assert len(calls) <= 4
+    assert len(calls) >= len(changed)
+
+    # At least one non-selected candidate's vector is byte-unchanged from its
+    # 1-ply baseline value (the depth-2 wrap must not touch every candidate).
+    unselected = [ja for ja in d2_records if ja not in changed]
+    assert unselected, "expected at least one candidate left outside the depth-2 frontier"
+    for ja in unselected:
+        assert d2_records[ja] == baseline_records[ja]
+
+
+def test_choose_best_mega_depth2_suppressed_when_world_sampling_active(
+    speed_oracle, aerodactyl_spreads, calc_profile, monkeypatch,
+):
+    """INV-orthogonal (mirrors the non-Mega
+    ``test_depth2_suppressed_when_world_sampling_active``): the Mega depth-2
+    wrap is guarded by ``world_samples() <= 1``, so with
+    ``SHOWDOWN_WORLD_SAMPLES=2`` it must NOT run even when
+    ``SHOWDOWN_SEARCH_DEPTH=2`` -- the K-world +Sampling path owns that turn."""
+    import showdown_bot.battle.mega_scoring as mega_scoring_mod
+    from showdown_bot.battle.decision import _choose_best
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
+
+    calls = []
+    monkeypatch.setattr(
+        mega_scoring_mod, "depth2_value_for_mega_context",
+        lambda *a, **k: (calls.append(1), -1.0)[1],
+    )
+
+    req = _build_req(
+        a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle", "Pound"],
+        a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+    )
+    state = _build_state("Aerodactyl", "Aerodactylite", "Whimsicott", "Incineroar")
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _T17Calc()
+
+    best_ja, best_val = _choose_best(
+        req, state=state, book=book, our_side="p1", calc=calc,
+        oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=None,
+        our_spreads=spreads, format_config=_champions_mega_cfg(), risk_lambda=0.0,
+    )
+
+    assert calls == []
+    import math
+    assert math.isfinite(best_val)
+
+
+class _TieCalc:
+    """Fully controlled damage table for the Codex I7a-B merge-blocker
+    regression: variant order preservation. ``Aerodactyl-Mega``'s Tackle
+    is deliberately pinned to the SAME (min, max) table entry as base
+    ``Aerodactyl``'s Pound, so ``A+Mega`` (Tackle, own_mega_slot=0) and
+    ``B`` (Pound, own_mega_slot=None) score EXACTLY equal -- a genuine tie,
+    not an approximate one. In the true ``expand_mega_variants`` order the
+    joints come out interleaved per base joint: ``[A, A+Mega, B, B+Mega]``
+    (A's own Mega variant is enumerated immediately after A, before B), so
+    the strict first-wins tie-break must pick ``A+Mega``. A buggy
+    "grouped by own_mega_slot" reconstruction would instead see
+    ``[A, B, A+Mega, B+Mega]`` (every non-Mega variant first, then every
+    Mega variant) and pick ``B`` instead -- exactly the bug this test
+    guards against."""
+
+    backend = None
+    _TABLE = {
+        ("Aerodactyl", "Tackle"): (20, 25),         # A base: deliberately the WEAKEST
+        ("Aerodactyl", "Pound"): (90, 97),          # B base -- the tie value
+        ("Aerodactyl-Mega", "Tackle"): (90, 97),    # A+Mega -- SAME table as B base
+        ("Aerodactyl-Mega", "Pound"): (50, 55),     # B+Mega: below the tie, never wins
+    }
+
+    def damage_batch(self, requests):
+        from showdown_bot.engine.calc.models import DamageResult
+
+        out = []
+        for req in requests:
+            key = (req.attacker.species, req.move)
+            if key in self._TABLE:
+                mn, mx = self._TABLE[key]
+                out.append(DamageResult(min_damage=mn, max_damage=mx, max_hp=150))
+            else:
+                out.append(DamageResult(min_damage=20, max_damage=35, max_hp=150))
+        return out
+
+
+def _tie_break_fixture(speed_oracle, aerodactyl_spreads, calc_profile):
+    req = _build_req(
+        a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle", "Pound"],
+        a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+    )
+    state = _build_state("Aerodactyl", "Aerodactylite", "Whimsicott", "Incineroar")
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _TieCalc()
+    return req, state, spreads, book, calc
+
+
+def test_choose_best_mega_tie_break_prefers_expand_order_a_mega_beats_b(
+    speed_oracle, aerodactyl_spreads, calc_profile,
+):
+    """Codex merge-blocker regression (variant order preservation): on a
+    genuine tie between A+Mega and B, the decision must pick A+Mega -- the
+    winner determined by expand_mega_variants' own interleaved enumeration
+    order, never a grouped-by-own_mega_slot reconstruction. Driven through
+    the real ``_choose_best`` -> ``_choose_best_mega`` production path."""
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.battle.evaluate import EvalWeights
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    req, state, spreads, book, calc = _tie_break_fixture(speed_oracle, aerodactyl_spreads, calc_profile)
+
+    # Independently recompute the two records to prove the tie is genuine
+    # (not "A+Mega just happens to score higher") before trusting the
+    # decision's winner selection.
+    my_actions = enumerate_my_actions(req)
+    verify_oracle = DamageOracle(calc)
+    contexts, evaluated = build_own_mega_contexts(
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=verify_oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
+        my_actions=my_actions,
+    )
+    records = score_evaluated_variants(
+        evaluated, contexts, req=req, state=state, book=book, our_side="p1",
+        opp_side="p2", calc=calc, oracle=verify_oracle, speed_oracle=speed_oracle,
+        dex=None, priors=None, weights=EvalWeights(), mode=GameMode.NEUTRAL,
+        risk_lambda=0.0, rollout_horizon=0, our_spreads=spreads, opp_sets=None,
+        calc_profile=calc_profile, accuracy_mode=False, accuracy_branch_cap=6,
+        endgame=False, fast_board=False,
+    )
+
+    def _rec_for(move_name: str, mega_slot):
+        for r in records:
+            if r.variant.own_mega_slot != mega_slot:
+                continue
+            idx = r.variant.joint.slot0.move_index
+            if idx and req.active[0].moves[idx - 1].move == move_name:
+                return r
+        raise AssertionError(f"no record for move={move_name!r} mega_slot={mega_slot!r}")
+
+    a_mega = _rec_for("Tackle", 0)
+    b_base = _rec_for("Pound", None)
+    a_base = _rec_for("Tackle", None)
+    b_mega = _rec_for("Pound", 0)
+
+    # Precondition: a genuine, exact tie -- and A+Mega/B both strictly beat
+    # the other two candidates (so the tie-break, not a raw score difference,
+    # is what decides the winner).
+    assert a_mega.aggregate_score == b_base.aggregate_score
+    assert a_mega.aggregate_score > a_base.aggregate_score
+    assert a_mega.aggregate_score > b_mega.aggregate_score
+
+    # Precondition: evaluated_variants really is the interleaved expand
+    # order (A+Mega before B), not grouped by own_mega_slot.
+    idx_a_mega = evaluated.index(a_mega.variant)
+    idx_b_base = evaluated.index(b_base.variant)
+    assert idx_a_mega < idx_b_base
+
+    # The real decision must pick A+Mega.
+    best_ja, _best_val = _choose_best(
+        req, state=state, book=book, our_side="p1", calc=calc,
+        oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=None,
+        our_spreads=spreads, format_config=_champions_mega_cfg(), risk_lambda=0.0,
+    )
+    assert best_ja.slot0.mega_evolve is True
+    chosen_move = req.active[0].moves[best_ja.slot0.move_index - 1].move
+    assert chosen_move == "Tackle"
+
+
+def _champions_mega_cfg():
+    from showdown_bot.engine.format_config import load_format_config
+
+    return load_format_config("gen9championsvgc2026regma")
+
+
+def test_max_damage_choice_mega_iterates_evaluated_variants_order_not_contexts_grouping(
+    speed_oracle, aerodactyl_spreads, calc_profile, monkeypatch,
+):
+    """Same Codex merge-blocker regression for the ``max_damage`` baseline's
+    Mega branch, via a spy/instrumented ``build_own_mega_contexts`` double
+    rather than a real controlled-damage tie.
+
+    A REAL end-to-end A+Mega vs B tie through ``_max_damage_choice_mega``
+    driven by a real spread lookup is exercised separately by
+    ``test_max_damage_choice_threads_our_spreads_lets_legal_mega_context_survive_and_win``
+    below (the ``our_spreads`` threading gap this docstring used to describe
+    -- "Fix #2" -- is closed; that test proves a Mega context now survives
+    ``filter_projectable_variants`` and can win on damage).
+
+    This test proves the narrower, still load-bearing claim directly:
+    ``_max_damage_choice_mega`` walks ``build_own_mega_contexts``'s returned
+    ``evaluated_variants`` list in order (never a
+    contexts-grouped-by-``own_mega_slot`` reconstruction) by faking that
+    return value with a genuine tie whose winner depends on which order is
+    used, then asserting the real function picks the tie-breaking winner
+    that the TRUE expand order (A, A+Mega, B, B+Mega) implies -- A+Mega --
+    not the winner a grouped-by-slot order (A, B, A+Mega, B+Mega) would
+    imply -- B.
+    """
+    import showdown_bot.battle.mega_scoring as mega_scoring_mod
+    from showdown_bot.battle.baselines import _max_damage_choice_mega
+    from showdown_bot.battle.resolve import PlannedAction
+    from showdown_bot.engine.moves import get_move_meta
+    from showdown_bot.models.actions import SlotAction
+
+    def _joint(tag: int, *, mega: bool) -> JointAction:
+        return JointAction(
+            slot0=SlotAction(kind="move", move_index=1, target=tag, mega_evolve=mega),
+            slot1=SlotAction(kind="pass"),
+        )
+
+    ja_a = _joint(1, mega=False)        # A (base) -- lowest, sets an initial best
+    ja_a_mega = _joint(2, mega=True)    # A+Mega -- tied top score, FIRST in true expand order
+    ja_b = _joint(3, mega=False)        # B (base) -- tied top score, AFTER A+Mega in true order
+    ja_b_mega = _joint(4, mega=True)    # B+Mega -- below the tie, never wins
+
+    by_action_id: dict[int, float] = {}
+
+    class _FakeDamageModel:
+        def damage_fn(self, action, _target_mon):
+            return by_action_id.get(id(action), 0.0)
+
+    fake_model = _FakeDamageModel()
+
+    def _plan_for(score: float):
+        atk = PlannedAction(
+            "p1", "a", "move", speed=100, move=get_move_meta("Tackle"),
+            target=("p2", "a"), is_ours=True,
+        )
+        by_action_id[id(atk)] = score
+        return [atk, PlannedAction("p1", "b", "pass", speed=100, is_ours=True)]
+
+    st = _basic_state()
+    none_ctx = MegaEvaluationContext(
+        context_id="own_mega:none", projected_state=st, own_mega_slot=None,
+        foe_mega_slot=None, branch_weight=1.0, activation_order=None, field=st.field,
+        plans={ja_a: _plan_for(0.2), ja_b: _plan_for(0.9)}, damage_model=fake_model,
+    )
+    mega_ctx = MegaEvaluationContext(
+        context_id="own_mega:0", projected_state=st, own_mega_slot=0,
+        foe_mega_slot=None, branch_weight=1.0, activation_order=None, field=st.field,
+        plans={ja_a_mega: _plan_for(0.9), ja_b_mega: _plan_for(0.5)}, damage_model=fake_model,
+    )
+    fake_contexts = [none_ctx, mega_ctx]
+    fake_evaluated = [
+        ScoredMegaVariant(joint=ja_a, own_mega_slot=None),
+        ScoredMegaVariant(joint=ja_a_mega, own_mega_slot=0),
+        ScoredMegaVariant(joint=ja_b, own_mega_slot=None),
+        ScoredMegaVariant(joint=ja_b_mega, own_mega_slot=0),
+    ]
+
+    monkeypatch.setattr(
+        mega_scoring_mod, "build_own_mega_contexts",
+        lambda *a, **k: (fake_contexts, fake_evaluated),
+    )
+
+    req = _build_req(
+        a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle"],
+        a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+    )
+
+    def _no_fallback(_req):
+        raise AssertionError("max_damage tie-break test must not hit the fallback path")
+
+    class _FlushOnlyOracle:
+        def flush(self):
+            pass
+
+    out = _max_damage_choice_mega(
+        req, state=st, book=None, our_side="p1", opp_side="p2",
+        oracle=_FlushOnlyOracle(), speed_oracle=speed_oracle, calc_profile=calc_profile,
+        my_actions=[ja_a, ja_b], fallback=_no_fallback,
+    )
+
+    slot0_part = out[len("/choose "):].split(", ")[0]
+    assert slot0_part.startswith("move 1 2"), out  # ja_a_mega's tag=2
+    assert "mega" in slot0_part, out
+
+
+class _BigMegaCalc:
+    """Aerodactyl-Mega's Tackle deals dramatically more damage than base
+    Aerodactyl's Tackle -- a pure-outgoing-damage baseline (max_damage never
+    weighs incoming damage) MUST pick the Mega variant once its context
+    actually exists in the evaluated set."""
+
+    backend = None
+    _TABLE = {
+        ("Aerodactyl", "Tackle"): (20, 25),
+        ("Aerodactyl-Mega", "Tackle"): (140, 150),
+    }
+
+    def damage_batch(self, requests):
+        from showdown_bot.engine.calc.models import DamageResult
+
+        out = []
+        for req in requests:
+            key = (req.attacker.species, req.move)
+            if key in self._TABLE:
+                mn, mx = self._TABLE[key]
+                out.append(DamageResult(min_damage=mn, max_damage=mx, max_hp=150))
+            else:
+                out.append(DamageResult(min_damage=20, max_damage=35, max_hp=150))
+        return out
+
+
+def test_max_damage_choice_threads_our_spreads_lets_legal_mega_context_survive_and_win(
+    speed_oracle, aerodactyl_spreads, calc_profile,
+):
+    """I7a-B Task 2: ``max_damage_choice`` must accept ``our_spreads``
+    explicitly and thread it all the way into
+    ``build_own_mega_contexts``/``_max_damage_choice_mega`` (never hardcode
+    ``our_spreads=None``) -- otherwise ``project_mega`` always raises
+    ``MissingMegaSpreadError`` and ``filter_projectable_variants`` fail-closes
+    every own-Mega variant before any scoring happens, so a Mega candidate
+    can never even exist in the evaluated set, regardless of how much more
+    damage it would deal (Codex I7a-B merge-blocker #2).
+
+    Counterexample: Aerodactyl-Mega's Tackle deals ~5x base Aerodactyl's
+    Tackle. With ``our_spreads`` correctly threaded through, a legal Mega
+    context survives ``filter_projectable_variants`` and wins on pure
+    outgoing damage. Without it (``our_spreads=None``), the Mega candidate
+    never exists at all and the baseline is stuck on the base action despite
+    it doing far less damage -- proving the gap this fix closes, not just
+    the fixed behavior in isolation.
+    """
+    from showdown_bot.battle.baselines import max_damage_choice
+
+    req = _build_req(
+        a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle"],
+        a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+    )
+    state = _build_state("Aerodactyl", "Aerodactylite", "Whimsicott", "Incineroar")
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _BigMegaCalc()
+
+    out = max_damage_choice(
+        req, state=state, book=book, our_side="p1", calc=calc,
+        oracle=DamageOracle(calc), speed_oracle=speed_oracle,
+        our_spreads=spreads, format_config=_champions_mega_cfg(),
+    )
+    slot0_part = out[len("/choose "):].split(", ")[0]
+    assert "mega" in slot0_part, out
+
+    # Counterexample: without our_spreads threaded, the Mega candidate never
+    # exists (MissingMegaSpreadError fail-closes it out upstream) -- the
+    # baseline is stuck on the base action despite it doing far less damage.
+    out_no_spreads = max_damage_choice(
+        req, state=state, book=book, our_side="p1", calc=calc,
+        oracle=DamageOracle(calc), speed_oracle=speed_oracle,
+        our_spreads=None, format_config=_champions_mega_cfg(),
+    )
+    slot0_no_spreads = out_no_spreads[len("/choose "):].split(", ")[0]
+    assert "mega" not in slot0_no_spreads, out_no_spreads
 
 
 class _T31Speed:

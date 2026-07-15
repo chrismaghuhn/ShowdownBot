@@ -130,6 +130,81 @@ def test_build_trace_row_from_real_decision_is_v3(trace_context, prepared, captu
 
 
 # ---------------------------------------------------------------------------
+# I7a-B merge-blocker follow-up (Task 5): pre-Tera key / post-Tera label.
+# ---------------------------------------------------------------------------
+
+
+def test_build_trace_row_regression_for_actually_chosen_tera_action(
+    trace_context, prepared, capture_fixture,
+):
+    """``chosen_candidate_key`` stays PRE-Tera while ``chosen_candidate_id``
+    may carry the POST-Tera ``' tera'`` label -- decision.py always sets
+    ``trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)`` and
+    ``trace.chosen_candidate_id = _label_ja(req, best_ja)`` where ``best_ja``
+    is POST-Tera (see ``_populate_legacy_decision_trace`` /
+    ``_populate_mega_decision_trace``), while every traced candidate's own
+    ``candidate_id``/``candidate_key`` is PRE-Tera (Tera is an overlay applied
+    only to the winner, never enumerated as its own candidate). This is a
+    real, structural split -- not a hypothetical -- so ``build_trace_row``'s
+    own validators must accept it for a genuinely chosen Tera action: the key
+    stays authoritative (resolves the candidate), and label consistency is
+    checked Tera-STRIPPED, without introducing a first-match/fuzzy fallback
+    (the candidate is still found via the exact key match; stripping is only
+    used to compare the already-resolved candidate's label against the
+    chosen post-Tera label)."""
+    from showdown_bot.battle.candidate_identity import joint_action_key_v2
+    from showdown_bot.battle.decision import _label_ja
+    from showdown_bot.eval.decision_capture import build_trace_row
+
+    request, _state = capture_fixture
+    move_index = 1
+    assert request.active[0].moves, "fixture request must have at least one move"
+
+    pre_tera_ja = JointAction(
+        slot0=SlotAction(kind="move", move_index=move_index, target=1),
+        slot1=SlotAction(kind="pass"),
+    )
+    post_tera_ja = JointAction(
+        slot0=SlotAction(kind="move", move_index=move_index, target=1, terastallize=True),
+        slot1=SlotAction(kind="pass"),
+    )
+
+    pre_key = joint_action_key_v2(pre_tera_ja)
+    pre_label = _label_ja(request, pre_tera_ja)
+    post_label = _label_ja(request, post_tera_ja)
+    assert " tera" not in pre_label
+    assert " tera" in post_label
+
+    trace = DecisionTrace(
+        game_mode="NEUTRAL",
+        chosen_candidate_key=pre_key,
+        chosen_candidate_id=post_label,
+        chosen_tera_slot=0,
+        chosen_mega_slot=None,
+        candidates=[
+            CandidateTrace(
+                candidate_id=pre_label, joint_action=pre_tera_ja, rank=0,
+                aggregate_score=1.0, score_vector=[1.0],
+                outcome_breakdowns=[OutcomeBreakdown()],
+                aggregate_breakdown=OutcomeBreakdown(),
+                candidate_key=pre_key,
+            ),
+        ],
+    )
+    choose = f"/choose move {move_index} 1 terastallize, pass|{request.rqid}"
+
+    row = build_trace_row(
+        context=trace_context, prepared=prepared, request=request,
+        choose=choose, trace=trace, decision_index=0, decision_latency_ms=1.0,
+    )
+    assert row["chosen_candidate_key"] == pre_key
+    assert row["chosen_candidate_id"] == post_label
+    assert row["chosen_tera_slot"] == 0
+    assert row["chosen_rank"] == 0
+    validate_trace_row(row)  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Fixtures: trace_context / prepared / capture_fixture are provided by the
 # top-level tests/conftest.py.
 # ---------------------------------------------------------------------------
@@ -410,7 +485,7 @@ def test_mega_decision_populates_trace_with_chosen_mega_slot_and_full_candidates
     # Independently recompute the expected evaluated-variant set (same
     # expand+filter pipeline the production code uses) so the trace assertion
     # doesn't just trust decision.py's own internal bookkeeping.
-    expected_contexts = build_own_mega_contexts(
+    expected_contexts, _expected_evaluated = build_own_mega_contexts(
         req, state, our_side="p1", opp_side="p2", book=book, oracle=DamageOracle(_MegaTraceCalc()),
         speed_oracle=mega_trace_speed_oracle, species_meta=species_meta_table(),
         our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
@@ -510,7 +585,7 @@ def test_t50_scovillain_absent_from_full_decision_ranking_and_trace(
     calc = _T50Calc()
     speed_oracle = _T50Speed(calc_profile)
 
-    expected_contexts = build_own_mega_contexts(
+    expected_contexts, _expected_evaluated = build_own_mega_contexts(
         scovillain_mega_request, state, our_side="p1", opp_side="p2", book=book,
         oracle=DamageOracle(_T50Calc()), speed_oracle=speed_oracle,
         species_meta=species_meta_table(), our_spreads=spreads, opp_sets=None,

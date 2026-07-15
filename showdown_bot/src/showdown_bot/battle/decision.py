@@ -651,6 +651,7 @@ def _choose_best(
                     book=book,
                     our_side=our_side,
                     format_config=format_config,
+                    our_spreads=our_spreads,
                 )
                 report.append(f"max_damage would: {md}")
             except Exception:  # noqa: BLE001
@@ -705,31 +706,30 @@ def _choose_best_mega(
 
     The single expand+filter pass lives entirely inside
     ``mega_scoring.build_own_mega_contexts`` (called exactly once below);
-    ``evaluated`` is read back from its returned contexts' own ``plans`` dicts
-    (each already the fail-closed-filtered, projectable variant set), never a
-    second ``expand_mega_variants``/``filter_projectable_variants`` call.
+    ``evaluated`` is exactly its returned ``evaluated_variants`` list -- the
+    true ``expand_mega_variants``/``filter_projectable_variants`` order
+    (interleaved per base joint, NOT grouped by ``own_mega_slot``), never a
+    second ``expand_mega_variants``/``filter_projectable_variants`` call and
+    never a reconstruction from ``contexts``' own ``plans`` dicts (grouped by
+    ``own_mega_slot`` -- that ordering would silently place every non-Mega
+    variant ahead of every Mega variant and break the strict first-wins
+    ``max()`` tie-break a few lines down; Codex I7a-B merge-blocker).
     """
     from showdown_bot.battle.mega_scoring import (
         build_own_mega_contexts,
         score_evaluated_variants,
     )
-    from showdown_bot.battle.mega_variants import ScoredMegaVariant
     from showdown_bot.engine.species_meta import species_meta_table
 
     if speed_oracle is None:
         raise ValueError("Mega-enabled decision requires a speed_oracle")
 
-    contexts = build_own_mega_contexts(
+    contexts, evaluated = build_own_mega_contexts(
         req, state, our_side=our_side, opp_side=opp_side, book=book, oracle=oracle,
         speed_oracle=speed_oracle, species_meta=species_meta_table(),
         our_spreads=our_spreads, opp_sets=opp_sets, calc_profile=calc_profile,
         my_actions=my_actions,
     )
-    evaluated = [
-        ScoredMegaVariant(joint=ja, own_mega_slot=ctx.own_mega_slot)
-        for ctx in contexts
-        for ja in ctx.plans
-    ]
     records = score_evaluated_variants(
         evaluated, contexts, req=req, state=state, book=book, our_side=our_side,
         opp_side=opp_side, calc=calc, oracle=oracle, speed_oracle=speed_oracle,

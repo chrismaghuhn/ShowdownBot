@@ -117,7 +117,10 @@ def assert_unique_candidate_identities(candidates) -> None:
         seen[ident] = cand
 
 
-def _strip_tera_suffix(candidate_id: str) -> str:
+def strip_tera_suffix(candidate_id: str) -> str:
+    """Strip ``_label_ja``'s ``' tera'`` overlay marker from a diagnostic
+    label. Public (not module-private) -- ``eval.decision_capture`` reuses
+    this for its own pre-Tera-key/post-Tera-label consistency check."""
     return candidate_id.replace(" tera", "")
 
 
@@ -152,8 +155,8 @@ def resolve_chosen_candidate(trace) -> "CandidateTrace":
             f"ambiguous chosen_candidate_id={chosen_id!r} matches {len(exact)} candidates"
         )
 
-    stripped_target = _strip_tera_suffix(chosen_id)
-    fallback = [c for c in trace.candidates if _strip_tera_suffix(c.candidate_id) == stripped_target]
+    stripped_target = strip_tera_suffix(chosen_id)
+    fallback = [c for c in trace.candidates if strip_tera_suffix(c.candidate_id) == stripped_target]
     if len(fallback) == 1:
         return fallback[0]
     raise ChosenCandidateResolutionError(
