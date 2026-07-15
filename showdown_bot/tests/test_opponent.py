@@ -176,3 +176,32 @@ def test_opponent_speed_curated_vs_fallback(monkeypatch):
     assert curated == 100      # likely, non-scarf
     assert fallback == 150     # un-curated -> opponent_range.max (base 100, scarf assumed -> x1.5)
     assert knob_off == 150     # knob off -> always max
+
+
+def test_opponent_speed_curated_resolves_post_mega_species_via_base_id():
+    """P1.2: an opponent that has visibly Mega-evolved has mon.species set to the
+    post-Mega display name (e.g. "Aerodactyl-Mega") while base_species_id stays
+    the pre-Mega base id ("aerodactyl"). opp_sets is keyed by base species id, so
+    _opponent_speed must resolve via base_species_id (lookup_opp_set), not the
+    raw post-Mega species string, else it silently falls back to the pessimistic
+    opponent_range().max instead of the curated likely speed."""
+    from showdown_bot.battle.opponent import _opponent_speed
+    from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.engine.state import PokemonState, FieldState
+    from showdown_bot.engine.belief.hypotheses import (
+        SpeciesSpreads, SpreadPreset, load_spread_book,
+    )
+    from showdown_bot.engine.format_config import load_format_config
+
+    oracle = SpeedOracle(stats_backend=_SpeFake())
+    book = load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
+    p = SpreadPreset(nature="Careful", evs={"hp": 252}, items=["Sitrus Berry"])  # non-scarf, no spe
+    opp_sets = {"aerodactyl": SpeciesSpreads(offense=p, defense=p)}
+    field = FieldState()
+    post_mega = PokemonState(species="Aerodactyl-Mega", base_species_id="aerodactyl")
+
+    speed = _opponent_speed(
+        post_mega, field, "p2", speed_oracle=oracle, book=book, opp_sets=opp_sets
+    )
+
+    assert speed == 100  # curated likely speed, not the 150 pessimistic fallback
