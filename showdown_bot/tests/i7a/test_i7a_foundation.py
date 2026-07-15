@@ -82,6 +82,33 @@ def test_itemdata_content_hash_rejects_tampered_embedded_hash(tmp_path, monkeypa
         items_mod.itemdata_content_hash()
 
 
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda raw: raw.pop("data_hash", None),
+        lambda raw: raw.update({"data_hash": "not-hex"}),
+        lambda raw: raw.update({"data_hash": "abc"}),
+    ],
+    ids=["missing", "non-hex", "too-short"],
+)
+def test_itemdata_rejects_missing_or_malformed_data_hash(tmp_path, monkeypatch, mutator):
+    raw = json.loads(items_mod._ITEMDATA.read_text(encoding="utf-8"))
+    mutator(raw)
+    p = tmp_path / "itemdata.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(items_mod, "_ITEMDATA", p)
+    _item_table.cache_clear()
+    with pytest.raises(items_mod.ItemdataStaleError):
+        items_mod.itemdata_content_hash()
+    with pytest.raises(items_mod.ItemdataStaleError):
+        _item_table()
+
+
+def test_itemdata_content_hash_returns_embedded_seal():
+    raw = json.loads(items_mod._ITEMDATA.read_text(encoding="utf-8"))
+    assert items_mod.itemdata_content_hash() == raw["data_hash"]
+
+
 def test_speciesdata_stale_hash_raises_after_cache_clear(tmp_path, monkeypatch):
     raw = json.loads(species_meta_mod._SPECIESDATA.read_text(encoding="utf-8"))
     raw["data_hash"] = "deadbeef00000000"
@@ -101,6 +128,33 @@ def test_speciesdata_content_hash_rejects_tampered_embedded_hash(tmp_path, monke
     monkeypatch.setattr(species_meta_mod, "_SPECIESDATA", p)
     with pytest.raises(SpeciesMetaStaleError):
         species_meta_mod.speciesdata_content_hash()
+
+
+@pytest.mark.parametrize(
+    "mutator",
+    [
+        lambda raw: raw.pop("data_hash", None),
+        lambda raw: raw.update({"data_hash": "not-hex"}),
+        lambda raw: raw.update({"data_hash": "abc"}),
+    ],
+    ids=["missing", "non-hex", "too-short"],
+)
+def test_speciesdata_rejects_missing_or_malformed_data_hash(tmp_path, monkeypatch, mutator):
+    raw = json.loads(species_meta_mod._SPECIESDATA.read_text(encoding="utf-8"))
+    mutator(raw)
+    p = tmp_path / "speciesdata.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(species_meta_mod, "_SPECIESDATA", p)
+    species_meta_mod.species_meta_table.cache_clear()
+    with pytest.raises(SpeciesMetaStaleError):
+        species_meta_mod.speciesdata_content_hash()
+    with pytest.raises(SpeciesMetaStaleError):
+        species_meta_mod.species_meta_table()
+
+
+def test_speciesdata_content_hash_returns_embedded_seal():
+    raw = json.loads(species_meta_mod._SPECIESDATA.read_text(encoding="utf-8"))
+    assert species_meta_mod.speciesdata_content_hash() == raw["data_hash"]
 
 
 def test_species_form_meta_is_hashable():

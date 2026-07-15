@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import functools
-import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from showdown_bot.engine.generated_data_hash import verify_embedded_data_hash
 from showdown_bot.engine.items import to_id
 
 _CONFIG = Path(__file__).resolve().parents[3] / "config"
@@ -28,36 +28,24 @@ class SpeciesFormMeta:
     required_item: str | None = None
 
 
-def _embedded_hash(raw: dict, table_key: str) -> str:
-    payload = json.dumps(
-        raw[table_key],
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=False,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()[:16]
+def _verify_speciesdata_hash(raw: dict) -> str:
+    return verify_embedded_data_hash(
+        raw,
+        "species",
+        label="speciesdata.json",
+        stale_error=SpeciesMetaStaleError,
+    )
 
 
 def speciesdata_content_hash() -> str:
     raw = json.loads(_SPECIESDATA.read_text(encoding="utf-8"))
-    expected = raw.get("data_hash")
-    actual = _embedded_hash(raw, "species")
-    if expected is not None and actual != expected:
-        raise SpeciesMetaStaleError(
-            f"speciesdata.json stale: embedded {expected!r} != computed {actual!r}"
-        )
-    return actual
+    return _verify_speciesdata_hash(raw)
+
 
 @functools.lru_cache(maxsize=1)
 def species_meta_table() -> dict[str, SpeciesFormMeta]:
     raw = json.loads(_SPECIESDATA.read_text(encoding="utf-8"))
-    expected = raw.get("data_hash")
-    if expected is not None:
-        actual = _embedded_hash(raw, "species")
-        if actual != expected:
-            raise SpeciesMetaStaleError(
-                f"speciesdata.json stale: embedded {expected!r} != computed {actual!r}"
-            )
+    _verify_speciesdata_hash(raw)
     table: dict[str, SpeciesFormMeta] = {}
     for sid, rec in raw["species"].items():
         abilities = rec.get("abilities") or {}
