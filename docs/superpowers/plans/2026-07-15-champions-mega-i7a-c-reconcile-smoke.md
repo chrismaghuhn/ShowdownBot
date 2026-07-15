@@ -442,8 +442,9 @@ NOT start this task until:
 `git_sha=cb1934e233044f9195ffd8d0ce8da6ffd2c1c019` -- the schedule commit, BEFORE the
 P1.1 (`8932786`) and P1.2 (`838ef2c`) reconciliation/belief fixes existed. **That run does
 not count as evidence for this task** (pre-fix code, and it predates this hardened
-evidence gate regardless) and must not be cited, frozen, or built upon. Delete or ignore it
-and start Step 1 fresh only after explicit sign-off to run a live smoke.
+evidence gate regardless) and must not be cited, frozen, or built upon. It has been moved
+outside the repository (never committed); start Step 1 fresh only after explicit sign-off
+to run a live smoke.
 
 - [ ] **Step 1: Start one fresh Showdown server outside the repository**
 
@@ -477,10 +478,13 @@ Assert 2/2 rows, zero crashes/invalid choices, every row `dirty=false`, every `g
 
 Then run `derive_mega_evidence` (per battle, `our_side` = hero's side) over the loaded v3
 trace rows. If it raises `MegaEvidenceError`, that is a real defect -- stop and fix it, do
-not paper over it. If it returns `None` for every battle, the smoke is **INCONCLUSIVE**:
-do not silently retry with other seeds, do not change any production threshold or scoring
-to force a Mega click, and do not write `PASS`. Only if it returns a `MegaEvidence` for at
-least one battle may the verdict proceed to the remaining gates.
+not paper over it. If it returns `None` for every battle, the smoke is **INCONCLUSIVE**
+(this also covers the legitimate case where the Mega'd mon later switches out or faints
+before the exact Mega form is ever observed again in a later decision -- normal play, not
+a defect, still not evidence): do not silently retry with other seeds, do not change any
+production threshold or scoring to force a Mega click, and do not write `PASS`. Only if it
+returns a `MegaEvidence` for at least one battle may the verdict proceed to the remaining
+gates.
 
 Write the derived evidence (not raw logs) to `mega-evidence.json`: `battle_id`,
 `mega_decision_index`, `turn_number`, `mega_slot`, `chosen_candidate_key`,
@@ -491,7 +495,10 @@ from.
 A trace-level species match alone does not prove a real `detailschange`/`-mega` protocol
 pair occurred (`merge_request()` can also update species from the request). While the
 `SHOWDOWN_ROOM_RAW_DUMP` local cache path still exists for this run (before it is nulled),
-call `mega_evidence.bind_protocol_mega_pair` against that normalized log and add its
+call `mega_evidence.bind_protocol_mega_pair` against that normalized log, passing the
+battle's own result row's `normalized_room_log_sha256` as `expected_normalized_log_sha256`
+(the function refuses to bind to a log that doesn't hash to it, and separately rejects an
+out-of-order or ambiguous `detailschange`/`-mega` pairing), and add its
 `detailschange_line_sha256`/`mega_line_sha256`/`normalized_log_sha256` to
 `mega-evidence.json` -- these are compact line/whole-log hashes, not raw log content, so
 no raw room-log text is committed.

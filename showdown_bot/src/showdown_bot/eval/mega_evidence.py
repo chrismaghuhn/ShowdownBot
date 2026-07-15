@@ -22,9 +22,14 @@ observing a FULL own-Mega path in a battle's decision-trace rows:
 
 Returns ``None`` when no such path exists in the given rows -- callers MUST treat this as
 INCONCLUSIVE, never as PASS, and MUST NOT silently retry with other seeds to manufacture a
-PASS. Raises ``MegaEvidenceError`` when a row's own fields contradict each other (e.g. a
-mega click whose ``/choose`` string doesn't actually contain "mega", or a claimed post-Mega
-decision whose species never changed) -- that is a real defect, not mere absence of evidence.
+PASS. This includes the legitimate case where the Mega'd mon later switches out or faints
+before the exact Mega form is ever observed again in a later decision -- that is normal play,
+not a defect, so it is INCONCLUSIVE too (the search scans every later decision, not just the
+next one, in case the mon later switches back in). Raises ``MegaEvidenceError`` only for
+internal contradictions that are real defects regardless of how the battle played out: a
+mega click whose ``/choose`` string doesn't actually contain "mega", a click on a
+team-preview row, or a pre-click species/stone item that can't be resolved to any known
+Mega mapping at all.
 """
 from __future__ import annotations
 
@@ -60,41 +65,75 @@ class ProtocolMegaBinding:
 
 def bind_protocol_mega_pair(
     normalized_log_text: str, *, actor_ident: str, mega_species_details: str,
-    base_species: str, stone_display: str,
+    base_species: str, stone_display: str, expected_normalized_log_sha256: str,
 ) -> ProtocolMegaBinding:
     """Locate the ``detailschange``/``-mega`` line pair for ``actor_ident`` matching the
     given post-Mega species details, base species, and stone in ``normalized_log_text``,
     and return a compact hash-bound reference to those two lines plus the whole log.
 
-    Fails closed (``MegaEvidenceError``, nothing returned) if no line pair matches exactly
-    -- e.g. a wrong stone, wrong actor, or the ``-mega`` line missing entirely."""
-    detailschange_line = None
-    mega_line = None
-    for line in normalized_log_text.splitlines():
+    ``expected_normalized_log_sha256`` must be the battle's result row's
+    ``normalized_room_log_sha256`` -- the function refuses to bind evidence to a log that
+    doesn't match it (Codex re-review: without this check, evidence could silently bind
+    to the wrong or a tampered log).
+
+    Fails closed (``MegaEvidenceError``, nothing returned) if:
+    - the log doesn't hash to ``expected_normalized_log_sha256``;
+    - no line pair matches exactly (wrong stone, wrong actor, missing lines);
+    - more than one line matches either role (ambiguous pairing -- refuses to guess which
+      pair is the real one);
+    - the matching ``-mega`` line does not come strictly AFTER its ``detailschange`` line
+      (Codex re-review: the two were previously matched independently, so a reversed
+      ``-mega`` / ``detailschange`` order was wrongly accepted as a valid pair)."""
+    actual_log_hash = hashlib.sha256(normalized_log_text.encode("utf-8")).hexdigest()
+    if actual_log_hash != expected_normalized_log_sha256:
+        raise MegaEvidenceError(
+            f"normalized log hash mismatch: expected {expected_normalized_log_sha256!r} "
+            f"(the battle's recorded normalized_room_log_sha256), got {actual_log_hash!r} "
+            f"-- refusing to bind evidence to a log that isn't the one this battle recorded"
+        )
+
+    detailschange_matches: list[tuple[int, str]] = []
+    mega_matches: list[tuple[int, str]] = []
+    for i, line in enumerate(normalized_log_text.splitlines()):
         parts = line.split("|")
         if len(parts) < 4:
             continue
         # "|detailschange|ACTOR|SPECIES_DETAILS" / "|-mega|ACTOR|BASE_SPECIES|STONE"
         _, kind, actor, *rest = parts
         if kind == "detailschange" and actor == actor_ident and rest[0] == mega_species_details:
-            detailschange_line = line
+            detailschange_matches.append((i, line))
         elif (
             kind == "-mega" and actor == actor_ident and len(rest) >= 2
             and rest[0] == base_species and rest[1] == stone_display
         ):
-            mega_line = line
+            mega_matches.append((i, line))
 
-    if detailschange_line is None or mega_line is None:
+    if len(detailschange_matches) > 1 or len(mega_matches) > 1:
+        raise MegaEvidenceError(
+            f"ambiguous protocol pairing for actor={actor_ident!r}: found "
+            f"{len(detailschange_matches)} matching detailschange line(s) and "
+            f"{len(mega_matches)} matching -mega line(s) -- expected exactly one of each, "
+            f"refusing to guess which pair is the real one"
+        )
+    if not detailschange_matches or not mega_matches:
         raise MegaEvidenceError(
             f"no matching detailschange/-mega protocol pair found for actor={actor_ident!r} "
             f"mega_species_details={mega_species_details!r} base_species={base_species!r} "
             f"stone={stone_display!r}"
         )
 
+    (dc_index, detailschange_line) = detailschange_matches[0]
+    (mega_index, mega_line) = mega_matches[0]
+    if dc_index >= mega_index:
+        raise MegaEvidenceError(
+            f"protocol pair out of order for actor={actor_ident!r}: detailschange at line "
+            f"{dc_index} must come strictly before -mega at line {mega_index}"
+        )
+
     return ProtocolMegaBinding(
         detailschange_line_sha256=hashlib.sha256(detailschange_line.encode("utf-8")).hexdigest(),
         mega_line_sha256=hashlib.sha256(mega_line.encode("utf-8")).hexdigest(),
-        normalized_log_sha256=hashlib.sha256(normalized_log_text.encode("utf-8")).hexdigest(),
+        normalized_log_sha256=actual_log_hash,
     )
 
 
@@ -145,7 +184,6 @@ def derive_mega_evidence(trace_rows: list[dict], *, our_side: str) -> MegaEviden
     )
     if not later:
         return None
-    post = later[0]
 
     slot_key = _slot_key(mega_slot)
     pre_species = _mon_field(mega_row, our_side, slot_key, "species")
@@ -169,22 +207,20 @@ def derive_mega_evidence(trace_rows: list[dict], *, our_side: str) -> MegaEviden
             f"claimed click"
         )
 
-    post_species = _mon_field(post, our_side, slot_key, "species")
-    if post_species != expected_form.form_species_name:
-        raise MegaEvidenceError(
-            f"post-Mega decision_index={post['decision_index']}: state_summary species "
-            f"{post_species!r} for side={our_side!r} slot={slot_key!r} does not match the "
-            f"expected Mega form {expected_form.form_species_name!r} derived from pre-click "
-            f"species {pre_species!r} + stone {pre_item!r} -- this looks like an unrelated "
-            f"switch, not a rebuilt Mega state"
-        )
-
-    return MegaEvidence(
-        battle_id=mega_row["battle_id"],
-        mega_decision_index=mega_row["decision_index"],
-        turn_number=mega_row["turn_number"],
-        mega_slot=mega_slot,
-        chosen_candidate_key=mega_row.get("chosen_candidate_key"),
-        post_mega_decision_index=post["decision_index"],
-        post_mega_species=post_species,
-    )
+    # Search ALL later decisions (not just the immediate next one) for the first row whose
+    # slot shows the exact expected Mega form. A legitimate intervening switch/faint means
+    # some later rows won't show it -- that alone is not a defect (Codex re-review:
+    # semantics), so absence of a match anywhere is INCONCLUSIVE (None), never an error.
+    for row in later:
+        post_species = _mon_field(row, our_side, slot_key, "species")
+        if post_species == expected_form.form_species_name:
+            return MegaEvidence(
+                battle_id=mega_row["battle_id"],
+                mega_decision_index=mega_row["decision_index"],
+                turn_number=mega_row["turn_number"],
+                mega_slot=mega_slot,
+                chosen_candidate_key=mega_row.get("chosen_candidate_key"),
+                post_mega_decision_index=row["decision_index"],
+                post_mega_species=post_species,
+            )
+    return None

@@ -98,15 +98,18 @@ def test_chosen_mega_slot_without_choose_string_containing_mega_is_a_hard_error(
         derive_mega_evidence(rows, our_side="p1")
 
 
-def test_post_mega_row_with_unchanged_species_is_a_hard_error():
+def test_post_mega_row_with_unchanged_species_is_inconclusive():
+    """Codex re-review (semantics): a legitimate later switch/faint before the Mega form
+    is ever observed again is INCONCLUSIVE (no evidence found), not a hard internal
+    error -- it doesn't prove anything is broken, just that this battle's trace never
+    shows the rebuilt state."""
     rows = [
         _row(decision_index=0, chosen_mega_slot=0, actual_choose_string="move 1 mega",
              chosen_candidate_key="k1", species_a="Charizard",
              item_a="Charizardite Y", item_a_known=True),
         _row(decision_index=1, species_a="Charizard"),  # never actually rebuilt to Mega form
     ]
-    with pytest.raises(MegaEvidenceError, match="expected Mega form"):
-        derive_mega_evidence(rows, our_side="p1")
+    assert derive_mega_evidence(rows, our_side="p1") is None
 
 
 def test_mega_click_on_team_preview_row_is_a_hard_error():
@@ -136,20 +139,39 @@ def test_picks_the_earliest_mega_click_when_multiple_present():
 
 # --- Codex re-review finding: a later SWITCH must not be accepted as a Mega rebuild ------
 
-def test_switch_to_a_different_unrelated_species_after_mega_click_is_a_hard_error():
+def test_switch_to_a_different_unrelated_species_after_mega_click_is_inconclusive():
     """P1.3 correction (Codex re-review, 2026-07-15): the prior implementation accepted
     ANY species change in the slot as proof of a Mega rebuild. A Charizard Mega click
     followed by a switch to Incineroar in the same slot must NOT be accepted as evidence
     -- the post-click species must match the form mega_form_for(pre_species, stone)
-    actually derives, not merely differ from the pre-click species."""
+    actually derives. A second re-review pass then clarified the semantics: a switch is
+    legitimate normal play, so the correct outcome is INCONCLUSIVE (None), not a hard
+    MegaEvidenceError -- see test_post_mega_row_with_unchanged_species_is_inconclusive."""
     rows = [
         _row(decision_index=0, chosen_mega_slot=0, actual_choose_string="move 1 mega",
              chosen_candidate_key="k1", species_a="Charizard",
              item_a="Charizardite Y", item_a_known=True),
         _row(decision_index=1, species_a="Incineroar"),  # switched, not Mega-rebuilt
     ]
-    with pytest.raises(MegaEvidenceError, match="expected Mega form"):
-        derive_mega_evidence(rows, our_side="p1")
+    assert derive_mega_evidence(rows, our_side="p1") is None
+
+
+def test_later_row_after_an_intervening_switch_still_counts_as_evidence():
+    """The search for the expected Mega form must not stop at the FIRST later row -- if
+    an intervening decision shows an unrelated species (a switch) but a SUBSEQUENT
+    decision shows the mon back in its exact expected Mega form, that later row is valid
+    evidence of a rebuilt Mega state."""
+    rows = [
+        _row(decision_index=0, chosen_mega_slot=0, actual_choose_string="move 1 mega",
+             chosen_candidate_key="k1", species_a="Charizard", turn_number=2,
+             item_a="Charizardite Y", item_a_known=True),
+        _row(decision_index=1, species_a="Incineroar", turn_number=3),  # switched out
+        _row(decision_index=2, species_a="Charizard-Mega-Y", turn_number=4),  # switched back in
+    ]
+    evidence = derive_mega_evidence(rows, our_side="p1")
+    assert evidence is not None
+    assert evidence.post_mega_decision_index == 2
+    assert evidence.post_mega_species == "Charizard-Mega-Y"
 
 
 def test_mega_click_with_unknown_item_is_a_hard_error():
@@ -167,6 +189,8 @@ def test_mega_click_with_unknown_item_is_a_hard_error():
 
 # --- Codex re-review finding: bind trace-derived evidence to the real protocol pair ------
 
+import hashlib
+
 _RAW_LOG_WITH_MEGA = """\
 |switch|p1a: Charizard|Charizard, L50|100/100
 |switch|p2a: Incineroar|Incineroar, L50|100/100
@@ -176,6 +200,24 @@ _RAW_LOG_WITH_MEGA = """\
 |move|p1a: Charizard|Flamethrower|p2a: Incineroar
 """
 
+_RAW_LOG_REVERSED_ORDER = """\
+|switch|p1a: Charizard|Charizard, L50|100/100
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50
+"""
+
+_RAW_LOG_AMBIGUOUS_PAIR = """\
+|switch|p1a: Charizard|Charizard, L50|100/100
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+|detailschange|p1a: Charizard|Charizard-Mega-Y, L50
+|-mega|p1a: Charizard|Charizard|Charizardite Y
+"""
+
+
+def _log_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 def test_bind_protocol_mega_pair_finds_matching_detailschange_and_mega_lines():
     binding = bind_protocol_mega_pair(
@@ -184,9 +226,8 @@ def test_bind_protocol_mega_pair_finds_matching_detailschange_and_mega_lines():
         mega_species_details="Charizard-Mega-Y, L50",
         base_species="Charizard",
         stone_display="Charizardite Y",
+        expected_normalized_log_sha256=_log_hash(_RAW_LOG_WITH_MEGA),
     )
-
-    import hashlib
 
     assert binding.detailschange_line_sha256 == hashlib.sha256(
         "|detailschange|p1a: Charizard|Charizard-Mega-Y, L50".encode("utf-8")
@@ -194,9 +235,7 @@ def test_bind_protocol_mega_pair_finds_matching_detailschange_and_mega_lines():
     assert binding.mega_line_sha256 == hashlib.sha256(
         "|-mega|p1a: Charizard|Charizard|Charizardite Y".encode("utf-8")
     ).hexdigest()
-    assert binding.normalized_log_sha256 == hashlib.sha256(
-        _RAW_LOG_WITH_MEGA.encode("utf-8")
-    ).hexdigest()
+    assert binding.normalized_log_sha256 == _log_hash(_RAW_LOG_WITH_MEGA)
 
 
 def test_bind_protocol_mega_pair_fails_closed_when_no_mega_line_present():
@@ -208,6 +247,7 @@ def test_bind_protocol_mega_pair_fails_closed_when_no_mega_line_present():
             mega_species_details="Charizard-Mega-Y, L50",
             base_species="Charizard",
             stone_display="Charizardite Y",
+            expected_normalized_log_sha256=_log_hash(log_without_mega),
         )
 
 
@@ -219,4 +259,47 @@ def test_bind_protocol_mega_pair_fails_closed_on_wrong_stone():
             mega_species_details="Charizard-Mega-Y, L50",
             base_species="Charizard",
             stone_display="Charizardite X",  # wrong stone -- doesn't match the logged pair
+            expected_normalized_log_sha256=_log_hash(_RAW_LOG_WITH_MEGA),
+        )
+
+
+def test_bind_protocol_mega_pair_fails_closed_on_reversed_line_order():
+    """Codex re-review: -mega must not be accepted if it precedes its detailschange."""
+    with pytest.raises(MegaEvidenceError, match="order"):
+        bind_protocol_mega_pair(
+            _RAW_LOG_REVERSED_ORDER,
+            actor_ident="p1a: Charizard",
+            mega_species_details="Charizard-Mega-Y, L50",
+            base_species="Charizard",
+            stone_display="Charizardite Y",
+            expected_normalized_log_sha256=_log_hash(_RAW_LOG_REVERSED_ORDER),
+        )
+
+
+def test_bind_protocol_mega_pair_fails_closed_on_ambiguous_pairing():
+    """Codex re-review: more than one matching detailschange/-mega line is ambiguous,
+    not a pairable single event -- must reject, not silently pick one."""
+    with pytest.raises(MegaEvidenceError, match="ambiguous"):
+        bind_protocol_mega_pair(
+            _RAW_LOG_AMBIGUOUS_PAIR,
+            actor_ident="p1a: Charizard",
+            mega_species_details="Charizard-Mega-Y, L50",
+            base_species="Charizard",
+            stone_display="Charizardite Y",
+            expected_normalized_log_sha256=_log_hash(_RAW_LOG_AMBIGUOUS_PAIR),
+        )
+
+
+def test_bind_protocol_mega_pair_fails_closed_on_log_hash_mismatch():
+    """Codex re-review: the caller must pass the expected canonical log hash (from the
+    battle's result row's normalized_room_log_sha256) and the function must refuse to
+    bind evidence to a log that doesn't match it."""
+    with pytest.raises(MegaEvidenceError, match="hash mismatch"):
+        bind_protocol_mega_pair(
+            _RAW_LOG_WITH_MEGA,
+            actor_ident="p1a: Charizard",
+            mega_species_details="Charizard-Mega-Y, L50",
+            base_species="Charizard",
+            stone_display="Charizardite Y",
+            expected_normalized_log_sha256="0" * 64,  # wrong hash
         )
