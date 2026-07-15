@@ -1,0 +1,53 @@
+{
+  "active": [
+    {
+      "moves": [
+        {"move": "Flamethrower", "id": "flamethrower", "pp": 24, "maxpp": 24, "target": "normal", "disabled": false},
+        {"move": "Protect", "id": "protect", "pp": 16, "maxpp": 16, "target": "self", "disabled": false}
+      ],
+      "canMegaEvo": true
+    },
+    {
+      "moves": [
+        {"move": "Moonblast", "id": "moonblast", "pp": 24, "maxpp": 24, "target": "normal", "disabled": false},
+        {"move": "Protect", "id": "protect", "pp": 16, "maxpp": 16, "target": "self", "disabled": false}
+      ],
+      "canMegaEvo": false
+    }
+  ],
+  "side": {
+    "name": "Player1",
+    "id": "p1",
+    "pokemon": [
+      {
+        "ident": "p1: Scovillain",
+        "details": "Scovillain, L50",
+        "condition": "155/155",
+        "active": true,
+        "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        "moves": ["flamethrower", "protect"],
+        "baseTypes": ["Grass", "Fire"],
+        "item": "Scovillainite"
+      },
+      {
+        "ident": "p1: Whimsicott",
+        "details": "Whimsicott, L50",
+        "condition": "140/140",
+        "active": true,
+        "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        "moves": ["moonblast", "protect"],
+        "baseTypes": ["Grass", "Fairy"]
+      },
+      {
+        "ident": "p1: Incineroar",
+        "details": "Incineroar, L50, M",
+        "condition": "180/180",
+        "active": false,
+        "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        "moves": ["fakeout", "flareblitz", "protect", "knockoff"],
+        "baseTypes": ["Fire", "Dark"]
+      }
+    ]
+  },
+  "rqid": 3
+}

@@ -37,6 +37,21 @@ def test_itemdata_known_items():
     assert items["sitrusberry"]["isBerry"] is True
 
 
+def test_itemdata_exposes_mega_stone_target():
+    items = _load("items/itemdata.json")["items"]
+    assert items["aerodactylite"]["megaStone"] == {
+        "Aerodactyl": "Aerodactyl-Mega",
+    }
+
+
+def test_speciesdata_exposes_mega_form_metadata():
+    row = _load("species/speciesdata.json")["species"]["aerodactylmega"]
+    assert row["baseSpecies"] == "Aerodactyl"
+    assert row["baseStats"]["spe"] == 150
+    assert row["abilities"]["0"] == "Tough Claws"
+    assert row["requiredItem"] == "Aerodactylite"
+
+
 def test_generated_data_is_fresh():
     """Re-run the generator in --check mode; fail if checked-in JSON is stale."""
     if shutil.which("node") is None:

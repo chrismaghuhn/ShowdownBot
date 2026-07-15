@@ -8,13 +8,33 @@ from pathlib import Path
 
 import yaml
 
+from showdown_bot.engine.generated_data_hash import verify_embedded_data_hash
+
 _CONFIG = Path(__file__).resolve().parents[3] / "config"
 _ITEMDATA = _CONFIG / "items" / "itemdata.json"
 _ITEM_EFFECT_CLASSES = _CONFIG / "items" / "item_effect_classes.yaml"
 
 
+class ItemdataStaleError(RuntimeError):
+    """Raised when itemdata.json embedded data_hash does not match content."""
+
+
 def to_id(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def _verify_itemdata_hash(raw: dict) -> str:
+    return verify_embedded_data_hash(
+        raw,
+        "items",
+        label="itemdata.json",
+        stale_error=ItemdataStaleError,
+    )
+
+
+def itemdata_content_hash() -> str:
+    raw = json.loads(_ITEMDATA.read_text(encoding="utf-8"))
+    return _verify_itemdata_hash(raw)
 
 
 @dataclass(frozen=True)
@@ -33,6 +53,7 @@ class ItemMeta:
     is_choice: bool = False
     classes: tuple[str, ...] = ()
     params: dict = field(default_factory=dict, compare=False)
+    mega_stone: dict[str, str] = field(default_factory=dict, compare=False)
 
 
 @functools.lru_cache(maxsize=1)
@@ -46,6 +67,7 @@ def _item_overlay() -> dict[str, dict]:
 @functools.lru_cache(maxsize=1)
 def _item_table() -> dict[str, ItemMeta]:
     raw = json.loads(_ITEMDATA.read_text(encoding="utf-8"))
+    _verify_itemdata_hash(raw)
     overlay = _item_overlay()
     table: dict[str, ItemMeta] = {}
     for iid, rec in raw["items"].items():
@@ -57,6 +79,10 @@ def _item_table() -> dict[str, ItemMeta]:
             is_choice=bool(rec.get("isChoice")),
             classes=tuple(entry.get("classes") or ()),
             params=dict(entry.get("params") or {}),
+            mega_stone={
+                to_id(base_species): form_name
+                for base_species, form_name in (rec.get("megaStone") or {}).items()
+            },
         )
     return table
 

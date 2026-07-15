@@ -1,0 +1,17 @@
+{
+  "showdown_pin": "f8ac140",
+  "protocol_mega_line": "|-mega|p1a: Charizard|Charizard|Charizardite Y",
+  "base_species": "Charizard",
+  "stone": "Charizardite Y",
+  "spread": {
+    "nature": "Hardy",
+    "evs": {"hp": 32, "spa": 32, "spe": 2}
+  },
+  "post_mega": {
+    "species": "Charizard-Mega-Y",
+    "ability": "Drought",
+    "types": ["Fire", "Flying"],
+    "effective_speed": 122,
+    "weather": "sunnyday"
+  }
+}

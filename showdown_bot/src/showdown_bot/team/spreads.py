@@ -12,7 +12,8 @@ are both the single real spread -- so it is used regardless of the calc mode.
 from __future__ import annotations
 
 from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
-from showdown_bot.engine.state import BattleState, parse_details
+from showdown_bot.engine.spread_lookup import lookup_our_spreads
+from showdown_bot.engine.state import BattleState, parse_details, to_id
 from showdown_bot.models.request import BattleRequest
 
 # Packed EV order: hp, atk, def, spa, spd, spe.
@@ -45,7 +46,9 @@ def our_spreads_from_packed(packed: str) -> dict[str, SpeciesSpreads]:
             continue
         parsed = _parse_mon(block)
         if parsed is not None:
-            out[parsed[0]] = parsed[1]
+            species, spreads = parsed
+            out[species] = spreads
+            out[to_id(species)] = spreads
     return out
 
 
@@ -82,7 +85,7 @@ def apply_own_team_knowledge(
         for mon in side.values():
             if mon.item_known or mon.item_lost:
                 continue
-            spreads = our_spreads.get(mon.species)
+            spreads = lookup_our_spreads(our_spreads, mon)
             items = spreads.defense.items if spreads else []
             if items:
                 mon.item, mon.item_known = items[0], True

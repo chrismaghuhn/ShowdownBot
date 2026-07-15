@@ -78,10 +78,23 @@ function itemRecord(it) {
     name: it.name,
     isBerry: !!it.isBerry,
     isChoice: !!it.isChoice,
+    megaStone: it.megaStone ?? null,
     boosts: it.boosts ?? null,
     naturalGift: it.naturalGift ?? null,
     fling: it.fling ?? null,
     shortDesc: it.shortDesc ?? it.desc ?? '',
+  };
+}
+
+function speciesRecord(species) {
+  return {
+    id: species.id,
+    name: species.name,
+    baseSpecies: species.baseSpecies,
+    types: species.types,
+    baseStats: species.baseStats,
+    abilities: species.abilities,
+    requiredItem: species.requiredItem ?? null,
   };
 }
 
@@ -93,10 +106,15 @@ function pack(kind, records) {
 
 const moves = dex.moves.all().map(moveRecord).sort((a, b) => a.id.localeCompare(b.id));
 const items = dex.items.all().map(itemRecord).sort((a, b) => a.id.localeCompare(b.id));
+const species = dex.species.all()
+  .filter((entry) => entry.exists !== false)
+  .map(speciesRecord)
+  .sort((a, b) => a.id.localeCompare(b.id));
 
 const targets = [
   ['moves/movedata.json', pack('moves', moves)],
   ['items/itemdata.json', pack('items', items)],
+  ['species/speciesdata.json', pack('species', species)],
 ];
 
 if (process.argv.includes('--check')) {
@@ -115,7 +133,8 @@ if (process.argv.includes('--check')) {
 
 mkdirSync(resolve(configDir, 'moves'), { recursive: true });
 mkdirSync(resolve(configDir, 'items'), { recursive: true });
+mkdirSync(resolve(configDir, 'species'), { recursive: true });
 for (const [rel, out] of targets) {
   writeFileSync(resolve(configDir, rel), JSON.stringify(out, null, 1) + '\n');
 }
-console.log(`wrote ${moves.length} moves, ${items.length} items`);
+console.log(`wrote ${moves.length} moves, ${items.length} items, ${species.length} species`);

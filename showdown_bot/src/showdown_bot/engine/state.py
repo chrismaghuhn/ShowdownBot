@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dc_field
 
 from showdown_bot.engine.log_parser import LogEvent, parse_hp_integer, parse_log
 from showdown_bot.models.request import BattleRequest
@@ -49,20 +49,25 @@ class PokemonState:
     gender: str | None = None
     hp: int = 100
     max_hp: int | None = None
-    boosts: dict[str, int] = field(default_factory=dict)
+    boosts: dict[str, int] = dc_field(default_factory=dict)
     status: str | None = None
     item: str | None = None
     item_known: bool = False
     ability: str | None = None
-    moves: set[str] = field(default_factory=set)  # normalized move ids
-    move_names: set[str] = field(default_factory=set)  # display names from |move|
+    moves: set[str] = dc_field(default_factory=set)  # normalized move ids
+    move_names: set[str] = dc_field(default_factory=set)  # display names from |move|
     tera_type: str | None = None
     terastallized: bool = False
     fainted: bool = False
-    types: list[str] = field(default_factory=list)
+    types: list[str] = dc_field(default_factory=list)
     consecutive_protect: int = 0  # trailing run of Protect-type moves used
     moved_since_switch: bool = False  # has acted since last switch-in (Fake Out gate)
     item_lost: bool = False  # item consumed / removed / knocked / activated -> known absent
+    base_species_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.base_species_id:
+            self.base_species_id = to_id(self.species)
 
     @property
     def hp_fraction(self) -> float:
@@ -76,15 +81,18 @@ class FieldState:
     weather: str | None = None
     terrain: str | None = None
     trick_room: bool = False
-    tailwind: dict[str, bool] = field(default_factory=lambda: {"p1": False, "p2": False})
+    tailwind: dict[str, bool] = dc_field(default_factory=lambda: {"p1": False, "p2": False})
 
 
 @dataclass
 class BattleState:
-    sides: dict[str, dict[str, PokemonState]] = field(
+    sides: dict[str, dict[str, PokemonState]] = dc_field(
         default_factory=lambda: {"p1": {}, "p2": {}}
     )
-    field: FieldState = field(default_factory=FieldState)
+    field: FieldState = dc_field(default_factory=FieldState)
+    side_mega_spent: dict[str, bool] = dc_field(
+        default_factory=lambda: {"p1": False, "p2": False}
+    )
     turn: int = 0
 
     def side(self, side: str) -> dict[str, PokemonState]:

@@ -11,6 +11,7 @@ class SlotAction:
     target: int | None = None          # 1 or 2 for foe slots, -1 ally, -2 self
     terastallize: bool = False
     target_ident: str | None = None    # for switch: bench ident suffix
+    mega_evolve: bool = False
 
 
 @dataclass(frozen=True)

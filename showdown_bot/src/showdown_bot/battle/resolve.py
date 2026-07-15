@@ -39,6 +39,7 @@ class PlannedAction:
     target: SlotId | None = None
     is_ours: bool = False
     is_tera: bool = False
+    is_mega: bool = False
 
     @property
     def key(self) -> SlotId:

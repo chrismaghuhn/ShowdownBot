@@ -10,7 +10,7 @@ verify against this file and git history first.
 **New agents:** start with [`docs/PROJECT_INDEX.md`](PROJECT_INDEX.md) for orientation; this
 roadmap remains the authoritative status matrix.
 
-Last reconciled: 2026-07-14 (I6 live-damage gen-0 PASS @ `3bcd4b3`; HP-suffix revalidation PASS @ `62117b5`; prior I5 mixed verdict @ `4da007b` retained for latency baseline), against an external strategic review (adopted with two
+Last reconciled: 2026-07-15 (I7 Mega design spec rev. 9 **APPROVED**; protocol differential audit @ `fc4f251`; I6 live-damage gen-0 PASS @ `3bcd4b3`; HP-suffix revalidation PASS @ `62117b5`; prior I5 mixed verdict @ `4da007b` retained for latency baseline), against an external strategic review (adopted with two
 corrections, see "Corrections to the external review" below) and this session's own verified
 state (depth-2 slice, value-calibration spec).
 
@@ -33,7 +33,7 @@ state (depth-2 slice, value-calibration spec).
 | Value-head (trained model) | **Not started, gated** | — | only after value-calibration says GO |
 | PPO/full self-play RL | **Not started, deliberately deferred** | ps-ppo-reference eval | P5, after search/belief/value-labels stabilize |
 | Accuracy / hit-probability evaluation | **Default-on safety-clean; strength UNDERPOWERED (unfavorable direction, no claim)** | Gate-B cap=6 PASS 6/944=0.64%; default-on live dev-strength A/B @ `a956b6b` (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`: SAFETY-PASS, n_discordant=6, 0 A-only / 6 B-only discordants — follow-up risk signal, not regression proven) | `SHOWDOWN_ACCURACY_MODE` **default-on** when unset; cap **6**; explicit opt-out unchanged; **no GO on strength** — next step user-gated (larger strength run vs Champions-readiness) |
-| Champions panel v0 (format target) | **I6 LIVE-DAMAGE GEN-0 PASS · 2-BATTLE SAFETY-PASS · latency open** | P0–P4 on main; I4 calc pin + speed gen-0 merged `f192aff`; I5 @ `4da007b`: **5/94** random-legal degradation, worst p95 **3235 ms** (also contained state-degradation; no causal p95 link); HP fix merged `62117b5`; revalidation @ `62117b5` (`suffix-evidence.json`): **0/99** degraded; this-run p95 **429 ms** (observational only); **I6 @ `3bcd4b3`**: gen-0 damage wired through heuristic/`max_damage`/export; 2-battle smoke **SAFETY-PASS**, worst p95 **331 ms** (`reports/champions-panel-v0-i6-smoke.md`) | **1)** Mega **2)** latency profile/budget — then Strength |
+| Champions panel v0 (format target) | **I6 PASS · I7 Mega DESIGN APPROVED (rev. 9), not implemented · latency open · Strength blocked** | P0–P4 on main; I4 calc pin + speed gen-0 merged `f192aff`; I5 @ `4da007b`: **5/94** random-legal degradation, worst p95 **3235 ms** (also contained state-degradation; no causal p95 link); HP fix merged `62117b5`; revalidation @ `62117b5` (`suffix-evidence.json`): **0/99** degraded; this-run p95 **429 ms** (observational only); **I6 @ `3bcd4b3`**: gen-0 damage wired through heuristic/`max_damage`/export; 2-battle smoke **SAFETY-PASS**, worst p95 **331 ms** (`reports/champions-panel-v0-i6-smoke.md`); **protocol differential audit @ `fc4f251`**: `reports/champions-pkmn-protocol-differential-audit.md`; **I7 Mega design spec rev. 9 APPROVED** (`docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`, not implemented) | **1)** I7a own Mega **2)** I7b opponent Mega **3)** Champions latency profile/budget **4)** Strength — **NO-GO until I7b + latency** |
 
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 

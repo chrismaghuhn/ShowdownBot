@@ -114,3 +114,19 @@ def test_champions_solarbeam_with_normal_target_stays_targeted():
     actions = _slot_move_actions(1, req)
     solar_actions = [a for a in actions if a.kind == "move" and a.move_index == 4]
     assert {a.target for a in solar_actions} == {1, 2}
+
+
+def test_historical_request_dump_omits_absent_can_mega_evo():
+    """Candidate-identity replay hashes must not gain canMegaEvo:false on legacy payloads."""
+    data = json.loads((FIXTURES / "request_doubles_moves.json").read_text())
+    req = BattleRequest.model_validate(data)
+    payload = req.model_dump(mode="json", by_alias=True, exclude_none=False)
+    for slot in payload.get("active", []):
+        if slot is not None:
+            assert "canMegaEvo" not in slot
+
+
+def test_can_mega_evo_true_serializes_for_champions():
+    req = BattleRequest.model_validate({"active": [{"moves": [], "canMegaEvo": True}]})
+    payload = req.model_dump(mode="json", by_alias=True, exclude_none=False)
+    assert payload["active"][0]["canMegaEvo"] is True
