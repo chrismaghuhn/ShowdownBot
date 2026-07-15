@@ -27,20 +27,23 @@ from showdown_bot.models.request import BattleRequest
 
 def _build_req(
     *, a_species: str, a_item: str, a_moves: list[str], a_can_mega: bool,
-    b_species: str, b_moves: list[str],
+    b_species: str, b_moves: list[str], a_can_tera: bool = False,
 ) -> BattleRequest:
+    active0: dict = {
+        "moves": [
+            {
+                "move": name, "id": to_id(name), "pp": 8, "maxpp": 8,
+                "target": "normal", "disabled": False,
+            }
+            for name in a_moves
+        ],
+        "canMegaEvo": a_can_mega,
+    }
+    if a_can_tera:
+        active0["canTerastallize"] = "Fire"
     return BattleRequest.model_validate({
         "active": [
-            {
-                "moves": [
-                    {
-                        "move": name, "id": to_id(name), "pp": 8, "maxpp": 8,
-                        "target": "normal", "disabled": False,
-                    }
-                    for name in a_moves
-                ],
-                "canMegaEvo": a_can_mega,
-            },
+            active0,
             {
                 "moves": [
                     {
@@ -608,3 +611,192 @@ def test_depth2_value_for_mega_context_binds_to_matching_context_never_another(m
     assert args1[0] is not st_none
     assert kwargs0["oracle"] is not sentinel_mega
     assert kwargs1["oracle"] is not sentinel_none
+
+
+# ---------------------------------------------------------------------------
+# I7a-B Task 4: full-grid ranking counterproof (T17) + Scovillain fail-closed
+# smoke through the full decision (T31)
+# ---------------------------------------------------------------------------
+
+
+class _T17Calc:
+    """Fully controlled damage: keyed by (attacker species, move) so the
+    ranking counterproof is deterministic and independent of real @pkmn/calc
+    numbers. Anything not in the table (the opponent's fallback Tackle, any
+    game_mode/KO-threat calc call) gets the same safe non-KO default used by
+    tests/conftest.py's _FakeCalc (keeps classify_game_mode NEUTRAL)."""
+
+    backend = None
+    _TABLE = {
+        ("Aerodactyl", "Tackle"): (90, 97),        # base A: 60% of 150
+        ("Aerodactyl", "Pound"): (45, 52),         # base B: 30% of 150
+        ("Aerodactyl-Mega", "Tackle"): (97, 105),  # A+mega: ~65% of 150
+        ("Aerodactyl-Mega", "Pound"): (135, 142),  # B+mega: 90% of 150
+    }
+
+    def damage_batch(self, requests):
+        from showdown_bot.engine.calc.models import DamageResult
+
+        out = []
+        for req in requests:
+            key = (req.attacker.species, req.move)
+            if key in self._TABLE:
+                mn, mx = self._TABLE[key]
+                out.append(DamageResult(min_damage=mn, max_damage=mx, max_hp=150))
+            else:
+                out.append(DamageResult(min_damage=20, max_damage=35, max_hp=150))
+        return out
+
+
+def test_t17_full_grid_counterproof_beats_score_base_then_overlay(
+    speed_oracle, aerodactyl_spreads, calc_profile,
+):
+    """T17 (design spec Sec.7.1): base action A (Tackle) beats base action B
+    (Pound) when neither Mega evolves, but B+Mega beats A once the fail-closed
+    "score best base then overlay Mega" shortcut is replaced by scoring the
+    full variant grid. A naive "rank base actions, then only try Mega on the
+    already-chosen winner" implementation would pick base A and never
+    discover B+Mega -- this proves the full grid is actually scored."""
+    from showdown_bot.battle.evaluate import EvalWeights
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    req = _build_req(
+        a_species="Aerodactyl", a_item="Aerodactylite", a_moves=["Tackle", "Pound"],
+        a_can_mega=True, b_species="Whimsicott", b_moves=["Moonblast"],
+    )
+    state = _build_state("Aerodactyl", "Aerodactylite", "Whimsicott", "Incineroar")
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _T17Calc()
+    oracle = DamageOracle(calc)
+    my_actions = enumerate_my_actions(req)
+
+    contexts = build_own_mega_contexts(
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
+        my_actions=my_actions,
+    )
+    evaluated = [
+        ScoredMegaVariant(joint=ja, own_mega_slot=ctx.own_mega_slot)
+        for ctx in contexts
+        for ja in ctx.plans
+    ]
+    records = score_evaluated_variants(
+        evaluated, contexts, req=req, state=state, book=book, our_side="p1",
+        opp_side="p2", calc=calc, oracle=oracle, speed_oracle=speed_oracle,
+        dex=None, priors=None, weights=EvalWeights(), mode=GameMode.NEUTRAL,
+        risk_lambda=0.0, rollout_horizon=0, our_spreads=spreads, opp_sets=None,
+        calc_profile=calc_profile, accuracy_mode=False, accuracy_branch_cap=6,
+        endgame=False, fast_board=False,
+    )
+
+    def _rec_for(move_name: str, mega_slot):
+        for r in records:
+            if r.variant.own_mega_slot != mega_slot:
+                continue
+            idx = r.variant.joint.slot0.move_index
+            if idx and req.active[0].moves[idx - 1].move == move_name:
+                return r
+        raise AssertionError(f"no record for move={move_name!r} mega_slot={mega_slot!r}")
+
+    a_base = _rec_for("Tackle", None)
+    b_base = _rec_for("Pound", None)
+    b_mega = _rec_for("Pound", 0)
+
+    # Base-only: A beats B.
+    assert a_base.aggregate_score > b_base.aggregate_score
+    # Full grid: B+Mega beats base A (the counterproof).
+    assert b_mega.aggregate_score > a_base.aggregate_score
+
+    best = max(records, key=lambda r: r.aggregate_score)
+    assert best is b_mega
+    assert best.variant.own_mega_slot == 0
+    assert best.variant.joint.slot0.mega_evolve is True
+
+
+class _T31Speed:
+    """Self-contained speed stub (no subprocess): Scovillain's ability fails
+    closed inside project_mega before any real speed lookup would matter."""
+
+    def __init__(self, profile):
+        self.profile = profile
+
+    def our_speed(self, base, mon, field, side):
+        return base or 100
+
+    def opponent_range(self, mon, field, side, *, book):
+        from showdown_bot.engine.speed import SpeedRange
+
+        return SpeedRange(min=80, likely=110, max=150)
+
+
+class _T31Calc:
+    """Non-KO damage regardless of request (keeps game_mode NEUTRAL) -- T31
+    only cares about which action is chosen, not damage numbers."""
+
+    backend = None
+
+    def damage_batch(self, requests):
+        from showdown_bot.engine.calc.models import DamageResult
+
+        return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+
+def test_t31_scovillain_mega_path_unavailable_not_silent_base_scoring(
+    scovillain_mega_request, champions_cfg, calc_profile, aerodactyl_spreads,
+):
+    """T31 (design spec Sec.11.3): the default hero's Scovillainite must show
+    the Scovillain-Mega path as UNAVAILABLE (fail-closed, Spicy Spray is
+    unsupported) -- not silently scored as if it were a normal base-form
+    action. Scovillain's active slot is looked up from state.side(our_side)
+    rather than hardcoded, so this holds regardless of which slot it's in."""
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.battle.mega_variants import expand_mega_variants
+    from showdown_bot.engine.state import BattleState, PokemonState
+
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(
+        species="Scovillain", base_species_id="scovillain", item="Scovillainite",
+        types=["Grass", "Fire"], hp=155, max_hp=155,
+    )
+    state.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott",
+        types=["Grass", "Fairy"], hp=140, max_hp=140,
+    )
+    state.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar",
+        types=["Fire", "Dark"], hp=180, max_hp=180,
+    )
+
+    scovillain_slot = next(
+        slot for slot, mon in state.side("p1").items()
+        if mon is not None and mon.species == "Scovillain"
+    )
+    assert scovillain_slot == "a"
+
+    base_joints = enumerate_my_actions(scovillain_mega_request)
+    raw_variants = expand_mega_variants(base_joints, scovillain_mega_request, state, "p1")
+    assert any(v.own_mega_slot == 0 for v in raw_variants), "raw Mega variant must exist"
+
+    book = SpreadBook(default=aerodactyl_spreads)
+    spreads = {
+        "scovillain": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    calc = _T31Calc()
+    oracle = DamageOracle(calc)
+    speed_oracle = _T31Speed(calc_profile)
+
+    best_ja, _best_val = _choose_best(
+        scovillain_mega_request,
+        state=state, book=book, our_side="p1", calc=calc, oracle=oracle,
+        speed_oracle=speed_oracle, dex=None, our_spreads=spreads,
+        format_config=champions_cfg, risk_lambda=0.0,
+    )
+
+    assert best_ja.slot0.mega_evolve is False
+    assert best_ja.slot1.mega_evolve is False

@@ -1,13 +1,18 @@
 """I7a-B Task 1: candidate-key v2 and decision-trace v3 (identity/schema layer only).
 
-No Mega ranking/scoring logic is exercised here -- the non-Mega decision path is
-migrated to key-v2/trace-v3 bookkeeping, and the v3 validators are exercised
-directly against literal/constructed rows. See ``docs/superpowers/specs/
-2026-07-14-champions-mega-i7-design.md`` Sec.13 for the authoritative schema.
+The non-Mega decision path is migrated to key-v2/trace-v3 bookkeeping, and the
+v3 validators are exercised directly against literal/constructed rows. See
+``docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`` Sec.13 for
+the authoritative schema.
+
+I7a-B Task 4 adds real Mega-branch trace population tests (T50, plus the
+mutual-exclusion smoke) further down in this file -- those DO exercise real
+Mega ranking/scoring through ``_choose_best_mega``.
 """
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 
 import pytest
@@ -18,7 +23,7 @@ def capture_fixture(decision_fixture):
     req, kw = decision_fixture
     return req, copy.deepcopy(kw["state"])
 
-from showdown_bot.battle.actions import JointAction
+from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.candidate_identity import (
     ChosenCandidateResolutionError,
     joint_action_key_v2,
@@ -270,3 +275,314 @@ def test_resolve_chosen_candidate_v2_key_ambiguous_raises():
     )
     with pytest.raises(ChosenCandidateResolutionError, match="ambiguous"):
         resolve_chosen_candidate(trace)
+
+
+# ---------------------------------------------------------------------------
+# I7a-B Task 4: Mega-branch trace population (T50) + Mega/Tera mutual
+# exclusion. Self-contained fixtures/helpers (no cross-import from
+# test_i7a_decision.py) mirroring that file's T17/T31 fixtures.
+# ---------------------------------------------------------------------------
+
+
+def _mega_trace_req(*, a_moves, a_can_mega, a_can_tera=False, b_moves=("Moonblast",)):
+    from showdown_bot.engine.state import to_id
+    from showdown_bot.models.request import BattleRequest
+
+    active0 = {
+        "moves": [
+            {"move": n, "id": to_id(n), "pp": 8, "maxpp": 8, "target": "normal", "disabled": False}
+            for n in a_moves
+        ],
+        "canMegaEvo": a_can_mega,
+    }
+    if a_can_tera:
+        active0["canTerastallize"] = "Fire"
+    return BattleRequest.model_validate({
+        "active": [
+            active0,
+            {
+                "moves": [
+                    {"move": n, "id": to_id(n), "pp": 8, "maxpp": 8, "target": "normal", "disabled": False}
+                    for n in b_moves
+                ],
+                "canMegaEvo": False,
+            },
+        ],
+        "side": {
+            "name": "Player1", "id": "p1",
+            "pokemon": [
+                {
+                    "ident": "p1: Aerodactyl", "details": "Aerodactyl, L50",
+                    "condition": "100/100", "active": True,
+                    "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+                    "moves": [to_id(n) for n in a_moves], "baseTypes": ["Normal"],
+                    "item": "Aerodactylite",
+                },
+                {
+                    "ident": "p1: Whimsicott", "details": "Whimsicott, L50",
+                    "condition": "100/100", "active": True,
+                    "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+                    "moves": [to_id(n) for n in b_moves], "baseTypes": ["Normal"],
+                },
+            ],
+        },
+        "rqid": 1,
+    })
+
+
+def _mega_trace_state():
+    from showdown_bot.engine.state import BattleState, PokemonState
+
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        types=["Normal"], hp=100, max_hp=100,
+    )
+    st.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott", types=["Normal"], hp=100, max_hp=100,
+    )
+    st.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar", types=["Normal"], hp=100, max_hp=100,
+    )
+    return st
+
+
+class _MegaTraceCalc:
+    """Same controlled-damage design as test_i7a_decision.py's _T17Calc:
+    B(Pound) beats A(Tackle) only once Mega evolved, so the winner is
+    deterministically B+Mega -- lets these trace tests assert on a known,
+    stable chosen_mega_slot."""
+
+    backend = None
+    _TABLE = {
+        ("Aerodactyl", "Tackle"): (90, 97),
+        ("Aerodactyl", "Pound"): (45, 52),
+        ("Aerodactyl-Mega", "Tackle"): (97, 105),
+        ("Aerodactyl-Mega", "Pound"): (135, 142),
+    }
+
+    def damage_batch(self, requests):
+        from showdown_bot.engine.calc.models import DamageResult
+
+        out = []
+        for req in requests:
+            key = (req.attacker.species, req.move)
+            if key in self._TABLE:
+                mn, mx = self._TABLE[key]
+                out.append(DamageResult(min_damage=mn, max_damage=mx, max_hp=150))
+            else:
+                out.append(DamageResult(min_damage=20, max_damage=35, max_hp=150))
+        return out
+
+
+@pytest.fixture
+def mega_trace_speed_oracle(calc_profile):
+    from showdown_bot.engine.calc.client import SubprocessCalcBackend
+    from showdown_bot.engine.speed import SpeedOracle
+
+    return SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=calc_profile)
+
+
+def test_mega_decision_populates_trace_with_chosen_mega_slot_and_full_candidates(
+    champions_cfg, calc_profile, aerodactyl_spreads, mega_trace_speed_oracle,
+):
+    """A real Mega-enabled decision (T17's B+Mega-wins fixture) populates
+    DecisionTrace fully through _choose_best_mega: chosen_mega_slot set,
+    chosen_tera_slot None (Champions has tera=False anyway), every evaluated
+    variant present exactly once in trace.candidates (no TOP_K truncation),
+    and every candidate key is a valid v2 key with a mega_evolve flag."""
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.battle.mega_scoring import build_own_mega_contexts
+    from showdown_bot.battle.mega_variants import ScoredMegaVariant
+    from showdown_bot.battle.oracle import DamageOracle
+    from showdown_bot.engine.belief.hypotheses import SpreadBook
+    from showdown_bot.engine.species_meta import species_meta_table
+
+    req = _mega_trace_req(a_moves=["Tackle", "Pound"], a_can_mega=True)
+    state = _mega_trace_state()
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _MegaTraceCalc()
+
+    # Independently recompute the expected evaluated-variant set (same
+    # expand+filter pipeline the production code uses) so the trace assertion
+    # doesn't just trust decision.py's own internal bookkeeping.
+    expected_contexts = build_own_mega_contexts(
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=DamageOracle(_MegaTraceCalc()),
+        speed_oracle=mega_trace_speed_oracle, species_meta=species_meta_table(),
+        our_spreads=spreads, opp_sets=None, calc_profile=calc_profile,
+        my_actions=enumerate_my_actions(req),
+    )
+    expected_keys = {
+        joint_action_key_v2(ja)
+        for ctx in expected_contexts
+        for ja in ctx.plans
+    }
+
+    trace = DecisionTrace()
+    best_ja, best_val = _choose_best(
+        req, state=state, book=book, our_side="p1", calc=calc, oracle=DamageOracle(calc),
+        speed_oracle=mega_trace_speed_oracle, dex=None, our_spreads=spreads,
+        format_config=champions_cfg, risk_lambda=0.0, trace=trace,
+    )
+
+    assert best_ja.slot0.mega_evolve is True
+    assert trace.chosen_mega_slot == 0
+    assert trace.chosen_tera_slot is None
+    assert trace.game_mode
+
+    trace_keys = [c.candidate_key for c in trace.candidates]
+    assert len(trace_keys) == len(expected_keys)
+    assert set(trace_keys) == expected_keys
+    assert len(trace_keys) == len(set(trace_keys))  # every variant exactly once
+
+    for cand in trace.candidates:
+        payload = json.loads(cand.candidate_key)
+        assert payload["version"] == 2
+        for slot in payload["slots"]:
+            assert "mega_evolve" in slot
+
+    resolved = resolve_chosen_candidate(trace)
+    assert resolved.candidate_key == trace.chosen_candidate_key
+
+
+def test_t50_scovillain_absent_from_full_decision_ranking_and_trace(
+    scovillain_mega_request, champions_cfg, calc_profile, aerodactyl_spreads,
+):
+    """T50 (design spec Sec.3.6): Scovillainite's raw Mega variant (Spicy
+    Spray, fail-closed) exists in expand_mega_variants' output but must be
+    absent from evaluated_variants, ranking, AND trace -- and every ACTUALLY
+    evaluated variant must appear exactly once in trace.candidates."""
+    from showdown_bot.battle.decision import _choose_best
+    from showdown_bot.battle.mega_scoring import build_own_mega_contexts
+    from showdown_bot.battle.mega_variants import expand_mega_variants
+    from showdown_bot.battle.oracle import DamageOracle
+    from showdown_bot.engine.belief.hypotheses import SpreadBook
+    from showdown_bot.engine.species_meta import species_meta_table
+    from showdown_bot.engine.state import BattleState, PokemonState
+
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(
+        species="Scovillain", base_species_id="scovillain", item="Scovillainite",
+        types=["Grass", "Fire"], hp=155, max_hp=155,
+    )
+    state.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott",
+        types=["Grass", "Fairy"], hp=140, max_hp=140,
+    )
+    state.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar",
+        types=["Fire", "Dark"], hp=180, max_hp=180,
+    )
+
+    class _T50Speed:
+        def __init__(self, profile):
+            self.profile = profile
+
+        def our_speed(self, base, mon, field, side):
+            return base or 100
+
+        def opponent_range(self, mon, field, side, *, book):
+            from showdown_bot.engine.speed import SpeedRange
+
+            return SpeedRange(min=80, likely=110, max=150)
+
+    class _T50Calc:
+        backend = None
+
+        def damage_batch(self, requests):
+            from showdown_bot.engine.calc.models import DamageResult
+
+            return [DamageResult(min_damage=20, max_damage=35, max_hp=150) for _ in requests]
+
+    base_joints = enumerate_my_actions(scovillain_mega_request)
+    raw_variants = expand_mega_variants(base_joints, scovillain_mega_request, state, "p1")
+    assert any(v.own_mega_slot == 0 for v in raw_variants)  # raw variant exists
+
+    book = SpreadBook(default=aerodactyl_spreads)
+    spreads = {
+        "scovillain": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    calc = _T50Calc()
+    speed_oracle = _T50Speed(calc_profile)
+
+    expected_contexts = build_own_mega_contexts(
+        scovillain_mega_request, state, our_side="p1", opp_side="p2", book=book,
+        oracle=DamageOracle(_T50Calc()), speed_oracle=speed_oracle,
+        species_meta=species_meta_table(), our_spreads=spreads, opp_sets=None,
+        calc_profile=calc_profile, my_actions=base_joints,
+    )
+    expected_keys = {
+        joint_action_key_v2(ja) for ctx in expected_contexts for ja in ctx.plans
+    }
+    assert not any(ctx.own_mega_slot == 0 for ctx in expected_contexts)  # fail-closed
+
+    trace = DecisionTrace()
+    best_ja, _best_val = _choose_best(
+        scovillain_mega_request, state=state, book=book, our_side="p1", calc=calc,
+        oracle=DamageOracle(calc), speed_oracle=speed_oracle, dex=None,
+        our_spreads=spreads, format_config=champions_cfg, risk_lambda=0.0, trace=trace,
+    )
+
+    assert best_ja.slot0.mega_evolve is False
+    assert trace.chosen_mega_slot is None
+
+    trace_keys = [c.candidate_key for c in trace.candidates]
+    assert len(trace_keys) == len(expected_keys)
+    assert set(trace_keys) == expected_keys
+    assert len(trace_keys) == len(set(trace_keys))  # every evaluated variant exactly once
+    for key in trace_keys:
+        payload = json.loads(key)
+        assert payload["slots"][0]["mega_evolve"] is False  # Scovillain slot never mega'd
+
+
+def test_mega_tera_mutual_exclusion_never_calls_maybe_tera_for_mega_winner(
+    champions_cfg, calc_profile, aerodactyl_spreads, mega_trace_speed_oracle, monkeypatch,
+):
+    """Synthetic config with BOTH mega=True and tera=True (Champions itself
+    has tera=False, so this needs a synthetic config to actually exercise the
+    overlay-attempt path): a chosen Mega winner must never enter _maybe_tera
+    (design spec Sec.7.2 mutual exclusion). Proven by spying on
+    decision._maybe_tera and asserting zero calls, using a fixture where the
+    Mega-capable slot ALSO has can_terastallize=True so a buggy
+    implementation that forgot the mutual-exclusion guard would actually try
+    to overlay Tera onto the Mega winner."""
+    import showdown_bot.battle.decision as decision_mod
+    from showdown_bot.battle.oracle import DamageOracle
+    from showdown_bot.engine.belief.hypotheses import SpreadBook
+
+    synthetic_cfg = dataclasses.replace(champions_cfg, mega=True, tera=True)
+
+    req = _mega_trace_req(a_moves=["Tackle", "Pound"], a_can_mega=True, a_can_tera=True)
+    state = _mega_trace_state()
+    spreads = {
+        "aerodactyl": aerodactyl_spreads, "whimsicott": aerodactyl_spreads,
+        "incineroar": aerodactyl_spreads,
+    }
+    book = SpreadBook(default=aerodactyl_spreads)
+    calc = _MegaTraceCalc()
+
+    calls = []
+    real_maybe_tera = decision_mod._maybe_tera
+
+    def _spy(*args, **kwargs):
+        calls.append((args, kwargs))
+        return real_maybe_tera(*args, **kwargs)
+
+    monkeypatch.setattr(decision_mod, "_maybe_tera", _spy)
+
+    trace = DecisionTrace()
+    best_ja, _best_val = decision_mod._choose_best(
+        req, state=state, book=book, our_side="p1", calc=calc, oracle=DamageOracle(calc),
+        speed_oracle=mega_trace_speed_oracle, dex=None, our_spreads=spreads,
+        format_config=synthetic_cfg, risk_lambda=0.0, trace=trace,
+    )
+
+    assert best_ja.slot0.mega_evolve is True
+    assert trace.chosen_mega_slot == 0
+    assert trace.chosen_tera_slot is None
+    assert calls == []  # the Mega winner never entered _maybe_tera

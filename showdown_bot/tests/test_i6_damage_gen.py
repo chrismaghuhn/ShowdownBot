@@ -1,6 +1,7 @@
 """I6 — live damage calc generation threading (hermetic gates G2–G11)."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import inspect
 from pathlib import Path
@@ -482,7 +483,20 @@ def test_search_module_has_no_direct_damage_request_construction():
 
 
 def test_depth2_passes_same_calc_profile_instance_to_depth2_value(monkeypatch, decision_fixture):
-    """G10a: depth2_value must receive the exact CalcProfile object _choose_best derived."""
+    """G10a: depth2_value must receive the exact CalcProfile object _choose_best derived.
+
+    Uses a mega=False variant of the Champions config: this gate is about
+    calc_profile threading into the LEGACY single-world depth-2 path
+    (search.depth2_value), orthogonal to Mega ranking. Since I7a-B Task 4,
+    format_config.mega=True redirects _choose_best to the separate Mega
+    ranking branch (decision._choose_best_mega), which does not wire depth-2
+    (a documented, accepted gap -- see mega_scoring/search's own depth-2
+    primitive, ``search.depth2_value_for_mega_context``, which Task 4 does not
+    call from the ranking loop). Real Champions has mega=True; this test only
+    needs a real, loadable FormatConfig for ``meta_path``/``calc_generation``,
+    so a mega-disabled copy keeps this gate exercising the code it was written
+    to test instead of silently no-op'ing through the Mega branch.
+    """
     from showdown_bot.battle import decision
 
     sentinel = CalcProfile(generation=0, max_spe_investment=32)
@@ -502,7 +516,7 @@ def test_depth2_passes_same_calc_profile_instance_to_depth2_value(monkeypatch, d
     monkeypatch.setattr(decision, "depth2_value", spy_depth2)
 
     req, _kw = decision_fixture
-    cfg = _champions_cfg()
+    cfg = dataclasses.replace(_champions_cfg(), mega=False)
     book = load_spread_book(cfg.meta_path("default_spreads"))
     decision._choose_best(
         req,

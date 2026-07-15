@@ -395,6 +395,25 @@ def _choose_best(
         state, our_side=our_side, calc=calc, book=book, calc_profile=calc_profile
     )
 
+    if format_config is not None and format_config.mega:
+        # Mega-enabled branch (I7a-B Task 4): own-Mega variants are ranked as
+        # first-class candidates in the SAME grid as base actions -- never
+        # "score best base then overlay Mega" (spec Sec.7.1, T17). This early
+        # return leaves every line below UNTOUCHED for format_config.mega is
+        # False/None -- the legacy single-world/K-world/depth-2 path stays
+        # byte-for-byte identical to before this task.
+        return _choose_best_mega(
+            req,
+            state=state, book=book, our_side=our_side, opp_side=opp_side,
+            calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
+            priors=priors, weights=weights, risk_lambda=risk_lambda,
+            tera_margin=tera_margin, rollout_horizon=rollout_horizon,
+            report=report, our_spreads=our_spreads, opp_sets=opp_sets,
+            trace=trace, format_config=format_config, calc_profile=calc_profile,
+            accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+            endgame=endgame, fast_board=fast_board, mode=mode, my_actions=my_actions,
+        )
+
     plans = {
         ja: _plan_my_actions(
             req, ja, state=state, our_side=our_side, opp_side=opp_side,
@@ -638,161 +657,545 @@ def _choose_best(
                 pass
 
     if trace is not None:
-        from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key_v2
-        from showdown_bot.battle.decision_trace import (
-            AccuracyEventTrace,
-            AccuracyResponseDetail,
-            AccuracyTieOrderTrace,
-            CandidateModelFeatures,
-            CandidateTrace,
-            DecisionTrace as _DT,
-        )
-        from showdown_bot.battle.evaluate import (
-            OutcomeBreakdown,
-            _evaluate_line_details,
-            score_outcome_with_breakdown,
-        )
-        from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
-
-        rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
-
-        def _breakdowns_for(plan):
-            out = []
-            acc_details = []
-            for ri, ra in enumerate(rep_resps):
-                d = _evaluate_line_details(
-                    state, plan, ra, model.damage_fn, our_side=our_side,
-                    weights=weights, field=state.field, rollout_horizon=0,
-                    endgame=endgame, fast_board=fast_board,
-                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
-                )
-                out.append(
-                    score_outcome_with_breakdown(
-                        d.representative_outcome, our_side, weights, endgame=endgame, fast_board=fast_board
-                    )[1]
-                )
-                acc_details.append(AccuracyResponseDetail(
-                    accuracy_leaf_count=sum(t.accuracy_leaf_count for t in d.tie_order_details),
-                    accuracy_event_count=len(d.accuracy_events),
-                    accuracy_branch_cap_hits=d.fallback_leaves,
-                    events_complete=(d.fallback_leaves == 0),
-                    tie_orders=[
-                        AccuracyTieOrderTrace(
-                            t.tie_order, t.weight, t.accuracy_leaf_count,
-                            t.accuracy_branch_cap_hits, t.events_complete,
-                        )
-                        for t in d.tie_order_details
-                    ],
-                    events=[
-                        AccuracyEventTrace(
-                            e.attacker, e.target, e.move_id, e.hit_probability,
-                            response_index=ri, tie_order=e.tie_order,
-                        )
-                        for e in d.accuracy_events
-                    ],
-                ))
-            return out, acc_details
-
-        def _weighted_mean_breakdown(bds):
-            ws = resp_weights or [1.0] * len(bds)
-            tot = sum(ws) or 1.0
-            agg = OutcomeBreakdown()
-            for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
-                      "my_kos", "my_faints", "protect_stall_penalty",
-                      "endgame_protect_penalty", "partner_abandon_penalty",
-                      "fast_board_protect_penalty"):
-                setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
-            return agg
-
-        # Decision-level threat counts: computed once, shared across all candidates.
-        dec_threatened, dec_survives = ko_threat_counts(
-            state, our_side, calc=calc, book=book, calc_profile=calc_profile
-        )
-
-        def _ko_secured_for(plan: list[PlannedAction]) -> int:
-            """Distinct opponent active slots guaranteed-OHKO'd by this candidate's
-            selected damaging moves (OFFENSE-vs-DEFENSE, same as game_mode)."""
-            slots: set = set()
-            for a in plan:
-                if (
-                    a.kind == "move"
-                    and a.move is not None
-                    and a.move.is_damaging
-                    and a.is_ours
-                    and a.target is not None
-                ):
-                    atk = state.side(a.side).get(a.slot)
-                    tgt = state.side(a.target[0]).get(a.target[1])
-                    if (
-                        atk is not None
-                        and tgt is not None
-                        and not tgt.fainted
-                        and guaranteed_ohko(
-                            state, atk, a.move.name, tgt,
-                            calc=calc, book=book, calc_profile=calc_profile,
-                        )
-                    ):
-                        slots.add(a.target)
-            return len(slots)
-
-        scored = [
-            (ja, scores, aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
-            for ja, scores in items
-        ]
-        scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
-        cands = []
-        for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
-            bds, acc_details = _breakdowns_for(plans[ja])
-            cands.append(CandidateTrace(
-                candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
-                aggregate_score=agg, score_vector=list(scores),
-                outcome_breakdowns=bds, aggregate_breakdown=_weighted_mean_breakdown(bds),
-                model_features=CandidateModelFeatures(
-                    ko_secured_count=_ko_secured_for(plans[ja]),
-                    ko_threatened_count=dec_threatened,
-                    survives_for_sure_count=dec_survives,
-                ),
-                accuracy_details=acc_details,
-                candidate_key=joint_action_key_v2(ja),
-            ))
-        trace.game_mode = getattr(mode, "name", str(mode))
-        trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)
-        trace.chosen_candidate_id = _label_ja(req, best_ja)
-        trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
-        # Task 1 (I7a-B) is identity/schema-only -- no Mega candidates are
-        # ranked yet, so this stays null until the Mega ranking slice (Task 2+).
-        trace.chosen_mega_slot = None
-        trace.opponent_responses = [r.actions for r in opp_resps]
-        trace.opponent_response_weights = resp_weights or []
-        trace.candidates = cands
-
-        from showdown_bot.battle.opponent import _opponent_speed as _opp_speed
-        from showdown_bot.battle.decision_trace import DecisionTempoFeatures
-
-        _sp_actives = _active_pokemon(req)
-        our_speeds = []
-        for _i, _letter in enumerate(("a", "b")):
-            _m = state.side(our_side).get(_letter)
-            if _m is not None and not _m.fainted and speed_oracle is not None:
-                _base = int(_sp_actives[_i].stats.get("spe", 0)) if _i < len(_sp_actives) else 0
-                our_speeds.append(speed_oracle.our_speed(_base, _m, state.field, our_side))
-        opp_speeds = []
-        if speed_oracle is not None:
-            for _letter in ("a", "b"):
-                _m = state.side(opp_side).get(_letter)
-                if _m is not None and not _m.fainted:
-                    opp_speeds.append(_opp_speed(_m, state.field, opp_side, speed_oracle=speed_oracle, book=book, opp_sets=opp_sets))
-        _our_fast = max(our_speeds, default=0)
-        _opp_fast = max(opp_speeds, default=0)
-        trace.tempo_features = DecisionTempoFeatures(
-            we_outspeed_count=sum(1 for o in opp_speeds if _our_fast > o),
-            they_outspeed_count=sum(1 for u in our_speeds if _opp_fast > u),
-            speed_tie_count=sum(1 for u in our_speeds for o in opp_speeds if u == o),
-            our_fastest_active_speed=_our_fast,
-            opp_fastest_active_speed=_opp_fast,
+        _populate_legacy_decision_trace(
+            req, state=state, our_side=our_side, opp_side=opp_side, calc=calc, book=book,
+            calc_profile=calc_profile, speed_oracle=speed_oracle, opp_sets=opp_sets,
+            mode=mode, risk_lambda=risk_lambda, resp_weights=resp_weights, weights=weights,
+            endgame=endgame, fast_board=fast_board, accuracy_mode=accuracy_mode,
+            accuracy_branch_cap=accuracy_branch_cap, model=model, opp_resps=opp_resps,
+            items=items, plans=plans, best_ja=best_ja, pre_tera_ja=pre_tera_ja, trace=trace,
         )
 
     return best_ja, best_val
+
+
+def _choose_best_mega(
+    req: BattleRequest,
+    *,
+    state: BattleState,
+    book: SpreadBook,
+    our_side: str,
+    opp_side: str,
+    calc: CalcClient,
+    oracle: DamageOracle,
+    speed_oracle: SpeedOracle | None,
+    dex: SpeciesDex | None,
+    priors,
+    weights: EvalWeights,
+    risk_lambda: float,
+    tera_margin: float,
+    rollout_horizon: int,
+    report: list[str] | None,
+    our_spreads: dict | None,
+    opp_sets: dict | None,
+    trace,
+    format_config,
+    calc_profile,
+    accuracy_mode: bool,
+    accuracy_branch_cap: int,
+    endgame: bool,
+    fast_board: bool,
+    mode,
+    my_actions: list[JointAction],
+) -> tuple[JointAction, float]:
+    """Own-Mega-aware ranking (I7a-B Task 4, design spec Sec.7.1/7.3): every
+    own-Mega variant is scored as a first-class candidate in the SAME grid as
+    base (non-Mega) actions -- never "score best base then overlay Mega" (the
+    T17 counterproof this guards against).
+
+    The single expand+filter pass lives entirely inside
+    ``mega_scoring.build_own_mega_contexts`` (called exactly once below);
+    ``evaluated`` is read back from its returned contexts' own ``plans`` dicts
+    (each already the fail-closed-filtered, projectable variant set), never a
+    second ``expand_mega_variants``/``filter_projectable_variants`` call.
+    """
+    from showdown_bot.battle.mega_scoring import (
+        build_own_mega_contexts,
+        score_evaluated_variants,
+    )
+    from showdown_bot.battle.mega_variants import ScoredMegaVariant
+    from showdown_bot.engine.species_meta import species_meta_table
+
+    if speed_oracle is None:
+        raise ValueError("Mega-enabled decision requires a speed_oracle")
+
+    contexts = build_own_mega_contexts(
+        req, state, our_side=our_side, opp_side=opp_side, book=book, oracle=oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=our_spreads, opp_sets=opp_sets, calc_profile=calc_profile,
+        my_actions=my_actions,
+    )
+    evaluated = [
+        ScoredMegaVariant(joint=ja, own_mega_slot=ctx.own_mega_slot)
+        for ctx in contexts
+        for ja in ctx.plans
+    ]
+    records = score_evaluated_variants(
+        evaluated, contexts, req=req, state=state, book=book, our_side=our_side,
+        opp_side=opp_side, calc=calc, oracle=oracle, speed_oracle=speed_oracle,
+        dex=dex, priors=priors, weights=weights, mode=mode, risk_lambda=risk_lambda,
+        rollout_horizon=rollout_horizon, our_spreads=our_spreads, opp_sets=opp_sets,
+        calc_profile=calc_profile, accuracy_mode=accuracy_mode,
+        accuracy_branch_cap=accuracy_branch_cap, endgame=endgame, fast_board=fast_board,
+    )
+    if not records:
+        raise ValueError("no evaluated Mega variants")
+
+    if trace is not None:
+        from showdown_bot.battle.policy import must_react_lambda as _mrl
+        trace.aggregation_mode = mode.value if hasattr(mode, "value") else str(mode)
+        trace.risk_lambda = float(risk_lambda)
+        trace.must_react_lambda = float(_mrl())
+
+    # Argmax directly over each record's OWN already-computed aggregate_score
+    # (score_evaluated_variants already aggregated with that record's own
+    # score_weights -- never re-aggregate here with a different/shared weights
+    # array, see the I7a-B Task 4 plan's corrected Step 3 guidance). max()
+    # keeps the first element on ties, matching policy.pick_best's strict
+    # first-wins semantics.
+    best_record = max(records, key=lambda r: r.aggregate_score)
+    pre_tera_ja = best_record.variant.joint
+    best_val = best_record.aggregate_score
+    best_ja = pre_tera_ja
+
+    ctx_by_slot = {c.own_mega_slot: c for c in contexts}
+    winner_ctx = ctx_by_slot[best_record.variant.own_mega_slot]
+    winner_is_mega = bool(pre_tera_ja.slot0.mega_evolve or pre_tera_ja.slot1.mega_evolve)
+
+    # Opponent responses bound to the WINNER's own context (never the base/
+    # unprojected state, never another context's) -- world-0-equivalent
+    # (single most-likely world), matching the K-world binding convention
+    # documented on score_evaluated_variants.
+    threatened = {
+        slot
+        for slot, mon in state.side(opp_side).items()
+        if slot in ("a", "b") and 0.0 < mon.hp_fraction <= 0.6
+    }
+    opp_resps = predict_responses(
+        winner_ctx.projected_state, our_side, opp_side, speed_oracle=speed_oracle,
+        book=book, dex=dex, field=winner_ctx.field, priors=priors,
+        threatened_slots=threatened, opp_sets=opp_sets,
+    )
+    resp_weights = [r.weight for r in opp_resps] if (priors is not None and opp_resps) else None
+
+    if not winner_is_mega:
+        # Tera/Mega mutual exclusion (design spec Sec.7.2): a Mega winner
+        # never enters _maybe_tera. Only a non-Mega winner gets the Tera
+        # overlay pass, bound to its own (None-context) projected_state/model
+        # -- functionally the base state for a non-Mega candidate, but keeps
+        # the "always the winning context's own state" invariant uniform.
+        best_ja = _maybe_tera(
+            req, pre_tera_ja, best_val, mode, winner_ctx.projected_state, our_side, opp_side,
+            speed_oracle, opp_resps, winner_ctx.damage_model, weights, risk_lambda, tera_margin,
+            resp_weights, endgame=endgame, fast_board=fast_board,
+            accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+            format_config=format_config,
+        )
+
+    if report is not None:
+        from showdown_bot.battle.diagnostics import format_decision
+
+        ranked = sorted(
+            ((_label_ja(req, r.variant.joint), r.aggregate_score) for r in records),
+            key=lambda p: p[1], reverse=True,
+        )
+        report.append(
+            format_decision(_label_ja(req, best_ja), ranked, getattr(mode, "name", str(mode)))
+        )
+
+    if trace is not None:
+        _populate_mega_decision_trace(
+            req, state=state, our_side=our_side, opp_side=opp_side, calc=calc, book=book,
+            calc_profile=calc_profile, mode=mode, weights=weights, endgame=endgame,
+            fast_board=fast_board, records=records, contexts=contexts, winner_ctx=winner_ctx,
+            opp_resps=opp_resps, resp_weights=resp_weights, best_ja=best_ja,
+            pre_tera_ja=pre_tera_ja, speed_oracle=speed_oracle, opp_sets=opp_sets, trace=trace,
+        )
+
+    return best_ja, best_val
+
+
+def _populate_mega_decision_trace(
+    req: BattleRequest,
+    *,
+    state: BattleState,
+    our_side: str,
+    opp_side: str,
+    calc: CalcClient,
+    book: SpreadBook,
+    calc_profile,
+    mode,
+    weights: EvalWeights,
+    endgame: bool,
+    fast_board: bool,
+    records,
+    contexts,
+    winner_ctx,
+    opp_resps,
+    resp_weights,
+    best_ja: JointAction,
+    pre_tera_ja: JointAction,
+    speed_oracle: SpeedOracle | None,
+    opp_sets: dict | None,
+    trace,
+) -> None:
+    """Mega-branch candidate trace population (I7a-B Task 4). Populates
+    exactly one ``CandidateTrace`` per record in ``records`` (== every
+    exported evaluated variant, no ``TOP_K_TRACE_CANDIDATES`` truncation --
+    the Mega evaluated-variant count is small/bounded by construction, see
+    T50). Candidate ``aggregate_score``/``score_vector`` reuse each record's
+    already-pooled (all-worlds) values; outcome/accuracy breakdowns are built
+    from each record's world-0-only ``diagnostic_details``/``diagnostic_weights``
+    (never mixed with the pooled arrays -- see ``MegaScoreRecord``'s docstring).
+    Chosen/projected decision features and tempo are bound to the winner's own
+    context (``winner_ctx``), never the base/unprojected state.
+    """
+    from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key_v2
+    from showdown_bot.battle.decision_trace import (
+        AccuracyEventTrace,
+        AccuracyResponseDetail,
+        AccuracyTieOrderTrace,
+        CandidateModelFeatures,
+        CandidateTrace,
+        DecisionTempoFeatures,
+    )
+    from showdown_bot.battle.evaluate import OutcomeBreakdown, score_outcome_with_breakdown
+    from showdown_bot.battle.opponent import _opponent_speed as _opp_speed
+    from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
+
+    ctx_by_slot = {c.own_mega_slot: c for c in contexts}
+
+    def _breakdowns_for_record(rec):
+        bds = []
+        acc_details = []
+        for ri, detail in enumerate(rec.diagnostic_details):
+            _, bd = score_outcome_with_breakdown(
+                detail.representative_outcome, our_side, weights,
+                endgame=endgame, fast_board=fast_board,
+            )
+            bds.append(bd)
+            acc_details.append(AccuracyResponseDetail(
+                accuracy_leaf_count=sum(t.accuracy_leaf_count for t in detail.tie_order_details),
+                accuracy_event_count=len(detail.accuracy_events),
+                accuracy_branch_cap_hits=detail.fallback_leaves,
+                events_complete=(detail.fallback_leaves == 0),
+                tie_orders=[
+                    AccuracyTieOrderTrace(
+                        t.tie_order, t.weight, t.accuracy_leaf_count,
+                        t.accuracy_branch_cap_hits, t.events_complete,
+                    )
+                    for t in detail.tie_order_details
+                ],
+                events=[
+                    AccuracyEventTrace(
+                        e.attacker, e.target, e.move_id, e.hit_probability,
+                        response_index=ri, tie_order=e.tie_order,
+                    )
+                    for e in detail.accuracy_events
+                ],
+            ))
+        return bds, acc_details
+
+    def _weighted_mean_breakdown_mega(bds, ws):
+        ws = ws or [1.0] * len(bds)
+        tot = sum(ws) or 1.0
+        agg = OutcomeBreakdown()
+        for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
+                  "my_kos", "my_faints", "protect_stall_penalty",
+                  "endgame_protect_penalty", "partner_abandon_penalty",
+                  "fast_board_protect_penalty"):
+            setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
+        return agg
+
+    # Decision-level threat counts: computed once (base/unprojected state,
+    # position-based -- not candidate-specific), shared across all candidates.
+    dec_threatened, dec_survives = ko_threat_counts(
+        state, our_side, calc=calc, book=book, calc_profile=calc_profile
+    )
+
+    def _ko_secured_for_record(rec) -> int:
+        """Distinct opponent active slots guaranteed-OHKO'd by this record's
+        selected damaging moves, evaluated against THIS record's own context's
+        projected_state (so a Mega candidate's boosted attacker is reflected)."""
+        ctx = ctx_by_slot[rec.variant.own_mega_slot]
+        plan = ctx.plans[rec.variant.joint]
+        projected_state = ctx.projected_state
+        slots: set = set()
+        for a in plan:
+            if (
+                a.kind == "move"
+                and a.move is not None
+                and a.move.is_damaging
+                and a.is_ours
+                and a.target is not None
+            ):
+                atk = projected_state.side(a.side).get(a.slot)
+                tgt = projected_state.side(a.target[0]).get(a.target[1])
+                if (
+                    atk is not None
+                    and tgt is not None
+                    and not tgt.fainted
+                    and guaranteed_ohko(
+                        projected_state, atk, a.move.name, tgt,
+                        calc=calc, book=book, calc_profile=calc_profile,
+                    )
+                ):
+                    slots.add(a.target)
+        return len(slots)
+
+    ranked_records = sorted(
+        records, key=lambda r: (-r.aggregate_score, _label_ja(req, r.variant.joint))
+    )
+    cands = []
+    for rank, rec in enumerate(ranked_records):
+        bds, acc_details = _breakdowns_for_record(rec)
+        cands.append(CandidateTrace(
+            candidate_id=_label_ja(req, rec.variant.joint), joint_action=rec.variant.joint,
+            rank=rank, aggregate_score=rec.aggregate_score, score_vector=list(rec.score_vector),
+            outcome_breakdowns=bds,
+            aggregate_breakdown=_weighted_mean_breakdown_mega(bds, rec.diagnostic_weights),
+            model_features=CandidateModelFeatures(
+                ko_secured_count=_ko_secured_for_record(rec),
+                ko_threatened_count=dec_threatened,
+                survives_for_sure_count=dec_survives,
+            ),
+            accuracy_details=acc_details,
+            candidate_key=joint_action_key_v2(rec.variant.joint),
+        ))
+
+    trace.game_mode = getattr(mode, "name", str(mode))
+    trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)
+    trace.chosen_candidate_id = _label_ja(req, best_ja)
+    trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
+    trace.chosen_mega_slot = winner_ctx.own_mega_slot
+    trace.opponent_responses = [r.actions for r in opp_resps]
+    trace.opponent_response_weights = resp_weights or []
+    trace.candidates = cands
+
+    # Tempo: reads the WINNER's own already-planned per-slot speed (baked in by
+    # _plan_my_actions via planned_speed_overrides_by_slot for a Mega slot --
+    # see build_own_mega_contexts/_mega_context) instead of recomputing via
+    # speed_oracle.our_speed with the pre-Mega base stat, which would be wrong
+    # for a Mega'd slot (spec Sec.5.2: move order after Mega uses POST-Mega speed).
+    winner_plan = winner_ctx.plans.get(pre_tera_ja, [])
+    speed_by_slot: dict[str, int | None] = {"a": None, "b": None}
+    for p in winner_plan:
+        if p.side == our_side and p.slot in speed_by_slot:
+            speed_by_slot[p.slot] = p.speed
+
+    our_speeds = []
+    for _letter in ("a", "b"):
+        _m = winner_ctx.projected_state.side(our_side).get(_letter)
+        if _m is not None and not _m.fainted and speed_by_slot[_letter] is not None:
+            our_speeds.append(speed_by_slot[_letter])
+    opp_speeds = []
+    if speed_oracle is not None:
+        for _letter in ("a", "b"):
+            _m = winner_ctx.projected_state.side(opp_side).get(_letter)
+            if _m is not None and not _m.fainted:
+                opp_speeds.append(_opp_speed(
+                    _m, winner_ctx.projected_state.field, opp_side,
+                    speed_oracle=speed_oracle, book=book, opp_sets=opp_sets,
+                ))
+    _our_fast = max(our_speeds, default=0)
+    _opp_fast = max(opp_speeds, default=0)
+    trace.tempo_features = DecisionTempoFeatures(
+        we_outspeed_count=sum(1 for o in opp_speeds if _our_fast > o),
+        they_outspeed_count=sum(1 for u in our_speeds if _opp_fast > u),
+        speed_tie_count=sum(1 for u in our_speeds for o in opp_speeds if u == o),
+        our_fastest_active_speed=_our_fast,
+        opp_fastest_active_speed=_opp_fast,
+    )
+
+
+def _populate_legacy_decision_trace(
+    req: BattleRequest,
+    *,
+    state: BattleState,
+    our_side: str,
+    opp_side: str,
+    calc: CalcClient,
+    book: SpreadBook,
+    calc_profile,
+    speed_oracle: SpeedOracle | None,
+    opp_sets: dict | None,
+    mode,
+    risk_lambda: float,
+    resp_weights,
+    weights: EvalWeights,
+    endgame: bool,
+    fast_board: bool,
+    accuracy_mode: bool,
+    accuracy_branch_cap: int,
+    model,
+    opp_resps,
+    items,
+    plans,
+    best_ja: JointAction,
+    pre_tera_ja: JointAction,
+    trace,
+) -> None:
+    """Non-Mega candidate trace population (I7a-B Task 4 refactor-only
+    extraction out of ``_choose_best``'s legacy branch). Byte-identical to the
+    pre-extraction inline block: same scoring, same ranking, same feature
+    values -- only the code's location changed. Runs exclusively when
+    ``format_config`` is ``None``/``mega`` is falsy (``_choose_best`` never
+    reaches here on the Mega-enabled branch, see ``_populate_mega_decision_trace``
+    for that path's separate trace population).
+    """
+    from showdown_bot.battle.candidate_identity import derive_tera_slot, joint_action_key_v2
+    from showdown_bot.battle.decision_trace import (
+        AccuracyEventTrace,
+        AccuracyResponseDetail,
+        AccuracyTieOrderTrace,
+        CandidateModelFeatures,
+        CandidateTrace,
+        DecisionTrace as _DT,
+    )
+    from showdown_bot.battle.evaluate import (
+        OutcomeBreakdown,
+        _evaluate_line_details,
+        score_outcome_with_breakdown,
+    )
+    from showdown_bot.engine.belief.game_mode import guaranteed_ohko, ko_threat_counts
+
+    rep_resps = [r.actions for r in opp_resps] if opp_resps else [[]]
+
+    def _breakdowns_for(plan):
+        out = []
+        acc_details = []
+        for ri, ra in enumerate(rep_resps):
+            d = _evaluate_line_details(
+                state, plan, ra, model.damage_fn, our_side=our_side,
+                weights=weights, field=state.field, rollout_horizon=0,
+                endgame=endgame, fast_board=fast_board,
+                accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+            )
+            out.append(
+                score_outcome_with_breakdown(
+                    d.representative_outcome, our_side, weights, endgame=endgame, fast_board=fast_board
+                )[1]
+            )
+            acc_details.append(AccuracyResponseDetail(
+                accuracy_leaf_count=sum(t.accuracy_leaf_count for t in d.tie_order_details),
+                accuracy_event_count=len(d.accuracy_events),
+                accuracy_branch_cap_hits=d.fallback_leaves,
+                events_complete=(d.fallback_leaves == 0),
+                tie_orders=[
+                    AccuracyTieOrderTrace(
+                        t.tie_order, t.weight, t.accuracy_leaf_count,
+                        t.accuracy_branch_cap_hits, t.events_complete,
+                    )
+                    for t in d.tie_order_details
+                ],
+                events=[
+                    AccuracyEventTrace(
+                        e.attacker, e.target, e.move_id, e.hit_probability,
+                        response_index=ri, tie_order=e.tie_order,
+                    )
+                    for e in d.accuracy_events
+                ],
+            ))
+        return out, acc_details
+
+    def _weighted_mean_breakdown(bds):
+        ws = resp_weights or [1.0] * len(bds)
+        tot = sum(ws) or 1.0
+        agg = OutcomeBreakdown()
+        for f in ("total_score", "predicted_outgoing_damage", "predicted_incoming_damage",
+                  "my_kos", "my_faints", "protect_stall_penalty",
+                  "endgame_protect_penalty", "partner_abandon_penalty",
+                  "fast_board_protect_penalty"):
+            setattr(agg, f, sum(getattr(b, f) * w for b, w in zip(bds, ws)) / tot)
+        return agg
+
+    # Decision-level threat counts: computed once, shared across all candidates.
+    dec_threatened, dec_survives = ko_threat_counts(
+        state, our_side, calc=calc, book=book, calc_profile=calc_profile
+    )
+
+    def _ko_secured_for(plan: list[PlannedAction]) -> int:
+        """Distinct opponent active slots guaranteed-OHKO'd by this candidate's
+        selected damaging moves (OFFENSE-vs-DEFENSE, same as game_mode)."""
+        slots: set = set()
+        for a in plan:
+            if (
+                a.kind == "move"
+                and a.move is not None
+                and a.move.is_damaging
+                and a.is_ours
+                and a.target is not None
+            ):
+                atk = state.side(a.side).get(a.slot)
+                tgt = state.side(a.target[0]).get(a.target[1])
+                if (
+                    atk is not None
+                    and tgt is not None
+                    and not tgt.fainted
+                    and guaranteed_ohko(
+                        state, atk, a.move.name, tgt,
+                        calc=calc, book=book, calc_profile=calc_profile,
+                    )
+                ):
+                    slots.add(a.target)
+        return len(slots)
+
+    scored = [
+        (ja, scores, aggregate_scores(scores, mode, risk_lambda=risk_lambda, weights=resp_weights))
+        for ja, scores in items
+    ]
+    scored.sort(key=lambda t: (-t[2], _label_ja(req, t[0])))
+    cands = []
+    for rank, (ja, scores, agg) in enumerate(scored[:TOP_K_TRACE_CANDIDATES]):
+        bds, acc_details = _breakdowns_for(plans[ja])
+        cands.append(CandidateTrace(
+            candidate_id=_label_ja(req, ja), joint_action=ja, rank=rank,
+            aggregate_score=agg, score_vector=list(scores),
+            outcome_breakdowns=bds, aggregate_breakdown=_weighted_mean_breakdown(bds),
+            model_features=CandidateModelFeatures(
+                ko_secured_count=_ko_secured_for(plans[ja]),
+                ko_threatened_count=dec_threatened,
+                survives_for_sure_count=dec_survives,
+            ),
+            accuracy_details=acc_details,
+            candidate_key=joint_action_key_v2(ja),
+        ))
+    trace.game_mode = getattr(mode, "name", str(mode))
+    trace.chosen_candidate_key = joint_action_key_v2(pre_tera_ja)
+    trace.chosen_candidate_id = _label_ja(req, best_ja)
+    trace.chosen_tera_slot = derive_tera_slot(pre_tera_ja, best_ja)
+    # Task 1 (I7a-B) is identity/schema-only -- no Mega candidates are
+    # ranked yet, so this stays null until the Mega ranking slice (Task 2+).
+    trace.chosen_mega_slot = None
+    trace.opponent_responses = [r.actions for r in opp_resps]
+    trace.opponent_response_weights = resp_weights or []
+    trace.candidates = cands
+
+    from showdown_bot.battle.opponent import _opponent_speed as _opp_speed
+    from showdown_bot.battle.decision_trace import DecisionTempoFeatures
+
+    _sp_actives = _active_pokemon(req)
+    our_speeds = []
+    for _i, _letter in enumerate(("a", "b")):
+        _m = state.side(our_side).get(_letter)
+        if _m is not None and not _m.fainted and speed_oracle is not None:
+            _base = int(_sp_actives[_i].stats.get("spe", 0)) if _i < len(_sp_actives) else 0
+            our_speeds.append(speed_oracle.our_speed(_base, _m, state.field, our_side))
+    opp_speeds = []
+    if speed_oracle is not None:
+        for _letter in ("a", "b"):
+            _m = state.side(opp_side).get(_letter)
+            if _m is not None and not _m.fainted:
+                opp_speeds.append(_opp_speed(_m, state.field, opp_side, speed_oracle=speed_oracle, book=book, opp_sets=opp_sets))
+    _our_fast = max(our_speeds, default=0)
+    _opp_fast = max(opp_speeds, default=0)
+    trace.tempo_features = DecisionTempoFeatures(
+        we_outspeed_count=sum(1 for o in opp_speeds if _our_fast > o),
+        they_outspeed_count=sum(1 for u in our_speeds if _opp_fast > u),
+        speed_tie_count=sum(1 for u in our_speeds for o in opp_speeds if u == o),
+        our_fastest_active_speed=_our_fast,
+        opp_fastest_active_speed=_opp_fast,
+    )
 
 
 def _choose_best_ja(
