@@ -58,6 +58,13 @@ def test_config_hash_includes_calc_pin_hash():
     assert pin == "79a4877538c8740f"
 
 
+def test_pinned_calc_manifest_is_lf_on_disk():
+    from showdown_bot.engine.calc.pin import DEFAULT_CALC_DIR, PINNED_CALC_FILENAME
+
+    raw = (DEFAULT_CALC_DIR / PINNED_CALC_FILENAME).read_bytes()
+    assert b"\r\n" not in raw
+
+
 def test_config_hash_changes_when_calc_generation_changes(tmp_path: Path):
     def write_yaml(name: str, calc_generation: int) -> Path:
         path = tmp_path / f"{name}.yaml"
