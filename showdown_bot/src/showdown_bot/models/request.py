@@ -20,9 +20,12 @@ class MoveSlot(BaseModel):
 class ActiveSlot(BaseModel):
     moves: list[MoveSlot]
     can_terastallize: str | None = Field(default=None, alias="canTerastallize")
-    can_mega_evo: bool = Field(default=False, alias="canMegaEvo")
+    can_mega_evo: bool = Field(
+        default=False,
+        alias="canMegaEvo",
+        exclude_if=lambda value: value is False,
+    )
     trapped: bool | None = None
-
     model_config = {"populate_by_name": True}
 
 

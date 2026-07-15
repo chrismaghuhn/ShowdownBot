@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from showdown_bot.engine.items import to_id
@@ -23,7 +23,7 @@ class SpeciesFormMeta:
     base_species_id: str
     base_species_name: str
     types: tuple[str, ...]
-    base_stats: dict[str, int]
+    base_stats: dict[str, int] = field(default_factory=dict, compare=False)
     ability_slot0: str = ""
     required_item: str | None = None
 
@@ -40,8 +40,13 @@ def _embedded_hash(raw: dict, table_key: str) -> str:
 
 def speciesdata_content_hash() -> str:
     raw = json.loads(_SPECIESDATA.read_text(encoding="utf-8"))
-    return raw["data_hash"]
-
+    expected = raw.get("data_hash")
+    actual = _embedded_hash(raw, "species")
+    if expected is not None and actual != expected:
+        raise SpeciesMetaStaleError(
+            f"speciesdata.json stale: embedded {expected!r} != computed {actual!r}"
+        )
+    return actual
 
 @functools.lru_cache(maxsize=1)
 def species_meta_table() -> dict[str, SpeciesFormMeta]:

@@ -72,6 +72,16 @@ def test_itemdata_stale_hash_raises_after_cache_clear(tmp_path, monkeypatch):
         _item_table()
 
 
+def test_itemdata_content_hash_rejects_tampered_embedded_hash(tmp_path, monkeypatch):
+    raw = json.loads(items_mod._ITEMDATA.read_text(encoding="utf-8"))
+    raw["data_hash"] = "deadbeef00000000"
+    p = tmp_path / "itemdata.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(items_mod, "_ITEMDATA", p)
+    with pytest.raises(items_mod.ItemdataStaleError):
+        items_mod.itemdata_content_hash()
+
+
 def test_speciesdata_stale_hash_raises_after_cache_clear(tmp_path, monkeypatch):
     raw = json.loads(species_meta_mod._SPECIESDATA.read_text(encoding="utf-8"))
     raw["data_hash"] = "deadbeef00000000"
@@ -81,6 +91,41 @@ def test_speciesdata_stale_hash_raises_after_cache_clear(tmp_path, monkeypatch):
     species_meta_mod.species_meta_table.cache_clear()
     with pytest.raises(SpeciesMetaStaleError):
         species_meta_mod.species_meta_table()
+
+
+def test_speciesdata_content_hash_rejects_tampered_embedded_hash(tmp_path, monkeypatch):
+    raw = json.loads(species_meta_mod._SPECIESDATA.read_text(encoding="utf-8"))
+    raw["data_hash"] = "deadbeef00000000"
+    p = tmp_path / "speciesdata.json"
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    monkeypatch.setattr(species_meta_mod, "_SPECIESDATA", p)
+    with pytest.raises(SpeciesMetaStaleError):
+        species_meta_mod.speciesdata_content_hash()
+
+
+def test_species_form_meta_is_hashable():
+    form = get_species_form_meta("Charizard-Mega-Y")
+    assert form is not None
+    assert {form}
+
+
+def test_mega_form_for_rejects_inconsistent_species_map():
+    item_table = {
+        "charizarditey": ItemMeta(
+            id="charizarditey",
+            name="Charizardite Y",
+            mega_stone={"charizard": "Blastoise-Mega"},
+        ),
+    }
+    assert (
+        mega_form_for(
+            "Charizard",
+            "Charizardite Y",
+            item_table=item_table,
+            species_meta=species_meta_table(),
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -520,3 +565,35 @@ def test_planned_action_has_is_mega_field():
     pa = PlannedAction(side="p1", slot="a", kind="move")
     assert hasattr(pa, "is_mega")
     assert pa.is_mega is False
+
+
+def test_expand_mega_variants_skips_phantom_switch_mega(
+    scovillain_mega_request, scovillain_hero_state, calc_profile, aerodactyl_spreads
+):
+    from showdown_bot.battle.actions import JointAction
+    from showdown_bot.engine.calc.client import SubprocessCalcBackend
+    from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.models.actions import SlotAction
+
+    state = scovillain_hero_state
+    state.sides["p1"]["a"].item = "Aerodactylite"
+    state.sides["p1"]["a"].species = "Aerodactyl"
+    state.sides["p1"]["a"].base_species_id = "aerodactyl"
+    switch_joint = JointAction(
+        slot0=SlotAction(kind="switch", target_ident="BenchMon"),
+        slot1=SlotAction(kind="move", move_index=1, target=1),
+    )
+    raw = expand_mega_variants([switch_joint], scovillain_mega_request, state, "p1")
+    assert not any(v.own_mega_slot == 0 for v in raw)
+    oracle = SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=calc_profile)
+    evaluated = filter_projectable_variants(
+        raw,
+        scovillain_mega_request,
+        state,
+        "p1",
+        species_meta=species_meta_table(),
+        speed_oracle=oracle,
+        our_spreads={"aerodactyl": aerodactyl_spreads},
+        calc_profile=calc_profile,
+    )
+    assert not any(v.own_mega_slot == 0 for v in evaluated)

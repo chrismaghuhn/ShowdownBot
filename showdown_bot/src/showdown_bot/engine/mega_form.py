@@ -33,4 +33,13 @@ def mega_form_for(
     form = forms.get(to_id(form_name))
     if form is None:
         return None
-    return MegaForm(form.base_species_id, form.form_species_id, form.form_species_name, item.id)
+    base_form = forms.get(base_id)
+    if base_form is not None:
+        if (
+            form.base_species_id != base_form.base_species_id
+            and form.base_species_id != base_id
+        ):
+            return None
+    elif form.base_species_id != base_id:
+        return None
+    return MegaForm(base_id, form.form_species_id, form.form_species_name, item.id)

@@ -60,11 +60,14 @@ def expand_mega_variants(
     for joint in base_joints:
         out.append(ScoredMegaVariant(joint=joint, own_mega_slot=None))
         if _slot_can_mega(req, 0, state, our_side):
-            out.append(ScoredMegaVariant(joint=joint.with_mega(0), own_mega_slot=0))
+            mega_joint = joint.with_mega(0)
+            if mega_joint.slot0.mega_evolve:
+                out.append(ScoredMegaVariant(joint=mega_joint, own_mega_slot=0))
         if _slot_can_mega(req, 1, state, our_side):
-            out.append(ScoredMegaVariant(joint=joint.with_mega(1), own_mega_slot=1))
+            mega_joint = joint.with_mega(1)
+            if mega_joint.slot1.mega_evolve:
+                out.append(ScoredMegaVariant(joint=mega_joint, own_mega_slot=1))
     return out
-
 
 def filter_projectable_variants(
     variants: list[ScoredMegaVariant],

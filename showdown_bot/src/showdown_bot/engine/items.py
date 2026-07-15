@@ -34,8 +34,13 @@ def _embedded_hash(raw: dict, table_key: str) -> str:
 
 def itemdata_content_hash() -> str:
     raw = json.loads(_ITEMDATA.read_text(encoding="utf-8"))
-    return raw["data_hash"]
-
+    expected = raw.get("data_hash")
+    actual = _embedded_hash(raw, "items")
+    if expected is not None and actual != expected:
+        raise ItemdataStaleError(
+            f"itemdata.json stale: embedded {expected!r} != computed {actual!r}"
+        )
+    return actual
 
 @dataclass(frozen=True)
 class ItemMeta:
