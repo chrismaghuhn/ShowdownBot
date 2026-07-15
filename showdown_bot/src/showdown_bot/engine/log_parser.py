@@ -221,6 +221,25 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
             raw=raw,
         )
 
+    if prefix == "detailschange":
+        return LogEvent(
+            type="detailschange",
+            pokemon=PokemonId.parse(positional[0]),
+            details=positional[1] if len(positional) > 1 else None,
+            tags=tags,
+            raw=raw,
+        )
+
+    if prefix == "-mega":
+        return LogEvent(
+            type="mega",
+            pokemon=PokemonId.parse(positional[0]),
+            value=positional[1] if len(positional) > 1 else None,
+            details=positional[2] if len(positional) > 2 else None,
+            tags=tags,
+            raw=raw,
+        )
+
     if prefix == "-item":
         return LogEvent(
             type="item",

@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field as dc_field
 
 from showdown_bot.engine.log_parser import LogEvent, parse_hp_integer, parse_log
+from showdown_bot.engine.mega_reconcile import MegaReconcileEvent, ReducedLogEvent
 from showdown_bot.models.request import BattleRequest
 
 _BOOST_KEYS = ("atk", "def", "spa", "spd", "spe", "accuracy", "evasion")
@@ -101,7 +102,11 @@ class BattleState:
     def active(self, side: str, slot: str) -> PokemonState | None:
         return self.sides.get(side, {}).get(slot)
 
-    def apply_event(self, event: LogEvent) -> None:  # noqa: C901 - protocol dispatch
+    def apply_event(self, event: ReducedLogEvent) -> None:  # noqa: C901 - protocol dispatch
+        if isinstance(event, MegaReconcileEvent):
+            self._apply_mega_reconcile(event)
+            return
+
         et = event.type
 
         if et == "turn":
@@ -196,8 +201,28 @@ class BattleState:
             mon.item_known = True
             mon.item_lost = True
 
+    def _apply_mega_reconcile(self, event: MegaReconcileEvent) -> None:
+        # Minimal I7a-C Task 1 slice: species-only. Rollback/item/ability/
+        # side_mega_spent handling is Task 2's job.
+        pid = event.pokemon
+        if pid is None:
+            return
+        side = self.sides.setdefault(pid.side, {})
+        mon = side.get(pid.slot)
+        if mon is None:
+            return
+        details = parse_details(event.mega_species_details)
+        mon.species = details.species
+
     @classmethod
     def from_log(cls, events: list[LogEvent]) -> "BattleState":
+        state = cls()
+        for event in events:
+            state.apply_event(event)
+        return state
+
+    @classmethod
+    def from_reduced_log(cls, events: list[ReducedLogEvent]) -> "BattleState":
         state = cls()
         for event in events:
             state.apply_event(event)
