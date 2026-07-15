@@ -176,7 +176,8 @@ def behavior_env(environ=None) -> dict[str, str]:
 
 def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=None,
                           model_hash=None, model_manifest_hash=None, movedata_hash=None,
-                          format_config_hash=None, calc_pin_hash=None) -> dict:
+                          format_config_hash=None, calc_pin_hash=None,
+                          itemdata_hash=None, speciesdata_hash=None) -> dict:
     """Assemble the effective-config manifest that ``make_config_hash`` hashes.
 
     ``env`` defaults to ``behavior_env()``. ``model_hash``/``model_manifest_hash`` are
@@ -188,7 +189,11 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
     config lineage even when the accuracy feature itself is off.
 
     ``format_config_hash`` / ``calc_pin_hash`` pin the resolved format yaml and vendored
-    ``@smogon/calc`` artifact (I4 §5). Included whenever provided by the caller."""
+    ``@smogon/calc`` artifact (I4 §5). Included whenever provided by the caller.
+
+    ``itemdata_hash`` / ``speciesdata_hash`` (I7a §14) pin ``config/items/itemdata.json``
+    and ``config/species/speciesdata.json`` -- Mega depends on both (megaStone mapping /
+    required_item). Included whenever provided by the caller."""
     manifest = {
         "agent": agent,
         "format_id": format_id,
@@ -206,17 +211,28 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
         manifest["format_config_hash"] = format_config_hash
     if calc_pin_hash is not None:
         manifest["calc_pin_hash"] = calc_pin_hash
+    if itemdata_hash is not None:
+        manifest["itemdata_hash"] = itemdata_hash
+    if speciesdata_hash is not None:
+        manifest["speciesdata_hash"] = speciesdata_hash
     return manifest
 
 
 def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
-    """Format yaml + calc pin hashes for ``build_config_manifest``.
+    """Format yaml + calc pin + item/species data hashes for ``build_config_manifest``.
 
     Missing format yaml -> ``format_config_hash`` is None. Malformed yaml/schema
     errors propagate. Calc pin errors always propagate (§5.4 fail-closed).
+
+    ``itemdata_hash`` / ``speciesdata_hash`` are FAIL-CLOSED (I7a §14): they call
+    ``itemdata_content_hash()`` / ``speciesdata_content_hash()`` unguarded, so a stale
+    embedded generator hash (``ItemdataStaleError`` / ``SpeciesMetaStaleError``)
+    propagates straight out of this function -- there is no fallback to a raw file SHA.
     """
     from showdown_bot.engine.calc.pin import calc_pin_hash, format_config_hash
     from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.items import itemdata_content_hash
+    from showdown_bot.engine.species_meta import speciesdata_content_hash
 
     fmt_hash: str | None = None
     try:
@@ -227,4 +243,9 @@ def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
         fmt_hash = format_config_hash(cfg.source_path)
 
     pin = calc_pin_hash()
-    return {"format_config_hash": fmt_hash, "calc_pin_hash": pin}
+    return {
+        "format_config_hash": fmt_hash,
+        "calc_pin_hash": pin,
+        "itemdata_hash": itemdata_content_hash(),
+        "speciesdata_hash": speciesdata_content_hash(),
+    }

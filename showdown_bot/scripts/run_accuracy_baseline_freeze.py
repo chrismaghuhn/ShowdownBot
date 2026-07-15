@@ -277,6 +277,8 @@ def main() -> None:
         movedata_hash=movedata_hash,
         format_config_hash=provenance["format_config_hash"],
         calc_pin_hash=provenance["calc_pin_hash"],
+        itemdata_hash=provenance["itemdata_hash"],
+        speciesdata_hash=provenance["speciesdata_hash"],
     )
     config_hash = make_config_hash(manifest)
 
