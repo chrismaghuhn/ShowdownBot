@@ -90,3 +90,63 @@ def test_write_config_manifest_sidecar_refuses_to_overwrite_existing_sidecar(tmp
 
     with pytest.raises(ConfigManifestFreezeError, match="already exists"):
         write_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+
+# --- Codex re-review finding: a re-verification path for a frozen sidecar ----------------
+
+def test_verify_config_manifest_sidecar_passes_for_a_freshly_written_sidecar(tmp_path):
+    from showdown_bot.eval.config_manifest_freeze import verify_config_manifest_sidecar
+
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    config_hash = make_config_hash(manifest)
+    results_path = _write_results(tmp_path, config_hash)
+    write_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+    # Must not raise.
+    verify_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+
+def test_verify_config_manifest_sidecar_fails_closed_when_sidecar_missing(tmp_path):
+    from showdown_bot.eval.config_manifest_freeze import verify_config_manifest_sidecar
+
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    config_hash = make_config_hash(manifest)
+    results_path = _write_results(tmp_path, config_hash)
+
+    with pytest.raises(ConfigManifestFreezeError, match="does not exist|missing"):
+        verify_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+
+def test_verify_config_manifest_sidecar_fails_closed_when_sidecar_manifest_was_edited(tmp_path):
+    from showdown_bot.eval.config_manifest_freeze import verify_config_manifest_sidecar
+
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    config_hash = make_config_hash(manifest)
+    results_path = _write_results(tmp_path, config_hash)
+    sidecar_path = write_config_manifest_sidecar(
+        results_path, agent="heuristic", format_id=FORMAT_ID, env={},
+    )
+
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["manifest"]["format_id"] = "tampered"
+    sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ConfigManifestFreezeError, match="rehash|mismatch"):
+        verify_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+
+def test_verify_config_manifest_sidecar_fails_closed_when_a_result_row_no_longer_matches(tmp_path):
+    from showdown_bot.eval.config_manifest_freeze import verify_config_manifest_sidecar
+
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    config_hash = make_config_hash(manifest)
+    results_path = _write_results(tmp_path, config_hash)
+    write_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+    # Simulate a post-hoc mutation (e.g. room_raw_path=null) that also broke a row's hash.
+    rows = [json.loads(line) for line in results_path.read_text(encoding="utf-8").splitlines()]
+    rows[0]["config_hash"] = "clearlywrong0000"
+    results_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(ConfigManifestFreezeError, match="inconsistent|multiple"):
+        verify_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})

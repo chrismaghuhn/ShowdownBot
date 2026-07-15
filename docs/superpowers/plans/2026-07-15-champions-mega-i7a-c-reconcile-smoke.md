@@ -422,13 +422,20 @@ NOT start this task until:
 
 - `showdown_bot/src/showdown_bot/eval/mega_evidence.py`'s `derive_mega_evidence` is used to
   gate the verdict (requires an observed `chosen_mega_slot`, a `/choose` string containing
-  `"mega"`, and a later non-team-preview decision whose `state_summary` proves the bot's
-  own slot rebuilt into its post-Mega species -- see that module's docstring for exactly
-  what it does and does not prove);
+  `"mega"`, and a later non-team-preview decision whose `state_summary` species matches the
+  EXACT Mega form `mega_form_for` derives from the pre-click species + stone item -- NOT
+  merely any different species, which a later switch could also produce -- see that
+  module's docstring for exactly what it does and does not prove);
+- `bind_protocol_mega_pair` (same module) is used, while the run's `SHOWDOWN_ROOM_RAW_DUMP`
+  local log still exists, to bind the trace-derived evidence to the actual observed
+  `detailschange`/`-mega` protocol line pair (compact line/log hashes only -- never
+  committing raw log content) -- a trace-level species match alone does not prove real
+  protocol events occurred (`merge_request()` can also update species from the request);
 - `showdown_bot/src/showdown_bot/eval/config_manifest_freeze.py`'s
   `write_config_manifest_sidecar` is used to freeze `results.jsonl.config-manifest.json`
   (calls the same `effective_config_manifest` the CLI's live `config_hash` uses -- no
-  ad-hoc re-derivation).
+  ad-hoc re-derivation), and `verify_config_manifest_sidecar` is used to re-check that
+  binding after any post-hoc mutation of a frozen result row.
 
 **A prior live-smoke run already exists** at
 `data/eval/champions-panel-v0/smoke-i7a-mega/` (untracked). Its manifest records
@@ -479,7 +486,15 @@ Write the derived evidence (not raw logs) to `mega-evidence.json`: `battle_id`,
 `mega_decision_index`, `turn_number`, `mega_slot`, `chosen_candidate_key`,
 `post_mega_decision_index`, `post_mega_species`, plus the bound `config_hash`/`git_sha`
 from that battle's result row and the sha256 of the decision-trace file it was derived
-from. No raw room-log content.
+from.
+
+A trace-level species match alone does not prove a real `detailschange`/`-mega` protocol
+pair occurred (`merge_request()` can also update species from the request). While the
+`SHOWDOWN_ROOM_RAW_DUMP` local cache path still exists for this run (before it is nulled),
+call `mega_evidence.bind_protocol_mega_pair` against that normalized log and add its
+`detailschange_line_sha256`/`mega_line_sha256`/`normalized_log_sha256` to
+`mega-evidence.json` -- these are compact line/whole-log hashes, not raw log content, so
+no raw room-log text is committed.
 
 - [ ] **Step 4: Freeze only reproducible non-raw evidence and update docs**
 
@@ -487,7 +502,7 @@ Write `task17a_head.txt` from `$env:TASK17A_HEAD` only after the run. Set commit
 
 Freeze the config manifest with `write_config_manifest_sidecar` (`eval/config_manifest_freeze.py`) -- do not hand-write `results.jsonl.config-manifest.json`; it must be produced by that function so it is guaranteed to rehash to every row's `config_hash`.
 
-**After the `room_raw_path=null` mutation** (or any other post-hoc edit to a frozen result row), re-run result validation, regenerate `eval-report`, and re-verify the `write_config_manifest_sidecar` binding (its hash check will itself fail closed if the mutation altered anything hashed) -- only commit after that re-verification passes.
+**After the `room_raw_path=null` mutation** (or any other post-hoc edit to a frozen result row), re-run result validation, regenerate `eval-report`, and call `config_manifest_freeze.verify_config_manifest_sidecar` (not a re-run of `write_config_manifest_sidecar`, which refuses to overwrite) to re-check the sidecar/result-row/live-manifest binding -- only commit after that re-verification passes.
 
 Commit results, manifest, config manifest, seeds, trace, `mega-evidence.json`, report JSON/MD, HEAD artifact, verdict note, ROADMAP, and PROJECT_INDEX. Do not commit `_local`, raw rooms, client logs, server data, or helper scripts.
 

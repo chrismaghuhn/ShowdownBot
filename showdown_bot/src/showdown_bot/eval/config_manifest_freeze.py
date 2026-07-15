@@ -21,27 +21,19 @@ from showdown_bot.eval.result_jsonl import make_config_hash
 
 
 class ConfigManifestFreezeError(Exception):
-    """Fail-closed: refuses to write a sidecar that can't be verified against the
-    results file it is supposed to describe."""
+    """Fail-closed: refuses to write or verify a sidecar that can't be reconciled against
+    the results file it is supposed to describe."""
 
 
-def write_config_manifest_sidecar(
-    results_path: str | Path, *, agent: str, format_id: str,
-    env: dict[str, str] | None = None,
-    model_hash: str | None = None, model_manifest_hash: str | None = None,
-) -> Path:
-    """Write ``<results_path>.config-manifest.json`` and return its path.
+def _sidecar_path(results_path: Path) -> Path:
+    return results_path.with_name(results_path.name + ".config-manifest.json")
 
-    Fails closed (raises ``ConfigManifestFreezeError``, writes nothing) if:
-    - ``results_path`` does not exist or has no rows;
-    - any row is missing ``config_hash``;
-    - rows carry more than one distinct ``config_hash`` value;
-    - the ``effective_config_manifest`` hash for ``(agent, format_id, env, ...)`` does not
-      match the results file's single ``config_hash`` (drift between the frozen run and the
-      inputs passed here);
-    - a sidecar already exists at the target path (never silently overwritten).
-    """
-    results_path = Path(results_path)
+
+def _single_recorded_config_hash(results_path: Path) -> str:
+    """The one ``config_hash`` shared by every row in ``results_path``.
+
+    Fails closed if the file is missing/empty, any row lacks ``config_hash``, or rows
+    carry more than one distinct value (including a value later mutated to disagree)."""
     if not results_path.is_file() or results_path.stat().st_size == 0:
         raise ConfigManifestFreezeError(
             f"results file does not exist or is empty: {results_path}"
@@ -68,6 +60,27 @@ def write_config_manifest_sidecar(
             f"{sorted(row_hashes)} -- a frozen sidecar must describe exactly one config lineage"
         )
     (recorded_hash,) = row_hashes
+    return recorded_hash
+
+
+def write_config_manifest_sidecar(
+    results_path: str | Path, *, agent: str, format_id: str,
+    env: dict[str, str] | None = None,
+    model_hash: str | None = None, model_manifest_hash: str | None = None,
+) -> Path:
+    """Write ``<results_path>.config-manifest.json`` and return its path.
+
+    Fails closed (raises ``ConfigManifestFreezeError``, writes nothing) if:
+    - ``results_path`` does not exist or has no rows;
+    - any row is missing ``config_hash``;
+    - rows carry more than one distinct ``config_hash`` value;
+    - the ``effective_config_manifest`` hash for ``(agent, format_id, env, ...)`` does not
+      match the results file's single ``config_hash`` (drift between the frozen run and the
+      inputs passed here);
+    - a sidecar already exists at the target path (never silently overwritten).
+    """
+    results_path = Path(results_path)
+    recorded_hash = _single_recorded_config_hash(results_path)
 
     manifest = effective_config_manifest(
         agent=agent, format_id=format_id, env=env,
@@ -82,7 +95,7 @@ def write_config_manifest_sidecar(
             f"rehash to the run it claims to describe (inputs likely differ from the actual run)"
         )
 
-    out_path = results_path.with_name(results_path.name + ".config-manifest.json")
+    out_path = _sidecar_path(results_path)
     if out_path.exists():
         raise ConfigManifestFreezeError(
             f"{out_path} already exists -- refusing to silently overwrite a frozen sidecar"
@@ -93,3 +106,60 @@ def write_config_manifest_sidecar(
         encoding="utf-8",
     )
     return out_path
+
+
+def verify_config_manifest_sidecar(
+    results_path: str | Path, *, agent: str, format_id: str,
+    env: dict[str, str] | None = None,
+    model_hash: str | None = None, model_manifest_hash: str | None = None,
+) -> None:
+    """Re-verify an already-written ``<results_path>.config-manifest.json`` sidecar.
+
+    Intended for the plan's "after any post-hoc mutation of a frozen result row (e.g.
+    ``room_raw_path=null``), re-verify the manifest/config_hash binding before committing"
+    step -- call this again after such a mutation instead of trusting the original freeze.
+
+    Fails closed (raises ``ConfigManifestFreezeError``) if:
+    - the results file itself no longer has one consistent recorded ``config_hash``
+      (``_single_recorded_config_hash`` -- the same checks as ``write_config_manifest_sidecar``);
+    - the sidecar file does not exist;
+    - the sidecar's stored ``manifest`` no longer rehashes (``make_config_hash``) to its own
+      stored ``config_hash`` (the sidecar itself was edited/corrupted);
+    - re-deriving ``effective_config_manifest`` for the given ``(agent, format_id, env, ...)``
+      now produces a different hash than the sidecar records (drift since the freeze);
+    - the results file's recorded ``config_hash`` no longer matches the sidecar's.
+    Returns ``None`` (no exception) when every check passes.
+    """
+    results_path = Path(results_path)
+    recorded_hash = _single_recorded_config_hash(results_path)
+
+    sidecar_path = _sidecar_path(results_path)
+    if not sidecar_path.is_file():
+        raise ConfigManifestFreezeError(f"sidecar does not exist: {sidecar_path}")
+
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    stored_hash = payload.get("config_hash")
+    stored_manifest = payload.get("manifest")
+    rehash = make_config_hash(stored_manifest) if stored_manifest is not None else None
+    if stored_hash != rehash:
+        raise ConfigManifestFreezeError(
+            f"{sidecar_path}: stored manifest does not rehash to its own stored config_hash "
+            f"(stored={stored_hash!r}, rehash={rehash!r}) -- the sidecar was edited/corrupted"
+        )
+
+    manifest = effective_config_manifest(
+        agent=agent, format_id=format_id, env=env,
+        model_hash=model_hash, model_manifest_hash=model_manifest_hash,
+    )
+    computed_hash = make_config_hash(manifest)
+    if computed_hash != stored_hash:
+        raise ConfigManifestFreezeError(
+            f"config_hash mismatch: {sidecar_path} records {stored_hash!r}, but "
+            f"effective_config_manifest(agent={agent!r}, format_id={format_id!r}, ...) now "
+            f"hashes to {computed_hash!r}"
+        )
+    if recorded_hash != stored_hash:
+        raise ConfigManifestFreezeError(
+            f"{results_path}'s recorded config_hash {recorded_hash!r} no longer matches the "
+            f"frozen sidecar's config_hash {stored_hash!r}"
+        )
