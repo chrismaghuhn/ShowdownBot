@@ -95,3 +95,112 @@ def decision_fixture():
         dex=_FakeDex(),
     )
     return req, kw
+
+
+# ---------------------------------------------------------------------------
+# I7a-B Task 5: a REAL Mega-capable board (Aerodactyl holding Aerodactylite),
+# scoped here (not just tests/i7a/conftest.py) so export/rollout consumer
+# tests can exercise a genuine format_config.mega=True decision -- including
+# a mega_evolve=True JointAction -- without duplicating the board-building
+# helpers per test file. Mirrors tests/i7a/test_i7a_decision.py's Aerodactyl
+# fixture pattern (real SpeedOracle/SubprocessCalcBackend -- Mega
+# projectability asserts speed_oracle.profile == calc_profile and calls
+# speed_oracle.speed_for_species, which a hand-rolled fake would have to
+# reimplement exactly).
+# ---------------------------------------------------------------------------
+
+def _mega_req():
+    from showdown_bot.engine.state import to_id
+
+    def _move_slots(names):
+        return [
+            {
+                "move": name, "id": to_id(name), "pp": 8, "maxpp": 8,
+                "target": "normal", "disabled": False,
+            }
+            for name in names
+        ]
+
+    a_moves = ["Rock Slide"]
+    b_moves = ["Moonblast"]
+    return BattleRequest.model_validate({
+        "active": [
+            {"moves": _move_slots(a_moves), "canMegaEvo": True},
+            {"moves": _move_slots(b_moves), "canMegaEvo": False},
+        ],
+        "side": {
+            "name": "Player1",
+            "id": "p1",
+            "pokemon": [
+                {
+                    "ident": "p1: Aerodactyl",
+                    "details": "Aerodactyl, L50",
+                    "condition": "100/100",
+                    "active": True,
+                    "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+                    "moves": [to_id(n) for n in a_moves],
+                    "baseTypes": ["Rock", "Flying"],
+                    "item": "Aerodactylite",
+                },
+                {
+                    "ident": "p1: Whimsicott",
+                    "details": "Whimsicott, L50",
+                    "condition": "100/100",
+                    "active": True,
+                    "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+                    "moves": [to_id(n) for n in b_moves],
+                    "baseTypes": ["Grass", "Fairy"],
+                },
+            ],
+        },
+        "rqid": 1,
+    })
+
+
+def _mega_state():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    st.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott",
+        types=["Grass", "Fairy"], hp=100, max_hp=100,
+    )
+    st.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar",
+        types=["Fire", "Dark"], hp=100, max_hp=100,
+    )
+    return st
+
+
+@pytest.fixture
+def mega_decision_fixture():
+    from showdown_bot.battle.oracle import DamageOracle
+    from showdown_bot.engine.belief.hypotheses import (
+        SpeciesSpreads, SpreadBook, SpreadPreset,
+    )
+    from showdown_bot.engine.calc.client import SubprocessCalcBackend
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.speed import SpeedOracle
+
+    cfg = load_format_config("gen9championsvgc2026regma")
+    calc_profile = calc_profile_from_config(cfg)
+    speed_oracle = SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=calc_profile)
+    spreads = SpeciesSpreads(
+        offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
+        defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}),
+    )
+    book = SpreadBook(default=spreads)
+    req = _mega_req()
+    kw = dict(
+        state=_mega_state(),
+        book=book,
+        our_side="p1",
+        oracle=DamageOracle(),
+        speed_oracle=speed_oracle,
+        format_config=cfg,
+        calc_profile=calc_profile,
+    )
+    return req, kw
