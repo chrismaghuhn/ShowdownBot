@@ -218,6 +218,61 @@ def build_config_manifest(*, agent, format_id, priors_hash, spreads_hash, env=No
     return manifest
 
 
+def file_content_hash(path) -> str | None:
+    """sha1[:16] of a file's bytes, or None if it can't be read (T3f config_hash provenance).
+
+    Public/exported so every caller that needs a provenance file hash (the CLI's live
+    config_hash computation, a dedicated config-manifest freeze helper, ad-hoc scripts)
+    shares this one implementation instead of each keeping its own private copy."""
+    import hashlib
+    from pathlib import Path
+
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
+    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
+        return None
+
+
+def effective_config_manifest(
+    *, agent: str, format_id: str, env: dict[str, str] | None = None,
+    model_hash: str | None = None, model_manifest_hash: str | None = None,
+) -> dict:
+    """The single canonical config payload for ``(agent, format_id)`` -- exactly what
+    ``make_config_hash`` hashes into the run's effective ``config_hash`` (I7a-C P1.4).
+
+    This is the ONE place that assembles priors_hash/spreads_hash/movedata_hash plus
+    ``config_provenance_for_format``'s format/calc/item/species hashes into a
+    ``build_config_manifest`` payload. Both the CLI's live per-(agent, format) config_hash
+    cache and any dedicated config-manifest freeze helper MUST call this function rather
+    than re-deriving the same hashes locally -- a second, independently-written assembly is
+    exactly the drift risk this function exists to close.
+
+    ``env`` defaults to ``behavior_env()`` (matching ``build_config_manifest``'s own
+    default) when not provided."""
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.moves import movedata_path
+
+    priors_hash = spreads_hash = None
+    try:
+        cfg = load_format_config(format_id)
+        priors_hash = file_content_hash(cfg.meta_path("protect_priors"))
+        spreads_hash = file_content_hash(cfg.meta_path("default_spreads"))
+    except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
+        pass
+    movedata_hash = file_content_hash(movedata_path())
+    provenance = config_provenance_for_format(format_id)
+    return build_config_manifest(
+        agent=agent, format_id=format_id,
+        priors_hash=priors_hash, spreads_hash=spreads_hash, env=env,
+        model_hash=model_hash, model_manifest_hash=model_manifest_hash,
+        movedata_hash=movedata_hash,
+        format_config_hash=provenance["format_config_hash"],
+        calc_pin_hash=provenance["calc_pin_hash"],
+        itemdata_hash=provenance["itemdata_hash"],
+        speciesdata_hash=provenance["speciesdata_hash"],
+    )
+
+
 def config_provenance_for_format(format_id: str) -> dict[str, str | None]:
     """Format yaml + calc pin + item/species data hashes for ``build_config_manifest``.
 

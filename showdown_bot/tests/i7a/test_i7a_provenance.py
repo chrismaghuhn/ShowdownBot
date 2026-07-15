@@ -127,12 +127,28 @@ def test_config_provenance_propagates_stale_speciesdata_error(monkeypatch):
 
 
 # --- every real production build_config_manifest caller wires both hashes ------------------
+#
+# I7a-C P1.4: cli.py no longer calls build_config_manifest(...) directly -- it calls the
+# shared eval.config_env.effective_config_manifest(...), which is the ONE place that wires
+# itemdata_hash/speciesdata_hash from its own config_provenance_for_format(...) call (see
+# test_config_env.py's test_effective_config_manifest_* tests for that wiring). The two
+# scripts below still assemble the manifest inline (pre-existing, out of scope for P1.4;
+# migrating them to effective_config_manifest is a documented follow-up, not done here).
 
 _CALLER_FILES = [
-    REPO_ROOT / "src" / "showdown_bot" / "cli.py",
     REPO_ROOT / "scripts" / "run_accuracy_baseline_freeze.py",
     REPO_ROOT / "scripts" / "run_cap_action_capture.py",
 ]
+
+
+def test_cli_uses_shared_effective_config_manifest_not_a_direct_call():
+    """Regression guard for P1.4: cli.py must call the shared effective_config_manifest(...)
+    (config_env.py) rather than re-deriving priors/spreads/movedata/provenance hashes and
+    calling build_config_manifest(...) itself -- that duplication is exactly what let the
+    CLI's live config_hash and a future freeze helper silently drift apart."""
+    src = (REPO_ROOT / "src" / "showdown_bot" / "cli.py").read_text(encoding="utf-8")
+    assert "effective_config_manifest(" in src
+    assert "build_config_manifest(" not in src
 
 
 @pytest.mark.parametrize("path", _CALLER_FILES, ids=lambda p: p.name)

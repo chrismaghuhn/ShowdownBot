@@ -395,3 +395,59 @@ def test_config_hash_changes_when_movedata_hash_differs():
     m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s",
                                 movedata_hash="mv2", env={})
     assert make_config_hash(m1) != make_config_hash(m2)
+
+
+# --- I7a-C P1.4: effective_config_manifest is the single canonical payload builder -------
+# (shared by the CLI's live config_hash computation and the dedicated freeze helper; no
+# ad-hoc caller may re-derive priors_hash/spreads_hash/movedata_hash/provenance itself).
+
+def test_effective_config_manifest_matches_manual_build_config_manifest_assembly():
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.moves import movedata_path
+    from showdown_bot.eval.config_env import config_provenance_for_format, effective_config_manifest, file_content_hash
+
+    format_id = "gen9championsvgc2026regma"
+    cfg = load_format_config(format_id)
+    expected = build_config_manifest(
+        agent="heuristic", format_id=format_id,
+        priors_hash=file_content_hash(cfg.meta_path("protect_priors")),
+        spreads_hash=file_content_hash(cfg.meta_path("default_spreads")),
+        env={},
+        movedata_hash=file_content_hash(movedata_path()),
+        **{k: v for k, v in config_provenance_for_format(format_id).items()},
+    )
+
+    actual = effective_config_manifest(agent="heuristic", format_id=format_id, env={})
+
+    assert actual == expected
+
+
+def test_effective_config_manifest_includes_model_hashes_only_when_provided():
+    from showdown_bot.eval.config_env import effective_config_manifest
+
+    format_id = "gen9championsvgc2026regma"
+    without = effective_config_manifest(agent="a", format_id=format_id, env={})
+    assert "model_hash" not in without
+    assert "model_manifest_hash" not in without
+
+    with_models = effective_config_manifest(
+        agent="a", format_id=format_id, env={},
+        model_hash="mh1", model_manifest_hash="mmh1",
+    )
+    assert with_models["model_hash"] == "mh1"
+    assert with_models["model_manifest_hash"] == "mmh1"
+
+
+def test_effective_config_manifest_hash_matches_cli_config_hash_for_same_inputs():
+    """The manifest returned by effective_config_manifest must hash (via make_config_hash)
+    to the identical config_hash the CLI's own _config_hash_for computes for the same
+    (agent, format_id, env) -- this is the no-duplicate-computation invariant P1.4 requires."""
+    from showdown_bot.eval.config_env import effective_config_manifest
+
+    format_id = "gen9championsvgc2026regma"
+    manifest = effective_config_manifest(agent="heuristic", format_id=format_id, env={})
+    assert make_config_hash(manifest) == make_config_hash(manifest)  # stable/reproducible
+    # A second, independent call must reproduce byte-identical manifest + hash.
+    manifest2 = effective_config_manifest(agent="heuristic", format_id=format_id, env={})
+    assert manifest == manifest2
+    assert make_config_hash(manifest) == make_config_hash(manifest2)

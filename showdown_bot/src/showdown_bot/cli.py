@@ -41,16 +41,6 @@ def run_validate_log(args) -> None:
         )
 
 
-def _file_content_hash(path) -> str | None:
-    """sha1[:16] of a file's bytes, or None if it can't be read (T3f config_hash provenance)."""
-    import hashlib
-
-    try:
-        return hashlib.sha1(Path(path).read_bytes()).hexdigest()[:16]
-    except Exception:  # noqa: BLE001 - provenance is best-effort; missing file -> None
-        return None
-
-
 def run_schedule(args) -> None:
     """Non-mirror schedule mode (T1c): run each row as one battle in seed_index order.
 
@@ -102,7 +92,7 @@ def run_schedule(args) -> None:
         import sys
         from datetime import datetime, timezone
 
-        from showdown_bot.eval.config_env import behavior_env, build_config_manifest, config_provenance_for_format
+        from showdown_bot.eval.config_env import behavior_env, effective_config_manifest, file_content_hash
         from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, make_config_hash
         from showdown_bot.eval.run_manifest import (
             build_run_manifest,
@@ -126,35 +116,20 @@ def run_schedule(args) -> None:
         # hashes depend on the format, so cache config_hash per (agent, format_id).
         _behavior_env = behavior_env()
         _reranker_on = bool(_behavior_env.get("SHOWDOWN_RERANKER_SHADOW"))
-        _model_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MODEL_PATH")) if _reranker_on else None
-        _model_manifest_hash = _file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MANIFEST_PATH")) if _reranker_on else None
+        _model_hash = file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MODEL_PATH")) if _reranker_on else None
+        _model_manifest_hash = file_content_hash(os.environ.get("SHOWDOWN_RERANKER_MANIFEST_PATH")) if _reranker_on else None
         _cfg_hash_cache: dict = {}
 
         def _config_hash_for(agent, format_id):
             key = (agent, format_id)
             if key not in _cfg_hash_cache:
-                from showdown_bot.engine.moves import movedata_path
-
-                priors_hash = spreads_hash = None
-                try:
-                    from showdown_bot.engine.format_config import load_format_config
-
-                    cfg = load_format_config(format_id)
-                    priors_hash = _file_content_hash(cfg.meta_path("protect_priors"))
-                    spreads_hash = _file_content_hash(cfg.meta_path("default_spreads"))
-                except Exception:  # noqa: BLE001 - provenance best-effort; missing config -> None
-                    pass
-                movedata_hash = _file_content_hash(movedata_path())
-                provenance = config_provenance_for_format(format_id)
-                manifest = build_config_manifest(
-                    agent=agent, format_id=format_id,
-                    priors_hash=priors_hash, spreads_hash=spreads_hash, env=_behavior_env,
+                # I7a-C P1.4: effective_config_manifest is the ONE shared assembly of
+                # priors/spreads/movedata/provenance hashes -- a dedicated config-manifest
+                # freeze helper (eval/config_manifest_freeze.py) calls the exact same
+                # function, so the two paths cannot drift apart.
+                manifest = effective_config_manifest(
+                    agent=agent, format_id=format_id, env=_behavior_env,
                     model_hash=_model_hash, model_manifest_hash=_model_manifest_hash,
-                    movedata_hash=movedata_hash,
-                    format_config_hash=provenance["format_config_hash"],
-                    calc_pin_hash=provenance["calc_pin_hash"],
-                    itemdata_hash=provenance["itemdata_hash"],
-                    speciesdata_hash=provenance["speciesdata_hash"],
                 )
                 _cfg_hash_cache[key] = make_config_hash(manifest)
             return _cfg_hash_cache[key]
