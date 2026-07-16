@@ -246,6 +246,14 @@ The manifest is named `manifest.json` and contains:
   "git_sha": "0000000000000000000000000000000000000000",
   "config_hash": "0000000000000000",
   "trace_schema_version": "decision-trace-v3",
+  "privacy": {
+    "profile": "portable-pseudonymous-v1",
+    "chat": "excluded",
+    "private_messages": "excluded",
+    "player_names": "seat-pseudonyms",
+    "source_url": "excluded",
+    "raw_source_included": false
+  },
   "source_hashes": {
     "battle_log": "0000000000000000000000000000000000000000000000000000000000000000",
     "decision_trace": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -286,6 +294,11 @@ Contracts:
 - JSON/JSONL only in v0; no pickle or executable payload;
 - `source_hashes` describe source artifacts, while `files.*.sha256` describe exported bundle files;
 - source artifacts are never modified;
+- `privacy.profile` is required and describes transformations already performed by the exporter;
+  Godot never performs privacy redaction;
+- schema 1.0 accepts only `portable-pseudonymous-v1`: chat/PM excluded, player identities replaced
+  consistently with seat labels, source URL excluded, and no raw source bytes or reversible name
+  map present;
 - unsupported major bundle versions fail closed;
 - a minor version may only add optional fields; a higher minor is accepted only when every entry in
   `required_capabilities` is supported;
@@ -461,8 +474,16 @@ bundle's explicit classification and does not invent recovery logic.
 ## 8. Reproducibility and privacy
 
 - Viewer bundles are read-only evidence artifacts.
+- Imported source replay/log bytes remain unchanged in user-controlled local storage outside the
+  viewer bundle. Filtering happens while writing the separate normalized bundle, never by mutating
+  the source.
 - Export must remove absolute local paths unless explicitly whitelisted as portable metadata.
 - Raw room logs are excluded by default; normalized logs and hashes are preferred.
+- The v0 portable bundle excludes chat, private-message lines, source URLs, raw HTML, credentials,
+  and cleartext player names. Names and user IDs are deterministically mapped to seat labels across
+  every exported file; the mapping is not bundled.
+- Cleartext-name export and private/hidden replay sharing are outside v0 pending separate
+  authorization UX and legal review.
 - A diagnostic summary copied from the viewer contains stable identifiers and warnings, not local
   paths or credentials.
 - Network access is disabled/not used by v0.
@@ -480,6 +501,9 @@ bundle's explicit classification and does not invent recovery logic.
   on ZIP metadata or directory timestamps.
 - A one-byte data mutation produces a hash failure.
 - Absolute source paths do not appear in the bundle.
+- A privacy counterexample fixture containing chat, PMs, player names, a replay URL, and an absolute
+  path exports none of those literal values; the untouched input fixture remains byte-identical.
+- Every exported file uses the same seat pseudonyms, and no reversible name map is present.
 - Current committed DecisionTrace v3 candidate keys validate and resolve exactly.
 - A supported older trace fixture either migrates deterministically in Python or is rejected with a
   precise explanation; Godot contains no legacy migration logic.

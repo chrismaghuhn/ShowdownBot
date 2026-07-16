@@ -57,9 +57,10 @@ mechanics. The UI may be replaced without changing the recorded evidence contrac
 
 ### 2.3 Public protocol, private trust boundary
 
-Showdown's public protocol and public data may be used as interoperability inputs. Code or assets
-from external projects require a license and provenance review before reuse. Browser DOM structure
-is not a supported integration contract.
+Showdown's documented public protocol may be used as an interoperability input. Public access to
+code, APIs, data, or assets does not itself grant reuse or redistribution rights. Every external
+software artifact, dataset, and asset pack requires a separate license, terms, privacy, and
+provenance decision before reuse. Browser DOM structure is not a supported integration contract.
 
 ### 2.4 Accessibility and user-controlled density
 
@@ -372,7 +373,12 @@ from `config_hash`.
 - Treat imported bundles, teams, replays, themes, and add-ons as untrusted input.
 - Reject path traversal and absolute bundle paths.
 - Never execute code embedded in a viewer bundle.
-- Keep raw logs and credentials out of diagnostic exports by default.
+- Preserve imported source artifacts unchanged in user-controlled local storage; normalization
+  writes a separate artifact.
+- Keep raw logs, raw HTML, chats, private messages, source URLs, cleartext player identities, and
+  credentials out of portable or diagnostic exports by default.
+- Use deterministic seat pseudonyms in portable viewer bundles; never bundle the reversible name
+  map.
 
 ### 7.2 Network
 
@@ -396,14 +402,32 @@ from `config_hash`.
 ## 8. Licensing and public-source policy
 
 - Public availability does not imply unrestricted reuse.
+- Software licenses, data permissions, asset permissions, and privacy duties are separate gates.
 - The official Showdown client, server, extensions, data packages, sprites, and community tools are
-  reviewed separately by artifact and license.
+  reviewed separately by exact artifact and version.
 - Protocol behavior may be independently implemented from documented/public behavior.
 - Any copied or modified source retains required notices and compatible licensing.
 - Asset packs require explicit provenance; Studio does not redistribute arbitrary community assets.
-- A future public release needs a release-level license inventory.
+- The Showdown client and Showdex are AGPL-3.0, which permits redistribution under its conditions;
+  they remain research-only for Studio unless an AGPL-compatible release plan or written
+  relicensing is approved.
+- Official and community Pokémon artwork/audio are not approved Studio assets.
+- Runtime loading from a third-party sprite host is a distinct future architecture but is not an
+  approved workaround: it requires legal and upstream-service review, explicit opt-in, a strict
+  host/cache/security design, abstract fallback, and a ban on asset bytes in exports. v0 remains
+  offline and asset-free.
+- External stats and tournament data are local-ingest-only until source-specific terms and
+  redistribution rights are approved; Studio ships importers, not data snapshots.
+- Public replay APIs may be used only through their documented interfaces and do not authorize bulk
+  mirroring or raw replay redistribution.
+- A future public release needs an artifact-level license inventory plus the exact required license
+  texts and notices; a summary `NOTICE` file alone is insufficient.
 - `@pkmn/protocol` and related `pkmn/ps` packages are approved as reference and differential-test
-  inputs only; runtime reuse still requires a separate dependency and license decision.
+  inputs only; runtime reuse still requires a per-package dependency, provenance, and data-scope
+  decision.
+
+The current source decisions and portable-bundle privacy profile are recorded in
+[`docs/research/2026-07-license-data-audit.md`](research/2026-07-license-data-audit.md).
 
 This section is an engineering gate, not legal advice.
 

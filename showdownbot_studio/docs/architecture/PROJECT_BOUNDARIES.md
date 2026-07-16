@@ -42,6 +42,11 @@ official Showdown team validation/packing, and the pinned calc bridge are not re
 GDScript. External usage or tournament data must first become a provenance-complete frozen
 snapshot; live scraping is not a cross-boundary contract.
 
+Approval is artifact-specific. A software repository's license does not automatically approve its
+externally sourced data, artwork, audio, analyses, or hosted API responses. Until redistribution
+rights are approved, external statistics and tournament data stay user-local: Studio may ship a
+reviewed importer, but not the downloaded snapshot.
+
 ## 3. Phase-0 boundary
 
 - Offline only.
@@ -51,11 +56,19 @@ snapshot; live scraping is not a cross-boundary contract.
 - Godot rejects unsupported versions and hash mismatches.
 - Bundle loading and DTO construction stay off the main UI thread; scene-tree mutation stays on it.
 - Existing source artifacts remain unchanged.
+- Untouched replay/log sources remain outside portable bundles. Python emits a separate normalized
+  bundle that excludes chat/PM, source URLs, raw HTML, cleartext player identities, and reversible
+  identity maps under `portable-pseudonymous-v1`.
 
 ## 4. Later live boundary
 
 The Live Spectator and full client must use a separate protocol adapter that emits the same style of
 typed DTOs. The UI must not parse raw WebSocket text throughout arbitrary nodes.
+
+Remote visual assets are not implied by the live boundary. A later approved sprite provider must be
+optional, host-allowlisted, bounded and clearable in its cache, non-prefetching, and unable to place
+asset bytes into bundles or exports. Failure always degrades to the abstract board. Direct hotlinking
+and a Studio-operated mirror remain unapproved until a separate legal and upstream-service review.
 
 ## 5. Later add-on boundary
 
