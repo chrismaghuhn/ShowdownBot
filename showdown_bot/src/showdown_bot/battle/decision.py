@@ -698,6 +698,7 @@ def _choose_best_mega(
     fast_board: bool,
     mode,
     my_actions: list[JointAction],
+    opp_mega_evidence_sink: list | None = None,
 ) -> tuple[JointAction, float]:
     """Own-Mega-aware ranking (I7a-B Task 4, design spec Sec.7.1/7.3): every
     own-Mega variant is scored as a first-class candidate in the SAME grid as
@@ -730,6 +731,19 @@ def _choose_best_mega(
         our_spreads=our_spreads, opp_sets=opp_sets, calc_profile=calc_profile,
         my_actions=my_actions,
     )
+    # I7b-B caller gate. foe_mega_eligibility() has NO format_config parameter of
+    # its own -- it gates only on side_mega_spent and item resolution -- so the
+    # Reg-I / format_config=None guarantee rests entirely on this conditional.
+    # Likewise opp_mega_click_rate() defaults to 0.35 when the env is unset (it is
+    # fail-closed against invalid values, not "off"), so nothing may reach it from
+    # outside this gate. Empty dict => score_evaluated_variants's _i7b_active is
+    # False => the legacy weighting/response path stays byte-identical.
+    from showdown_bot.battle.opponent import foe_mega_eligibility as _compute_foe_eligibility
+
+    _foe_eligibility = (
+        _compute_foe_eligibility(state, opp_side, opp_sets=opp_sets)
+        if format_config is not None and format_config.mega else {}
+    )
     records = score_evaluated_variants(
         evaluated, contexts, req=req, state=state, book=book, our_side=our_side,
         opp_side=opp_side, calc=calc, oracle=oracle, speed_oracle=speed_oracle,
@@ -737,6 +751,8 @@ def _choose_best_mega(
         rollout_horizon=rollout_horizon, our_spreads=our_spreads, opp_sets=opp_sets,
         calc_profile=calc_profile, accuracy_mode=accuracy_mode,
         accuracy_branch_cap=accuracy_branch_cap, endgame=endgame, fast_board=fast_board,
+        foe_mega_eligibility=_foe_eligibility, species_meta=species_meta_table(),
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
     )
     if not records:
         raise ValueError("no evaluated Mega variants")

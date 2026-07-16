@@ -45,6 +45,15 @@ def effective_speed(
     return int(spe)
 
 
+def mega_activation_order_key(pre_mega_speed: int, field: FieldState) -> int:
+    """Sort key for Mega-activation order (queue priority 104, Showdown pin
+    f8ac140): same speed direction as ``battle.resolve.sort_actions`` uses for
+    its own queue ordering -- higher pre-mega speed activates first outside
+    Trick Room, lower activates first under it. Ascending sort by this key
+    reproduces that order; do not invent a different sign convention."""
+    return pre_mega_speed if field.trick_room else -pre_mega_speed
+
+
 def speed_modifiers_from_state(mon: PokemonState, field: FieldState, side: str) -> dict:
     """Derive effective_speed kwargs from observed state (known info only)."""
     scarf = mon.item_known and mon.item == "Choice Scarf"

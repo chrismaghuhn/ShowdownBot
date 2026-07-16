@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — I7b-A implementation allowed; I7b-B/I7b-C remain review-gated — **Rev. 4, incorporating the final Codex data-flow review.** No production code, test code, or run artifact from this plan exists yet.
+**Status:** APPROVED — I7b-A implemented/merged (`cdc55c2`); **I7b-B Tasks 1-4 IMPLEMENTED on `feat/champions-i7b-b-dual-mega` @ `ca39fb6`** (not merged, not pushed); **Task 5, Task 6 and I7b-C NOT STARTED and review-gated** — **Rev. 7, reconciled with the committed code at `ca39fb6` (zero-weight scoring fix)**. Rev. 6 replaced Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the Task 4 integration fixture and added a species/form coherence gate to Task 2.
+
+> **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
 **Companion audit:** `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md` (Rev. 4) — read it first, especially §Rev.4; every architecture decision below is justified there against the current codebase at commit `1053cf1` and, for the weather-ordering question, against the pinned Showdown source at `f8ac140` and the binding Rev. 10 spec correction.
 
@@ -13,6 +15,328 @@
 **Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. No Showdown server needed until a future, separately-authorized I7b live smoke (out of scope here).
 
 ---
+
+## Rev. 7 — reconciled with the committed code at `ca39fb6` (zero-weight scoring fix)
+
+Rev. 7 is a **documentation reconciliation**, not a redesign. Tasks 1-4 are implemented
+and committed; this section brings the plan's Task 4 pseudocode in line with what
+actually shipped. **No historical decision was removed; the invalid Rev.-6 example was
+reclassified as non-executable defect history** (its fence changed from `python` to
+`text`, and it is labelled as such in place). Rev. 2-6's reasoning stands as written,
+and this section states only where Rev. 6's Task 4 text no longer matches `ca39fb6`.
+
+### The defect Rev. 6 still carried: a zero-weight response is not harmless
+
+`aggregate_scores`' `MUST_REACT` operator is `avg - lambda*(avg - min(scores))`, and
+that **`min(scores)` is computed WITHOUT weights** (`battle/policy.py`). A zero-weight
+sample therefore cannot move the weighted mean, but it *does* move the aggregate.
+Reproduced against the real function at the real default `lambda = 0.6`:
+
+| scores | weights | `MUST_REACT` result |
+|---|---|---|
+| `[10]` | `[1]` | `10.0` |
+| `[10, -100]` | `[1, 0]` | **`-56.0`** |
+
+A `-66.0` swing from a sample whose weight is zero. `NEUTRAL` and `AHEAD` are
+unaffected — both weight their mean *and* their variance — so this is
+`MUST_REACT`-specific.
+
+Consequences that were live in the Rev. 6 text:
+
+- click rate `0.0` → the foe-Mega hypothesis still moved decisions;
+- click rate `1.0` → the no-mega twin still moved decisions;
+- both → projection branches composed purely to burn calc latency.
+
+### Rev. 6 → Rev. 7 mapping (Task 4 only)
+
+| # | Rev. 6 text | Rev. 7 / `ca39fb6` |
+|---|---|---|
+| 1 | `no_mega_resps = [r for r in resps if r.foe_mega_slot is None]` | adds `and (not _i7b_active or r.weight > 0)` — zero-weight responses are removed **before** enqueue, evaluation and `score_vector` on the active path |
+| 2 | `foe_mega_slots = {…}` (raw set, no weight filter) | `sorted({… if r.foe_mega_slot is not None and r.weight > 0})` — deterministic order **and** no branches for a zero-weight Mega class |
+| 3 | `matching_original = [r for r in resps if r.foe_mega_slot == foe_mega_slot]` | adds `and r.weight > 0` |
+| 4 | `targets = … if … else [None]` unconditionally | `[None]` fallback suppressed on the active path |
+| 5 | `rec.diagnostic_contexts.append(ctx)` unconditional | gated on `_i7b_active` |
+| 6 | `test_branch_replan_preserves_original_mega_identity_and_zero_click_weight` | replaced: the identity test moves to an explicit mid click rate; the zero-weight case becomes its own counterexample |
+
+**Unchanged and still binding:** the three-phase architecture, `world_weight ×
+response_weight × branch_weight`, one shared flush per world, `ScoredResponseEvidence`'s
+raw-component contract, the original/replanned pairing rule,
+`MissingBranchResponseError`, Rev. 5's tie fixture and species coherence gate, Rev. 6's
+final-branch-state speed derivation, and every slice boundary and stop gate.
+
+### Rules the implementation now follows (binding)
+
+1. **Zero-weight responses never reach the active I7b score pool** — not enqueued, not
+   evaluated, never appended to `score_vector`/`score_weights`. Active path only; the
+   legacy path's weighting is untouched and stays byte-identical.
+2. **A Mega class whose responses all carry weight `0.0` composes no projection
+   branches at all** — there is nothing scoreable to build them for, and building them
+   would only cost calc latency.
+3. **The unfiltered response set is retained for `retained_classes` / cap coverage.**
+   `retained_classes` reads `resps`, *not* the filtered list, so I7b-A's zero-weight
+   twins still prove cap coverage exactly as before. I7b-A keeps emitting them; the
+   filter lives entirely in the scoring path.
+4. **The active path must not manufacture a phantom `[None]` sample.** At click rate
+   `1.0` the no-mega twins are zero-weight and filtered out, leaving the target list
+   empty; falling back to `[None]` would inject a no-opponent-action line at weight
+   `1.0` — the same distortion in mirror image. The foe-Mega branches carry that
+   record's samples instead. (Found while implementing, not in review.)
+5. **`foe_mega_slots` is `sorted(...)` after filtering.** Evidence rows and
+   `score_vector` entries are appended in that iteration order, so raw set iteration
+   made both non-reproducible.
+6. **`matching_original` and the branch pairing match the committed code**, including
+   the `r.weight > 0` filter, so a `_BranchResponsePair` is only ever built for a
+   response that will actually be scored.
+7. **`diagnostic_contexts` stays EMPTY on the legacy/I7a path** and is populated only
+   on the active path, index-parallel to `diagnostic_details`/`diagnostic_weights`.
+   Task 6 specifies an empty list as "pre-I7b-B → fall back to
+   `ctx_by_slot[own_mega_slot]`"; populating it on the legacy path would make that
+   fallback dead code and falsify the parity claim **structurally**, even though the
+   bound context is numerically the same one.
+
+### Measurement — what it does and does not license
+
+Measured on the tie fixture, one decision, real Node backend, `MUST_REACT`:
+
+| path | backend batches | ≈ wall clock |
+|---|---|---|
+| inactive (`eligibility=None`) | 6 | ~1116 ms |
+| active, click rate `0.0` | **6** | ~1158 ms |
+| active, click rate `0.35` (default) | 16 | ~2676 ms |
+| active, click rate `1.0` | 16 | ~2641 ms |
+
+**The only conclusion this licenses: the zero-click overhead is fixed** — rate `0.0`
+now costs what the inactive path costs (it was 16 batches / ~2660 ms before). It does
+**not** mean Champions latency is solved. **The genuinely active foe-Mega path remains
+a separate, open latency blocker** (≈2.4× the inactive decision here), and these
+absolute numbers are not comparable to the Champions smokes' p95 (I6 331 ms, I7a-C
+588 ms): different harness, synthetic fixture, cold Node subprocess. The dedicated
+Champions latency profile/budget stays an open blocker in its own right.
+
+## Rev. 6 — Task 4's `own_override` reads a field that does not exist
+
+Rev. 6 is a **narrow correction**, not a redesign. It changes nothing about the
+three-phase architecture, the weighting formula, the flush discipline, the evidence
+DTO, or Rev. 5's corrections.
+
+### The defect — CONFIRMED at runtime, not by inspection
+
+Rev. 4/5's Task 4 Phase-A-part-2 computed the own-side post-Mega speed override as
+follows. **This is a defect record, NOT an implementation instruction** — the fence is
+deliberately not `python` so it can never be lifted out as one:
+
+```text
+own_override = (
+    {ctx.own_mega_slot: branch.projected_state.sides[our_side][
+        "a" if ctx.own_mega_slot == 0 else "b"].effective_speed}   # <-- INVALID
+    if ctx.own_mega_slot is not None else None
+)
+```
+
+`PokemonState` **has no `effective_speed` attribute.** Its real fields are
+`species, nickname, level, gender, hp, max_hp, boosts, status, item, item_known,
+ability, moves, move_names, tera_type, terastallized, fainted, types,
+consecutive_protect, moved_since_switch, item_lost, base_species_id`. Hit for real
+while executing Task 4:
+
+```
+AttributeError: 'PokemonState' object has no attribute 'effective_speed'
+  src/showdown_bot/battle/mega_scoring.py, Phase A part 2
+```
+
+Post-Mega speed lives on **`MegaProjectionResult.effective_speed`** — which is what
+the existing `_mega_context` correctly uses (`overrides = {own_mega_slot: proj.effective_speed}`).
+`compose_mega_projection_branches` obtains that result per activation but keeps only
+`step.projected_state`, and `WeightedMegaProjection` carries only
+`projected_state`/`weight`/`activation_order`. So the value the plan reaches for is
+genuinely not reachable the way it is written.
+
+### Correction (binding for Task 4)
+
+Re-derive the own-Mega speed from the **complete, final** `branch.projected_state`:
+
+- `PokemonState` does **not** gain an `effective_speed` field.
+- `WeightedMegaProjection` stays **unchanged** — no new speed field.
+- The pre-existing own-Mega context is **not** reused as a speed source.
+- For `ctx.own_mega_slot is not None`: determine the slot letter, read the projected
+  own mon out of `branch.projected_state`, and call
+  `speed_oracle.speed_for_species(...)` with that mon's Mega species, its base
+  species, the **final branch** field, `our_spreads`, `book`, and `is_ours=True`.
+  Pass the result as `planned_speed_overrides_by_slot={ctx.own_mega_slot: computed_speed}`
+  to `_plan_my_actions`.
+- No manual stat/EV arithmetic and no access to private `SpeedOracle` methods.
+- Do **not** functionally rework the existing Task 3 commits.
+
+```python
+    own_override = None
+    if ctx.own_mega_slot is not None:
+        own_slot_letter = "a" if ctx.own_mega_slot == 0 else "b"
+        own_projected = branch.projected_state.sides[our_side][own_slot_letter]
+        own_override = {
+            ctx.own_mega_slot: speed_oracle.speed_for_species(
+                species_name=own_projected.species,
+                base_species_id=own_projected.base_species_id or own_projected.species,
+                side=our_side,
+                mon=own_projected,
+                field=branch.projected_state.field,
+                our_spreads=our_spreads,
+                opp_sets=None,
+                book=book,
+                is_ours=True,
+            )
+        }
+```
+
+**Required regression test:** the replanned `PlannedAction.speed` for the own Mega'd
+slot equals the speed computed over the **final branch state**. The test must be RED
+with the real error (the `AttributeError` above) before the correction, and Reg-I /
+`format_config=None` parity, live-state non-mutation, and the three phases must stay
+green.
+
+**Latency, stated honestly:** deriving on the final branch state is an additional
+`speed_for_species` call per `(slot, foe_mega_slot, branch_idx)`. The existing calc
+cache should normally absorb it, but that is **not** a semantic contract and must not
+be claimed as one — measure it rather than assert it. Champions latency is separately
+open (I5 worst p95 3235 ms vs a 1000 ms budget).
+
+**Why not the cheaper alternatives** (recorded so they are not re-litigated): carrying
+the speeds on `WeightedMegaProjection` would functionally rework the merged Task 3
+commit; reusing the already-computed own-Mega `MegaProjectionResult` would require
+either a `MegaEvaluationContext` schema change (which the audit explicitly forbids —
+§Rev.2 item 5) or threading the projection results into `score_evaluated_variants`.
+
+**Related fact, deliberately not relied upon:** weather is not a speed modifier in this
+model — `speed_modifiers_from_state` reads only `boost_stage`, `tailwind`, `paralyzed`,
+`scarf`, `booster_speed` — so a foe's Mega weather does not change our own mon's
+effective speed today, and the final-branch derivation is expected to agree numerically
+with the plain own-Mega projection. That is an observation about the current model, not
+a licence to read the value from somewhere else; deriving it from the final branch state
+stays correct if a weather-sensitive speed modifier is ever added.
+
+## Rev. 5 — Task 4 fixture defect and Task 2 species coherence
+
+Rev. 5 is a **narrow correction**, not a redesign. It changes nothing about the Rev. 4
+three-phase architecture, the weighting formula, the flush discipline, or the evidence
+DTO. Two defects, one found during I7b-B execution prep and independently reproduced by
+Codex, plus one consequence that follows mechanically from the second.
+
+### 1. Task 4's integration fixture cannot produce the tie its own test asserts — CONFIRMED
+
+Rev. 4's `test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch`
+asserts `assert tied_groups  # this fixture's speed values must exercise a genuine tie`.
+A tie requires `compose_mega_projection_branches` to return two `0.5`-weight branches,
+which happens only on **exactly equal pre-mega speed**. Measured against the real
+`SpeedOracle` + real `SubprocessCalcBackend`, computed exactly the way Task 3's
+implementation computes pre-mega speed:
+
+| Fixture slot | Species | Resolver | Pre-mega speed |
+|---|---|---|---|
+| `p1.a` | Aerodactyl | `our_spreads`, `is_ours=True` | **200** |
+| `p2.a` | **Incineroar** | `book.default`, `is_ours=False` | **123** |
+
+Not a tie → **one branch, weight 1.0** → every `by_response` group holds exactly one
+row → `tied_groups == []` → the assertion **cannot pass**. No parameter choice rescues
+it: `tests/conftest.py::_mega_state()` defines **no `p2.b` at all**, and the Task 4
+tests pass `opp_sets=None`, so the foe speed is pinned to `book.default`.
+
+**Root cause:** the Rev. 4 tests pass `eligibility = {"a": mega_form_for("Aerodactyl",
+"Aerodactylite")}` — which would tie at 200-vs-200 *if the foe were an Aerodactyl*. It
+is an Incineroar. This is the **same bug class the audit itself caught for T51**
+("T51's chosen hero speed (140) cannot demonstrate a real order flip", audit §Rev.2
+secondary findings) — caught there, missed here.
+
+**Correction (binding for Task 4):**
+
+- Keep `mega_decision_fixture` and `_mega_state()` **default behavior unchanged** — they
+  are shared with `tests/i7a/` and Step 0 already commits to "keep the existing
+  request/state/book/profile construction".
+- Extract the fixture construction into a small **test-only builder**, with the current
+  Incineroar opponent as its default.
+- Add a dedicated **`mega_decision_tie_fixture`** whose `p2.a` is a **real Aerodactyl
+  holding Aerodactylite with `item_known=True`**.
+- Build that fixture's `contexts`/`evaluated_variants` from the coherent
+  Aerodactyl-vs-Aerodactyl state **from the beginning** — do **not** swap only
+  `kw["state"]` after contexts already exist.
+- Derive eligibility through the **real `foe_mega_eligibility()`**, never by hand-injecting
+  a `MegaForm` onto a mismatched species.
+- **Verify the equality with the real backend inside the test**, as an explicit
+  precondition, before the scoring assertion — the defect above existed precisely because
+  a tie was asserted that nobody computed.
+- Task 3's monkeypatched tie test stays as the **isolated branch-enumeration** test.
+  Task 4 stays a **real-backend integration** test. The two are not interchangeable.
+
+**Pre-verified against the real backend** (same method as the defect measurement above),
+so Rev. 5 does not repeat Rev. 4's mistake of asserting an uncomputed tie:
+
+| Proposed tie-fixture slot | Species | Resolver | Pre-mega speed |
+|---|---|---|---|
+| `p1.a` | Aerodactyl | `our_spreads`, `is_ours=True` | **200** |
+| `p2.a` | **Aerodactyl** (Aerodactylite, `item_known=True`) | `book.default`, `is_ours=False` | **200** |
+
+→ tie **True** → two branches, weight **0.5** each. And the real
+`foe_mega_eligibility(state, "p2", opp_sets=None)` returns
+`{'a': MegaForm(base_species_id='aerodactyl', form_species_id='aerodactylmega', ...)}`
+— the manual injection is unnecessary as well as incoherent.
+
+### 2. `project_mega` does not check species/form coherence — CONFIRMED
+
+Direct read of `engine/mega_projection.py`: `project_mega` validates
+`speed_oracle.profile == calc_profile` and that `mega_form.form_species_id` is a known
+form, then writes `mon.species = form_meta.form_species_name` and
+`mon.base_species_id = mega_form.base_species_id` **without ever checking that the mon
+at that slot is actually the form's base species**. Rev. 4's own Task 4 tests exploit
+this by accident: they project an *Aerodactyl-Mega* onto an *Incineroar* and it silently
+succeeds.
+
+**Correction (binding for Task 2):**
+
+- Add a **fail-closed species/form coherence check to `project_mega()`, before projection**.
+- The slot's normalized `base_species_id` **or** normalized `species` must equal
+  `mega_form.base_species_id` (the `or` preserves valid sub-form mappings, e.g. an
+  already-Mega'd mon whose `species` is `"Aerodactyl-Mega"` but whose `base_species_id`
+  is still `"aerodactyl"`).
+- On mismatch raise a **dedicated `MegaProjectionSpeciesMismatchError`**.
+- Add a **RED→GREEN regression** proving Incineroar + Aerodactyl-Mega is rejected **and
+  the input state remains unmutated**.
+- Preserve all valid sub-form mappings and existing I7a behavior — every existing I7a
+  call site projects a coherent own-side form and must stay green.
+
+**`MegaProjectionSpeciesMismatchError` is deliberately NOT added to Task 4's
+`except (UnsupportedMegaAbilityError, MissingMegaSpreadError)` list.** In production an
+incoherent hypothesis cannot arise: `foe_mega_eligibility()` derives every form from
+`mega_form_for(mon.species, mon.item)` and is therefore coherent by construction. A
+mismatch reaching `project_mega` would be a genuine programming error, and crashing is
+the correct fail-closed response — silently excluding it would hide the bug.
+
+### 3. Consequence: Task 5's ability-gate test must use a coherent foe
+
+**This item is a mechanical consequence of correction 2, not an independent change** —
+flagged explicitly so it can be struck without touching corrections 1-2.
+
+Rev. 4's Task 5 test injects a `Scovillain-Mega` form (described there as "synthetic")
+onto the fixture's non-Scovillain foe and expects `UnsupportedMegaAbilityError`.
+Verified against real metadata: `scovillainmega` is **a real, known form**
+(`species_meta`), its `ability_slot0` is `'Spicy Spray'`, and it is the **only** member
+of `FAIL_CLOSED_ABILITIES` in the entire dex — so the test does work today. But once
+correction 2 lands, the coherence check fires **before** the ability gate
+(`aerodactyl`/`incineroar` ≠ `scovillain`), raising `MegaProjectionSpeciesMismatchError`
+— which Task 4 deliberately does not catch. The test would then crash instead of
+proving exclusion, and would no longer test the ability gate at all.
+
+**Correction (binding for Task 5):** the test's foe must be a **real Scovillain holding
+Scovillainite (`item_known=True`)**, with eligibility derived through the real
+`foe_mega_eligibility()`. Pre-verified: `mega_form_for("Scovillain", "Scovillainite")`
+returns the real form, the coherence check passes (`scovillain == scovillain`), the
+ability gate is then what fires, and the real eligibility path yields
+`{'a': MegaForm(base_species_id='scovillain', ...)}`.
+
+### Scope of Rev. 5
+
+Unchanged: the three-phase architecture, `world_w × response_weight × branch_weight`,
+one-shared-flush-per-world, `ScoredResponseEvidence`'s raw-component contract, the
+original/replanned pairing rule, `MissingBranchResponseError`, Task 6's zero-`search.py`
+depth-2 binding, and every slice boundary and stop gate. No I7b-C change. No Strength
+claim. No live run.
 
 ## Rev. 4 final data-flow corrections
 
@@ -31,6 +355,26 @@ These corrections supersede the active Rev. 3 Task 2/Task 4/I7b-C snippets where
 1. [I7b-A — Limited-view eligibility, identities, weights, cap discipline](#i7b-a-limited-view-eligibility-identities-weights-cap-discipline)
 2. [I7b-B — Dual projection, activation ordering, scoring integration](#i7b-b-dual-projection-activation-ordering-scoring-integration)
 3. [I7b-C — Telemetry/provenance and safety-smoke design](#i7b-c-telemetryprovenance-and-safety-smoke-design)
+
+**Execution status as of Rev. 7** (branch `feat/champions-i7b-b-dual-mega` @ `ca39fb6`,
+not merged, not pushed):
+
+| Slice / task | Status |
+|---|---|
+| I7b-A | **MERGED** to `main` @ `cdc55c2` |
+| I7b-B Task 1 — `mega_activation_order_key` | **DONE** @ `8ab6e6c` |
+| I7b-B Task 2 — side-aware `project_mega` + species coherence gate | **DONE** @ `e21a075` |
+| I7b-B Task 3 — `compose_mega_projection_branches` | **DONE** @ `f50c7af` |
+| I7b-B Task 4 — three-phase scoring integration + caller gate | **DONE** @ `64d47ba`, zero-weight fix @ `ca39fb6` |
+| I7b-B Task 5 — fail-closed ability gate | **NOT STARTED** — review-gated |
+| I7b-B Task 6 — depth-2 per-index context binding | **NOT STARTED** — review-gated |
+| I7b-C — telemetry/provenance + smoke design | **NOT STARTED** — review-gated |
+
+Task 4 additionally carries five pre-flight caller-gate counterexamples
+(`tests/i7b/test_i7b_b_caller_gate.py`) that are **additive to this plan**, added on
+explicit user directive: two are honest BASELINE/INVARIANT tests (green before *and*
+after the wiring, guarding it), three were genuinely RED against the real missing
+wiring.
 
 Each slice starts from the green, reviewed tip produced by the preceding slice. Do not execute them concurrently. Do not start I7b-B until every I7b-A test and the full existing suite pass. Do not start I7b-C until I7b-B proves dual-Mega composition never mutates live state and Reg-I/`format_config=None` remain byte-identical.
 
@@ -859,7 +1203,7 @@ git add src/showdown_bot/engine/speed.py tests/i7b/test_i7b_projection.py
 git commit -m "feat(champions-i7b-b): mega_activation_order_key (TR-aware, resolver-consistent)"
 ```
 
-### Task 2 (was: Task 0) — side-aware `project_mega` contract [REV.2, new, mandatory before anything else in this slice]
+### Task 2 (was: Task 0) — side-aware `project_mega` contract + species coherence gate [REV.2 origin; REV.5 adds the coherence gate; mandatory before anything else in this slice]
 
 **Confirmed P1 blocker (audit §Rev.2 finding 2), not a possible future stop.** `project_mega` (`engine/mega_projection.py:60-115`) hardcodes `lookup_our_spreads(spread_lookup, mon)` (line 93) and `opp_sets=None, book=None, is_ours=True` (lines 104-106) regardless of the `side` argument — calling it with `side=opp_side` today would silently look up the foe's spread via the WRONG accessor and always claim `is_ours=True` to `speed_for_species`. This must be fixed, tested, and green **before** Task 3 (`compose_mega_projection_branches`) is written, since that function calls `project_mega` for both own- and foe-side activations.
 
@@ -944,6 +1288,55 @@ def test_project_mega_own_side_default_is_byte_identical_to_before(i7b_projectio
     result = project_mega(
         state, "p1", "a", form, species_meta=i7b_projection_env["species_meta"],
         speed_oracle=i7b_projection_env["speed_oracle"], calc_profile=i7b_projection_env["calc_profile"],
+        spread_lookup=i7b_aerodactyl_spreads,
+    )
+    assert result.projected_state.sides["p1"]["a"].species == "Aerodactyl-Mega"
+
+
+def test_project_mega_rejects_species_form_mismatch_and_does_not_mutate(i7b_projection_env, opp_sets_meganium):
+    """[REV.5 correction 2] project_mega must fail closed when the slot's mon is
+    not the form's base species. Rev. 4 had no such check: it wrote
+    `mon.species = form_meta.form_species_name` unconditionally, so an
+    Aerodactyl-Mega form projected onto an Incineroar silently "succeeded" --
+    which is exactly what Rev. 4's own Task 4 tests were accidentally relying on.
+    The input state must also come back unmutated."""
+    from copy import deepcopy
+
+    from showdown_bot.engine.mega_projection import MegaProjectionSpeciesMismatchError
+
+    state = BattleState()
+    state.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar", hp=100, max_hp=100,
+    )
+    before = deepcopy(state)
+    form = mega_form_for("Aerodactyl", "Aerodactylite")  # base_species_id="aerodactyl"
+
+    with pytest.raises(MegaProjectionSpeciesMismatchError):
+        project_mega(
+            state, "p2", "a", form, species_meta=i7b_projection_env["species_meta"],
+            speed_oracle=i7b_projection_env["speed_oracle"],
+            calc_profile=i7b_projection_env["calc_profile"],
+            is_ours=False, opp_sets=opp_sets_meganium, book=None,
+        )
+    assert state == before  # fail-closed must not leave a half-projected board
+
+
+def test_project_mega_accepts_already_mega_species_via_base_species_id(i7b_projection_env, i7b_aerodactyl_spreads):
+    """[REV.5 correction 2] The coherence check matches on normalized
+    base_species_id OR normalized species -- so a valid sub-form mapping (a mon
+    whose `species` already reads "Aerodactyl-Mega" but whose `base_species_id`
+    is still "aerodactyl") is NOT rejected. Pins the `or` half of the rule; a
+    species-only check would break this."""
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl-Mega", base_species_id="aerodactyl",
+        item="Aerodactylite", hp=100, max_hp=100,
+    )
+    form = mega_form_for("Aerodactyl", "Aerodactylite")
+    result = project_mega(
+        state, "p1", "a", form, species_meta=i7b_projection_env["species_meta"],
+        speed_oracle=i7b_projection_env["speed_oracle"],
+        calc_profile=i7b_projection_env["calc_profile"],
         spread_lookup=i7b_aerodactyl_spreads,
     )
     assert result.projected_state.sides["p1"]["a"].species == "Aerodactyl-Mega"
@@ -1033,6 +1426,40 @@ def project_mega(
 ) -> MegaProjectionResult:
 ```
 
+**[REV.5 correction 2] Add the fail-closed species/form coherence check BEFORE any
+projection write.** Place it after the existing `form_meta is None` guard and before the
+first mutation of the copied state (`mon.species = form_meta.form_species_name`), so a
+mismatch can never leave a half-projected board. Add the new exception next to the two
+existing ones (`MissingMegaSpreadError`, `UnsupportedMegaAbilityError`):
+
+```python
+class MegaProjectionSpeciesMismatchError(ValueError):
+    """The mon at (side, slot) is not the mega_form's base species. In production
+    this cannot arise -- battle.opponent.foe_mega_eligibility derives every form
+    from mega_form_for(mon.species, mon.item) and is coherent by construction, and
+    the own side reads its own request -- so reaching this is a real programming
+    error. Fail closed rather than silently rewriting an unrelated mon's species
+    (Rev. 4 projected Aerodactyl-Mega onto an Incineroar without complaint)."""
+```
+
+```python
+    mon = projected_state.sides[side][slot]
+    # Match on normalized base_species_id OR normalized species: the `or` keeps
+    # valid sub-form mappings working (e.g. an already-Mega'd mon whose species
+    # reads "Aerodactyl-Mega" while base_species_id is still "aerodactyl").
+    _candidates = {to_id(mon.base_species_id or ""), to_id(mon.species or "")}
+    if mega_form.base_species_id not in _candidates:
+        raise MegaProjectionSpeciesMismatchError(
+            f"{side}/{slot} is {mon.species!r} (base {mon.base_species_id!r}) "
+            f"but mega_form base is {mega_form.base_species_id!r}"
+        )
+```
+
+Needs `to_id` (`showdown_bot.engine.state`) imported in `mega_projection.py` if not already
+present — verify before wiring rather than assuming. Every existing I7a call site projects
+a coherent own-side form, so all of `tests/i7a/` must stay green unchanged; that is the
+regression signal for this check being correctly scoped.
+
 Replace the body's spread-resolution block (currently lines 93-107) with a single call to the existing central resolver. Do **not** preflight the foe with `lookup_opp_set`: `SpeedOracle.speed_for_species` already implements the binding lookup order `book` first, then `opp_sets`, and raises `MissingMegaSpreadError` only when both fail.
 
 ```python
@@ -1060,7 +1487,7 @@ Expected: new tests pass; every existing I7a test that calls `project_mega` (own
 **Step 5 — commit:**
 ```powershell
 git add src/showdown_bot/engine/mega_projection.py tests/i7b/conftest.py tests/i7b/test_i7b_projection.py
-git commit -m "feat(champions-i7b-b): side-aware project_mega contract (is_ours/opp_sets/book)"
+git commit -m "feat(champions-i7b-b): side-aware project_mega contract + species coherence gate"
 ```
 
 ### Task 3: `WeightedMegaProjection` and `compose_mega_projection_branches`
@@ -1352,78 +1779,171 @@ git commit -m "feat(champions-i7b-b): compose_mega_projection_branches (dual-Meg
 
 **Weighting (finding 3), precisely:** when THIS call's `foe_mega_eligibility` is non-empty (the I7b path genuinely active for this decision), `raw_w = r.weight` unconditionally for every response, no-mega included — overriding the legacy `priors is not None` gate for this call only. When `foe_mega_eligibility` is `None`/empty (every existing I7a-only caller, including the byte-identical Reg-I test below), the EXISTING `raw_w = r.weight if (priors is not None and r is not None) else 1.0` gate is preserved exactly, unchanged — Reg-I stays byte-identical.
 
-**Step 0 — extend the shared fixture with the exact real scoring inputs.** In `showdown_bot/tests/conftest.py`, keep the existing request/state/book/profile construction and replace the final `kw = dict(...)` block with this additive preparation. Existing keys and fixture shape `(req, kw)` remain unchanged:
+**Step 0 [REV.5] — extract a test-only builder; add a separate, coherent tie fixture.**
+In `showdown_bot/tests/conftest.py`. `mega_decision_fixture`'s and `_mega_state()`'s
+**default behavior stays unchanged** (both are shared with `tests/i7a/`): `_mega_state()`
+gains one defaulted parameter whose default reproduces today's Incineroar opponent
+exactly, and the construction body moves into a builder that both fixtures call. Fixture
+shape `(req, kw)` is unchanged.
 
 ```python
+def _mega_state(foe_a: "PokemonState | None" = None):
+    """Default (foe_a=None) is byte-identical to the pre-Rev.5 board: p2.a Incineroar."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    st.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott",
+        types=["Grass", "Fairy"], hp=100, max_hp=100,
+    )
+    st.sides["p2"]["a"] = foe_a if foe_a is not None else PokemonState(
+        species="Incineroar", base_species_id="incineroar",
+        types=["Fire", "Dark"], hp=100, max_hp=100,
+    )
+    return st
+
+
+def _build_mega_decision_kw(state):
+    """Test-only builder. contexts/evaluated_variants are built FROM `state`, so a
+    caller-supplied board is coherent from the start -- never a post-hoc
+    kw["state"] swap after contexts already exist (which would leave every context's
+    projected_state/plans/damage_model bound to the OTHER board)."""
     from showdown_bot.battle.actions import enumerate_my_actions
     from showdown_bot.battle.evaluate import EvalWeights
     from showdown_bot.battle.mega_scoring import build_own_mega_contexts
+    from showdown_bot.battle.oracle import DamageOracle
     from showdown_bot.engine.belief.game_mode import GameMode
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadBook, SpreadPreset
+    from showdown_bot.engine.calc.client import SubprocessCalcBackend
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.speed import SpeedOracle
     from showdown_bot.engine.species_meta import species_meta_table
 
+    cfg = load_format_config("gen9championsvgc2026regma")
+    calc_profile = calc_profile_from_config(cfg)
+    speed_oracle = SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=calc_profile)
+    spreads = SpeciesSpreads(
+        offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
+        defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}),
+    )
+    book = SpreadBook(default=spreads)
+    req = _mega_req()
     oracle = DamageOracle()
-    state = _mega_state()
-    our_spreads = {
-        "aerodactyl": spreads,
-        "whimsicott": spreads,
-        "incineroar": spreads,
-    }
+    our_spreads = {"aerodactyl": spreads, "whimsicott": spreads, "incineroar": spreads}
     contexts, evaluated_variants = build_own_mega_contexts(
-        req,
-        state,
-        our_side="p1",
-        opp_side="p2",
-        book=book,
-        oracle=oracle,
-        speed_oracle=speed_oracle,
-        species_meta=species_meta_table(),
-        our_spreads=our_spreads,
-        opp_sets=None,
-        calc_profile=calc_profile,
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=our_spreads, opp_sets=None, calc_profile=calc_profile,
         my_actions=enumerate_my_actions(req),
     )
     kw = dict(
-        state=state,
-        book=book,
-        our_side="p1",
-        oracle=oracle,
-        speed_oracle=speed_oracle,
-        format_config=cfg,
-        calc_profile=calc_profile,
-        evaluated_variants=evaluated_variants,
-        contexts=contexts,
-        calc=oracle.client,
-        dex=None,
-        weights=EvalWeights(),
-        mode=GameMode.NEUTRAL,
-        our_spreads=our_spreads,
-        opp_sets=None,
+        state=state, book=book, our_side="p1", oracle=oracle, speed_oracle=speed_oracle,
+        format_config=cfg, calc_profile=calc_profile,
+        evaluated_variants=evaluated_variants, contexts=contexts, calc=oracle.client,
+        dex=None, weights=EvalWeights(), mode=GameMode.NEUTRAL,
+        our_spreads=our_spreads, opp_sets=None,
     )
+    return req, kw
+
+
+@pytest.fixture
+def mega_decision_fixture():
+    """Unchanged default board (p2.a Incineroar). NOT usable for foe-Mega scoring:
+    its foe is not a Mega holder, so the real foe_mega_eligibility() returns {}."""
+    return _build_mega_decision_kw(_mega_state())
+
+
+@pytest.fixture
+def mega_decision_tie_fixture():
+    """[REV.5 correction 1] p2.a is a REAL Aerodactyl holding Aerodactylite with
+    item_known=True, so the real foe_mega_eligibility() yields a coherent
+    Aerodactyl-Mega hypothesis AND both pre-mega speeds tie -- the two branches at
+    weight 0.5 that Task 4's weighting test requires.
+
+    Verified against the real SpeedOracle + real SubprocessCalcBackend, not assumed:
+      p1.a Aerodactyl (our_spreads, is_ours=True)  -> 200
+      p2.a Aerodactyl (book.default, is_ours=False) -> 200   => tie, 2 branches @ 0.5
+    (Rev. 4 used the Incineroar board here: 200 vs 123, one branch @ 1.0, so its own
+    `assert tied_groups` could never pass -- see §Rev. 5.)"""
+    foe = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
 ```
 
-This setup intentionally leaves the shared oracle unflushed: `build_own_mega_contexts` only enqueues, and the scoring call under test owns the single world-level flush. Add `test_mega_decision_fixture_exposes_real_scoring_inputs` to pin every new key plus `len(evaluated_variants) > 1` and `contexts` non-empty before the I7b tests rely on them.
+Both fixtures intentionally leave the shared oracle unflushed: `build_own_mega_contexts`
+only enqueues, and the scoring call under test owns the single world-level flush.
+
+Add `test_mega_decision_fixture_exposes_real_scoring_inputs` to pin every new key plus
+`len(evaluated_variants) > 1` and `contexts` non-empty before the I7b tests rely on them.
+Add `test_mega_decision_fixture_default_board_is_unchanged` pinning that
+`_mega_state()`'s default still yields `p2.a` Incineroar with no item — the guard that
+this extraction did not silently alter the board `tests/i7a/` depends on.
 
 **Step 1 — write failing tests**, new file `showdown_bot/tests/i7b/test_i7b_scoring.py`:
 
 ```python
-"""I7b-B Task 4 (Rev. 4): three-phase foe-Mega scoring integration."""
+"""I7b-B Task 4 (Rev. 5): three-phase foe-Mega scoring integration."""
 from __future__ import annotations
 
 import pytest
 
 from showdown_bot.battle.candidate_identity import joint_action_key_v2
 from showdown_bot.battle.mega_scoring import MegaScoreRecord, score_evaluated_variants
-from showdown_bot.engine.mega_form import mega_form_for
+
+# [REV.5] `mega_form_for` is deliberately NOT imported here any more: every test in
+# this file now derives its hypothesis through the real foe_mega_eligibility() via
+# _real_eligibility(), so a hand-built MegaForm has no remaining call site (it would
+# be an unused import, and re-introducing one would reopen the incoherent-hypothesis
+# defect Rev. 5 closes).
 
 
-def _score(kw, req, *, eligibility=None, sink=None):
+def _real_eligibility(kw):
+    """[REV.5] Derive eligibility through the REAL limited-view path, never by
+    hand-injecting a MegaForm. Rev. 4 injected an Aerodactyl-Mega form onto an
+    Incineroar -- a hypothesis foe_mega_eligibility() can never produce (it resolves
+    species-bound via mega_form_for(mon.species, mon.item)) and which Task 2's Rev. 5
+    coherence check now rejects outright."""
+    from showdown_bot.battle.opponent import foe_mega_eligibility
+
+    elig = foe_mega_eligibility(kw["state"], "p2", opp_sets=kw.get("opp_sets"))
+    assert elig, "fixture must yield a real foe-Mega hypothesis for this test to mean anything"
+    return elig
+
+
+def _assert_pre_mega_speeds_tie(kw):
+    """[REV.5] Explicit real-backend precondition for every test that asserts two
+    0.5-weight branches. Rev. 4's defect was asserting a tie nobody ever computed
+    (Aerodactyl 200 vs Incineroar 123); this makes the tie a checked fact, and makes
+    a fixture/backend drift fail HERE with a readable message instead of surfacing as
+    a confusing `assert tied_groups` failure downstream."""
+    st, so = kw["state"], kw["speed_oracle"]
+    own_mon, foe_mon = st.sides["p1"]["a"], st.sides["p2"]["a"]
+    own = so.speed_for_species(
+        species_name=own_mon.species, base_species_id=own_mon.base_species_id or own_mon.species,
+        side="p1", mon=own_mon, field=st.field, our_spreads=kw["our_spreads"],
+        opp_sets=None, book=kw["book"], is_ours=True,
+    )
+    foe = so.speed_for_species(
+        species_name=foe_mon.species, base_species_id=foe_mon.base_species_id or foe_mon.species,
+        side="p2", mon=foe_mon, field=st.field, our_spreads=None,
+        opp_sets=kw.get("opp_sets"), book=kw["book"], is_ours=False,
+    )
+    assert own == foe, f"tie fixture must actually tie: p1.a={own} vs p2.a={foe}"
+
+
+def _score(kw, req, *, eligibility=None, sink=None, mode=None):
     from showdown_bot.engine.species_meta import species_meta_table
 
     return score_evaluated_variants(
         kw["evaluated_variants"], kw["contexts"], req=req, state=kw["state"], book=kw["book"],
         our_side="p1", opp_side="p2", calc=kw["calc"], oracle=kw["oracle"],
         speed_oracle=kw["speed_oracle"], dex=kw["dex"], priors=None, weights=kw["weights"],
-        mode=kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
+        mode=mode or kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
         opp_sets=None, calc_profile=kw["calc_profile"], accuracy_mode=False, accuracy_branch_cap=6,
         endgame=False, fast_board=False,
         foe_mega_eligibility=eligibility, species_meta=species_meta_table() if eligibility else None,
@@ -1442,15 +1962,22 @@ def test_return_type_is_unchanged_records_only(mega_decision_fixture):
     assert all(isinstance(r, MegaScoreRecord) for r in records)
 
 
-def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega_decision_fixture):
+def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega_decision_tie_fixture):
     """T19/T26 weighting: sibling evidence rows for the SAME (candidate,
     response) tie must have equal, sub-1.0 branch_weight values summing to
     1.0 -- a regression that drops branch.weight from the branch-building or
     evaluation path would either collapse the tie to one branch (failing the
     `tied_groups` non-empty check) or leave both siblings at weight 1.0
-    (failing the sum-to-1.0 check)."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    (failing the sum-to-1.0 check).
+
+    [REV.5] Uses mega_decision_tie_fixture (real Aerodactyl foe, 200 vs 200), NOT
+    the default Incineroar board (200 vs 123) whose single weight-1.0 branch made
+    Rev. 4's `assert tied_groups` unsatisfiable. Real-backend integration test --
+    Task 3's monkeypatched tie test covers branch ENUMERATION in isolation; this
+    one must earn its tie from the real backend."""
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)  # REV.5: checked precondition, not an assumption
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
 
@@ -1468,23 +1995,23 @@ def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega
         assert sum(e.branch_weight for e in group) == pytest.approx(1.0)
 
 
-def test_no_mega_responses_also_produce_evidence_rows(mega_decision_fixture):
+def test_no_mega_responses_also_produce_evidence_rows(mega_decision_tie_fixture):
     """Finding 4a: the future smoke's evidence gate requires BOTH a no-mega
     and a mega twin for the same decision -- Rev. 2 only ever appended
     inside the foe-mega branch loop."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert any(e.foe_mega_slot is None for e in evidence)
     assert any(e.foe_mega_slot is not None for e in evidence)
 
 
-def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_fixture):
+def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_tie_fixture):
     """Finding 4d: `candidate_key` must come from the real module-level
     `joint_action_key_v2`, not a nonexistent `.joint_action_key()` method."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     records = _score(kw, req, eligibility=eligibility, sink=evidence)
     valid_keys = {joint_action_key_v2(r.variant.joint) for r in records}
@@ -1492,14 +2019,14 @@ def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_fixtur
     assert all(e.candidate_key in valid_keys for e in evidence)
 
 
-def test_evidence_carries_raw_unmultiplied_components(mega_decision_fixture):
+def test_evidence_carries_raw_unmultiplied_components(mega_decision_tie_fixture):
     """Finding 4b/4c: evidence exposes world_index/world_weight/response_weight
     as separate fields, and `raw_score` is the per-response detail score
     alone -- never pre-multiplied into a single "contribution", since
     aggregate_scores (policy.py:46) is non-linear (MUST_REACT/NEUTRAL) and no
     single per-response product is correct under both operators."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert evidence
@@ -1510,13 +2037,13 @@ def test_evidence_carries_raw_unmultiplied_components(mega_decision_fixture):
         assert isinstance(e.raw_score, float)
 
 
-def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_decision_fixture):
+def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_decision_tie_fixture):
     """Finding 3: when foe_mega_eligibility is non-empty, EVERY response
     (no-mega included) must use its real r.weight -- not the legacy
     `1.0`-under-priors=None default, which would otherwise make no-mega and
     mega responses incomparable within the same decision."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     no_mega = [e for e in evidence if e.foe_mega_slot is None]
@@ -1524,26 +2051,153 @@ def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_de
     assert any(e.response_weight != 1.0 for e in no_mega)
 
 
-def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
-    mega_decision_fixture, monkeypatch,
+def test_must_react_min_is_weight_blind_which_is_why_zero_weight_samples_are_excluded():
+    """[REV.7 / P1 rationale, pinned] The reason the two counterexamples below exist.
+
+    aggregate_scores' MUST_REACT operator is `avg - lambda*(avg - min(scores))`,
+    and that `min(scores)` is computed WITHOUT weights (policy.py). So a
+    zero-weight sample cannot move the weighted mean, but DOES move the aggregate:
+
+        [10]        w=[1]    -> 10.0
+        [10, -100]  w=[1, 0] -> -56.0     (lambda 0.6: 10 - 0.6*(10 - -100))
+
+    A zero-weight response is therefore NOT harmless, and must never reach
+    score_vector/score_weights. NEUTRAL/AHEAD are unaffected (both weight their
+    mean and variance), so this is MUST_REACT-specific. If policy.py ever starts
+    weighting the min, this test fails and the exclusion rule can be revisited --
+    that is exactly what it is here to tell you."""
+    from showdown_bot.battle.policy import aggregate_scores
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    lone = aggregate_scores([10.0], GameMode.MUST_REACT, weights=[1.0])
+    with_zero = aggregate_scores([10.0, -100.0], GameMode.MUST_REACT, weights=[1.0, 0.0])
+    assert lone == pytest.approx(10.0)
+    assert with_zero != pytest.approx(lone)  # <-- the whole point
+    assert with_zero == pytest.approx(-56.0)
+    # ...and the contrast: NEUTRAL genuinely ignores a zero-weight sample.
+    assert aggregate_scores([10.0, -100.0], GameMode.NEUTRAL, weights=[1.0, 0.0], risk_lambda=0.5) \
+        == pytest.approx(aggregate_scores([10.0], GameMode.NEUTRAL, weights=[1.0], risk_lambda=0.5))
+
+
+def test_click_rate_zero_makes_the_foe_mega_hypothesis_completely_inert(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """[REV.7 / P1 counterexample 1 of 2] At click rate 0.0 every foe-Mega twin
+    carries weight 0, so the hypothesis must be COMPLETELY inert: no branch composed
+    (no wasted calc), no evidence row, no score sample. I7b-A still emits the twin
+    for identity/cap coverage -- that is upstream of this path and unchanged.
+
+    RED before the fix: zero-weight mega rows are scored, and score_weights contains
+    0.0 -- which under MUST_REACT's weight-blind min() silently moves the decision."""
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence, mode=GameMode.MUST_REACT)
+
+    assert not [e for e in evidence if e.foe_mega_slot is not None], (
+        "click rate 0.0: zero-weight foe-Mega twins must not be enqueued, scored, or evidenced"
+    )
+    assert [e for e in evidence if e.foe_mega_slot is None], "the no-mega twins must still be scored"
+    for r in records:
+        assert r.score_weights
+        assert all(w > 0 for w in r.score_weights), (
+            f"zero-weight sample reached score_weights: {r.score_weights}"
+        )
+
+
+def test_click_rate_one_makes_the_no_mega_twin_completely_inert(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """[REV.7 / P1 counterexample 2 of 2] Mirror image: at click rate 1.0 the no-mega
+    twin carries weight 0 and must not be scored either -- same weight-blind-min
+    reason.
+
+    RED before the fix: zero-weight no-mega rows are scored, and score_weights
+    contains 0.0."""
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "1")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence, mode=GameMode.MUST_REACT)
+
+    assert not [e for e in evidence if e.foe_mega_slot is None], (
+        "click rate 1.0: zero-weight no-mega twins must not be enqueued, scored, or evidenced"
+    )
+    assert [e for e in evidence if e.foe_mega_slot is not None], "the mega twins must still be scored"
+    for r in records:
+        assert r.score_weights
+        assert all(w > 0 for w in r.score_weights), (
+            f"zero-weight sample reached score_weights: {r.score_weights}"
+        )
+
+
+def test_branch_replan_preserves_original_mega_identity_and_weight(
+    mega_decision_tie_fixture, monkeypatch,
 ):
     """A branch replan may replace actions, never the original Mega hypothesis's
-    identity/weight. At click-rate zero the Mega twin still exists but its
-    response weight must remain exactly zero after branch replanning."""
-    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    identity or its click-rate/cap/renormalised weight -- the branch-regenerated
+    base response must supply ONLY actions.
+
+    [REV.7] Pinned at an explicit mid click rate so the Mega twin is genuinely
+    scored. (Rev. 4-6 pinned this at rate 0.0 and asserted the twin was scored with
+    weight 0.0; that is now forbidden -- a zero-weight sample moves MUST_REACT's
+    weight-blind min(). The rate-0.0 case is covered by its own counterexample above,
+    which asserts the twin is excluded outright.)"""
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.35")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     mega_rows = [e for e in evidence if e.foe_mega_slot == 0]
     assert mega_rows
     assert all(e.response_id.endswith("|mega=0") for e in mega_rows)
-    assert all(e.response_weight == pytest.approx(0.0) for e in mega_rows)
+    # The click-rate-derived weight survived the replan: neither 0 (dropped) nor
+    # 1.0 (replaced by the regenerated base response's default weight).
+    assert all(0.0 < e.response_weight < 1.0 for e in mega_rows)
 
 
-def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_fixture):
+def test_legacy_path_leaves_diagnostic_contexts_structurally_empty(mega_decision_fixture):
+    """[REV.7] Parity is STRUCTURAL, not just numeric. Task 6's depth-2 binding is
+    specified as `rec.diagnostic_contexts[i] if rec.diagnostic_contexts else
+    ctx_by_slot[rec.variant.own_mega_slot]` -- i.e. an EMPTY list means "pre-I7b-B,
+    use the legacy blanket context". Populating the field on the legacy path would
+    make that fallback dead code and quietly falsify the byte-identity claim, even
+    though the bound context happens to be numerically the same one."""
     req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    records = _score(kw, req)  # no eligibility => legacy path
+    assert records
+    assert all(r.diagnostic_contexts == [] for r in records)
+
+
+def test_active_path_binds_one_diagnostic_context_per_diagnostic_index(mega_decision_tie_fixture):
+    """[REV.7] ...and when I7b IS active the parallel-array contract must hold, so
+    Task 6 can index diagnostic_contexts[i] directly against diagnostic_details[i]. A
+    record's top-M may span a no-mega response AND foe-mega branch responses, which is
+    exactly why the per-index binding exists."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    records = _score(kw, req, eligibility=eligibility)
+    assert records
+    for r in records:
+        assert r.diagnostic_contexts
+        assert len(r.diagnostic_contexts) == len(r.diagnostic_details)
+        assert len(r.diagnostic_contexts) == len(r.diagnostic_weights)
+    # at least one record must genuinely span both kinds, or the per-index binding
+    # would be untested in practice
+    assert any(
+        {c.foe_mega_slot is None for c in r.diagnostic_contexts} == {True, False}
+        for r in records
+    ), "no record's diagnostics span both a no-mega and a foe-mega branch context"
+
+
+def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_tie_fixture):
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert evidence
@@ -1566,11 +2220,11 @@ def test_no_eligibility_is_byte_identical_to_pre_i7b_scoring(mega_decision_fixtu
         assert a.score_weights == pytest.approx(b.score_weights)
 
 
-def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_fixture, monkeypatch):
+def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_tie_fixture, monkeypatch):
     """Every model shares one oracle and all enqueues precede Phase B, so the
     complete world's pending queue is resolved by exactly one flush."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     call_count = {"n": 0}
     real_flush = kw["oracle"].flush
 
@@ -1714,7 +2368,19 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
                 field=ctx.field, our_spreads=our_spreads, opp_sets=merged_sets,
                 calc_profile=calc_profile,
             )
-            no_mega_resps = [r for r in resps if r.foe_mega_slot is None]
+            # [REV.7 / P1] A zero-weight response cannot move a weighted mean, but
+            # aggregate_scores' MUST_REACT operator takes `min(scores)` WITHOUT
+            # weights (policy.py) -- so a weight-0 sample DOES move the aggregate
+            # ([10] w=[1] -> 10.0, but [10,-100] w=[1,0] -> -56.0). It must never be
+            # enqueued, evaluated, or appended to score_vector. Only on the I7b-active
+            # path: the legacy path's weights are untouched, so its behavior stays
+            # byte-identical. I7b-A still EMITS the zero-weight twins upstream for
+            # identity/cap coverage -- `resps` (not this filtered list) feeds
+            # retained_classes below, so cap discipline is unaffected.
+            no_mega_resps = [
+                r for r in resps
+                if r.foe_mega_slot is None and (not _i7b_active or r.weight > 0)
+            ]
             required_classes = tuple(sorted(
                 {"none"} | {str(0 if s == "a" else 1) for s in foe_mega_eligibility}
             )) if _i7b_active else ("none",)
@@ -1738,7 +2404,15 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
         branch_bundles: dict[tuple, dict] = {}
         for slot, ctx in ctx_by_slot.items():
             resps = world_resps_by_slot[slot]
-            foe_mega_slots = {r.foe_mega_slot for r in resps if r.foe_mega_slot is not None}
+            # [REV.7] sorted(), not raw set iteration: evidence rows and score_vector
+            # entries are appended in this order, so an unordered iteration would make
+            # both non-reproducible. [P1] weight > 0 filter: a zero-weight Mega class is
+            # inert (see the no_mega filter above), so composing its branches would
+            # only burn calc latency for samples that must not be scored anyway.
+            foe_mega_slots = sorted({
+                r.foe_mega_slot for r in resps
+                if r.foe_mega_slot is not None and r.weight > 0
+            })
             for foe_mega_slot in foe_mega_slots:
                 own_form = None
                 own_slot_key = "a" if slot == 0 else "b" if slot is not None else None
@@ -1760,11 +2434,26 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
                     branches = []  # fail-closed: exclude, never crash the whole score
 
                 for branch_idx, branch in enumerate(branches):
-                    own_override = (
-                        {ctx.own_mega_slot: branch.projected_state.sides[our_side][
-                            "a" if ctx.own_mega_slot == 0 else "b"].effective_speed}
-                        if ctx.own_mega_slot is not None else None
-                    )
+                    # [REV.6] PokemonState has NO effective_speed attribute -- the
+                    # Rev.4/5 access here raised AttributeError at runtime. Re-derive
+                    # from the COMPLETE, FINAL branch state via the central resolver.
+                    own_override = None
+                    if ctx.own_mega_slot is not None:
+                        own_slot_letter = "a" if ctx.own_mega_slot == 0 else "b"
+                        own_projected = branch.projected_state.sides[our_side][own_slot_letter]
+                        own_override = {
+                            ctx.own_mega_slot: speed_oracle.speed_for_species(
+                                species_name=own_projected.species,
+                                base_species_id=own_projected.base_species_id or own_projected.species,
+                                side=our_side,
+                                mon=own_projected,
+                                field=branch.projected_state.field,
+                                our_spreads=our_spreads,
+                                opp_sets=None,
+                                book=book,
+                                is_ours=True,
+                            )
+                        }
                     replanned_plans = {
                         joint: _plan_my_actions(
                             req, joint, state=branch.projected_state, our_side=our_side,
@@ -1779,7 +2468,13 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
                         threatened_slots=threatened, opp_sets=merged_sets,
                     )
                     branch_resps_by_label = {r.label: r for r in branch_resps}
-                    matching_original = [r for r in resps if r.foe_mega_slot == foe_mega_slot]
+                    # [REV.7 / P1] weight > 0: same exclusion rule as the no-mega path,
+                    # so a _BranchResponsePair only ever exists for a response that will
+                    # actually be scored.
+                    matching_original = [
+                        r for r in resps
+                        if r.foe_mega_slot == foe_mega_slot and r.weight > 0
+                    ]
                     for r in matching_original:
                         if r.label not in branch_resps_by_label:
                             raise MissingBranchResponseError(
@@ -1826,7 +2521,17 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
         # --- Phase C: evaluate weighted samples with full evidence ---
         for slot, ctx in ctx_by_slot.items():
             model = world_model_by_slot[slot]
-            targets = world_no_mega_resps_by_slot[slot] if world_no_mega_resps_by_slot[slot] else [None]
+            no_mega = world_no_mega_resps_by_slot[slot]
+            if _i7b_active:
+                # [REV.7] NO [None] fallback on the active path: at click rate 1.0 the
+                # no-mega twin is zero-weight and excluded above, and this record's
+                # samples come from the foe-Mega branches below. Falling back to [None]
+                # here would inject a phantom no-opponent-action line at weight 1.0 --
+                # the same zero-weight distortion this filter exists to prevent, in
+                # reverse.
+                targets = no_mega
+            else:
+                targets = no_mega if no_mega else [None]
             for rec in records_by_slot.get(slot, []):
                 plan = ctx.plans[rec.variant.joint]
                 candidate_key = joint_action_key_v2(rec.variant.joint)
@@ -1850,7 +2555,13 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
                     if world_idx == 0:
                         rec.diagnostic_details.append(detail)
                         rec.diagnostic_weights.append(raw_w)
-                        rec.diagnostic_contexts.append(ctx)  # Task 6: per-index context binding for depth-2
+                        if _i7b_active:
+                            # [REV.7] Only on the active path. Task 6's depth-2 binding
+                            # treats an EMPTY diagnostic_contexts as "pre-I7b-B, fall back
+                            # to ctx_by_slot[own_mega_slot]"; populating it here on the
+                            # legacy path would make that fallback dead and break the
+                            # structural (not just numeric) parity claim.
+                            rec.diagnostic_contexts.append(ctx)
                     if opp_mega_evidence_sink is not None:
                         opp_mega_evidence_sink.append(ScoredResponseEvidence(
                             candidate_key=candidate_key,
@@ -1943,35 +2654,63 @@ git commit -m "feat(champions-i7b-b): three-phase foe-Mega scoring integration (
 
 ### Task 5: fail-closed ability gate for a hypothesized foe Mega form
 
+**[REV.5 correction 3 — consequence of correction 2, see §Rev. 5.]** Rev. 4's version
+injected a `Scovillain-Mega` form onto the fixture's *non-Scovillain* foe. Verified
+against real metadata, that form is **not** synthetic: `scovillainmega` is a real entry
+in `species_meta`, its `ability_slot0` is `'Spicy Spray'`, and it is the **only** member
+of `FAIL_CLOSED_ABILITIES` in the whole dex — so Rev. 4's test did work *before* Task 2
+gained its coherence check. It cannot survive that check: `aerodactyl`/`incineroar` ≠
+`scovillain` raises `MegaProjectionSpeciesMismatchError` **before** the ability gate is
+ever reached, and Task 4 deliberately does not catch that error — so the test would
+crash instead of proving exclusion, and would no longer exercise the ability gate at all.
+
+The foe must therefore genuinely **be** a Scovillain, with eligibility derived through
+the real path. Pre-verified against the real backend:
+`mega_form_for("Scovillain", "Scovillainite")` returns the real form, the coherence check
+passes (`scovillain == scovillain`), and
+`foe_mega_eligibility(state, "p2", opp_sets=None)` yields
+`{'a': MegaForm(base_species_id='scovillain', form_species_id='scovillainmega', ...)}`.
+
+**Step 0 — add the fixture** to `tests/conftest.py`, alongside `mega_decision_tie_fixture`
+(same builder, different foe — no third construction path):
+
+```python
+@pytest.fixture
+def mega_decision_unsupported_ability_fixture():
+    """[REV.5] p2.a is a REAL Scovillain holding Scovillainite, so the coherence
+    check passes and the FAIL_CLOSED_ABILITIES gate ('Spicy Spray', the dex's only
+    fail-closed mega ability) is what actually fires. No speed tie is needed or
+    asserted here -- this test is about exclusion, not branch weighting."""
+    foe = PokemonState(
+        species="Scovillain", base_species_id="scovillain", item="Scovillainite",
+        item_known=True, types=["Grass", "Fire"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
+```
+
 **Step 1 — write failing test**, append to `test_i7b_scoring.py`:
 
 ```python
-def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(mega_decision_fixture):
-    """A foe eligibility entry resolving to an unsupported-ability form (e.g. a
-    synthetic Scovillain-Mega hypothesis) must be silently excluded from
+def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(mega_decision_unsupported_ability_fixture):
+    """A foe eligibility entry resolving to an unsupported-ability form
+    (Scovillain-Mega / 'Spicy Spray') must be silently excluded from
     evidence/scoring via the SAME UnsupportedMegaAbilityError/FAIL_CLOSED_ABILITIES
-    gate I7a already uses -- never a new exception type, never a crash."""
-    from showdown_bot.engine.mega_form import MegaForm
-    from showdown_bot.engine.species_meta import species_meta_table
+    gate I7a already uses -- never a new exception type, never a crash.
 
-    req, kw = mega_decision_fixture
-    fake_scovillain_form = MegaForm(
-        base_species_id="scovillain", form_species_id="scovillainmega",
-        form_species_name="Scovillain-Mega", stone_item_id="scovillainite",
-    )
+    [REV.5] The foe really IS a Scovillain and eligibility comes from the real
+    foe_mega_eligibility(), so Task 2's coherence check passes and the ability gate
+    is the thing under test. Rev. 4 injected the form onto a mismatched species,
+    which post-correction-2 would raise MegaProjectionSpeciesMismatchError first."""
+    req, kw = mega_decision_unsupported_ability_fixture
+    eligibility = _real_eligibility(kw)
+    assert eligibility["a"].form_species_id == "scovillainmega"  # gate's real target
+
     evidence: list = []
-    score_evaluated_variants(
-        kw["evaluated_variants"], kw["contexts"], req=req, state=kw["state"], book=kw["book"],
-        our_side="p1", opp_side="p2", calc=kw["calc"], oracle=kw["oracle"],
-        speed_oracle=kw["speed_oracle"], dex=kw["dex"], priors=None, weights=kw["weights"],
-        mode=kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
-        opp_sets=None, calc_profile=kw["calc_profile"], accuracy_mode=False, accuracy_branch_cap=6,
-        endgame=False, fast_board=False, foe_mega_eligibility={"a": fake_scovillain_form},
-        species_meta=species_meta_table(), opp_mega_evidence_sink=evidence,
-    )
+    _score(kw, req, eligibility=eligibility, sink=evidence)
     # no scored contribution for slot 0's (Scovillain) mega -- checked via the
     # real foe_mega_slot field, not by parsing response_id's "|mega=" suffix
     assert all(e.foe_mega_slot != 0 for e in evidence)
+    assert evidence  # the no-mega rows must still be scored: exclusion, not wipe-out
 ```
 
 This is already satisfied structurally by Task 4's `try/except (UnsupportedMegaAbilityError, MissingMegaSpreadError): branches = []` — no additional production code should be needed; this task exists to **prove** it, not to write new logic. If it fails, the gap is in Task 4's implementation, not a new mechanism.
@@ -2007,7 +2746,7 @@ It is ALWAYS bound to `ctx.projected_state` and `ctx.damage_model.oracle` (its o
 **Step 1 — write failing test**, append to `test_i7b_scoring.py`:
 
 ```python
-def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_decision_fixture, monkeypatch):
+def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_decision_tie_fixture, monkeypatch):
     """Depth-2 refinement of a foe-mega-tagged top-M response must be bound to
     THAT response's own composed branch's MegaEvaluationContext (never a
     different branch's or the record's own-only ctx_by_slot entry) -- proven
@@ -2016,8 +2755,9 @@ def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_d
     import showdown_bot.battle.mega_scoring as mega_scoring_mod
     from showdown_bot.engine.species_meta import species_meta_table
 
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)
+    eligibility = _real_eligibility(kw)
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
     monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "1")
 
@@ -2047,7 +2787,20 @@ def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_d
         assert c.projected_state.side_mega_spent.get("p2", False)  # genuinely a post-branch state
 ```
 
-**Step 2 — confirm RED:** `python -m pytest tests/i7b/test_i7b_scoring.py -k depth2_for_foe_mega -q` → fails today, since neither `rec.diagnostic_contexts` nor the corrected per-index binding exist yet (`AttributeError`/`IndexError`, or the spy simply never observing a `foe_mega_slot is not None` ctx).
+**Step 2 — confirm RED:** `python -m pytest tests/i7b/test_i7b_scoring.py -k depth2_for_foe_mega -q`.
+
+**[REV.7 correction — the RED is no longer `AttributeError`-shaped.** Earlier revisions
+described this RED as "neither `rec.diagnostic_contexts` nor the corrected per-index
+binding exist yet (`AttributeError`/`IndexError`)". That is stale: **`rec.diagnostic_contexts`
+already exists and is populated by Task 4** (`64d47ba`, gated on `_i7b_active` since
+`ca39fb6`). The remaining defect is narrower and purely in the depth-2 wrap: it still
+binds **every** diagnostic index to the single blanket
+`ctx_by_slot[rec.variant.own_mega_slot]`. So the real RED is the spy observing depth-2
+genuinely running with a non-empty `seen_ctxs`, yet **never** receiving a context with
+`foe_mega_slot is not None` — a foe-Mega branch's diagnostic is refined against the
+own-only board instead of its own branch board. A failure from a fixture typo, missing
+import, or absent calc dependency is **not** this RED and must be fixed in the test
+setup first.]**
 
 **Step 3 — implement**: the ONLY change is inside the existing depth-2 wrap block (`mega_scoring.py:420-468`) — replace the single `ctx = ctx_by_slot[rec.variant.own_mega_slot]` line with a per-index lookup using Task 4's new `rec.diagnostic_contexts`:
 
@@ -2096,7 +2849,10 @@ git commit -m "feat(champions-i7b-b): bind depth-2 to each diagnostic index's ow
 - [ ] `git diff --check` clean.
 - [ ] `ctx_by_slot`/`records_by_slot` in `mega_scoring.py` remain keyed by `own_mega_slot` alone (confirm via `grep -n "ctx_by_slot\s*[:=]" src/showdown_bot/battle/mega_scoring.py` shows no new keying scheme) — Rev. 1's context-multiplication approach was not silently reintroduced.
 - [ ] Every foe-mega `MegaScoreRecord.score_weights` entry is verifiably `world_w * response_weight * branch_weight` (not `world_w * response_weight` alone) — a genuine dual-Mega speed tie contributes exactly two such entries, never one unweighted or two double-counted.
-- [ ] `UnsupportedMegaAbilityError`/`FAIL_CLOSED_ABILITIES` gate verified to apply to a hypothesized foe form with an unsupported ability (Task 5).
+- [ ] `UnsupportedMegaAbilityError`/`FAIL_CLOSED_ABILITIES` gate verified to apply to a hypothesized foe form with an unsupported ability (Task 5), **on a coherent Scovillain foe** — not by injecting the form onto a mismatched species (REV.5 correction 3).
+- [ ] **[REV.5]** `project_mega` rejects a species/form mismatch with `MegaProjectionSpeciesMismatchError` **before** mutating anything, and the input state is provably unmutated; the `base_species_id` **or** `species` match rule still accepts valid sub-form mappings (Task 2).
+- [ ] **[REV.5]** Every test asserting two `0.5`-weight branches runs on `mega_decision_tie_fixture` and calls `_assert_pre_mega_speeds_tie(kw)` first — the tie is a **checked real-backend fact**, never an assumption (this is exactly what Rev. 4 got wrong: 200 vs 123).
+- [ ] **[REV.5]** `_mega_state()`'s default board is unchanged (p2.a Incineroar, no item) and all of `tests/i7a/` is green — proving the builder extraction did not disturb the shared fixture.
 - [ ] `battle/baselines.py` was **not** modified anywhere in this slice.
 - [ ] No task in this slice ran a live battle, touched a trace/sidecar file, or changed ROADMAP/PROJECT_INDEX.
 - [ ] Working tree clean; no push; no I7b-C work started.
