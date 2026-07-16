@@ -36,6 +36,21 @@ data/datasets/phase3-slice2b25a/dataset.jsonl.gz binary
 # keep LF-stable so the checksums survive checkout on any platform.
 data/eval/2b4/** -text
 
+# Champions evaluation evidence is byte-pinned; CRLF rewriting would break frozen hashes.
+# Deliberately covers the whole panel dir, not just one smoke: the I5/I6/I7a evidence was
+# already being rewritten to CRLF on Windows checkout (blob LF, working copy CRLF), so the
+# sha256 values their reports pin could not be reproduced there. The I7b sidecar writes
+# LF-only bytes by construction (eval/opp_mega_trace.py) — without this rule git would undo
+# that on the next checkout, which is precisely the defect the sidecar's own byte tests exist
+# to prevent.
+data/eval/champions-panel-v0/** -text
+
+# eval-report builds report.md as `"\n".join(out) + "\n"`, so a run whose last section ends
+# on an empty line deterministically emits a trailing blank line. That is the generator's
+# byte-exact output and is pinned by the report's sha256 — trimming it by hand would break
+# reproducibility against a re-run. Silence the blank-at-eof lint instead of the bytes.
+data/eval/champions-panel-v0/**/report.md whitespace=-blank-at-eof
+
 # 05 generalisation golden: report.json/report.md are compared byte-for-byte by
 # test_report_matches_golden. The reporting code writes LF (newline="\n"), so CRLF
 # rewriting on checkout would break the comparison — keep them LF-stable.
