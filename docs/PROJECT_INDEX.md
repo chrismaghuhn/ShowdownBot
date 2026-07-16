@@ -269,4 +269,4 @@ Ordered front-track work as of **2026-07-16** (post I7b-A merge; protocol audit 
 | Champions smoke schedule (I6) | `config/eval/schedules/champions_v0_smoke_i6_2battle.yaml` |
 | Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`), `smoke-i6-damage-gen0/` (I6 @ `3bcd4b3`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |
-| Future desktop Replay + DecisionTrace viewer (not active front track) | `docs/superpowers/specs/2026-07-16-showdownbot-studio-viewer-v0-design.md` |
+| Future ShowdownBot Studio desktop client (not active front track) | `showdownbot_studio/README.md` |

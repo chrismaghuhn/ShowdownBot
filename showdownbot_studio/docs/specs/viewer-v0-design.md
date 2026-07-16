@@ -7,6 +7,8 @@ implementation are **not yet** authorized
 bundle
 **Relationship to bot roadmap:** future developer tooling; **not** the active bot front track and
 not a blocker for I7b-B/I7b-C
+**Master spec:** [`../MASTER_SPEC.md`](../MASTER_SPEC.md)
+**Research:** [`../research/2026-07-showdown-client-user-research.md`](../research/2026-07-showdown-client-user-research.md)
 
 ## 0. Decision
 
@@ -47,6 +49,10 @@ establish prevalence. Repeated themes across independent sources are treated as 
 not population estimates. The official client is also in an active rewrite; beta-specific defects
 may disappear quickly. The design therefore targets durable needs rather than pixel parity with
 either the legacy or Preact client.
+
+The canonical research snapshot is maintained in
+[`../research/2026-07-showdown-client-user-research.md`](../research/2026-07-showdown-client-user-research.md).
+This section retains the findings needed to make the v0 slice independently reviewable.
 
 ## 2. Research findings
 

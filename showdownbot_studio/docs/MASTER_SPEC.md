@@ -1,0 +1,396 @@
+# ShowdownBot Studio — Desktop Client Master Spec
+
+**Status:** PRODUCT DESIGN APPROVED — written master spec pending user review; no implementation
+authorized
+**Date:** 2026-07-16
+**Platform:** desktop first and desktop only under this master spec
+**UI technology:** Godot with typed GDScript
+**Domain technology:** Python remains authoritative for bot logic, export, normalization, and
+analysis
+
+## 0. North star
+
+ShowdownBot Studio is a modular desktop workspace for understanding, observing, preparing for, and
+eventually participating in Pokémon Showdown battles.
+
+It is not one large implementation slice. It is a product family delivered through separately
+approved phases:
+
+1. offline Replay + DecisionTrace Viewer;
+2. read-only Live Spectator;
+3. Team/Matchup Analyzer;
+4. full Showdown protocol client;
+5. controlled mods and add-ons;
+6. external bot adapters.
+
+Each phase requires its own design, implementation plan, tests, and release gate. Later phases may
+reuse earlier contracts but may not silently expand an earlier slice.
+
+## 1. Why a separate top-level project
+
+The viewer begins as developer tooling but the long-term product is larger than a repository tool.
+Placing it under `tools/` would encode the wrong permanent boundary. A separate Git repository,
+however, would make trace/schema changes harder to coordinate while the contracts are still moving.
+
+`showdownbot_studio/` therefore remains inside the current monorepo while owning its own:
+
+- documentation and decisions;
+- Godot application;
+- Python adapters/exporters;
+- schemas and fixtures;
+- tests and release gates.
+
+The bot and Studio remain separate runtime products.
+
+## 2. Product principles
+
+### 2.1 Explain before automating
+
+The first product value is observability: show what happened, what the bot knew, which candidates it
+considered, and why the selected action won. Live control comes later.
+
+### 2.2 Stable contracts, replaceable presentation
+
+Godot consumes versioned DTOs and bundles. It does not import Python modules or reproduce battle
+mechanics. The UI may be replaced without changing the recorded evidence contract.
+
+### 2.3 Public protocol, private trust boundary
+
+Showdown's public protocol and public data may be used as interoperability inputs. Code or assets
+from external projects require a license and provenance review before reuse. Browser DOM structure
+is not a supported integration contract.
+
+### 2.4 Accessibility and user-controlled density
+
+Scaling, keyboard access, resizable panels, high-contrast semantics, and compact/comfortable
+layouts are cross-cutting requirements, not polish tasks.
+
+### 2.5 Fail closed on evidence, fail safely on extensions
+
+Unknown schemas, hash mismatches, ambiguous identities, or missing required provenance never become
+silent guesses. Future extensions and bots run with explicit capabilities, timeouts, and isolation.
+
+### 2.6 Reproducibility over visual spectacle
+
+Animations and presentation may improve later, but no UI effect may change recorded evidence or
+hide dirty, missing, degraded, or incompatible data.
+
+## 3. System architecture
+
+```text
+ShowdownBot / eval artifacts / public Showdown protocol
+                         |
+                         v
+            Python adapters and exporters
+                         |
+                         v
+          versioned schemas and viewer DTOs
+                         |
+                         v
+              Godot desktop workspace
+                         |
+            future capability boundaries
+             /             |            \
+       add-on host     live client    bot adapters
+```
+
+### 3.1 Godot desktop application
+
+Godot owns:
+
+- windows, docks, navigation, theming, input, and presentation;
+- local workspace preferences;
+- rendering already-normalized battle and analysis DTOs;
+- invoking explicitly configured local adapters through versioned boundaries in later phases.
+
+Godot does not own:
+
+- bot evaluation, damage calculation, beliefs, policy ranking, or trace reconciliation;
+- Python package loading inside the Godot process;
+- Showdown mechanics simulation;
+- arbitrary third-party native code execution.
+
+### 3.2 Python services and adapters
+
+Python owns:
+
+- deterministic viewer-bundle creation;
+- current-to-stable schema normalization;
+- artifact and provenance validation;
+- later read-only telemetry bridges;
+- later team/matchup analyses produced by existing bot-domain code;
+- later external-bot process supervision when separately approved.
+
+Every boundary exposed to Godot must be versioned under `schemas/`.
+
+### 3.3 Schemas
+
+Schema families are separate and versioned independently:
+
+- viewer bundle;
+- normalized battle/replay events;
+- decision and candidate presentation;
+- live spectator updates;
+- team-analysis results;
+- client commands and acknowledgements;
+- add-on capabilities;
+- external bot requests and responses.
+
+A version bump in one family must not force unrelated families to change.
+
+### 3.4 Storage
+
+v0 uses local files only. Later workspace storage may contain preferences, layouts, imported teams,
+and explicitly saved sessions. Credentials, if a full client is approved, require a separate secure
+storage design and may not be stored in ordinary project JSON.
+
+## 4. Phased product scope
+
+### Phase 0 — Replay + DecisionTrace Viewer
+
+**Goal:** load a frozen local bundle, replay the battle, and inspect recorded bot decisions.
+
+Canonical slice spec: [`specs/viewer-v0-design.md`](specs/viewer-v0-design.md).
+
+Included:
+
+- deterministic Python viewer bundle;
+- offline Godot replay and timeline;
+- candidate, score, state, warning, and provenance inspection;
+- scalable/resizable desktop workspace;
+- fail-closed schema and hash validation.
+
+Excluded: network, login, ladder, chat, team building, public plugins, external bots.
+
+### Phase 1 — Live Spectator
+
+**Goal:** observe a running bot battle through the same presentation DTOs without controlling it.
+
+Candidate capabilities:
+
+- live battle state and timeline;
+- live DecisionTrace/telemetry updates;
+- connection/reconnection status;
+- recording into a later-replayable bundle;
+- explicit delayed/missing/degraded telemetry states.
+
+Hard boundaries:
+
+- read-only;
+- no `/choose` emission;
+- no account credential handling;
+- no inference from unrecorded opponent truth.
+
+### Phase 2 — Team/Matchup Analyzer
+
+**Goal:** prepare teams and inspect matchup information using existing Python-domain calculations.
+
+Candidate capabilities:
+
+- team import/export;
+- threat and role assessment;
+- speed tiers and field-condition comparisons;
+- damage ranges and survival checks;
+- Protect, move, item, and set priors;
+- archetype annotations and matchup notes.
+
+Hard boundaries:
+
+- Python produces all calculations;
+- format-aware validation is mandatory;
+- no independent GDScript calculator;
+- no claim that priors equal hidden truth;
+- no online team marketplace in this phase.
+
+### Phase 3 — Full Showdown protocol client
+
+**Goal:** provide a native desktop client capable of ordinary Showdown account and battle workflows.
+
+Candidate capabilities:
+
+- server connection and authentication;
+- rooms, private messages, challenges, and notifications;
+- team selection and format-aware challenges;
+- battle requests and legal `/choose` encoding;
+- reconnect and resynchronization;
+- spectating and replay save/export.
+
+Required separate gates:
+
+- protocol compatibility against a pinned and live Showdown client/server;
+- credential and session-token security;
+- rate-limit and reconnect behavior;
+- format/command compatibility;
+- licensing review for reused code and assets;
+- clear separation between human client actions and bot automation.
+
+The full client may embed Studio analysis panels, but analysis must never silently submit a choice.
+
+### Phase 4 — Mods and add-ons
+
+**Goal:** allow controlled extension without depending on browser DOM injection.
+
+Candidate extension types:
+
+- panels and annotations;
+- themes and approved sprite packs;
+- import/export adapters;
+- commands and keyboard workflows;
+- local data providers;
+- analysis overlays.
+
+Required properties:
+
+- manifest with ID, version, API range, author, and permissions;
+- capability-based access;
+- disable/uninstall/recovery path;
+- deterministic load order;
+- no default access to credentials or unrestricted filesystem/network;
+- crash isolation where technically possible;
+- compatibility diagnostics after API upgrades.
+
+There is no marketplace commitment. Local installation is the first conceivable delivery model.
+
+### Phase 5 — External bot adapters
+
+**Goal:** allow separately installed bots, including Foul Play-like agents, to participate through a
+documented process boundary.
+
+Candidate contract:
+
+- normalized observation/request;
+- legal-action set;
+- selected action plus optional explanation/telemetry;
+- declared formats and capabilities;
+- deadline, cancellation, and timeout behavior;
+- deterministic seed/provenance fields when supported;
+- health and version negotiation.
+
+Required isolation:
+
+- out of process by default;
+- no arbitrary bot code loaded into Godot;
+- explicit user selection of the active bot;
+- safe fallback on timeout/crash;
+- no hidden access to opponent team files or private bot state;
+- automation and ladder use must respect Showdown rules and receive a separate policy review.
+
+## 5. Cross-phase UX requirements
+
+All implemented phases must preserve:
+
+- desktop UI scaling from at least 75% to 200%;
+- reachable primary controls at the minimum supported window size;
+- resizable/collapsible panels;
+- Compact and Comfortable density modes;
+- keyboard-first primary workflows;
+- text/icon semantics in addition to color;
+- visible connection, selection, waiting, degraded, and error states;
+- full-value inspection for truncated names and identifiers;
+- layouts that survive long format, folder, team, and candidate names;
+- a reset-to-safe-layout action.
+
+## 6. Cross-phase observability and provenance
+
+Studio must make the following visible when available:
+
+- source and bundle schema versions;
+- battle, decision, candidate, request, and config identity;
+- Git SHA, dirty status, format ID, and content hashes;
+- missing or degraded evidence;
+- active adapter/add-on/bot versions;
+- timeouts, fallbacks, reconnects, and rejected commands.
+
+The client must never turn a viewer, parser, pipeline, or safety smoke into a bot-strength claim.
+
+## 7. Security and trust boundaries
+
+### 7.1 Local files
+
+- Treat imported bundles, teams, replays, themes, and add-ons as untrusted input.
+- Reject path traversal and absolute bundle paths.
+- Never execute code embedded in a viewer bundle.
+- Keep raw logs and credentials out of diagnostic exports by default.
+
+### 7.2 Network
+
+- v0 has no network access.
+- Live and full-client phases require explicit host allowlists and connection-state UI.
+- Plugins do not inherit network access automatically.
+
+### 7.3 Credentials
+
+- Credential handling begins only with the full-client phase.
+- Credentials never enter viewer bundles, trace files, add-on manifests, or bot requests.
+- Storage and redaction require their own reviewed design.
+
+### 7.4 Extensions and bots
+
+- Permissions are denied unless declared and approved.
+- Version incompatibility fails closed with a diagnostic.
+- A failed extension cannot make a battle command appear successfully submitted.
+- External bots receive only the contractually allowed observation.
+
+## 8. Licensing and public-source policy
+
+- Public availability does not imply unrestricted reuse.
+- The official Showdown client, server, extensions, data packages, sprites, and community tools are
+  reviewed separately by artifact and license.
+- Protocol behavior may be independently implemented from documented/public behavior.
+- Any copied or modified source retains required notices and compatible licensing.
+- Asset packs require explicit provenance; Studio does not redistribute arbitrary community assets.
+- A future public release needs a release-level license inventory.
+
+This section is an engineering gate, not legal advice.
+
+## 9. Explicit exclusions
+
+### 9.1 Excluded from the entire current master program
+
+- operating a replacement public Showdown server;
+- reimplementing the Showdown battle simulator in Godot;
+- moving the ShowdownBot decision core from Python to GDScript;
+- mobile, browser, console, or VR builds;
+- cloud accounts, cloud synchronization, subscriptions, or payments;
+- a public add-on marketplace;
+- shipping copyrighted or unverified third-party asset collections;
+- loading arbitrary native libraries or Python modules directly into Godot;
+- presenting analysis output as guaranteed hidden opponent truth;
+- using client work as evidence of bot strength.
+
+These exclusions may change only through a new master-spec revision, not an implementation plan.
+
+### 9.2 Planned eventually, but excluded from early phases
+
+- live connection: excluded from Phase 0;
+- battle control, login, chat, rooms, and ladder: excluded from Phases 0–2;
+- public add-on API: excluded from Phases 0–3;
+- external bots: excluded from Phases 0–4;
+- controller/handheld support, animated asset expansion, localization, and public replay discovery:
+  unscheduled research items, not commitments.
+
+## 10. Relationship to the current bot repository
+
+- [`../../docs/ROADMAP.md`](../../docs/ROADMAP.md) remains authoritative for bot work.
+- Studio does not become the active bot front track merely because this master spec exists.
+- Bot trace or schema changes must remain independently useful and tested without Godot.
+- Studio adapters consume stable contracts; they do not justify leaking UI concerns into decision
+  code.
+- Frozen eval artifacts remain under the existing repository conventions unless a future approved
+  plan introduces a Studio fixture copy with explicit hashes.
+
+## 11. Release and planning gates
+
+For every phase:
+
+1. approved phase design;
+2. reviewed implementation plan;
+3. isolated branch/worktree;
+4. contract and counterexample tests;
+5. accessibility/layout checks proportional to UI scope;
+6. deterministic/provenance checks proportional to data scope;
+7. security/license review proportional to network, extension, or asset scope;
+8. explicit user review before merge and before enabling the next phase.
+
+Only Phase 0 is eligible for implementation planning after the written specs are approved. Phases
+1–5 remain product roadmap entries, not authorized implementation work.
