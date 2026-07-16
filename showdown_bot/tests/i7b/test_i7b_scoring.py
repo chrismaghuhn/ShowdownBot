@@ -520,3 +520,114 @@ def test_branch_replan_speed_matches_final_branch_state_speed(mega_decision_tie_
             assert stored[0].speed == expected, (
                 f"PlannedAction.speed {stored[0].speed} != final-branch-state speed {expected}"
             )
+
+
+# --- I7b-C Rev. 9 finding 3: evidence must carry the FINAL score ------------
+# Phase C appends `detail.score` (1-ply) to BOTH rec.score_vector and the
+# evidence sink. The depth-2 wrap then OVERWRITES rec.score_vector[i] in place
+# for each selected record's top-M indices, and aggregate_score is computed from
+# that final vector. An evidence row still holding the superseded 1-ply value is
+# false provenance: it claims a number that never entered the decision.
+
+_D2_SENTINEL = -999.0
+
+
+def _force_depth2(monkeypatch):
+    """Real scoring path with depth-2 genuinely active; only the depth-2 VALUE
+    function is stubbed, to a value no 1-ply evaluation can produce, so a
+    superseded index is unmistakable rather than a near-miss float compare."""
+    import showdown_bot.battle.mega_scoring as ms
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "1")  # depth-2 gate: world_samples() <= 1
+    monkeypatch.setattr(
+        ms, "depth2_value_for_mega_context",
+        lambda *a, **k: _D2_SENTINEL,
+    )
+
+
+def test_evidence_raw_scores_are_the_final_post_depth2_scores(mega_decision_tie_fixture, monkeypatch):
+    """THE finding-3 counterproof: every evidence row's raw_score must equal the
+    score_vector entry it was built from AFTER depth-2 rewrote it -- the same
+    vector aggregate_scores() consumes. Pre-fix the sink keeps the 1-ply value
+    while score_vector[i] holds the depth-2 value, so the sidecar attributes a
+    number to the decision that the decision never used."""
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)
+    _force_depth2(monkeypatch)
+
+    sink: list = []
+    records = _score(kw, req, eligibility=_real_eligibility(kw), sink=sink)
+
+    assert sink, "fixture must produce evidence for this test to mean anything"
+    # Depth-2 must actually have fired, or the whole test is vacuous.
+    replaced = [
+        (rec, i)
+        for rec in records
+        for i, v in enumerate(rec.score_vector)
+        if v == _D2_SENTINEL
+    ]
+    assert replaced, "depth-2 never overwrote an index -- test would be vacuous"
+
+    # candidate_key must identify exactly one record, or the index-parallel
+    # grouping below would silently compare the wrong vectors.
+    keys = [joint_action_key_v2(r.variant.joint) for r in records]
+    assert len(set(keys)) == len(keys), "candidate_key must be unique per record"
+
+    by_key = {joint_action_key_v2(r.variant.joint): r for r in records}
+    for key, rec in by_key.items():
+        rows = [e.raw_score for e in sink if e.candidate_key == key]
+        assert rows == rec.score_vector, (
+            f"evidence for {key[:60]}... is not index-parallel with the final "
+            f"score_vector: {rows} != {rec.score_vector}"
+        )
+
+    # And at least one row must actually carry a depth-2-replaced value: that is
+    # the index the pre-fix code got wrong.
+    assert any(e.raw_score == _D2_SENTINEL for e in sink)
+
+
+def test_depth1_evidence_is_unchanged_by_the_finalisation(mega_decision_tie_fixture, monkeypatch):
+    """The no-depth-2 path (default depth 1, and the I7a/legacy path) must be
+    untouched: with no depth-2 wrap there is nothing to supersede, so evidence
+    equals the 1-ply score_vector exactly as before."""
+    import showdown_bot.battle.mega_scoring as ms
+
+    req, kw = mega_decision_tie_fixture
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "1")
+    monkeypatch.setattr(
+        ms, "depth2_value_for_mega_context",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("depth-2 must never run at SHOWDOWN_SEARCH_DEPTH=1")),
+    )
+
+    sink: list = []
+    records = _score(kw, req, eligibility=_real_eligibility(kw), sink=sink)
+
+    assert sink
+    by_key = {joint_action_key_v2(r.variant.joint): r for r in records}
+    for key, rec in by_key.items():
+        assert [e.raw_score for e in sink if e.candidate_key == key] == rec.score_vector
+
+
+def test_evidence_identity_survives_the_finalisation(mega_decision_tie_fixture, monkeypatch):
+    """Finalising raw_score must not disturb the identity/component fields: the
+    sidecar's whole value is the (candidate, response, branch, world) link, and
+    ScoredResponseEvidence must stay raw components -- never a pre-aggregated
+    contribution model."""
+    req, kw = mega_decision_tie_fixture
+    _force_depth2(monkeypatch)
+
+    sink: list = []
+    _score(kw, req, eligibility=_real_eligibility(kw), sink=sink)
+
+    assert sink
+    assert all(e.candidate_key for e in sink)
+    assert all(e.response_id for e in sink)
+    assert all(e.world_index == 0 for e in sink)  # single world under this gate
+    assert all(e.branch_index >= 0 for e in sink)
+    foe_rows = [e for e in sink if e.foe_mega_slot is not None]
+    assert foe_rows, "at least one genuine foe-Mega evidence row"
+    assert all(e.foe_mega_slot in (0, 1) for e in foe_rows)
+    # No pre-multiplied contribution field ever appears.
+    assert not hasattr(sink[0], "score_contribution")

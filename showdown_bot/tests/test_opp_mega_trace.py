@@ -195,3 +195,48 @@ def test_build_rejects_evidence_disagreeing_on_coverage():
             context=_context(), decision_index=1, turn_number=1, evidence=ev,
             max_candidates=5, click_rate=0.35,
         )
+
+
+# --- I7b-C Rev. 9 finding 4: LF-only, cross-platform byte determinism --------
+# The sidecar is provenance: the same decision must serialise to the same BYTES
+# on every platform. open(..., "a", encoding="utf-8") uses the platform default
+# newline translation, so on Windows every "\n" this module writes becomes
+# "\r\n" on disk -- a Windows-written line and a Linux-written line for the
+# identical decision then differ byte-for-byte, and any digest over the file
+# disagrees across the two. sort_keys alone does not fix that.
+
+
+def test_written_bytes_are_lf_only_and_never_carry_cr(tmp_path):
+    """Read the file as BYTES, not text: text mode with universal newlines
+    silently translates "\\r\\n" back to "\\n" on read, so a text-mode assertion
+    would pass on exactly the platform that has the bug."""
+    out = tmp_path / "t.jsonl"
+    writer = OppMegaTraceWriter(str(out))
+    row = build_opp_mega_trace_row(
+        context=_context(), decision_index=0, turn_number=3,
+        evidence=_evidence(), max_candidates=5, click_rate=0.35,
+    )
+    writer.write(row)
+    writer.write(row)
+
+    raw = out.read_bytes()
+    assert b"\r" not in raw, "sidecar bytes must be LF-only on every platform"
+    assert raw.endswith(b"\n")
+    assert raw.count(b"\n") == 2  # one terminator per row, no CRLF inflation
+
+
+def test_written_bytes_are_identical_regardless_of_insertion_order(tmp_path):
+    """Byte determinism over the ROW's own key order, checked on bytes."""
+    a = tmp_path / "a.jsonl"
+    b = tmp_path / "b.jsonl"
+    row = build_opp_mega_trace_row(
+        context=_context(), decision_index=0, turn_number=3,
+        evidence=_evidence(), max_candidates=5, click_rate=0.35,
+    )
+    reversed_row = dict(reversed(list(row.items())))
+    assert list(reversed_row) != list(row)  # genuinely different insertion order
+
+    OppMegaTraceWriter(str(a)).write(row)
+    OppMegaTraceWriter(str(b)).write(reversed_row)
+    assert a.read_bytes() == b.read_bytes()
+    assert b"\r" not in a.read_bytes()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from showdown_bot.battle.actions import JointAction
 from showdown_bot.battle.decision import _plan_my_actions, _search_depth, _search_topm, _search_topn
@@ -440,6 +440,17 @@ def score_evaluated_variants(
 
     _click_rate = opp_mega_click_rate() if foe_mega_eligibility else None
     _i7b_active = bool(foe_mega_eligibility)
+    # [REV.9 finding 3] Evidence is built inline during Phase C, but the depth-2 wrap
+    # below OVERWRITES rec.score_vector[i] in place afterwards and aggregate_scores()
+    # consumes THAT final vector. So an evidence row must not keep the 1-ply
+    # detail.score it was built from -- that number is superseded and never entered
+    # the decision. Each pending row therefore carries its (record, score_index)
+    # binding, and raw_score is resolved from rec.score_vector at the very end. The
+    # caller's sink is extended only then, so it can never be observed holding a
+    # superseded value, and a mid-scoring exception leaves it untouched rather than
+    # half-filled. Binding by index -- never by re-deriving from labels, which cannot
+    # distinguish a no-mega response from its foe-Mega twin on a rebuilt board.
+    _pending_evidence: list[tuple[ScoredResponseEvidence, MegaScoreRecord, int]] = []
 
     for world_idx, (world_sets, world_w) in enumerate(worlds):
         merged_sets = {**(opp_sets or {}), **world_sets}
@@ -658,7 +669,7 @@ def score_evaluated_variants(
                             # (not just numeric) parity claim.
                             rec.diagnostic_contexts.append(ctx)
                     if opp_mega_evidence_sink is not None:
-                        opp_mega_evidence_sink.append(ScoredResponseEvidence(
+                        _pending_evidence.append((ScoredResponseEvidence(
                             candidate_key=candidate_key,
                             response_id=(r.response_id if r is not None else "none"),
                             foe_mega_slot=None, branch_index=0, branch_weight=1.0,
@@ -666,7 +677,7 @@ def score_evaluated_variants(
                             response_weight=raw_w, raw_score=detail.score,
                             required_classes=required_classes,
                             retained_classes=retained_classes,
-                        ))
+                        ), rec, len(rec.score_vector) - 1))
 
                 for (b_slot, foe_mega_slot, branch_idx), bundle in branch_bundles.items():
                     if b_slot != slot:
@@ -692,7 +703,7 @@ def score_evaluated_variants(
                             rec.diagnostic_weights.append(raw_w * branch.weight)
                             rec.diagnostic_contexts.append(bundle["branch_ctx"])  # Task 6
                         if opp_mega_evidence_sink is not None:
-                            opp_mega_evidence_sink.append(ScoredResponseEvidence(
+                            _pending_evidence.append((ScoredResponseEvidence(
                                 candidate_key=candidate_key, response_id=original.response_id,
                                 foe_mega_slot=original.foe_mega_slot, branch_index=branch_idx,
                                 branch_weight=branch.weight, world_index=world_idx,
@@ -700,7 +711,7 @@ def score_evaluated_variants(
                                 raw_score=detail.score,
                                 required_classes=required_classes,
                                 retained_classes=retained_classes,
-                            ))
+                            ), rec, len(rec.score_vector) - 1))
 
     if _search_depth() > 1 and world_samples() <= 1:
         # --- depth-2 wrap for the Mega grid (I7a-B Task 1 follow-up; mirrors
@@ -773,6 +784,20 @@ def score_evaluated_variants(
                     model_kwargs=d2_model_kwargs,
                     eval_kwargs=d2_eval_kwargs,
                 )
+
+    # [REV.9 finding 3] Finalise evidence AFTER the depth-2 wrap and BEFORE the
+    # aggregate below, resolving each row's raw_score from the score_vector slot it
+    # was bound to. Index-parallel by construction: within a record, Phase C appends
+    # to rec.score_vector and to _pending_evidence in lockstep, so slot i of that
+    # record's rows is slot i of its vector -- exactly the values aggregate_scores()
+    # is about to consume. Rows whose index depth-2 never touched resolve back to
+    # their own 1-ply value unchanged, so the depth-1/legacy path is untouched.
+    if opp_mega_evidence_sink is not None:
+        opp_mega_evidence_sink.extend(
+            ev if ev.raw_score == rec.score_vector[i]
+            else replace(ev, raw_score=rec.score_vector[i])
+            for ev, rec, i in _pending_evidence
+        )
 
     for rec in records:
         rec.aggregate_score = aggregate_scores(

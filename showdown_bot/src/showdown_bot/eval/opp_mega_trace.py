@@ -142,5 +142,14 @@ class OppMegaTraceWriter:
         # sort_keys + compact separators: the sidecar is provenance, so the same
         # decision must serialise byte-identically regardless of dict insertion
         # order or platform.
-        with open(self.path, "a", encoding="utf-8") as fh:
+        #
+        # newline="" (I7b-C Rev. 9 finding 4) disables the platform newline
+        # translation that text mode applies on write: without it, every "\n"
+        # below lands on disk as "\r\n" under Windows, so the SAME decision
+        # produces different bytes -- and a different digest -- than it does on
+        # the Linux CI/eval hosts. JSONL is an interchange format; LF-only is the
+        # only cross-platform-stable choice. (Reading such a file back in text
+        # mode hides this, since universal newlines translate "\r\n" to "\n" --
+        # which is why the test asserts on raw bytes.)
+        with open(self.path, "a", encoding="utf-8", newline="") as fh:
             fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
