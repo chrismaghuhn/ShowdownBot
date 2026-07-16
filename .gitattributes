@@ -44,3 +44,9 @@ showdown_bot/tests/generalisation/golden/** -text
 # Pinned calc manifest is hashed byte-for-byte by calc_pin_hash(). core.autocrlf on
 # Windows would rewrite checkout to CRLF and drift the pin hash — force LF.
 showdown_bot/tools/calc/PINNED_CALC.json text eol=lf
+
+# Frozen Studio mockup sources are recorded with byte-level SHA-256 provenance.
+# Do not let platform checkout rules rewrite their line endings.
+showdownbot_studio/docs/design/viewer-v0-mockups/*.html -text
+showdownbot_studio/docs/design/viewer-v0-mockups/support.js -text
+showdownbot_studio/docs/design/viewer-v0-mockups/thumbnail.webp binary

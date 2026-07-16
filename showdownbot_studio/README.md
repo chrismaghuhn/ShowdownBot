@@ -23,6 +23,7 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 2. [`docs/research/2026-07-showdown-client-user-research.md`](docs/research/2026-07-showdown-client-user-research.md) — current client pain-point research.
 3. [`docs/specs/viewer-v0-design.md`](docs/specs/viewer-v0-design.md) — first bounded product slice.
 4. [`docs/architecture/PROJECT_BOUNDARIES.md`](docs/architecture/PROJECT_BOUNDARIES.md) — ownership and dependency rules.
+5. [`docs/design/viewer-v0-mockups/`](docs/design/viewer-v0-mockups/) — accepted visual direction and its binding review corrections.
 
 ## Repository layout
 
