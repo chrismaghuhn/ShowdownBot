@@ -741,15 +741,37 @@ def score_evaluated_variants(
         }
         for pos in ranked_pos[:top_n]:
             rec = records[pos]
-            ctx = ctx_by_slot[rec.variant.own_mega_slot]
             resp_ws = rec.diagnostic_weights or [1.0] * len(rec.score_vector)
             top_m_idx = sorted(range(len(resp_ws)), key=lambda i: -resp_ws[i])[:top_m]
+
             for i in top_m_idx:
                 outcome = rec.diagnostic_details[i].representative_outcome
+                # Task 6: bind to THIS index's own context -- the own-only ctx_by_slot
+                # entry for a no-mega index, or that specific foe-mega branch's own
+                # branch_ctx for a foe-mega index. A record's top-M may legitimately
+                # span both, since Task 4 interleaves foe-Mega branch responses into
+                # the same score_vector/diagnostic_details arrays; binding one blanket
+                # ctx_by_slot[rec.variant.own_mega_slot] to every index refined a
+                # foe-Mega branch's diagnostic against the own-only board.
+                # diagnostic_contexts is EMPTY on the legacy/I7a path (Task 4 populates
+                # it only when _i7b_active), so the else-branch preserves pre-I7b-B
+                # behavior byte-identically.
+                bound_ctx = (
+                    rec.diagnostic_contexts[i]
+                    if rec.diagnostic_contexts
+                    else ctx_by_slot[rec.variant.own_mega_slot]
+                )
                 rec.score_vector[i] = depth2_value_for_mega_context(
-                    ctx, outcome, our_side=our_side, mode=mode, risk_lambda=risk_lambda,
-                    top_m=2, book=book, predict_kwargs=d2_predict_kwargs,
-                    model_kwargs=d2_model_kwargs, eval_kwargs=d2_eval_kwargs,
+                    bound_ctx,
+                    outcome,
+                    our_side=our_side,
+                    mode=mode,
+                    risk_lambda=risk_lambda,
+                    top_m=2,
+                    book=book,
+                    predict_kwargs=d2_predict_kwargs,
+                    model_kwargs=d2_model_kwargs,
+                    eval_kwargs=d2_eval_kwargs,
                 )
 
     for rec in records:

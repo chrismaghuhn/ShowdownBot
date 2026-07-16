@@ -393,6 +393,75 @@ def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(
     assert records and all(r.score_vector for r in records)
 
 
+def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """Task 6. Depth-2 refinement of a foe-Mega-tagged top-M response must be bound
+    to THAT response's own composed branch's MegaEvaluationContext -- never a
+    different branch's, and never the record's own-only ctx_by_slot entry.
+
+    Proven by spying on the REAL depth2_value_for_mega_context and delegating to it;
+    a fake return value would prove nothing about which board the refinement ran on.
+
+    RED before the fix: depth-2 genuinely runs and seen_ctxs is non-empty, but the
+    wrap binds every diagnostic index to the single blanket
+    ctx_by_slot[rec.variant.own_mega_slot], so no context with
+    foe_mega_slot is not None ever reaches the function -- a foe-Mega branch's
+    diagnostic is refined against the own-only board instead of its own branch board.
+    """
+    import showdown_bot.battle.mega_scoring as mega_scoring_mod
+
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)
+    eligibility = _real_eligibility(kw)
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "1")
+    # SHOWDOWN_SEARCH_TOPM: at the default M=2 and the default click rate 0.35 the
+    # top-M frontier is all-no-mega and this code path is never reached. Measured on
+    # this fixture, not guessed -- a record's diagnostic weights are
+    #   [0.2453, 0.2453, 0.2453, 0.1321, 0.1321]
+    #   ctx foe_mega_slot: [None, None, None, 0, 0]
+    # i.e. each no-mega twin (0.65 x W) outweighs each foe-Mega branch response
+    # (0.35 x W x 0.5 branch weight), so top-2 picks indices [0, 1], both no-mega.
+    # Widening M to 5 makes the frontier span BOTH kinds, which is precisely the
+    # condition the per-index binding exists for (a record's top-M may legitimately
+    # include a foe-Mega branch response). This is an existing production knob
+    # (_search_topm), not a test-only hook.
+    monkeypatch.setenv("SHOWDOWN_SEARCH_TOPM", "5")
+
+    seen_ctxs: list = []
+    real_fn = mega_scoring_mod.depth2_value_for_mega_context
+
+    def spy(ctx, outcome, **kwargs):
+        seen_ctxs.append(ctx)
+        return real_fn(ctx, outcome, **kwargs)  # delegate to the REAL function
+
+    monkeypatch.setattr(mega_scoring_mod, "depth2_value_for_mega_context", spy)
+
+    _score(kw, req, eligibility=eligibility)
+
+    assert seen_ctxs, "depth-2 gate must actually have fired for this fixture"
+    foe_mega_ctxs = [c for c in seen_ctxs if c.foe_mega_slot is not None]
+    assert foe_mega_ctxs, (
+        "no foe-Mega branch context reached depth-2 -- every index was bound to the "
+        "blanket own-only ctx_by_slot[rec.variant.own_mega_slot]"
+    )
+    # The binding is genuinely PER INDEX, not "always the branch ctx": the same
+    # frontier must also still bind no-mega indices to the own-only context.
+    assert [c for c in seen_ctxs if c.foe_mega_slot is None], (
+        "no-mega indices must still bind to their own-only ctx_by_slot entry"
+    )
+
+    own_only = {c.own_mega_slot: c for c in kw["contexts"]}
+    for c in foe_mega_ctxs:
+        assert c.foe_mega_slot in (0, 1)
+        # genuinely a post-branch board: the foe has spent its Mega on it
+        assert c.projected_state.side_mega_spent.get("p2", False)
+        # ...and it is the branch-specific context, not the blanket own-only one
+        assert c is not own_only[c.own_mega_slot]
+        assert c.context_id.startswith("foe_mega:")
+
+
 def test_branch_replan_speed_matches_final_branch_state_speed(mega_decision_tie_fixture, monkeypatch):
     """[REV.6] The own-Mega speed override fed into the branch replan -- and the
     speed actually stored on the resulting PlannedAction -- must equal the speed
