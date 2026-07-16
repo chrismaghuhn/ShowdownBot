@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — I7b-A implemented/merged (`cdc55c2`); I7b-B implementation authorized; I7b-C remains review-gated — **Rev. 5, correcting the Task 4 integration fixture and adding a species/form coherence gate to Task 2.**
+**Status:** APPROVED — I7b-A implemented/merged (`cdc55c2`); I7b-B implementation authorized; I7b-C remains review-gated — **Rev. 6, replacing Task 4's invalid `own_override` speed access with a final-branch-state derivation** (Rev. 5 corrected the Task 4 integration fixture and added a species/form coherence gate to Task 2).
 
 > **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
@@ -15,6 +15,104 @@
 **Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. No Showdown server needed until a future, separately-authorized I7b live smoke (out of scope here).
 
 ---
+
+## Rev. 6 — Task 4's `own_override` reads a field that does not exist
+
+Rev. 6 is a **narrow correction**, not a redesign. It changes nothing about the
+three-phase architecture, the weighting formula, the flush discipline, the evidence
+DTO, or Rev. 5's corrections.
+
+### The defect — CONFIRMED at runtime, not by inspection
+
+Rev. 4/5's Task 4 Phase-A-part-2 computes the own-side post-Mega speed override as:
+
+```python
+own_override = (
+    {ctx.own_mega_slot: branch.projected_state.sides[our_side][
+        "a" if ctx.own_mega_slot == 0 else "b"].effective_speed}   # <-- invalid
+    if ctx.own_mega_slot is not None else None
+)
+```
+
+`PokemonState` **has no `effective_speed` attribute.** Its real fields are
+`species, nickname, level, gender, hp, max_hp, boosts, status, item, item_known,
+ability, moves, move_names, tera_type, terastallized, fainted, types,
+consecutive_protect, moved_since_switch, item_lost, base_species_id`. Hit for real
+while executing Task 4:
+
+```
+AttributeError: 'PokemonState' object has no attribute 'effective_speed'
+  src/showdown_bot/battle/mega_scoring.py, Phase A part 2
+```
+
+Post-Mega speed lives on **`MegaProjectionResult.effective_speed`** — which is what
+the existing `_mega_context` correctly uses (`overrides = {own_mega_slot: proj.effective_speed}`).
+`compose_mega_projection_branches` obtains that result per activation but keeps only
+`step.projected_state`, and `WeightedMegaProjection` carries only
+`projected_state`/`weight`/`activation_order`. So the value the plan reaches for is
+genuinely not reachable the way it is written.
+
+### Correction (binding for Task 4)
+
+Re-derive the own-Mega speed from the **complete, final** `branch.projected_state`:
+
+- `PokemonState` does **not** gain an `effective_speed` field.
+- `WeightedMegaProjection` stays **unchanged** — no new speed field.
+- The pre-existing own-Mega context is **not** reused as a speed source.
+- For `ctx.own_mega_slot is not None`: determine the slot letter, read the projected
+  own mon out of `branch.projected_state`, and call
+  `speed_oracle.speed_for_species(...)` with that mon's Mega species, its base
+  species, the **final branch** field, `our_spreads`, `book`, and `is_ours=True`.
+  Pass the result as `planned_speed_overrides_by_slot={ctx.own_mega_slot: computed_speed}`
+  to `_plan_my_actions`.
+- No manual stat/EV arithmetic and no access to private `SpeedOracle` methods.
+- Do **not** functionally rework the existing Task 3 commits.
+
+```python
+    own_override = None
+    if ctx.own_mega_slot is not None:
+        own_slot_letter = "a" if ctx.own_mega_slot == 0 else "b"
+        own_projected = branch.projected_state.sides[our_side][own_slot_letter]
+        own_override = {
+            ctx.own_mega_slot: speed_oracle.speed_for_species(
+                species_name=own_projected.species,
+                base_species_id=own_projected.base_species_id or own_projected.species,
+                side=our_side,
+                mon=own_projected,
+                field=branch.projected_state.field,
+                our_spreads=our_spreads,
+                opp_sets=None,
+                book=book,
+                is_ours=True,
+            )
+        }
+```
+
+**Required regression test:** the replanned `PlannedAction.speed` for the own Mega'd
+slot equals the speed computed over the **final branch state**. The test must be RED
+with the real error (the `AttributeError` above) before the correction, and Reg-I /
+`format_config=None` parity, live-state non-mutation, and the three phases must stay
+green.
+
+**Latency, stated honestly:** deriving on the final branch state is an additional
+`speed_for_species` call per `(slot, foe_mega_slot, branch_idx)`. The existing calc
+cache should normally absorb it, but that is **not** a semantic contract and must not
+be claimed as one — measure it rather than assert it. Champions latency is separately
+open (I5 worst p95 3235 ms vs a 1000 ms budget).
+
+**Why not the cheaper alternatives** (recorded so they are not re-litigated): carrying
+the speeds on `WeightedMegaProjection` would functionally rework the merged Task 3
+commit; reusing the already-computed own-Mega `MegaProjectionResult` would require
+either a `MegaEvaluationContext` schema change (which the audit explicitly forbids —
+§Rev.2 item 5) or threading the projection results into `score_evaluated_variants`.
+
+**Related fact, deliberately not relied upon:** weather is not a speed modifier in this
+model — `speed_modifiers_from_state` reads only `boost_stage`, `tailwind`, `paralyzed`,
+`scarf`, `booster_speed` — so a foe's Mega weather does not change our own mon's
+effective speed today, and the final-branch derivation is expected to agree numerically
+with the plain own-Mega projection. That is an observation about the current model, not
+a licence to read the value from somewhere else; deriving it from the final branch state
+stays correct if a weather-sensitive speed modifier is ever added.
 
 ## Rev. 5 — Task 4 fixture defect and Task 2 species coherence
 
@@ -2070,11 +2168,26 @@ Inside the existing per-world loop (`mega_scoring.py:374-...`), replace the body
                     branches = []  # fail-closed: exclude, never crash the whole score
 
                 for branch_idx, branch in enumerate(branches):
-                    own_override = (
-                        {ctx.own_mega_slot: branch.projected_state.sides[our_side][
-                            "a" if ctx.own_mega_slot == 0 else "b"].effective_speed}
-                        if ctx.own_mega_slot is not None else None
-                    )
+                    # [REV.6] PokemonState has NO effective_speed attribute -- the
+                    # Rev.4/5 access here raised AttributeError at runtime. Re-derive
+                    # from the COMPLETE, FINAL branch state via the central resolver.
+                    own_override = None
+                    if ctx.own_mega_slot is not None:
+                        own_slot_letter = "a" if ctx.own_mega_slot == 0 else "b"
+                        own_projected = branch.projected_state.sides[our_side][own_slot_letter]
+                        own_override = {
+                            ctx.own_mega_slot: speed_oracle.speed_for_species(
+                                species_name=own_projected.species,
+                                base_species_id=own_projected.base_species_id or own_projected.species,
+                                side=our_side,
+                                mon=own_projected,
+                                field=branch.projected_state.field,
+                                our_spreads=our_spreads,
+                                opp_sets=None,
+                                book=book,
+                                is_ours=True,
+                            )
+                        }
                     replanned_plans = {
                         joint: _plan_my_actions(
                             req, joint, state=branch.projected_state, our_side=our_side,
