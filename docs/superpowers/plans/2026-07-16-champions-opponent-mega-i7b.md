@@ -2,7 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — I7b-A implementation allowed; I7b-B/I7b-C remain review-gated — **Rev. 4, incorporating the final Codex data-flow review.** No production code, test code, or run artifact from this plan exists yet.
+**Status:** APPROVED — I7b-A implemented/merged (`cdc55c2`); I7b-B implementation authorized; I7b-C remains review-gated — **Rev. 5, correcting the Task 4 integration fixture and adding a species/form coherence gate to Task 2.**
+
+> **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
 **Companion audit:** `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md` (Rev. 4) — read it first, especially §Rev.4; every architecture decision below is justified there against the current codebase at commit `1053cf1` and, for the weather-ordering question, against the pinned Showdown source at `f8ac140` and the binding Rev. 10 spec correction.
 
@@ -13,6 +15,131 @@
 **Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. No Showdown server needed until a future, separately-authorized I7b live smoke (out of scope here).
 
 ---
+
+## Rev. 5 — Task 4 fixture defect and Task 2 species coherence
+
+Rev. 5 is a **narrow correction**, not a redesign. It changes nothing about the Rev. 4
+three-phase architecture, the weighting formula, the flush discipline, or the evidence
+DTO. Two defects, one found during I7b-B execution prep and independently reproduced by
+Codex, plus one consequence that follows mechanically from the second.
+
+### 1. Task 4's integration fixture cannot produce the tie its own test asserts — CONFIRMED
+
+Rev. 4's `test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch`
+asserts `assert tied_groups  # this fixture's speed values must exercise a genuine tie`.
+A tie requires `compose_mega_projection_branches` to return two `0.5`-weight branches,
+which happens only on **exactly equal pre-mega speed**. Measured against the real
+`SpeedOracle` + real `SubprocessCalcBackend`, computed exactly the way Task 3's
+implementation computes pre-mega speed:
+
+| Fixture slot | Species | Resolver | Pre-mega speed |
+|---|---|---|---|
+| `p1.a` | Aerodactyl | `our_spreads`, `is_ours=True` | **200** |
+| `p2.a` | **Incineroar** | `book.default`, `is_ours=False` | **123** |
+
+Not a tie → **one branch, weight 1.0** → every `by_response` group holds exactly one
+row → `tied_groups == []` → the assertion **cannot pass**. No parameter choice rescues
+it: `tests/conftest.py::_mega_state()` defines **no `p2.b` at all**, and the Task 4
+tests pass `opp_sets=None`, so the foe speed is pinned to `book.default`.
+
+**Root cause:** the Rev. 4 tests pass `eligibility = {"a": mega_form_for("Aerodactyl",
+"Aerodactylite")}` — which would tie at 200-vs-200 *if the foe were an Aerodactyl*. It
+is an Incineroar. This is the **same bug class the audit itself caught for T51**
+("T51's chosen hero speed (140) cannot demonstrate a real order flip", audit §Rev.2
+secondary findings) — caught there, missed here.
+
+**Correction (binding for Task 4):**
+
+- Keep `mega_decision_fixture` and `_mega_state()` **default behavior unchanged** — they
+  are shared with `tests/i7a/` and Step 0 already commits to "keep the existing
+  request/state/book/profile construction".
+- Extract the fixture construction into a small **test-only builder**, with the current
+  Incineroar opponent as its default.
+- Add a dedicated **`mega_decision_tie_fixture`** whose `p2.a` is a **real Aerodactyl
+  holding Aerodactylite with `item_known=True`**.
+- Build that fixture's `contexts`/`evaluated_variants` from the coherent
+  Aerodactyl-vs-Aerodactyl state **from the beginning** — do **not** swap only
+  `kw["state"]` after contexts already exist.
+- Derive eligibility through the **real `foe_mega_eligibility()`**, never by hand-injecting
+  a `MegaForm` onto a mismatched species.
+- **Verify the equality with the real backend inside the test**, as an explicit
+  precondition, before the scoring assertion — the defect above existed precisely because
+  a tie was asserted that nobody computed.
+- Task 3's monkeypatched tie test stays as the **isolated branch-enumeration** test.
+  Task 4 stays a **real-backend integration** test. The two are not interchangeable.
+
+**Pre-verified against the real backend** (same method as the defect measurement above),
+so Rev. 5 does not repeat Rev. 4's mistake of asserting an uncomputed tie:
+
+| Proposed tie-fixture slot | Species | Resolver | Pre-mega speed |
+|---|---|---|---|
+| `p1.a` | Aerodactyl | `our_spreads`, `is_ours=True` | **200** |
+| `p2.a` | **Aerodactyl** (Aerodactylite, `item_known=True`) | `book.default`, `is_ours=False` | **200** |
+
+→ tie **True** → two branches, weight **0.5** each. And the real
+`foe_mega_eligibility(state, "p2", opp_sets=None)` returns
+`{'a': MegaForm(base_species_id='aerodactyl', form_species_id='aerodactylmega', ...)}`
+— the manual injection is unnecessary as well as incoherent.
+
+### 2. `project_mega` does not check species/form coherence — CONFIRMED
+
+Direct read of `engine/mega_projection.py`: `project_mega` validates
+`speed_oracle.profile == calc_profile` and that `mega_form.form_species_id` is a known
+form, then writes `mon.species = form_meta.form_species_name` and
+`mon.base_species_id = mega_form.base_species_id` **without ever checking that the mon
+at that slot is actually the form's base species**. Rev. 4's own Task 4 tests exploit
+this by accident: they project an *Aerodactyl-Mega* onto an *Incineroar* and it silently
+succeeds.
+
+**Correction (binding for Task 2):**
+
+- Add a **fail-closed species/form coherence check to `project_mega()`, before projection**.
+- The slot's normalized `base_species_id` **or** normalized `species` must equal
+  `mega_form.base_species_id` (the `or` preserves valid sub-form mappings, e.g. an
+  already-Mega'd mon whose `species` is `"Aerodactyl-Mega"` but whose `base_species_id`
+  is still `"aerodactyl"`).
+- On mismatch raise a **dedicated `MegaProjectionSpeciesMismatchError`**.
+- Add a **RED→GREEN regression** proving Incineroar + Aerodactyl-Mega is rejected **and
+  the input state remains unmutated**.
+- Preserve all valid sub-form mappings and existing I7a behavior — every existing I7a
+  call site projects a coherent own-side form and must stay green.
+
+**`MegaProjectionSpeciesMismatchError` is deliberately NOT added to Task 4's
+`except (UnsupportedMegaAbilityError, MissingMegaSpreadError)` list.** In production an
+incoherent hypothesis cannot arise: `foe_mega_eligibility()` derives every form from
+`mega_form_for(mon.species, mon.item)` and is therefore coherent by construction. A
+mismatch reaching `project_mega` would be a genuine programming error, and crashing is
+the correct fail-closed response — silently excluding it would hide the bug.
+
+### 3. Consequence: Task 5's ability-gate test must use a coherent foe
+
+**This item is a mechanical consequence of correction 2, not an independent change** —
+flagged explicitly so it can be struck without touching corrections 1-2.
+
+Rev. 4's Task 5 test injects a `Scovillain-Mega` form (described there as "synthetic")
+onto the fixture's non-Scovillain foe and expects `UnsupportedMegaAbilityError`.
+Verified against real metadata: `scovillainmega` is **a real, known form**
+(`species_meta`), its `ability_slot0` is `'Spicy Spray'`, and it is the **only** member
+of `FAIL_CLOSED_ABILITIES` in the entire dex — so the test does work today. But once
+correction 2 lands, the coherence check fires **before** the ability gate
+(`aerodactyl`/`incineroar` ≠ `scovillain`), raising `MegaProjectionSpeciesMismatchError`
+— which Task 4 deliberately does not catch. The test would then crash instead of
+proving exclusion, and would no longer test the ability gate at all.
+
+**Correction (binding for Task 5):** the test's foe must be a **real Scovillain holding
+Scovillainite (`item_known=True`)**, with eligibility derived through the real
+`foe_mega_eligibility()`. Pre-verified: `mega_form_for("Scovillain", "Scovillainite")`
+returns the real form, the coherence check passes (`scovillain == scovillain`), the
+ability gate is then what fires, and the real eligibility path yields
+`{'a': MegaForm(base_species_id='scovillain', ...)}`.
+
+### Scope of Rev. 5
+
+Unchanged: the three-phase architecture, `world_w × response_weight × branch_weight`,
+one-shared-flush-per-world, `ScoredResponseEvidence`'s raw-component contract, the
+original/replanned pairing rule, `MissingBranchResponseError`, Task 6's zero-`search.py`
+depth-2 binding, and every slice boundary and stop gate. No I7b-C change. No Strength
+claim. No live run.
 
 ## Rev. 4 final data-flow corrections
 
@@ -859,7 +986,7 @@ git add src/showdown_bot/engine/speed.py tests/i7b/test_i7b_projection.py
 git commit -m "feat(champions-i7b-b): mega_activation_order_key (TR-aware, resolver-consistent)"
 ```
 
-### Task 2 (was: Task 0) — side-aware `project_mega` contract [REV.2, new, mandatory before anything else in this slice]
+### Task 2 (was: Task 0) — side-aware `project_mega` contract + species coherence gate [REV.2 origin; REV.5 adds the coherence gate; mandatory before anything else in this slice]
 
 **Confirmed P1 blocker (audit §Rev.2 finding 2), not a possible future stop.** `project_mega` (`engine/mega_projection.py:60-115`) hardcodes `lookup_our_spreads(spread_lookup, mon)` (line 93) and `opp_sets=None, book=None, is_ours=True` (lines 104-106) regardless of the `side` argument — calling it with `side=opp_side` today would silently look up the foe's spread via the WRONG accessor and always claim `is_ours=True` to `speed_for_species`. This must be fixed, tested, and green **before** Task 3 (`compose_mega_projection_branches`) is written, since that function calls `project_mega` for both own- and foe-side activations.
 
@@ -944,6 +1071,55 @@ def test_project_mega_own_side_default_is_byte_identical_to_before(i7b_projectio
     result = project_mega(
         state, "p1", "a", form, species_meta=i7b_projection_env["species_meta"],
         speed_oracle=i7b_projection_env["speed_oracle"], calc_profile=i7b_projection_env["calc_profile"],
+        spread_lookup=i7b_aerodactyl_spreads,
+    )
+    assert result.projected_state.sides["p1"]["a"].species == "Aerodactyl-Mega"
+
+
+def test_project_mega_rejects_species_form_mismatch_and_does_not_mutate(i7b_projection_env, opp_sets_meganium):
+    """[REV.5 correction 2] project_mega must fail closed when the slot's mon is
+    not the form's base species. Rev. 4 had no such check: it wrote
+    `mon.species = form_meta.form_species_name` unconditionally, so an
+    Aerodactyl-Mega form projected onto an Incineroar silently "succeeded" --
+    which is exactly what Rev. 4's own Task 4 tests were accidentally relying on.
+    The input state must also come back unmutated."""
+    from copy import deepcopy
+
+    from showdown_bot.engine.mega_projection import MegaProjectionSpeciesMismatchError
+
+    state = BattleState()
+    state.sides["p2"]["a"] = PokemonState(
+        species="Incineroar", base_species_id="incineroar", hp=100, max_hp=100,
+    )
+    before = deepcopy(state)
+    form = mega_form_for("Aerodactyl", "Aerodactylite")  # base_species_id="aerodactyl"
+
+    with pytest.raises(MegaProjectionSpeciesMismatchError):
+        project_mega(
+            state, "p2", "a", form, species_meta=i7b_projection_env["species_meta"],
+            speed_oracle=i7b_projection_env["speed_oracle"],
+            calc_profile=i7b_projection_env["calc_profile"],
+            is_ours=False, opp_sets=opp_sets_meganium, book=None,
+        )
+    assert state == before  # fail-closed must not leave a half-projected board
+
+
+def test_project_mega_accepts_already_mega_species_via_base_species_id(i7b_projection_env, i7b_aerodactyl_spreads):
+    """[REV.5 correction 2] The coherence check matches on normalized
+    base_species_id OR normalized species -- so a valid sub-form mapping (a mon
+    whose `species` already reads "Aerodactyl-Mega" but whose `base_species_id`
+    is still "aerodactyl") is NOT rejected. Pins the `or` half of the rule; a
+    species-only check would break this."""
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl-Mega", base_species_id="aerodactyl",
+        item="Aerodactylite", hp=100, max_hp=100,
+    )
+    form = mega_form_for("Aerodactyl", "Aerodactylite")
+    result = project_mega(
+        state, "p1", "a", form, species_meta=i7b_projection_env["species_meta"],
+        speed_oracle=i7b_projection_env["speed_oracle"],
+        calc_profile=i7b_projection_env["calc_profile"],
         spread_lookup=i7b_aerodactyl_spreads,
     )
     assert result.projected_state.sides["p1"]["a"].species == "Aerodactyl-Mega"
@@ -1033,6 +1209,40 @@ def project_mega(
 ) -> MegaProjectionResult:
 ```
 
+**[REV.5 correction 2] Add the fail-closed species/form coherence check BEFORE any
+projection write.** Place it after the existing `form_meta is None` guard and before the
+first mutation of the copied state (`mon.species = form_meta.form_species_name`), so a
+mismatch can never leave a half-projected board. Add the new exception next to the two
+existing ones (`MissingMegaSpreadError`, `UnsupportedMegaAbilityError`):
+
+```python
+class MegaProjectionSpeciesMismatchError(ValueError):
+    """The mon at (side, slot) is not the mega_form's base species. In production
+    this cannot arise -- battle.opponent.foe_mega_eligibility derives every form
+    from mega_form_for(mon.species, mon.item) and is coherent by construction, and
+    the own side reads its own request -- so reaching this is a real programming
+    error. Fail closed rather than silently rewriting an unrelated mon's species
+    (Rev. 4 projected Aerodactyl-Mega onto an Incineroar without complaint)."""
+```
+
+```python
+    mon = projected_state.sides[side][slot]
+    # Match on normalized base_species_id OR normalized species: the `or` keeps
+    # valid sub-form mappings working (e.g. an already-Mega'd mon whose species
+    # reads "Aerodactyl-Mega" while base_species_id is still "aerodactyl").
+    _candidates = {to_id(mon.base_species_id or ""), to_id(mon.species or "")}
+    if mega_form.base_species_id not in _candidates:
+        raise MegaProjectionSpeciesMismatchError(
+            f"{side}/{slot} is {mon.species!r} (base {mon.base_species_id!r}) "
+            f"but mega_form base is {mega_form.base_species_id!r}"
+        )
+```
+
+Needs `to_id` (`showdown_bot.engine.state`) imported in `mega_projection.py` if not already
+present — verify before wiring rather than assuming. Every existing I7a call site projects
+a coherent own-side form, so all of `tests/i7a/` must stay green unchanged; that is the
+regression signal for this check being correctly scoped.
+
 Replace the body's spread-resolution block (currently lines 93-107) with a single call to the existing central resolver. Do **not** preflight the foe with `lookup_opp_set`: `SpeedOracle.speed_for_species` already implements the binding lookup order `book` first, then `opp_sets`, and raises `MissingMegaSpreadError` only when both fail.
 
 ```python
@@ -1060,7 +1270,7 @@ Expected: new tests pass; every existing I7a test that calls `project_mega` (own
 **Step 5 — commit:**
 ```powershell
 git add src/showdown_bot/engine/mega_projection.py tests/i7b/conftest.py tests/i7b/test_i7b_projection.py
-git commit -m "feat(champions-i7b-b): side-aware project_mega contract (is_ours/opp_sets/book)"
+git commit -m "feat(champions-i7b-b): side-aware project_mega contract + species coherence gate"
 ```
 
 ### Task 3: `WeightedMegaProjection` and `compose_mega_projection_branches`
@@ -1352,68 +1562,161 @@ git commit -m "feat(champions-i7b-b): compose_mega_projection_branches (dual-Meg
 
 **Weighting (finding 3), precisely:** when THIS call's `foe_mega_eligibility` is non-empty (the I7b path genuinely active for this decision), `raw_w = r.weight` unconditionally for every response, no-mega included — overriding the legacy `priors is not None` gate for this call only. When `foe_mega_eligibility` is `None`/empty (every existing I7a-only caller, including the byte-identical Reg-I test below), the EXISTING `raw_w = r.weight if (priors is not None and r is not None) else 1.0` gate is preserved exactly, unchanged — Reg-I stays byte-identical.
 
-**Step 0 — extend the shared fixture with the exact real scoring inputs.** In `showdown_bot/tests/conftest.py`, keep the existing request/state/book/profile construction and replace the final `kw = dict(...)` block with this additive preparation. Existing keys and fixture shape `(req, kw)` remain unchanged:
+**Step 0 [REV.5] — extract a test-only builder; add a separate, coherent tie fixture.**
+In `showdown_bot/tests/conftest.py`. `mega_decision_fixture`'s and `_mega_state()`'s
+**default behavior stays unchanged** (both are shared with `tests/i7a/`): `_mega_state()`
+gains one defaulted parameter whose default reproduces today's Incineroar opponent
+exactly, and the construction body moves into a builder that both fixtures call. Fixture
+shape `(req, kw)` is unchanged.
 
 ```python
+def _mega_state(foe_a: "PokemonState | None" = None):
+    """Default (foe_a=None) is byte-identical to the pre-Rev.5 board: p2.a Incineroar."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    st.sides["p1"]["b"] = PokemonState(
+        species="Whimsicott", base_species_id="whimsicott",
+        types=["Grass", "Fairy"], hp=100, max_hp=100,
+    )
+    st.sides["p2"]["a"] = foe_a if foe_a is not None else PokemonState(
+        species="Incineroar", base_species_id="incineroar",
+        types=["Fire", "Dark"], hp=100, max_hp=100,
+    )
+    return st
+
+
+def _build_mega_decision_kw(state):
+    """Test-only builder. contexts/evaluated_variants are built FROM `state`, so a
+    caller-supplied board is coherent from the start -- never a post-hoc
+    kw["state"] swap after contexts already exist (which would leave every context's
+    projected_state/plans/damage_model bound to the OTHER board)."""
     from showdown_bot.battle.actions import enumerate_my_actions
     from showdown_bot.battle.evaluate import EvalWeights
     from showdown_bot.battle.mega_scoring import build_own_mega_contexts
+    from showdown_bot.battle.oracle import DamageOracle
     from showdown_bot.engine.belief.game_mode import GameMode
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadBook, SpreadPreset
+    from showdown_bot.engine.calc.client import SubprocessCalcBackend
+    from showdown_bot.engine.calc_profile import calc_profile_from_config
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.engine.speed import SpeedOracle
     from showdown_bot.engine.species_meta import species_meta_table
 
+    cfg = load_format_config("gen9championsvgc2026regma")
+    calc_profile = calc_profile_from_config(cfg)
+    speed_oracle = SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=calc_profile)
+    spreads = SpeciesSpreads(
+        offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
+        defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}),
+    )
+    book = SpreadBook(default=spreads)
+    req = _mega_req()
     oracle = DamageOracle()
-    state = _mega_state()
-    our_spreads = {
-        "aerodactyl": spreads,
-        "whimsicott": spreads,
-        "incineroar": spreads,
-    }
+    our_spreads = {"aerodactyl": spreads, "whimsicott": spreads, "incineroar": spreads}
     contexts, evaluated_variants = build_own_mega_contexts(
-        req,
-        state,
-        our_side="p1",
-        opp_side="p2",
-        book=book,
-        oracle=oracle,
-        speed_oracle=speed_oracle,
-        species_meta=species_meta_table(),
-        our_spreads=our_spreads,
-        opp_sets=None,
-        calc_profile=calc_profile,
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=our_spreads, opp_sets=None, calc_profile=calc_profile,
         my_actions=enumerate_my_actions(req),
     )
     kw = dict(
-        state=state,
-        book=book,
-        our_side="p1",
-        oracle=oracle,
-        speed_oracle=speed_oracle,
-        format_config=cfg,
-        calc_profile=calc_profile,
-        evaluated_variants=evaluated_variants,
-        contexts=contexts,
-        calc=oracle.client,
-        dex=None,
-        weights=EvalWeights(),
-        mode=GameMode.NEUTRAL,
-        our_spreads=our_spreads,
-        opp_sets=None,
+        state=state, book=book, our_side="p1", oracle=oracle, speed_oracle=speed_oracle,
+        format_config=cfg, calc_profile=calc_profile,
+        evaluated_variants=evaluated_variants, contexts=contexts, calc=oracle.client,
+        dex=None, weights=EvalWeights(), mode=GameMode.NEUTRAL,
+        our_spreads=our_spreads, opp_sets=None,
     )
+    return req, kw
+
+
+@pytest.fixture
+def mega_decision_fixture():
+    """Unchanged default board (p2.a Incineroar). NOT usable for foe-Mega scoring:
+    its foe is not a Mega holder, so the real foe_mega_eligibility() returns {}."""
+    return _build_mega_decision_kw(_mega_state())
+
+
+@pytest.fixture
+def mega_decision_tie_fixture():
+    """[REV.5 correction 1] p2.a is a REAL Aerodactyl holding Aerodactylite with
+    item_known=True, so the real foe_mega_eligibility() yields a coherent
+    Aerodactyl-Mega hypothesis AND both pre-mega speeds tie -- the two branches at
+    weight 0.5 that Task 4's weighting test requires.
+
+    Verified against the real SpeedOracle + real SubprocessCalcBackend, not assumed:
+      p1.a Aerodactyl (our_spreads, is_ours=True)  -> 200
+      p2.a Aerodactyl (book.default, is_ours=False) -> 200   => tie, 2 branches @ 0.5
+    (Rev. 4 used the Incineroar board here: 200 vs 123, one branch @ 1.0, so its own
+    `assert tied_groups` could never pass -- see §Rev. 5.)"""
+    foe = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
 ```
 
-This setup intentionally leaves the shared oracle unflushed: `build_own_mega_contexts` only enqueues, and the scoring call under test owns the single world-level flush. Add `test_mega_decision_fixture_exposes_real_scoring_inputs` to pin every new key plus `len(evaluated_variants) > 1` and `contexts` non-empty before the I7b tests rely on them.
+Both fixtures intentionally leave the shared oracle unflushed: `build_own_mega_contexts`
+only enqueues, and the scoring call under test owns the single world-level flush.
+
+Add `test_mega_decision_fixture_exposes_real_scoring_inputs` to pin every new key plus
+`len(evaluated_variants) > 1` and `contexts` non-empty before the I7b tests rely on them.
+Add `test_mega_decision_fixture_default_board_is_unchanged` pinning that
+`_mega_state()`'s default still yields `p2.a` Incineroar with no item — the guard that
+this extraction did not silently alter the board `tests/i7a/` depends on.
 
 **Step 1 — write failing tests**, new file `showdown_bot/tests/i7b/test_i7b_scoring.py`:
 
 ```python
-"""I7b-B Task 4 (Rev. 4): three-phase foe-Mega scoring integration."""
+"""I7b-B Task 4 (Rev. 5): three-phase foe-Mega scoring integration."""
 from __future__ import annotations
 
 import pytest
 
 from showdown_bot.battle.candidate_identity import joint_action_key_v2
 from showdown_bot.battle.mega_scoring import MegaScoreRecord, score_evaluated_variants
-from showdown_bot.engine.mega_form import mega_form_for
+
+# [REV.5] `mega_form_for` is deliberately NOT imported here any more: every test in
+# this file now derives its hypothesis through the real foe_mega_eligibility() via
+# _real_eligibility(), so a hand-built MegaForm has no remaining call site (it would
+# be an unused import, and re-introducing one would reopen the incoherent-hypothesis
+# defect Rev. 5 closes).
+
+
+def _real_eligibility(kw):
+    """[REV.5] Derive eligibility through the REAL limited-view path, never by
+    hand-injecting a MegaForm. Rev. 4 injected an Aerodactyl-Mega form onto an
+    Incineroar -- a hypothesis foe_mega_eligibility() can never produce (it resolves
+    species-bound via mega_form_for(mon.species, mon.item)) and which Task 2's Rev. 5
+    coherence check now rejects outright."""
+    from showdown_bot.battle.opponent import foe_mega_eligibility
+
+    elig = foe_mega_eligibility(kw["state"], "p2", opp_sets=kw.get("opp_sets"))
+    assert elig, "fixture must yield a real foe-Mega hypothesis for this test to mean anything"
+    return elig
+
+
+def _assert_pre_mega_speeds_tie(kw):
+    """[REV.5] Explicit real-backend precondition for every test that asserts two
+    0.5-weight branches. Rev. 4's defect was asserting a tie nobody ever computed
+    (Aerodactyl 200 vs Incineroar 123); this makes the tie a checked fact, and makes
+    a fixture/backend drift fail HERE with a readable message instead of surfacing as
+    a confusing `assert tied_groups` failure downstream."""
+    st, so = kw["state"], kw["speed_oracle"]
+    own_mon, foe_mon = st.sides["p1"]["a"], st.sides["p2"]["a"]
+    own = so.speed_for_species(
+        species_name=own_mon.species, base_species_id=own_mon.base_species_id or own_mon.species,
+        side="p1", mon=own_mon, field=st.field, our_spreads=kw["our_spreads"],
+        opp_sets=None, book=kw["book"], is_ours=True,
+    )
+    foe = so.speed_for_species(
+        species_name=foe_mon.species, base_species_id=foe_mon.base_species_id or foe_mon.species,
+        side="p2", mon=foe_mon, field=st.field, our_spreads=None,
+        opp_sets=kw.get("opp_sets"), book=kw["book"], is_ours=False,
+    )
+    assert own == foe, f"tie fixture must actually tie: p1.a={own} vs p2.a={foe}"
 
 
 def _score(kw, req, *, eligibility=None, sink=None):
@@ -1442,15 +1745,22 @@ def test_return_type_is_unchanged_records_only(mega_decision_fixture):
     assert all(isinstance(r, MegaScoreRecord) for r in records)
 
 
-def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega_decision_fixture):
+def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega_decision_tie_fixture):
     """T19/T26 weighting: sibling evidence rows for the SAME (candidate,
     response) tie must have equal, sub-1.0 branch_weight values summing to
     1.0 -- a regression that drops branch.weight from the branch-building or
     evaluation path would either collapse the tie to one branch (failing the
     `tied_groups` non-empty check) or leave both siblings at weight 1.0
-    (failing the sum-to-1.0 check)."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    (failing the sum-to-1.0 check).
+
+    [REV.5] Uses mega_decision_tie_fixture (real Aerodactyl foe, 200 vs 200), NOT
+    the default Incineroar board (200 vs 123) whose single weight-1.0 branch made
+    Rev. 4's `assert tied_groups` unsatisfiable. Real-backend integration test --
+    Task 3's monkeypatched tie test covers branch ENUMERATION in isolation; this
+    one must earn its tie from the real backend."""
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)  # REV.5: checked precondition, not an assumption
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
 
@@ -1468,23 +1778,23 @@ def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega
         assert sum(e.branch_weight for e in group) == pytest.approx(1.0)
 
 
-def test_no_mega_responses_also_produce_evidence_rows(mega_decision_fixture):
+def test_no_mega_responses_also_produce_evidence_rows(mega_decision_tie_fixture):
     """Finding 4a: the future smoke's evidence gate requires BOTH a no-mega
     and a mega twin for the same decision -- Rev. 2 only ever appended
     inside the foe-mega branch loop."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert any(e.foe_mega_slot is None for e in evidence)
     assert any(e.foe_mega_slot is not None for e in evidence)
 
 
-def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_fixture):
+def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_tie_fixture):
     """Finding 4d: `candidate_key` must come from the real module-level
     `joint_action_key_v2`, not a nonexistent `.joint_action_key()` method."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     records = _score(kw, req, eligibility=eligibility, sink=evidence)
     valid_keys = {joint_action_key_v2(r.variant.joint) for r in records}
@@ -1492,14 +1802,14 @@ def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_fixtur
     assert all(e.candidate_key in valid_keys for e in evidence)
 
 
-def test_evidence_carries_raw_unmultiplied_components(mega_decision_fixture):
+def test_evidence_carries_raw_unmultiplied_components(mega_decision_tie_fixture):
     """Finding 4b/4c: evidence exposes world_index/world_weight/response_weight
     as separate fields, and `raw_score` is the per-response detail score
     alone -- never pre-multiplied into a single "contribution", since
     aggregate_scores (policy.py:46) is non-linear (MUST_REACT/NEUTRAL) and no
     single per-response product is correct under both operators."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert evidence
@@ -1510,13 +1820,13 @@ def test_evidence_carries_raw_unmultiplied_components(mega_decision_fixture):
         assert isinstance(e.raw_score, float)
 
 
-def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_decision_fixture):
+def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_decision_tie_fixture):
     """Finding 3: when foe_mega_eligibility is non-empty, EVERY response
     (no-mega included) must use its real r.weight -- not the legacy
     `1.0`-under-priors=None default, which would otherwise make no-mega and
     mega responses incomparable within the same decision."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     no_mega = [e for e in evidence if e.foe_mega_slot is None]
@@ -1525,14 +1835,14 @@ def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_de
 
 
 def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
-    mega_decision_fixture, monkeypatch,
+    mega_decision_tie_fixture, monkeypatch,
 ):
     """A branch replan may replace actions, never the original Mega hypothesis's
     identity/weight. At click-rate zero the Mega twin still exists but its
     response weight must remain exactly zero after branch replanning."""
     monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     mega_rows = [e for e in evidence if e.foe_mega_slot == 0]
@@ -1541,9 +1851,9 @@ def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
     assert all(e.response_weight == pytest.approx(0.0) for e in mega_rows)
 
 
-def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_fixture):
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_tie_fixture):
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     evidence: list = []
     _score(kw, req, eligibility=eligibility, sink=evidence)
     assert evidence
@@ -1566,11 +1876,11 @@ def test_no_eligibility_is_byte_identical_to_pre_i7b_scoring(mega_decision_fixtu
         assert a.score_weights == pytest.approx(b.score_weights)
 
 
-def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_fixture, monkeypatch):
+def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_tie_fixture, monkeypatch):
     """Every model shares one oracle and all enqueues precede Phase B, so the
     complete world's pending queue is resolved by exactly one flush."""
-    req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
     call_count = {"n": 0}
     real_flush = kw["oracle"].flush
 
@@ -1943,35 +2253,63 @@ git commit -m "feat(champions-i7b-b): three-phase foe-Mega scoring integration (
 
 ### Task 5: fail-closed ability gate for a hypothesized foe Mega form
 
+**[REV.5 correction 3 — consequence of correction 2, see §Rev. 5.]** Rev. 4's version
+injected a `Scovillain-Mega` form onto the fixture's *non-Scovillain* foe. Verified
+against real metadata, that form is **not** synthetic: `scovillainmega` is a real entry
+in `species_meta`, its `ability_slot0` is `'Spicy Spray'`, and it is the **only** member
+of `FAIL_CLOSED_ABILITIES` in the whole dex — so Rev. 4's test did work *before* Task 2
+gained its coherence check. It cannot survive that check: `aerodactyl`/`incineroar` ≠
+`scovillain` raises `MegaProjectionSpeciesMismatchError` **before** the ability gate is
+ever reached, and Task 4 deliberately does not catch that error — so the test would
+crash instead of proving exclusion, and would no longer exercise the ability gate at all.
+
+The foe must therefore genuinely **be** a Scovillain, with eligibility derived through
+the real path. Pre-verified against the real backend:
+`mega_form_for("Scovillain", "Scovillainite")` returns the real form, the coherence check
+passes (`scovillain == scovillain`), and
+`foe_mega_eligibility(state, "p2", opp_sets=None)` yields
+`{'a': MegaForm(base_species_id='scovillain', form_species_id='scovillainmega', ...)}`.
+
+**Step 0 — add the fixture** to `tests/conftest.py`, alongside `mega_decision_tie_fixture`
+(same builder, different foe — no third construction path):
+
+```python
+@pytest.fixture
+def mega_decision_unsupported_ability_fixture():
+    """[REV.5] p2.a is a REAL Scovillain holding Scovillainite, so the coherence
+    check passes and the FAIL_CLOSED_ABILITIES gate ('Spicy Spray', the dex's only
+    fail-closed mega ability) is what actually fires. No speed tie is needed or
+    asserted here -- this test is about exclusion, not branch weighting."""
+    foe = PokemonState(
+        species="Scovillain", base_species_id="scovillain", item="Scovillainite",
+        item_known=True, types=["Grass", "Fire"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
+```
+
 **Step 1 — write failing test**, append to `test_i7b_scoring.py`:
 
 ```python
-def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(mega_decision_fixture):
-    """A foe eligibility entry resolving to an unsupported-ability form (e.g. a
-    synthetic Scovillain-Mega hypothesis) must be silently excluded from
+def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(mega_decision_unsupported_ability_fixture):
+    """A foe eligibility entry resolving to an unsupported-ability form
+    (Scovillain-Mega / 'Spicy Spray') must be silently excluded from
     evidence/scoring via the SAME UnsupportedMegaAbilityError/FAIL_CLOSED_ABILITIES
-    gate I7a already uses -- never a new exception type, never a crash."""
-    from showdown_bot.engine.mega_form import MegaForm
-    from showdown_bot.engine.species_meta import species_meta_table
+    gate I7a already uses -- never a new exception type, never a crash.
 
-    req, kw = mega_decision_fixture
-    fake_scovillain_form = MegaForm(
-        base_species_id="scovillain", form_species_id="scovillainmega",
-        form_species_name="Scovillain-Mega", stone_item_id="scovillainite",
-    )
+    [REV.5] The foe really IS a Scovillain and eligibility comes from the real
+    foe_mega_eligibility(), so Task 2's coherence check passes and the ability gate
+    is the thing under test. Rev. 4 injected the form onto a mismatched species,
+    which post-correction-2 would raise MegaProjectionSpeciesMismatchError first."""
+    req, kw = mega_decision_unsupported_ability_fixture
+    eligibility = _real_eligibility(kw)
+    assert eligibility["a"].form_species_id == "scovillainmega"  # gate's real target
+
     evidence: list = []
-    score_evaluated_variants(
-        kw["evaluated_variants"], kw["contexts"], req=req, state=kw["state"], book=kw["book"],
-        our_side="p1", opp_side="p2", calc=kw["calc"], oracle=kw["oracle"],
-        speed_oracle=kw["speed_oracle"], dex=kw["dex"], priors=None, weights=kw["weights"],
-        mode=kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
-        opp_sets=None, calc_profile=kw["calc_profile"], accuracy_mode=False, accuracy_branch_cap=6,
-        endgame=False, fast_board=False, foe_mega_eligibility={"a": fake_scovillain_form},
-        species_meta=species_meta_table(), opp_mega_evidence_sink=evidence,
-    )
+    _score(kw, req, eligibility=eligibility, sink=evidence)
     # no scored contribution for slot 0's (Scovillain) mega -- checked via the
     # real foe_mega_slot field, not by parsing response_id's "|mega=" suffix
     assert all(e.foe_mega_slot != 0 for e in evidence)
+    assert evidence  # the no-mega rows must still be scored: exclusion, not wipe-out
 ```
 
 This is already satisfied structurally by Task 4's `try/except (UnsupportedMegaAbilityError, MissingMegaSpreadError): branches = []` — no additional production code should be needed; this task exists to **prove** it, not to write new logic. If it fails, the gap is in Task 4's implementation, not a new mechanism.
@@ -2007,7 +2345,7 @@ It is ALWAYS bound to `ctx.projected_state` and `ctx.damage_model.oracle` (its o
 **Step 1 — write failing test**, append to `test_i7b_scoring.py`:
 
 ```python
-def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_decision_fixture, monkeypatch):
+def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_decision_tie_fixture, monkeypatch):
     """Depth-2 refinement of a foe-mega-tagged top-M response must be bound to
     THAT response's own composed branch's MegaEvaluationContext (never a
     different branch's or the record's own-only ctx_by_slot entry) -- proven
@@ -2017,7 +2355,7 @@ def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_d
     from showdown_bot.engine.species_meta import species_meta_table
 
     req, kw = mega_decision_fixture
-    eligibility = {"a": mega_form_for("Aerodactyl", "Aerodactylite")}
+    eligibility = _real_eligibility(kw)
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
     monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "1")
 
@@ -2096,7 +2434,10 @@ git commit -m "feat(champions-i7b-b): bind depth-2 to each diagnostic index's ow
 - [ ] `git diff --check` clean.
 - [ ] `ctx_by_slot`/`records_by_slot` in `mega_scoring.py` remain keyed by `own_mega_slot` alone (confirm via `grep -n "ctx_by_slot\s*[:=]" src/showdown_bot/battle/mega_scoring.py` shows no new keying scheme) — Rev. 1's context-multiplication approach was not silently reintroduced.
 - [ ] Every foe-mega `MegaScoreRecord.score_weights` entry is verifiably `world_w * response_weight * branch_weight` (not `world_w * response_weight` alone) — a genuine dual-Mega speed tie contributes exactly two such entries, never one unweighted or two double-counted.
-- [ ] `UnsupportedMegaAbilityError`/`FAIL_CLOSED_ABILITIES` gate verified to apply to a hypothesized foe form with an unsupported ability (Task 5).
+- [ ] `UnsupportedMegaAbilityError`/`FAIL_CLOSED_ABILITIES` gate verified to apply to a hypothesized foe form with an unsupported ability (Task 5), **on a coherent Scovillain foe** — not by injecting the form onto a mismatched species (REV.5 correction 3).
+- [ ] **[REV.5]** `project_mega` rejects a species/form mismatch with `MegaProjectionSpeciesMismatchError` **before** mutating anything, and the input state is provably unmutated; the `base_species_id` **or** `species` match rule still accepts valid sub-form mappings (Task 2).
+- [ ] **[REV.5]** Every test asserting two `0.5`-weight branches runs on `mega_decision_tie_fixture` and calls `_assert_pre_mega_speeds_tie(kw)` first — the tie is a **checked real-backend fact**, never an assumption (this is exactly what Rev. 4 got wrong: 200 vs 123).
+- [ ] **[REV.5]** `_mega_state()`'s default board is unchanged (p2.a Incineroar, no item) and all of `tests/i7a/` is green — proving the builder extraction did not disturb the shared fixture.
 - [ ] `battle/baselines.py` was **not** modified anywhere in this slice.
 - [ ] No task in this slice ran a live battle, touched a trace/sidecar file, or changed ROADMAP/PROJECT_INDEX.
 - [ ] Working tree clean; no push; no I7b-C work started.
