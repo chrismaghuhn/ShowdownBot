@@ -61,6 +61,35 @@ def test_revealed_stone_still_eligible_even_with_no_curated_hypothesis():
     assert "a" in result
 
 
+def test_revealed_non_mega_item_blocks_opp_sets_mega_hypothesis():
+    """Known truth wins: a revealed Choice Scarf must never be overridden by a
+    curated opp_sets Mega-stone hypothesis for the same species -- known item
+    truth is authoritative and must not fall back to a hypothesis."""
+    state = _state_with_opp("Aerodactyl", item="choicescarf", item_known=True)
+    curated = SpeciesSpreads(
+        offense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+        defense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+    )
+
+    result = foe_mega_eligibility(state, "p2", opp_sets={"aerodactyl": curated})
+
+    assert "a" not in result
+
+
+def test_item_lost_blocks_opp_sets_mega_hypothesis():
+    """A known-lost item means the mon cannot currently hold a mega stone --
+    must not fall back to an opp_sets Mega-stone hypothesis either."""
+    state = _state_with_opp("Aerodactyl", item=None, item_known=True, item_lost=True)
+    curated = SpeciesSpreads(
+        offense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+        defense=SpreadPreset(nature="Jolly", evs={}, items=["Aerodactylite"]),
+    )
+
+    result = foe_mega_eligibility(state, "p2", opp_sets={"aerodactyl": curated})
+
+    assert "a" not in result
+
+
 def test_side_already_spent_mega_yields_no_eligible_slot():
     state = _state_with_opp("Aerodactyl", item="aerodactylite", item_known=True, side_mega_spent=True)
 

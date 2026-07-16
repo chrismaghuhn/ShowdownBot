@@ -177,11 +177,16 @@ def foe_mega_eligibility(
     for slot, mon in state.sides.get(opp_side, {}).items():
         if slot not in ("a", "b") or mon.fainted or mon.hp_fraction <= 0:
             continue
-        if mon.item_known and not mon.item_lost and mon.item:
-            form = mega_form_for(mon.species, mon.item)
-            if form is not None:
-                result[slot] = form
-                continue
+        if mon.item_known:
+            # Known item truth is authoritative -- a revealed non-Mega item or a
+            # known-lost item must never be overridden by an opp_sets Mega
+            # hypothesis for the same species (Codex review: both cases were
+            # previously falling through to the opp_sets fallback below).
+            if not mon.item_lost and mon.item:
+                form = mega_form_for(mon.species, mon.item)
+                if form is not None:
+                    result[slot] = form
+            continue
         preset = lookup_opp_set(opp_sets, mon) if opp_sets else None
         if preset is None:
             continue
