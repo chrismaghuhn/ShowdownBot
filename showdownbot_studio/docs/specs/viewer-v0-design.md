@@ -1,7 +1,9 @@
 # ShowdownBot Studio v0 — Replay + DecisionTrace Viewer
 
-**Status:** DESIGN APPROVED — written spec pending user review; implementation planning and
-implementation are **not yet** authorized
+**Status:** DESIGN APPROVED — implementation planning allowed; implementation not started. Planning
+was authorized once [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md)
+was approved; that spec is the binding contract for the bundle and exporter, and supersedes this
+document where the two disagree (see its §2.7 and the notes in §5.2 and §5.3 below)
 **Date:** 2026-07-16
 **Product target:** desktop Godot 4.5.2 application, typed GDScript UI, Python-generated stable
 viewer bundle
@@ -284,6 +286,24 @@ The manifest is named `manifest.json` and contains:
 The logical names and shapes above are binding for bundle schema 1.0. The implementation plan may
 add optional entries but may not rename these fields without a schema revision.
 
+> **Superseded in two respects by
+> [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md).** That spec is the
+> more specific contract and wins where this example and it disagree.
+>
+> 1. **`required` is mode-dependent, not constant.** The example above marks both `battle_log` and
+>    `decision_trace` `required: true`. Those two flags cannot both be unconditionally `true` while
+>    §7 of this document mandates replay-only and trace-only modes. For those two mode-defining keys
+>    the binding rule is `required == present`; every other combination is malformed. See
+>    [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md) §11.1.1.
+> 2. **The example carries no dirty-worktree provenance.** §8 of this document requires the viewer to
+>    display dirty provenance and never hide it, but no manifest field above can express it. The
+>    bundle contract adds an optional `source_provenance` object whose `dirty` is **tri-state**
+>    (`true` / `false` / `null`), because the producer fails open — `git_sha_and_dirty()` returns
+>    `("unknown", False)` on any git error, i.e. it claims *clean*. See
+>    [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md) §8.4 and §5.
+>
+> Both are additive under the "may add optional entries" allowance; no logical key is renamed.
+
 Contracts:
 
 - paths are bundle-relative, never absolute workstation paths;
@@ -325,7 +345,10 @@ The acceptance fixture must compare the relative file list and SHA-256 of every 
 Replay and trace synchronization must use recorded identity, not row position alone:
 
 - `battle_id` must match the bundle manifest;
-- `decision_index` must be unique within the battle;
+- `decision_index` must be unique within the battle **and side**. The producer's enforced uniqueness
+  key is the triple `(battle_id, decision_index, our_side)`, not the pair; a schema-1.0 bundle is
+  therefore pinned to one battle and one side, which is what makes `decision_index` unambiguous
+  within it. See [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md) §11.2;
 - `turn_number` locates the replay time but does not uniquely identify a decision;
 - candidate selection uses the validated structural `candidate_key`;
 - `request_hash` and observable-state hash are displayed when present;
@@ -582,7 +605,8 @@ must never be loaded as arbitrary in-process GDScript or native libraries by def
 
 ## 11. Implementation sequencing gate
 
-After the user approves this written spec, it authorizes implementation planning only. The plan
+This spec and [`viewer-v0-bundle-contract-design.md`](viewer-v0-bundle-contract-design.md) are
+approved, which authorizes implementation planning only — no implementation has started. The plan
 must split work at least into:
 
 1. bundle contract and deterministic Python exporter;
