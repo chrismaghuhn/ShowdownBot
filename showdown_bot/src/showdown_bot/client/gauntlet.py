@@ -142,9 +142,17 @@ def agent_choose(
             our_spreads=our_spreads, opp_sets=opp_sets, trace=local_trace,
             calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
             format_config=format_config,
+            # [I7b-C REV.9 finding 2] Same scorer as the plain heuristic branch below,
+            # so it generates and scores the SAME foe-Mega hypotheses and must fill the
+            # SAME sink. Omitting it here made every reranker decision invisible to the
+            # sidecar.
+            opp_mega_evidence_sink=opp_mega_evidence_sink,
         )
         if override is None:
             return heuristic_choose
+        # The sink is deliberately NOT passed to the override: the sidecar records which
+        # opponent hypotheses were generated and scored, not which action finally won.
+        # An override may change the choice; it may never reinterpret or edit evidence.
         return override.override_choice(
             trace=local_trace, state=state, request=req,
             heuristic_choose=heuristic_choose, our_side=our_side,
@@ -578,16 +586,19 @@ class _Client:
         capture_reason_override = None
         # Opponent-Mega evidence (I7b-C Task 2, off by default): ONE fresh list per decision,
         # allocated ONLY when this seam's own writer is enabled — with it off, `None` goes down
-        # the chain and not a single object is created. Unlike agg_wants_trace this deliberately
-        # does NOT accept "heuristic_reranker": agent_choose's reranker branch calls
-        # choose_with_fallback WITHOUT opp_mega_evidence_sink, so a sink handed to it would be
-        # silently dropped and the writer would then emit an all-empty row — a FALSE "this
-        # decision generated no foe-Mega hypothesis" claim. Fail closed to the one agent whose
-        # chain is actually wired end to end.
+        # the chain and not a single object is created. The agent gate matches
+        # agg_wants_trace's own pair: BOTH heuristic agents run the same
+        # choose_with_fallback scorer and therefore score the same foe-Mega hypotheses
+        # ([REV.9] finding 2 — an earlier revision excluded "heuristic_reranker" because that
+        # branch dropped the sink; the branch now forwards it, and excluding the agent had
+        # silently made every reranker decision invisible to the sidecar). Agents that never
+        # run that scorer (max_damage models no opponent responses at all) stay out: they could
+        # only ever produce an all-empty row, which is a FALSE "this decision generated no
+        # foe-Mega hypothesis" claim.
         opp_mega_evidence: list | None = (
             [] if (
                 self.opp_mega_trace_writer is not None
-                and self.agent == "heuristic"
+                and self.agent in ("heuristic", "heuristic_reranker")
                 and state is not None
             ) else None
         )
@@ -1071,6 +1082,8 @@ async def run_local_gauntlet(
     decision_trace_context=None,
     agg_trace_writer=None,
     agg_trace_context=None,
+    opp_mega_trace_writer=None,
+    opp_mega_trace_context=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -1119,6 +1132,15 @@ async def run_local_gauntlet(
     the hero client never sees a non-None agg writer/context, so ``_Client.handle_request``
     never builds a ``DecisionTrace`` for THIS trigger, never calls ``build_agg_row``, and the
     dispatched ``/choose`` messages are unchanged.
+
+    ``opp_mega_trace_writer``/``opp_mega_trace_context`` (I7b-C Task 2 Step 6, off by
+    default): a THIRD, INDEPENDENT optional per-decision sidecar recording which foe-Mega
+    hypotheses were generated AND scored (see ``eval/opp_mega_trace.py``) — same hero-only
+    contract and the same pairing/``games == 1`` validation as the two seams above, and
+    likewise independent of both. Unlike them it needs no ``DecisionTrace`` at all: its
+    evidence comes from the scoring call's own ``opp_mega_evidence_sink``. Both ``None``
+    (the default) is byte-identical: the hero client allocates no evidence list, passes an
+    explicit ``None`` down the chain, and the dispatched ``/choose`` messages are unchanged.
     """
     if (decision_trace_writer is None) != (decision_trace_context is None):
         raise ValueError(
@@ -1130,6 +1152,12 @@ async def run_local_gauntlet(
         raise ValueError(
             "agg_trace_writer and agg_trace_context must be given together"
         )
+    if (opp_mega_trace_writer is None) != (opp_mega_trace_context is None):
+        raise ValueError(
+            "opp_mega_trace_writer and opp_mega_trace_context must be given together"
+        )
+    if opp_mega_trace_context is not None and games != 1:
+        raise ValueError("opp_mega_trace_context requires games == 1")
     if agg_trace_context is not None and games != 1:
         raise ValueError("agg_trace_context requires games == 1")
     cfg, book, priors, opp_sets = _load_belief_deps(format_id)
@@ -1158,7 +1186,12 @@ async def run_local_gauntlet(
                    decision_trace_writer=decision_trace_writer,
                    decision_trace_context=decision_trace_context,
                    agg_trace_writer=agg_trace_writer,
-                   agg_trace_context=agg_trace_context)
+                   agg_trace_context=agg_trace_context,
+                   opp_mega_trace_writer=opp_mega_trace_writer,
+                   opp_mega_trace_context=opp_mega_trace_context)
+    # The villain deliberately receives NO opp-mega writer/context (same hero-only contract
+    # as export_runtime and both trace seams): its decisions are the opponent policy's, not
+    # the bot under test, so its foe-Mega hypotheses are not the evidence this smoke is about.
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        format_config=cfg, packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)

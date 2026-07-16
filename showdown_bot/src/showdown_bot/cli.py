@@ -185,12 +185,44 @@ def run_schedule(args) -> None:
         agg_writer = AggTraceWriter(agg_trace_out)
         print(f"  agg trace -> {agg_trace_out}")
 
+    # I7b-C Task 2 Step 6: optional opponent-Mega evidence sidecar. Off by default
+    # (SHOWDOWN_OPP_MEGA_TRACE_OUT unset -> opp_mega_writer stays None, byte-identical to
+    # every prior run_schedule call). Env-only, no CLI flag: the datagen/eval kernels inject
+    # per-run config solely through their EXTRA_ENV passthrough, and config_env classifies
+    # this var NON_BEHAVIORAL (an IO path), so setting it never perturbs config_hash --
+    # unlike SHOWDOWN_OPP_MEGA_CLICK_RATE, which is BEHAVIOR_AFFECTING and must never be
+    # confused with it.
+    #
+    # Requires --result-out for two independent reasons: evidence with no result row to join
+    # against is unusable provenance, AND battle_id/config_id/config_hash are only computed
+    # on that path at all -- without them the context could only be filled with placeholders.
+    opp_mega_trace_out = os.environ.get("SHOWDOWN_OPP_MEGA_TRACE_OUT", "")
+    opp_mega_writer = None
+    if opp_mega_trace_out:
+        if not result_out:
+            raise SystemExit("SHOWDOWN_OPP_MEGA_TRACE_OUT requires --result-out")
+        # Same fail-closed rule as --result-out's own T2-CC-2 gate: appending onto an
+        # existing run's rows would interleave two runs into one file that later reads as a
+        # single run, and the sidecar is provenance -- it must never silently mix.
+        if os.path.exists(opp_mega_trace_out) and os.path.getsize(opp_mega_trace_out) > 0:
+            raise SystemExit(
+                f"SHOWDOWN_OPP_MEGA_TRACE_OUT {opp_mega_trace_out} already has rows; "
+                f"must be non-existing or empty"
+            )
+        from showdown_bot.eval.opp_mega_trace import OppMegaTraceContext, OppMegaTraceWriter
+
+        # ONE run-scoped writer for the whole schedule (every row appends to the same file);
+        # the per-battle binding is the CONTEXT, built fresh per row below.
+        opp_mega_writer = OppMegaTraceWriter(opp_mega_trace_out)
+        print(f"  opp-mega trace -> {opp_mega_trace_out}")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
             on_br = None
             trace_context = None
             agg_context = None
+            opp_mega_context = None
             if writer is not None:
                 # Seed/battle_id/config_id/config_hash computed ONCE per battle, BEFORE the
                 # battle runs (Task 4 needs battle_id up front to build trace_context) and
@@ -213,6 +245,17 @@ def run_schedule(args) -> None:
                     agg_context = AggTraceContext(
                         battle_id=battle_id, seed_index=row.seed_index, our_side="p1",
                         config_id=config_id, config_hash=config_hash,
+                        schedule_hash=sched.schedule_hash, format_id=row_format_id,
+                        git_sha=git_sha,
+                    )
+                if opp_mega_writer is not None:
+                    # I7b-C Task 2 Step 6: a FRESH context per row, off the same real
+                    # battle_id/config_hash computed above -- independent of both seams
+                    # above. The run-scoped writer is shared by every battle; the context
+                    # never is, or every row would carry the first battle's battle_id and
+                    # the whole file would read as a single battle.
+                    opp_mega_context = OppMegaTraceContext(
+                        battle_id=battle_id, config_id=config_id, config_hash=config_hash,
                         schedule_hash=sched.schedule_hash, format_id=row_format_id,
                         git_sha=git_sha,
                     )
@@ -270,6 +313,9 @@ def run_schedule(args) -> None:
                     decision_trace_context=trace_context,
                     agg_trace_writer=agg_writer,  # 2c-Slice-0b Task 3: None unless --agg-trace-out
                     agg_trace_context=agg_context,
+                    # I7b-C Task 2 Step 6: None unless SHOWDOWN_OPP_MEGA_TRACE_OUT is set.
+                    opp_mega_trace_writer=opp_mega_writer,
+                    opp_mega_trace_context=opp_mega_context,
                 )
             )
             totals["games"] += stats.games
@@ -469,6 +515,17 @@ def run_gauntlet(args) -> None:
         return
 
     from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    # I7b-C Task 2 Step 6: this path has no schedule, so it computes no
+    # battle_id/config_hash/schedule_hash and cannot build an OppMegaTraceContext. Silently
+    # ignoring the env would leave an empty sidecar that later reads as "the bot generated
+    # no foe-Mega hypotheses" -- a false claim about a run that never even had the seam on.
+    # Fail closed and name the one supported path.
+    if os.environ.get("SHOWDOWN_OPP_MEGA_TRACE_OUT", ""):
+        raise SystemExit(
+            "SHOWDOWN_OPP_MEGA_TRACE_OUT is only supported on the --schedule + --result-out "
+            "path (the plain gauntlet has no battle_id/config_hash to bind evidence to)"
+        )
 
     # The gauntlet uses local guest auth, so it does not need SHOWDOWN_USERNAME;
     # only the team path matters here.
