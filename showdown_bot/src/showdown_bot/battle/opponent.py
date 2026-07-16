@@ -399,9 +399,16 @@ def predict_responses(
         # grow a Mega variant for the switching slot).
         acting_move_slots = {a.slot for a in family.actions if a.kind != "switch"}
         eligible_here = sorted(acting_move_slots & foe_mega_eligibility.keys())
+        if not eligible_here:
+            # No legal Mega twin exists for this family (its only eligible
+            # slot(s), if any, switch in this specific response) -- keep the
+            # full original weight; discounting by opp_mega_click_rate here
+            # would shed mass with no twin to redistribute it to (Codex
+            # review: this was silently deflating switch-only families).
+            continue
         family_mega_weight = family.weight * opp_mega_click_rate
         family.weight *= (1.0 - opp_mega_click_rate)
-        n_split = len(eligible_here) or 1
+        n_split = len(eligible_here)
         for slot in eligible_here:
             slot_index = 0 if slot == "a" else 1
             twin = OppResponse(

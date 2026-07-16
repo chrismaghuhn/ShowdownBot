@@ -96,14 +96,27 @@ def test_click_rate_zero_gives_mega_twin_zero_weight_not_absence():
 
 
 def test_click_rate_one_gives_no_mega_twin_zero_weight_not_absence():
+    """Applies only to families that actually have a legal Mega alternative
+    (i.e. produced a mega twin) -- a family with NO legal Mega slot in this
+    response (e.g. pivot, whose only eligible slot switches here) has nothing
+    to redirect its mass to and must keep full weight regardless of click
+    rate (Codex review counterexample; see
+    test_family_without_legal_mega_slot_keeps_full_original_weight)."""
     state = _doubles_state(opp_a_item="aerodactylite", opp_a_item_known=True)
     resps = predict_responses(
         state, "p1", "p2", max_candidates=10, priors=ProtectPriors(),
         foe_mega_eligibility=_eligibility_a_only(), opp_mega_click_rate=1.0,
     )
-    none_resps = [r for r in resps if r.foe_mega_slot is None]
-    assert none_resps
-    assert all(r.weight == pytest.approx(0.0) for r in none_resps)
+    labels_with_mega_twin = {r.label for r in resps if r.foe_mega_slot is not None}
+    none_resps_with_alternative = [
+        r for r in resps if r.foe_mega_slot is None and r.label in labels_with_mega_twin
+    ]
+    assert none_resps_with_alternative
+    assert all(r.weight == pytest.approx(0.0) for r in none_resps_with_alternative)
+
+    pivot_none = next(r for r in resps if r.label == "pivot" and r.foe_mega_slot is None)
+    assert pivot_none.label not in labels_with_mega_twin
+    assert pivot_none.weight > 0.0
 
 
 def test_cap_too_small_for_reserve_classes_raises():
@@ -201,3 +214,31 @@ def test_pivot_switch_slot_never_grows_a_mega_twin():
         r for r in resps if r.label == "pivot" and r.foe_mega_slot == 0
     ]
     assert mega_twins_for_pivot_family == []
+
+
+def test_family_without_legal_mega_slot_keeps_full_original_weight():
+    """Codex review: a response family whose only Mega-eligible slot switches
+    in THAT family has no legal Mega twin at all -- its weight must not be
+    discounted by opp_mega_click_rate with nothing to redistribute it to.
+    Cross-check against the mega-inactive (foe_mega_eligibility={}) baseline,
+    which computes this family's weight via the identical, unmodified
+    _apply_protect_prior_split helper -- the two must match exactly, not just
+    approximately, since a correct (mass-conserving) pipeline never rescales
+    an untouched family's weight."""
+    state = _doubles_state(opp_a_item="aerodactylite", opp_a_item_known=True)
+
+    baseline = predict_responses(
+        state, "p1", "p2", max_candidates=10, priors=ProtectPriors(),
+        foe_mega_eligibility={}, opp_mega_click_rate=0.35,
+    )
+    pivot_baseline = next(r for r in baseline if r.label == "pivot")
+
+    mega_active = predict_responses(
+        state, "p1", "p2", max_candidates=10, priors=ProtectPriors(),
+        foe_mega_eligibility=_eligibility_a_only(), opp_mega_click_rate=0.35,
+    )
+    pivot_actual = next(
+        r for r in mega_active if r.label == "pivot" and r.foe_mega_slot is None
+    )
+
+    assert pivot_actual.weight == pytest.approx(pivot_baseline.weight, rel=1e-9)
