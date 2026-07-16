@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke IMPLEMENTED (local, unreviewed, unmerged) — live smoke NOT STARTED** — **Rev. 9**, binding the four confirmed Codex pre-smoke findings (real production boundary, reranker sink, final-score evidence, LF-only bytes), all four now fixed, and re-stating the true status. Rev. 8 corrected I7b-C's Task 2 evidence fixture and deferred Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
+**Status:** COMPLETE / MERGED — **I7b-A** (`cdc55c2`, PR #12), **I7b-B Tasks 1–6** (`755b144`, PR #13), and **I7b-C telemetry + 2-battle opponent-Mega safety smoke** (`8942232`, PR #17) are on `main`. I7b-C verdict: **SAFETY PASS · NARROW EXPOSURE** (1/17 scored decisions, foe slot 1 only; no live slot-0, dual-Mega, or activation-ordering coverage), with **no Strength and no latency claim**. **Rev. 9 / execution complete.** The next front item is a separate measurement-only Champions latency design/profile; Strength remains NO-GO until that gate and a subsequent coverage/independent-holdout gate pass. Rev. 8 corrected I7b-C's Task 2 evidence fixture and deferred Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
 
 > **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
@@ -12,7 +12,7 @@
 
 **Goal:** Deliver opponent-side Mega response modeling — limited-view eligibility, mega/no-mega twin expansion, coverage-preserving weight/cap discipline, dual (own+foe) same-turn Mega projection with Trick-Room-aware activation ordering, foe post-Mega speed replan, and a dedicated off-by-default telemetry sidecar proving a foe-Mega hypothesis was actually generated and scored — without touching decision-trace-v3, without a Champions-specific fork in the decision core, and without any Strength claim.
 
-**Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. No Showdown server needed until a future, separately-authorized I7b live smoke (out of scope here).
+**Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. The implementation tasks required no Showdown server; the later, separately authorized I7b-C live smoke is now complete and frozen.
 
 ---
 
@@ -98,26 +98,26 @@ the row. `wait` requests are not decisions and consume nothing. Sidecar rows may
 have **gaps**; they must never be renumbered. A per-writer counter may count rows written —
 it may never number a decision.
 
-### True pre-smoke status as of Rev. 9
+### Post-merge status reconciliation (supersedes the Rev. 9 pre-smoke status)
 
-**All four findings are now fixed on `feat/champions-i7b-c-telemetry-smoke` (local, unreviewed,
-unmerged).** The table records what the code does; it is **not** a review verdict and not a PASS.
+**Post-merge execution record.** The four pre-smoke findings below were fixed, reviewed,
+exercised by the frozen live smoke, and merged through PR #17. The table records the final
+status; it does not upgrade the narrow safety evidence into a Strength or latency claim.
 
 | Item | Status |
 |---|---|
-| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **PRE-SMOKE IMPLEMENTED** — LF-only bytes fixed (finding 4), asserted on raw bytes |
-| I7b-C Task 2 — evidence-sink chain | **PRE-SMOKE IMPLEMENTED** — reachable from `run_schedule` through to the decision core (finding 1); sink forwarded on **both** heuristic agents (finding 2) |
-| I7b-C Task 2 — evidence value correctness | **PRE-SMOKE IMPLEMENTED** — `raw_score` resolved from the final post-depth-2 `score_vector` (finding 3) |
-| I7b-C Task 3 — safety-smoke schedule design | **PRE-SMOKE IMPLEMENTED (designed, NOT run)** |
-| I7b-C Task 4 — ROADMAP/PROJECT_INDEX | **DEFERRED** to the post-smoke evidence commit — unchanged |
-| I7b-C live smoke | **NOT STARTED** — separately authorized |
-| Champions Strength | **NO-GO** — unchanged. The dedicated Champions latency profile remains a **load-bearing blocker**; this slice does not measure, change, or improve latency, and the active foe-Mega path's measured overhead stands unaddressed. |
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **MERGED** — LF-only bytes and raw-component schema verified |
+| I7b-C Task 2 — evidence-sink chain | **MERGED** — reachable from `run_schedule` through the decision core; sink forwarded on both heuristic agents |
+| I7b-C Task 2 — evidence value correctness | **MERGED** — `raw_score` resolves from the final post-depth-2 `score_vector` |
+| I7b-C Task 3 — safety-smoke schedule design | **MERGED + RUN** — frozen 2-battle schedule and evidence |
+| I7b-C Task 4 — ROADMAP/PROJECT_INDEX | **MERGED** — post-smoke status and non-claims recorded |
+| I7b-C live smoke | **SAFETY PASS · NARROW EXPOSURE** — 19/19 standard gates; 17/17 sidecar rows; 1/17 decisions with foe-Mega hypothesis, slot 1 only |
+| Champions Strength | **NO-GO** — the dedicated Champions latency profile remains the load-bearing blocker; after a latency PASS, broader foe-Mega coverage and an independent holdout still require an approved design before any Strength run. |
 
-**What "PRE-SMOKE IMPLEMENTED" does and does not mean.** It means the code exists, is
-covered by tests that were RED first, and the seam is reachable from the real runner. It
-does **not** mean a battle has been run, that any row has ever been produced by a live
-Showdown game, or that opponent Mega works in production — only the smoke can show that,
-and it has not run. No Strength or latency claim follows from any row in this table.
+The frozen evidence is `reports/champions-panel-v0-i7b-mega-smoke.md` plus
+`data/eval/champions-panel-v0/smoke-i7b-mega/`. It proves the telemetry and scoring seam can
+operate in a live battle, not broad opponent-Mega validation. No Strength or latency claim
+follows from any row in this table.
 
 ---
 
@@ -461,7 +461,7 @@ These corrections supersede the active Rev. 3 Task 2/Task 4/I7b-C snippets where
 2. [I7b-B — Dual projection, activation ordering, scoring integration](#i7b-b-dual-projection-activation-ordering-scoring-integration)
 3. [I7b-C — Telemetry/provenance and safety-smoke design](#i7b-c-telemetryprovenance-and-safety-smoke-design)
 
-**Execution status as of Rev. 8** (all I7b-B work merged to `main` @ `755b144` via PR #13):
+**Final execution status after PR #17** (I7b-C merged to `main` @ `8942232`):
 
 | Slice / task | Status |
 |---|---|
@@ -473,11 +473,11 @@ These corrections supersede the active Rev. 3 Task 2/Task 4/I7b-C snippets where
 | I7b-B Task 5 — fail-closed ability gate (test-only) | **MERGED** @ `a1757a4` |
 | I7b-B Task 6 — depth-2 per-index context binding | **MERGED** @ `b78cefb` |
 | **I7b-B overall** | **REVIEW-PASS (Codex: no merge blockers) · MERGED @ `755b144`** |
-| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | see the **Rev. 9 status table** — this row was written pre-implementation |
-| I7b-C Task 2 — evidence-sink call chain + gauntlet wiring | see the **Rev. 9 status table** |
-| I7b-C Task 3 — safety-smoke schedule design (no run) | see the **Rev. 9 status table** |
-| I7b-C Task 4 — ROADMAP/PROJECT_INDEX status | **DEFERRED** to the post-smoke evidence commit |
-| I7b-C live smoke | **NOT STARTED** — separately authorized |
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **MERGED** via PR #17 |
+| I7b-C Task 2 — evidence-sink call chain + gauntlet wiring | **MERGED** via PR #17 |
+| I7b-C Task 3 — safety-smoke schedule design | **MERGED + RUN** via PR #17 evidence |
+| I7b-C Task 4 — ROADMAP/PROJECT_INDEX status | **MERGED** via PR #17 |
+| I7b-C live smoke | **SAFETY PASS · NARROW EXPOSURE** — no Strength/latency claim |
 
 Task 4 additionally carries five pre-flight caller-gate counterexamples
 (`tests/i7b/test_i7b_b_caller_gate.py`) that are **additive to this plan**, added on
@@ -3494,7 +3494,7 @@ git add config/eval/schedules/champions_v0_smoke_i7b_2battle.yaml tests/test_sch
 git commit -m "docs(champions-i7b-c): design (not run) the I7b opponent-mega safety smoke"
 ```
 
-### Task 4: minimal ROADMAP.md / PROJECT_INDEX.md updates — **DEFERRED TO THE POST-SMOKE EVIDENCE COMMIT**
+### Task 4: minimal ROADMAP.md / PROJECT_INDEX.md updates — **HISTORICAL INSTRUCTION; NOW COMPLETE**
 
 **[REV.7] DO NOT EXECUTE THIS TASK IN THE PRE-SMOKE SLICE.** `docs/ROADMAP.md` and
 `docs/PROJECT_INDEX.md` stay **unchanged** while I7b-C's telemetry/sidecar/schedule work lands.
@@ -3520,14 +3520,16 @@ git add docs/ROADMAP.md docs/PROJECT_INDEX.md
 git commit -m "docs(champions-i7b): record I7b-C smoke verdict"
 ```
 
-### I7b-C completion gate
+### I7b-C completion record
 
-- [ ] Every new test individually RED before GREEN.
-- [ ] `python -m pytest tests/test_opp_mega_trace.py tests/test_config_env.py tests/test_gauntlet_dispatch.py tests/test_schedule.py -q` — full pass.
-- [ ] Full suite `python -m pytest -q` — full pass.
-- [ ] `git diff --check` clean.
-- [ ] No Showdown server started; no battle run; no Strength claim anywhere in any new doc/code/comment.
-- [ ] `docs/ROADMAP.md`/`docs/PROJECT_INDEX.md` still say `I7b opponent Mega DESIGN/PLAN PROPOSED (not implemented)` and `Champions Strength NO-GO until I7b + latency` after this slice — never PASS, never GO.
+- [x] Every new test individually RED before GREEN (except explicitly labeled baseline/invariant tests).
+- [x] `python -m pytest tests/test_opp_mega_trace.py tests/test_config_env.py tests/test_gauntlet_dispatch.py tests/test_schedule.py -q` — full pass in the pre-smoke slice.
+- [x] Full suite passed before the live smoke; later PR checks passed on the merged head.
+- [x] `git diff --check` clean.
+- [x] The pre-smoke slice started no Showdown server and made no Strength claim; the live smoke was separately authorized and remains safety evidence only.
+- [x] Post-smoke `docs/ROADMAP.md`/`docs/PROJECT_INDEX.md` record I7b-C as merged safety
+  evidence and keep Champions Strength NO-GO until the dedicated latency gate plus the
+  subsequent coverage/independent-holdout gate pass.
 
 ---
 

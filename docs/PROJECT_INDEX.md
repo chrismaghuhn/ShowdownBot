@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-16 (**I7a own-Mega SAFETY PASS, merged to `main` @ `1053cf1`**; **I7b-A MERGED via PR #12 @ `cdc55c2`**; **I7b-B Tasks 1-6 REVIEW-PASS · MERGED via PR #13 @ `755b144`**, full suite **2169 passed, 2 skipped, 1 xfailed**, foe-Mega modeling now LIVE for `format_config.mega` and byte-identical for Reg-I/`None`; **I7b-C PRE-SMOKE REVIEW-PASS + 2-battle opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE** (1/17 scored decisions, slot 1 only; `reports/champions-panel-v0-i7b-mega-smoke.md`) — safety/telemetry evidence only; **Strength still NO-GO** — now blocked on the **dedicated latency gate** alone; I7 Mega design spec rev. 10 **APPROVED**, implementation plan **Rev. 9**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
+Last reconciled: 2026-07-16 (**I7a own-Mega SAFETY PASS, merged to `main` @ `1053cf1`**; **I7b-A MERGED via PR #12 @ `cdc55c2`**; **I7b-B Tasks 1-6 REVIEW-PASS · MERGED via PR #13 @ `755b144`**, full suite **2169 passed, 2 skipped, 1 xfailed**, foe-Mega modeling now LIVE for `format_config.mega` and byte-identical for Reg-I/`None`; **I7b-C PRE-SMOKE REVIEW-PASS + 2-battle opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE, merged via PR #17 @ `8942232`** (1/17 scored decisions, slot 1 only; `reports/champions-panel-v0-i7b-mega-smoke.md`) — safety/telemetry evidence only; **Strength still NO-GO** — the dedicated latency gate is the load-bearing blocker, followed by an explicit coverage/independent-holdout gate before any Strength run; I7 Mega design spec rev. 10 **APPROVED**, implementation plan **Rev. 9 / execution complete**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
 
 ---
 
@@ -41,13 +41,19 @@ Ordered front-track work as of **2026-07-16** (post I7b-C smoke; protocol audit 
    does not retire this**: the active foe-Mega path fired in only **1 of 17** decisions
    there, so it barely exercises the expensive case. A dedicated profile/budget is still
    owed.
-2. **Champions Strength** — **NO-GO until the dedicated latency gate passes**.
-   I7b-B/I7b-C make foe-Mega response modeling live and prove it end-to-end on two battles,
-   which is a prerequisite, not a Strength result: the smoke is safety/telemetry evidence
-   and no Strength claim is made anywhere. The `rain_offense` panel team is not an
-   independent Strength holdout (reused across parser/I5/I6/I7a safety work).
-3. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
-4. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
+2. **Champions coverage + Strength design** — starts only after the dedicated latency gate
+   passes. The design must pre-register a broader opponent-Mega exposure requirement (including
+   both foe slots and dual-Mega/activation-ordering cases) and a genuinely independent Strength
+   holdout. I7b-B/I7b-C prove the mechanism end-to-end on two battles, but the smoke exposed a
+   foe-Mega hypothesis in only **1 of 17** scored decisions and only in slot 1. The
+   `rain_offense` panel team is not an independent Strength holdout (reused across
+   parser/I5/I6/I7a safety work). **Strength remains NO-GO** until both gates are designed and
+   satisfied; a latency PASS alone does not authorize a Strength run.
+3. **I7a CRLF/config-hash impact audit** — provenance housekeeping that may run in parallel
+   with the latency design. It does not block the new profile, but the historical I7a
+   `config_hash` must not be cited as cross-platform evidence until the audit classifies it.
+4. **Accuracy larger follow-up** — user-gated only; not front track unless reprioritized.
+5. **poke-env** — reference-only for parser diffs (`reports/champions-poke-env-reference-audit.md`).
 
 **Reference oracle (not runtime dependency):** `@pkmn/protocol` / `@pkmn/client` differential audit — `reports/champions-pkmn-protocol-differential-audit.md` @ `fc4f251`. Showdown sim `f8ac140` remains ground truth; `pkmn/ps` is comparison oracle only, not a rewrite target.
 
@@ -90,15 +96,25 @@ Ordered front-track work as of **2026-07-16** (post I7b-C smoke; protocol audit 
 
 **Open blockers**
 
-- **Mega overlay:** **CLOSED for I7a + I7b-A + I7b-B.** I7a own-Mega SAFETY PASS @ `1053cf1`; I7b-A foundation @ `cdc55c2`; I7b-B dual projection/activation ordering/scoring integration merged via PR #13 @ `755b144`. **I7b-C telemetry/safety-smoke remains not started and review-gated** — spec: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`; audit+plan: `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`, `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md` (Rev. 7).
-- **Opponent Mega response model (I7b):** foundation + live dual projection/scoring exist; **telemetry/smoke (I7b-C) still missing** — **Strength NO-GO** until I7b-C plus the dedicated latency gate pass. `_choose_best_mega`'s `opp_mega_evidence_sink` parameter exists but nothing threads it yet (I7b-C Task 2).
-- **CI does not cover this track.** `.github/workflows/pytest.yml` runs a fixed slice-smoke list that includes neither `tests/i7a/` nor `tests/i7b/`. Green CI on a Champions-Mega PR is evidence that nothing *else* broke, not that the track works — the local full-suite run is. Separate CI-hardening slice.
-- **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I budget (that run also
-  contained state-degradation; no causal link established); I6 2-battle smoke **331 ms** worst p95
-  (safety pass only) — dedicated profile/budget still needed before Strength.
+- **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs the pinned **1000 ms** budget (that run
+  also contained state-degradation; no causal link established); I6/I7a-C/I7b-C safety smokes
+  measured 331/588/672 ms, but none is a dedicated profile. The genuinely active foe-Mega path
+  still measures about **2.4×** the inactive decision on the synthetic tie fixture. The next
+  front-track artifact is a measurement-only latency design/spec; do not optimize, lower the
+  click rate, or change the budget before that profile identifies the bottleneck.
+- **Opponent-Mega live coverage:** I7b-C is merged and its telemetry chain is live, but the
+  frozen smoke exposed a hypothesis in only **1/17** scored decisions and only for foe slot 1.
+  Slot 0, dual-Mega, and activation ordering still need a pre-registered coverage gate before
+  any Strength result can be interpreted broadly.
+- **Independent Strength holdout:** `rain_offense` is development/safety evidence, not a fresh
+  holdout. A new holdout and statistical decision rule must be approved before a Strength run.
 
 **Closed blockers**
 
+- ~~Mega overlay / opponent-Mega telemetry~~ — I7a + I7b-A/B/C are merged; I7b-C live smoke
+  and sidecar evidence are frozen under `data/eval/champions-panel-v0/smoke-i7b-mega/`.
+- ~~Champions-Mega CI coverage~~ — the parallel `champions-mega` job runs I7a/I7b plus
+  generated-metadata freshness; PR #17 additionally ran the platform-provenance matrix.
 - ~~Live damage path (gen-0 calc_profile)~~ — I6 @ `3bcd4b3`; hermetic G2–G11 + 2-battle smoke (`reports/champions-panel-v0-i6-smoke.md`).
 - ~~HP-suffix state parser (`100y`/`100g`/`100r`)~~ — fixed @ `62117b5`; revalidated 0/99 degraded (`reports/champions-panel-v0-i5-hpfix-validation.md`).
 
@@ -278,6 +294,8 @@ Ordered front-track work as of **2026-07-16** (post I7b-C smoke; protocol audit 
 | Champions smoke schedule (P4) | `config/eval/schedules/champions_v0_smoke_pilot.yaml` |
 | Champions smoke schedule (I5) | `config/eval/schedules/champions_v0_smoke_i5.yaml` |
 | Champions smoke schedule (I6) | `config/eval/schedules/champions_v0_smoke_i6_2battle.yaml` |
+| Champions smoke schedule (I7b-C) | `config/eval/schedules/champions_v0_smoke_i7b_2battle.yaml` |
+| Opponent-Mega frozen evidence | `data/eval/champions-panel-v0/smoke-i7b-mega/` + `reports/champions-panel-v0-i7b-mega-smoke.md` |
 | Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`), `smoke-i6-damage-gen0/` (I6 @ `3bcd4b3`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |
 | Future ShowdownBot Studio desktop client (not active front track) | `showdownbot_studio/README.md` |
