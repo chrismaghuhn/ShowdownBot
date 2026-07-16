@@ -3,12 +3,13 @@
 **Status:** DESIGN APPROVED — written spec pending user review; implementation planning and
 implementation are **not yet** authorized
 **Date:** 2026-07-16
-**Product target:** desktop Godot application, typed GDScript UI, Python-generated stable viewer
-bundle
+**Product target:** desktop Godot 4.5.2 application, typed GDScript UI, Python-generated stable
+viewer bundle
 **Relationship to bot roadmap:** future developer tooling; **not** the active bot front track and
 not a blocker for I7b-B/I7b-C
 **Master spec:** [`../MASTER_SPEC.md`](../MASTER_SPEC.md)
 **Research:** [`../research/2026-07-showdown-client-user-research.md`](../research/2026-07-showdown-client-user-research.md)
+**UI decision:** [`../decisions/ADR-001-godot-ui-technology.md`](../decisions/ADR-001-godot-ui-technology.md)
 
 ## 0. Decision
 
@@ -162,17 +163,24 @@ v0 is not designed for ordinary ladder play.
 6. Inspect scores, breakdowns, state summary, warnings, and provenance.
 7. Copy stable identifiers or export a small diagnostic summary.
 
+The application may also open directly at a recorded decision through
+`--decision <battle_id>:<decision_index>`. An invalid or missing target fails with a diagnostic and
+does not silently open a different decision.
+
 ### 3.3 v0 capabilities
 
 - Offline load of one viewer bundle at a time.
 - Battle replay driven by a normalized Showdown protocol log.
 - Turn and decision timeline.
+- Deep-link launch at a stable battle and decision identity.
 - DecisionTrace candidate table.
 - Chosen-candidate emphasis based on structural candidate identity.
 - Candidate-detail view for recorded score vectors and breakdowns.
 - Recorded state-summary and belief/hypothesis inspection when present.
 - Provenance panel: bundle version, trace schema, format, Git SHA, config hash, and source hashes.
 - Visible degradation/warning markers.
+- Exporter-prepared `top1_top2_margin`, `warning_count`, and `fallback_used` values for fast
+  navigation; Godot does not recompute them.
 - Keyboard-first navigation and configurable UI scale/density.
 
 ## 4. Explicit non-goals
@@ -190,6 +198,8 @@ v0 does **not** include:
 - bundled third-party sprite packs;
 - write-back into frozen evaluation artifacts;
 - any strength, safety, or correctness claim about the bot.
+- a full score-over-time graph; v0 records the required navigation values, while graph
+  presentation is deferred to v0.1.
 
 ## 5. Architecture
 
@@ -215,12 +225,22 @@ an unsupported trace schema.
 
 ### 5.2 Stable viewer bundle
 
-The implementation plan must define one deterministic bundle layout. At minimum its manifest must
-contain:
+The v0 bundle is a directory, not an archive. Its file set and every file's bytes are deterministic.
+ZIP or another transport archive is a later concern and is not part of the byte-identity claim.
+
+The manifest is named `manifest.json` and contains:
 
 ```json
 {
-  "viewer_bundle_version": "showdownbot-viewer-v1",
+  "viewer_bundle_schema": {
+    "major": 1,
+    "minor": 0
+  },
+  "required_capabilities": [],
+  "exporter": {
+    "name": "showdownbot-studio-exporter",
+    "version": "0.1.0"
+  },
   "battle_id": "gen9championsvgc2026regma-example",
   "format_id": "gen9championsvgc2026regma",
   "git_sha": "0000000000000000000000000000000000000000",
@@ -231,23 +251,61 @@ contain:
     "decision_trace": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "files": {
-    "battle_log": "battle.log",
-    "decisions": "decisions.jsonl",
-    "warnings": "warnings.json"
+    "battle_log": {
+      "path": "battle.jsonl",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "required": true,
+      "present": true
+    },
+    "decision_trace": {
+      "path": "decisions.jsonl",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "required": true,
+      "present": true
+    },
+    "warnings": {
+      "path": "warnings.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "required": false,
+      "present": true
+    }
   }
 }
 ```
 
-Exact names may change in the implementation plan, but the following contracts are binding:
+The logical names and shapes above are binding for bundle schema 1.0. The implementation plan may
+add optional entries but may not rename these fields without a schema revision.
+
+Contracts:
 
 - paths are bundle-relative, never absolute workstation paths;
-- every included data file has a content hash;
+- every present data file has a SHA-256 content hash under the same logical key in `files`;
+- `manifest.json` is excluded from the per-file hash rule because a self-hash would be recursive;
+- an absent optional file remains declared with `present: false`, `path: null`, and `sha256: null`;
 - the manifest version and trace schema are separate fields;
 - JSON/JSONL only in v0; no pickle or executable payload;
-- identical normalized inputs produce byte-identical bundles;
+- `source_hashes` describe source artifacts, while `files.*.sha256` describe exported bundle files;
 - source artifacts are never modified;
 - unsupported major bundle versions fail closed;
-- optional data is declared explicitly, never inferred from a missing file.
+- a minor version may only add optional fields; a higher minor is accepted only when every entry in
+  `required_capabilities` is supported;
+- optional data is declared explicitly, never inferred from a missing file;
+- the bundle contains no generation timestamp, host name, absolute command path, or nondeterministic
+  directory metadata.
+
+#### 5.2.1 Canonical byte profile
+
+Byte identity means two exports of identical normalized inputs produce the same relative file set
+and identical bytes for every file. The exporter uses this profile:
+
+- UTF-8 without BOM and LF line endings;
+- RFC 8785 JSON Canonicalization Scheme for every JSON document and each JSONL record;
+- no insignificant whitespace;
+- no NaN, positive infinity, or negative infinity;
+- deterministic record ordering defined by each schema, never filesystem enumeration order;
+- no `created_at` field or other export-time value.
+
+The acceptance fixture must compare the relative file list and SHA-256 of every generated file.
 
 ### 5.3 Identity and synchronization
 
@@ -279,6 +337,10 @@ distinct timeline entries.
 Each component communicates through typed viewer DTOs. UI nodes do not read JSON directly outside
 `BundleLoader`.
 
+`BundleLoader` performs file reading, hash validation, JSON parsing, and DTO construction away from
+the main UI thread. It reports progress and supports cancellation. Only completed immutable DTOs
+and progress events cross back to the scene tree; worker code never mutates active Godot nodes.
+
 ## 6. UX requirements
 
 ### 6.1 Layout
@@ -293,6 +355,11 @@ The default workspace contains:
 
 Panels are resizable and individually collapsible. A small window may stack or tab panels, but must
 not make timeline or file-close controls unreachable.
+
+The v0 battle area is an abstract board. It renders Pokémon and side names, HP bars, status chips,
+active slots, weather, terrain, side conditions, turn state, and project-owned semantic type icons.
+It does not require Pokémon artwork or a third-party sprite pack. Optional art support is a future
+presentation layer and must never carry information that the abstract board omits.
 
 ### 6.2 Scale and density
 
@@ -314,6 +381,7 @@ At minimum:
 - focus candidate search/filter;
 - open diagnostics;
 - reset layout/scale.
+- open a stable decision deep link supplied on the command line.
 
 Bindings must be visible in the UI and remappable only if doing so is cheap in the implementation
 plan. Remapping is not otherwise required for v0.
@@ -347,6 +415,21 @@ The candidate table must support deterministic sorting and filtering by availabl
 - Mega/Tera choice;
 - fallback/degradation status.
 
+Every decision DTO contains an `aggregation` object with `mode`, `risk_lambda`, and
+`must_react_lambda` keys. `mode` is required for a trusted aggregate score. Supported legacy source
+rows may export `mode: null` only together with an explicit degradation warning; the UI then labels
+the score `aggregation mode not recorded`. It must not infer the mode from `config_hash`.
+
+As of 2026-07-16, the bot's in-memory `DecisionTrace` already carries these aggregation fields, but
+the committed Trace-v3 row writer does not persist them. The implementation plan must close that
+source-to-presentation gap through a separately tested, backward-compatible trace/export contract.
+It may not recover the values indirectly from a config hash.
+
+The exporter also records `top1_top2_margin`, `warning_count`, and `fallback_used` at decision level.
+These are presentation values derived from recorded normalized data. They support jump-to-next
+close/fallback/warning navigation without rerunning policy code. v0 defines no universal
+close-decision threshold and does not draw a score graph.
+
 The viewer shows `not recorded` rather than inventing zero, false, or an empty list for absent
 optional fields.
 
@@ -360,6 +443,8 @@ The tab must show bundle-normalized content, not unrestricted file-system browsi
 | Condition | Required behavior |
 |---|---|
 | Unknown bundle major version | Refuse to open; show supported versions |
+| Higher minor with known capabilities only | Open; preserve unknown optional fields for raw display |
+| Unknown required capability | Refuse to open; name the unsupported capability |
 | Hash mismatch | Refuse trusted mode; identify the mismatching file |
 | Supported bundle with optional file absent | Open degraded mode; persistent warning |
 | Replay present, trace absent | Replay-only degraded mode; no candidate panel claims |
@@ -383,17 +468,24 @@ bundle's explicit classification and does not invent recovery logic.
 - Network access is disabled/not used by v0.
 - The viewer displays dirty-worktree provenance when present and never hides it.
 - Bundle generation records exporter version and source hashes.
+- Bundle generation records no wall-clock creation time; provenance describes inputs and exporter,
+  not the workstation session that happened to run it.
 
 ## 9. Acceptance criteria
 
 ### 9.1 Bundle/export acceptance
 
 - A frozen committed battle can be exported twice to byte-identical bundles.
+- The deterministic check compares the relative file list and SHA-256 of each file; it does not rely
+  on ZIP metadata or directory timestamps.
 - A one-byte data mutation produces a hash failure.
 - Absolute source paths do not appear in the bundle.
 - Current committed DecisionTrace v3 candidate keys validate and resolve exactly.
 - A supported older trace fixture either migrates deterministically in Python or is rejected with a
   precise explanation; Godot contains no legacy migration logic.
+- A non-finite float, unknown required capability, or accidental timestamp fails export/validation.
+- Every decision with a trusted aggregate score has an explicit aggregation mode; a legacy missing
+  mode is visibly degraded.
 
 ### 9.2 Viewer acceptance
 
@@ -407,18 +499,32 @@ bundle's explicit classification and does not invent recovery logic.
   desktop window.
 - Compact and Comfortable layouts preserve the same information and selection.
 - Keyboard-only inspection of a bundle is possible.
+- `--decision <battle_id>:<decision_index>` opens the exact target or fails diagnostically.
+- The abstract board remains fully understandable with all optional artwork disabled.
+- Keyboard focus, contrast, text/icon warning semantics, and 75%–200% scaling are release gates.
+  Screen-reader behavior is tested and reported on Godot 4.5.2 but remains best effort in v0 because
+  the engine integration is experimental.
 
 ### 9.3 Performance acceptance
 
 The implementation plan must pin measurable desktop targets after a representative committed
 fixture is selected. At minimum:
 
-- opening the reference bundle must not block the UI indefinitely;
+- bundle loading runs outside the main UI thread, shows progress, remains cancellable, and never
+  mutates the scene tree from the worker;
 - timeline navigation must feel immediate after load;
-- large candidate tables must use bounded rendering or virtualization if the reference fixture
-  demonstrates a need.
+- timeline, candidate, warning, and raw-evidence views use bounded rendering, pagination, or
+  virtualization regardless of fixture size; no view instantiates one Control node per unbounded
+  source row;
+- moving the window between desktop monitors with different DPI/scaling preserves readable scale,
+  reachable controls, and the selected timeline entry;
+- the application exposes a user scale override when platform DPI detection is unavailable or
+  unsuitable.
 
 No arbitrary performance number is approved here without a measured fixture baseline.
+
+Godot tests use gdUnit4 through its command-line runner in headless CI and emit JUnit-compatible
+results. The implementation plan pins a gdUnit4 release verified against Godot 4.5.2.
 
 ## 10. Future architecture hooks — not v0 features
 
@@ -463,6 +569,9 @@ must split work at least into:
 6. diagnostics, accessibility, scale, and layout gates;
 7. frozen end-to-end viewer bundle acceptance.
 
+The plan must include background-load cancellation, bounded-list behavior, mixed-DPI desktop QA,
+the abstract-board no-artwork fixture, deep-link launch, and headless gdUnit4 gates.
+
 No live-client, plugin, team-analysis, or external-bot task may be added to that plan without a
 separate design approval.
 
@@ -481,3 +590,7 @@ separate design approval.
 | Showdex breaks across client rewrites | Versioned future API; no DOM/extension compatibility claim |
 | Desktop scale/login/fullscreen feedback | Scale/layout in v0; login deferred to full-client design |
 | Preact improvements praised | Complement official client; do not clone/rewrite it |
+| Godot accessibility remains experimental | Binding keyboard/scale/contrast gates; screen reader best effort |
+| Long-list performance/virtualization gap | Bounded rendering is mandatory for unbounded collections |
+| Analysis GUIs provide direct position navigation | Stable `battle_id:decision_index` deep link |
+| Close decisions and warnings are hard to find | Exporter-prepared margin/warning/fallback navigation fields |

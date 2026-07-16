@@ -237,3 +237,63 @@ phase-specific to become requirements today.
 6. Desktop demand exists, but a native shell does not automatically fix usability.
 7. The official client is a moving target; Studio should rely on protocol/data contracts, not UI
    structure.
+
+## 7. Engineering feasibility and prior-art review
+
+A follow-up review on 2026-07-16 checked the proposed Phase-0 architecture against Godot's current
+desktop capabilities and analysis-tool patterns.
+
+### 7.1 Verified Godot constraints
+
+- Godot 4.5 introduced AccessKit-based screen-reader support and describes the integration as
+  experimental. Phase 0 therefore treats keyboard access, focus, scaling, contrast, and redundant
+  text/icon semantics as release gates while reporting screen-reader behavior as best effort.
+- Godot's customizable long-list story does not provide a general built-in recycling control. An
+  open virtual-scrolling proposal and the documented `Tree` performance failure class justify
+  bounded rendering as a design requirement rather than a fixture-dependent optimization.
+- Godot supports background work, but the active scene tree is not thread-safe. Bundle reading,
+  hashing, parsing, and immutable DTO construction may run in a worker; node updates return to the
+  main thread.
+- Desktop DPI behavior varies by platform. Studio needs a user scale override and a manual test that
+  moves the window between monitors with different scale factors.
+- gdUnit4 provides Godot-4-native command-line execution and JUnit output. It is selected for
+  Phase-0 UI tests, with an exact compatible version pinned in the implementation plan.
+
+Sources:
+
+- [Godot 4.5 release notes](https://godotengine.org/releases/4.5/)
+- [Godot thread-safe APIs](https://docs.godotengine.org/en/4.5/tutorials/performance/thread_safe_apis.html)
+- [Godot multiple resolutions](https://docs.godotengine.org/en/4.5/tutorials/rendering/multiple_resolutions.html)
+- [Tree performance issue #70869](https://github.com/godotengine/godot/issues/70869)
+- [Virtual-scrolling proposal #9678](https://github.com/godotengine/godot-proposals/issues/9678)
+- [gdUnit4](https://github.com/godot-gdunit-labs/gdUnit4)
+
+### 7.2 Deterministic evidence transport
+
+The original draft required byte-identical bundles without defining a byte profile. Phase 0 now
+uses a directory rather than ZIP, excludes wall-clock export metadata, hashes every present data
+file, and canonicalizes JSON/JSONL with RFC 8785. This avoids timestamp and entry-order variance
+while keeping the artifact directly inspectable.
+
+Source: [RFC 8785 — JSON Canonicalization Scheme](https://datatracker.ietf.org/doc/html/rfc8785).
+
+### 7.3 Analysis-GUI patterns
+
+Chess-engine GUIs demonstrate two useful patterns for candidate-based analysis:
+
+- direct navigation to a stable analysis position;
+- a compact overview of close evaluations and warnings before opening full detail.
+
+Phase 0 adopts the low-cost portions: `--decision <battle_id>:<decision_index>` and exporter-made
+`top1_top2_margin`, `warning_count`, and `fallback_used`. A full score-over-time graph remains a
+v0.1 presentation item so the initial viewer stays small.
+
+Reference: [En Croissant](https://encroissant.org/).
+
+### 7.4 Showdown protocol reference
+
+The `pkmn/ps` ecosystem, especially `@pkmn/protocol`, is a useful MIT-licensed differential oracle
+for normalized protocol behavior. Phase 0 does not add it as a runtime dependency. Any reuse beyond
+reference tests requires an explicit dependency and license decision.
+
+Reference: [`pkmn/ps`](https://github.com/pkmn/ps).

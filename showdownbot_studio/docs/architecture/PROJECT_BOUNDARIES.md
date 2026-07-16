@@ -37,8 +37,10 @@ plugin -> unrestricted Godot internals/credentials/filesystem/network
 
 - Offline only.
 - Godot receives deterministic local JSON/JSONL bundle data.
+- The bundle is a canonical directory with no archive timestamps or export-time metadata.
 - Python performs source validation and legacy normalization.
 - Godot rejects unsupported versions and hash mismatches.
+- Bundle loading and DTO construction stay off the main UI thread; scene-tree mutation stays on it.
 - Existing source artifacts remain unchanged.
 
 ## 4. Later live boundary

@@ -4,7 +4,8 @@
 authorized
 **Date:** 2026-07-16
 **Platform:** desktop first and desktop only under this master spec
-**UI technology:** Godot with typed GDScript
+**UI technology:** Godot 4.5.2 with typed GDScript; see
+[`decisions/ADR-001-godot-ui-technology.md`](decisions/ADR-001-godot-ui-technology.md)
 **Domain technology:** Python remains authoritative for bot logic, export, normalization, and
 analysis
 
@@ -65,6 +66,11 @@ is not a supported integration contract.
 Scaling, keyboard access, resizable panels, high-contrast semantics, and compact/comfortable
 layouts are cross-cutting requirements, not polish tasks.
 
+For Phase 0, keyboard operation, 75%–200% scaling, contrast, focus visibility, and text/icon
+alternatives to color are binding. Godot's screen-reader integration is experimental in the pinned
+engine line, so screen-reader support is best effort in Phase 0 and must be reported honestly. It
+may become a release gate only after a dedicated accessibility audit.
+
 ### 2.5 Fail closed on evidence, fail safely on extensions
 
 Unknown schemas, hash mismatches, ambiguous identities, or missing required provenance never become
@@ -110,6 +116,10 @@ Godot does not own:
 - Showdown mechanics simulation;
 - arbitrary third-party native code execution.
 
+Phase 0 pins Godot 4.5.2 rather than an open-ended `>= 4.5` range. Engine upgrades require the
+viewer acceptance suite, DPI checks, accessibility checks, and the architecture decision to be
+reviewed again.
+
 ### 3.2 Python services and adapters
 
 Python owns:
@@ -138,6 +148,11 @@ Schema families are separate and versioned independently:
 
 A version bump in one family must not force unrelated families to change.
 
+Every schema family uses explicit `major` and `minor` integers. A major change is incompatible and
+fails closed. A minor change may only add optional fields or capabilities. Readers may accept a
+higher minor of a supported major only when all declared `required_capabilities` are known and all
+required fields validate; unknown required capabilities fail closed.
+
 ### 3.4 Storage
 
 v0 uses local files only. Later workspace storage may contain preferences, layouts, imported teams,
@@ -155,8 +170,10 @@ Canonical slice spec: [`specs/viewer-v0-design.md`](specs/viewer-v0-design.md).
 Included:
 
 - deterministic Python viewer bundle;
-- offline Godot replay and timeline;
+- offline Godot replay and timeline with an abstract, sprite-independent battle board;
 - candidate, score, state, warning, and provenance inspection;
+- direct launch at a stable `battle_id:decision_index`;
+- exporter-prepared decision interestingness values for navigation;
 - scalable/resizable desktop workspace;
 - fail-closed schema and hash validation.
 
@@ -290,6 +307,10 @@ All implemented phases must preserve:
 - layouts that survive long format, folder, team, and candidate names;
 - a reset-to-safe-layout action.
 
+Phase 0 uses an abstract board made from text, HP bars, status chips, field conditions, and
+project-owned semantic icons. Pokémon artwork and third-party sprite packs are optional future
+presentation layers, never a dependency for battle comprehension.
+
 ## 6. Cross-phase observability and provenance
 
 Studio must make the following visible when available:
@@ -302,6 +323,11 @@ Studio must make the following visible when available:
 - timeouts, fallbacks, reconnects, and rejected commands.
 
 The client must never turn a viewer, parser, pipeline, or safety smoke into a bot-strength claim.
+
+Displayed aggregate candidate scores must always be accompanied by their recorded aggregation
+mode. `risk_lambda` and `must_react_lambda` are displayed when recorded. If the source cannot
+provide the mode, the exporter emits `null` plus a degradation warning; Studio must not infer it
+from `config_hash`.
 
 ## 7. Security and trust boundaries
 
@@ -340,6 +366,8 @@ The client must never turn a viewer, parser, pipeline, or safety smoke into a bo
 - Any copied or modified source retains required notices and compatible licensing.
 - Asset packs require explicit provenance; Studio does not redistribute arbitrary community assets.
 - A future public release needs a release-level license inventory.
+- `@pkmn/protocol` and related `pkmn/ps` packages are approved as reference and differential-test
+  inputs only; runtime reuse still requires a separate dependency and license decision.
 
 This section is an engineering gate, not legal advice.
 
@@ -391,6 +419,11 @@ For every phase:
 6. deterministic/provenance checks proportional to data scope;
 7. security/license review proportional to network, extension, or asset scope;
 8. explicit user review before merge and before enabling the next phase.
+
+Phase 0 additionally requires bounded rendering for every unbounded collection, background bundle
+loading with visible progress and cancellation, a mixed-DPI desktop check, and headless Godot tests
+in CI. The selected Godot test framework is gdUnit4; the implementation plan must pin a version
+verified against Godot 4.5.2 and emit JUnit-compatible results.
 
 Only Phase 0 is eligible for implementation planning after the written specs are approved. Phases
 1–5 remain product roadmap entries, not authorized implementation work.
