@@ -1,156 +1,181 @@
 # ShowdownBot
 
-Competitive **Pokémon Showdown VGC Doubles** bot — custom protocol client, exact-mechanics engine
-(`@smogon/calc` bridge + one-ply tactical resolver), a learned action reranker on top of a
-heuristic core, and a **fully reproducible evaluation harness**: every battle is seeded,
-provenance-pinned, and byte-for-byte replayable.
+ShowdownBot is a research-oriented **Pokémon Showdown VGC Doubles bot**. It combines a custom
+Showdown protocol client, a mechanics-aware battle state, a pinned `@smogon/calc` bridge,
+heuristic and search-based decision making, optional learned reranking, and a provenance-heavy
+evaluation harness.
 
-## Highlight: byte-reproducible bot-vs-bot evaluation
+The project is deliberately conservative about claims: a green safety smoke is not a strength
+result, held-out data is not used for tuning, and unsupported mechanics fail closed instead of
+quietly falling back to an optimistic approximation.
 
-Pokémon battles are full of randomness (damage rolls, crits, speed ties). This repo makes **our
-local bot-vs-bot eval matches** — under a pinned Showdown commit, a versioned seed patch, fixed
-schedules, deterministic clients, and a fresh server per run — byte-identically reproducible.
-(Scope note: this is about the local eval harness, not arbitrary ladder replays; Showdown keeps
-seeds of non-random ladder games private by design.)
+## Current status
 
-1. **Server seeding** — a versioned patch
-   ([tools/eval/patches/](tools/eval/patches/)) injects a derivable per-battle seed
-   (`sha256(base:index)`) into the Showdown server and logs every seed.
-2. **Client determinism** — `PYTHONHASHSEED` pinned; every decision path deterministic (the
-   reproducibility gate itself caught and killed a hidden unseeded-random fallback — see
-   [reports/2026-07-10-2b35-T4-smoke.md](reports/2026-07-10-2b35-T4-smoke.md)).
-3. **Run discipline** — fixed battle order, fresh server per run, **no retries ever**; every run
-   carries its full provenance (config/panel/schedule/team hashes, git sha, server commit+patch
-   hash) in a manifest sidecar.
-4. **Proof, not trust** — normalized battle logs are compared **byte-for-byte**; two independent
-   51-game runs match 51/51 ([reports/2026-07-10-2b35-T4-rerun.md](reports/2026-07-10-2b35-T4-rerun.md)),
-   and the same battles reproduce exactly on foreign cloud hardware
-   ([data/eval/kaggle-validation/](data/eval/kaggle-validation/)).
+The authoritative status is maintained in [docs/ROADMAP.md](docs/ROADMAP.md). New contributors
+should start with [docs/PROJECT_INDEX.md](docs/PROJECT_INDEX.md).
 
-On top of that sits a statistics layer built for honest claims: paired exact-binomial McNemar with
-a positive-evidence-only rule, per-cell Wilson intervals, safety gates before any strength
-statement, an append-only **held-out access ledger** with a per-config budget, and a frozen,
-drift-verified baseline manifest ([config/eval/baselines/](config/eval/baselines/)).
+As of **2026-07-16**:
 
-## Status
-
-| Phase | State |
+| Area | Status |
 |---|---|
-| 0–0.5 Protocol client, auth, teams, CLI | ✅ |
-| 1 Offline engine: parser, `BattleState`, calc bridge, belief tracking | ✅ |
-| 2 Heuristic doubles bot (resolver, oracles, game modes, Tera, fallbacks, gauntlet) | ✅ |
-| 3 Learned reranker — data pipeline (frozen schema, counterfactual rollout teacher, internal turn simulator, persistent calc), offline LightGBM reranker, live shadow mode | ✅ |
-| 3 **Eval harness 2b-3.5** (T0–T6): seeded battles, opponent panel, per-battle result JSONL, report generator (`eval-report`), held-out gate + baseline | ✅ |
-| 3 Enriched retrain (panel-diverse dataset generated on Kaggle) | 🔄 in progress |
-| 3 Gated override (paired McNemar vs pinned baseline) | ⏳ next |
+| Protocol client, authentication, teams and CLI | Built |
+| Battle state, parser, calc bridge and belief/spread infrastructure | Built |
+| Heuristic VGC Doubles policy, game modes, Tera and fail-safe fallbacks | Built |
+| Seeded evaluation harness, decision traces, reports and held-out gates | Built |
+| Learned reranker infrastructure | Built; live override remains a strength NO-GO |
+| Champions format: gen-0 speed and live damage | Safety-validated |
+| Champions own Mega (`I7a`) | Merged; safety pass, no strength claim |
+| Champions opponent Mega (`I7b-A` / `I7b-B`) | Merged; limited-view hypotheses and dual-Mega scoring are live for Mega-enabled formats |
+| Champions telemetry/smoke (`I7b-C`) | [PR #17](https://github.com/chrismaghuhn/ShowdownBot/pull/17) open and blocked pending LF-stable configuration provenance |
+| Champions strength | **NO-GO** until I7b-C is complete and a dedicated latency gate passes |
+| ShowdownBot Studio | Product and bundle-contract design approved; exporter planning is separate from the bot runtime |
 
-Architecture: **Preview → Belief → Policy → Search → Fusion** (heuristic core = candidate
-generator and safety floor; learned components rerank, never overrule legality/safety).
+The active provenance issue is explicit: several configuration identities were historically
+computed from raw text-file bytes whose CRLF/LF representation depended on the checkout platform.
+The affected smoke evidence remains historical evidence of the Windows run, but it must not be
+presented as a platform-independent configuration identity. The repair is being handled as a
+dedicated infrastructure slice; CI must pass on both Windows and Linux without skipping the
+cross-platform check before I7b-C can merge.
+
+## What is in the bot?
+
+The decision stack is organized around:
+
+```text
+Preview → Observable state → Belief/priors → Candidate generation
+        → Tactical evaluation/search → Policy fusion → Legal Showdown choice
+```
+
+Important components include:
+
+- a Showdown WebSocket client and protocol/request models;
+- an immutable/copy-on-project battle state for counterfactual evaluation;
+- format-specific mechanics through `FormatConfig` and `CalcProfile`;
+- speed, damage, KO, survival, Protect and opponent-response models;
+- structural candidate identities and `decision-trace-v3` diagnostics;
+- own-Mega and limited-view opponent-Mega projection for Champions;
+- seeded schedules, frozen panels, result JSONL, sidecars and gate reports;
+- offline dataset auditing, rollout-teacher tooling and an optional LightGBM reranker.
+
+The heuristic policy remains the legality and safety floor. Learned components may rerank
+candidates, but they do not bypass legality checks or fabricate unsupported battle mechanics.
+
+## Reproducible evaluation
+
+The local evaluation harness is designed to make bot-vs-bot experiments reviewable and
+repeatable:
+
+1. A pinned Pokémon Showdown checkout is patched with a versioned deterministic seed hook.
+2. Schedules, panels and team inputs are frozen and content-hashed.
+3. Runs record Git state, configuration identity, server provenance, seeds and result rows.
+4. Optional decision and research sidecars expose how a choice was reached.
+5. Safety gates run before any strength interpretation.
+6. Paired comparisons use fixed schedules and seeds; battle-level retries and seed shopping are
+   forbidden.
+
+Representative evidence:
+
+- [seeded byte-stability rerun](reports/2026-07-10-2b35-T4-rerun.md)
+- [Champions I6 live-damage gen-0 smoke](reports/champions-panel-v0-i6-smoke.md)
+- [Champions I7a own-Mega smoke](reports/champions-panel-v0-i7a-mega-smoke.md)
+- [Pokémon Showdown protocol differential audit](reports/champions-pkmn-protocol-differential-audit.md)
+
+The current LF/configuration-provenance repair is intentionally called out above: the harness has
+caught a real cross-platform identity defect, and the affected claim stays blocked until the root
+cause and evidence are corrected.
 
 ## Quick start
 
+Requirements:
+
+- Python supported by the project environment;
+- Node.js for the pinned calc bridge and generated-data checks;
+- a local Pokémon Showdown checkout only for live/gauntlet runs.
+
 ```bash
 cd showdown_bot
-pip install -e ".[dev]"
-npm ci --prefix tools/calc   # @smogon/calc bridge deps (node_modules is a build artifact, not committed)
-python -m pytest -q          # 850+ tests
+python -m pip install -e ".[dev]"
+npm ci --prefix tools/calc
+npm ci --prefix tools/gen
+python -m pytest -q
 python -m showdown_bot.cli replay-fixture
 ```
 
-The `@smogon/calc` damage bridge runs on Node. `node_modules/` under `tools/calc/` is **not**
-committed (it made cloud clones dirty and fail-closed the eval-harness safety gate) — run
-`npm ci --prefix tools/calc` once after checkout, or the calc-backed tests will fail.
+`node_modules/` is intentionally not committed. Fresh worktrees need the relevant `npm ci`
+commands before calc- or generator-backed tests can be trusted.
 
-### Local gauntlet + seeded, reproducible eval
+### Local gauntlet
 
-Local server setup: `showdown_bot/tools/localserver/README.md` (clone Showdown, apply the seeded-
-battle patch). Then:
+Set up the pinned local server using
+[showdown_bot/tools/localserver/README.md](showdown_bot/tools/localserver/README.md). A basic run:
 
 ```bash
-# plain gauntlet
+cd showdown_bot
 python -m showdown_bot.cli gauntlet --games 20 --villain max_damage --strict
-
-# fully seeded, schedule-driven run (fresh server started with SHOWDOWN_BATTLE_SEED_BASE + SHOWDOWN_EVAL_SEED_LOG)
-PYTHONHASHSEED=0 SHOWDOWN_CALC_BACKEND=persistent SHOWDOWN_BATTLE_SEED_BASE=mybase \
-  SHOWDOWN_EVAL_SEED_LOG=/tmp/seeds.jsonl \
-  python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/t4_smoke_v001.yaml \
-  --result-out /tmp/results.jsonl
-
-# audited report (safety gates -> Wilson tables -> paired McNemar in two-run mode)
-python -m showdown_bot.cli eval-report --run-a /tmp/results.jsonl --seedlog-a /tmp/seeds.jsonl \
-  --schedule ../config/eval/schedules/t4_smoke_v001.yaml \
-  --panel ../config/eval/panels/panel_v001.yaml --out /tmp/report
 ```
 
-### Candidate-vs-baseline decision differential (offline diagnostic)
+Schedule-driven evaluation requires a fresh correctly patched server plus explicit seed and output
+paths. Treat the committed schedules and the commands recorded in their verdict reports as the
+reproduction contract; do not substitute a different seed after seeing a result.
 
-Off by default. Captures each hero decision to an optional sidecar during a schedule run, then
-diffs two runs' decisions and outcomes at the battle level (first policy/state divergence,
-matchup buckets, regressions, stability):
-
-```powershell
-python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/t4_smoke_v001.yaml `
-  --result-out /tmp/baseline.jsonl --decision-trace-out /tmp/baseline-trace.jsonl.gz
-
-python -m showdown_bot.cli decision-diff `
-  --baseline-run /tmp/baseline.jsonl --baseline-seedlog /tmp/baseline-seeds.jsonl `
-  --baseline-trace /tmp/baseline-trace.jsonl.gz `
-  --candidate-run /tmp/candidate.jsonl --candidate-seedlog /tmp/candidate-seeds.jsonl `
-  --candidate-trace /tmp/candidate-trace.jsonl.gz `
-  --schedule ../config/eval/schedules/t4_smoke_v001.yaml `
-  --panel ../config/eval/panels/panel_v001.yaml --out /tmp/decision-diff
-```
-
-This is diagnostic only; strength verdict remains `eval-report`; no held-out access is performed
-by this command.
-
-### Ladder / challenge
+### Ladder or challenge
 
 ```bash
-cp .env.example .env   # SHOWDOWN_USERNAME / SHOWDOWN_PASSWORD
+cd showdown_bot
+cp .env.example .env
 python -m showdown_bot.cli ladder -v
 python -m showdown_bot.cli challenge --opponent TheirUsername -v
 ```
 
-### Dataset / reranker audit (offline)
+Configure `SHOWDOWN_USERNAME` and `SHOWDOWN_PASSWORD` in `.env`. Never commit credentials.
 
-Deterministic, fail-closed audit of any schema-compatible reranker dataset — integrity, cross-split
-leakage (exact/semantic/near-duplicate), label invariants, feature health/drift/OOD, and (with a
-model + manifest) calibration:
+## ShowdownBot Studio
 
-```powershell
-python -m showdown_bot.learning.audit `
-  ../data/datasets/phase3-slice2b25a/dataset.jsonl.gz `
-  --out ../reports/audit-2b25a
-```
+[`showdownbot_studio/`](showdownbot_studio/) is a separate desktop-tool track for replay and
+decision-trace inspection. Its initial target is a deterministic Python viewer bundle followed by
+a Godot desktop viewer. It does not run the bot, recompute decisions or alter battle evidence.
 
-Writes `audit.json` / `audit.md` / `split-manifest.json`; exit 0 on `AUDIT PASS`, 1 on `AUDIT FAIL`.
-It proves **dataset/model trust, not play strength** — it never mutates rows, trains, runs battles,
-or touches held-out data, and no live/battle/teacher/inference path imports the audit package.
+Start with:
 
-## Repo map
+- [Studio master spec](showdownbot_studio/docs/MASTER_SPEC.md)
+- [Viewer v0 design](showdownbot_studio/docs/specs/viewer-v0-design.md)
+- [Approved bundle contract](showdownbot_studio/docs/specs/viewer-v0-bundle-contract-design.md)
 
-| Path | What |
+## Repository map
+
+| Path | Purpose |
 |---|---|
-| `showdown_bot/src/showdown_bot/battle/` | Live decision core (resolver, evaluation, policy, fallbacks) |
-| `showdown_bot/src/showdown_bot/engine/` | Calc bridge, belief/spread book, format config |
-| `showdown_bot/src/showdown_bot/eval/` | The harness: seeding, schedules, panel, result rows, stats, pairing, report, ledger, baseline |
-| `showdown_bot/src/showdown_bot/learning/` | Frozen dataset schema, feature extraction, rollout teacher, reranker train/eval, shadow runtime |
-| `config/eval/` | Panels, schedules, gates, baselines, held-out ledger |
-| `data/eval/` | Committed run evidence (sha256-pinned): T4/T4-rerun, T6 held-out baseline, Kaggle validation |
-| `data/datasets/` | Training datasets (gz + manifest) |
-| `tools/kaggle/` | Cloud runners: repro-validation + datagen kernels, API driver |
-| `reports/` | Every eval run's report — verdict-first, fully provenanced |
-| `docs/superpowers/` | Specs, plans, and review artifacts for every slice |
+| `showdown_bot/src/showdown_bot/battle/` | Live decision core, evaluation, opponent modeling and search |
+| `showdown_bot/src/showdown_bot/engine/` | Battle state, calc bridge, metadata and belief infrastructure |
+| `showdown_bot/src/showdown_bot/eval/` | Results, traces, schedules, manifests, reports and statistical gates |
+| `showdown_bot/src/showdown_bot/learning/` | Dataset, teacher, audit, reranker and outcome tooling |
+| `showdown_bot/tests/` | Unit, regression, replay, Champions and provenance tests |
+| `config/eval/` | Frozen panels, schedules, baselines and held-out controls |
+| `data/eval/` | Committed evaluation evidence |
+| `reports/` | Audits, safety verdicts and experiment reports |
+| `docs/superpowers/` | Approved designs and implementation plans |
+| `showdownbot_studio/` | Separate replay/decision-trace desktop-tool project |
 
-## Ground rules (enforced by tests)
+## Engineering rules
 
-- The live path only ever plays **legal** actions; the heuristic is the safety floor.
-- **No label leakage**: model inputs are the frozen feature columns, never labels/outcomes.
-- Model artifacts carry dataset/schema/config hashes; a mismatch at load falls back to heuristic-only.
-- Held-out teams: append-only ledger, one gate attempt per config lineage, numbers never inform tuning.
-- No battle-level retries; a non-reproducible run is a void run.
+- Legal actions and fail-closed behavior take priority over estimated strength.
+- No hidden opponent team data may enter limited-view decision paths.
+- No model label or battle outcome may leak into live features.
+- Configuration, model and generated-data identities are verified before use.
+- Held-out results are not development feedback.
+- A safety pass is not a strength pass.
+- No battle retries or seed selection are allowed in frozen evaluations.
+- Local logs, credentials and raw room dumps are not committed as public evidence.
 
-## License
+## Documentation
 
-Private hobby project.
+- [Project index](docs/PROJECT_INDEX.md)
+- [Canonical roadmap](docs/ROADMAP.md)
+- [Pokémon Showdown protocol differential audit](reports/champions-pkmn-protocol-differential-audit.md)
+- [poke-env reference audit](reports/champions-poke-env-reference-audit.md)
+
+## License and affiliation
+
+Private hobby/research project. This project is not affiliated with Nintendo, Game Freak, The
+Pokémon Company, Smogon or Pokémon Showdown. Third-party code and data remain subject to their
+respective licenses and provenance requirements.
