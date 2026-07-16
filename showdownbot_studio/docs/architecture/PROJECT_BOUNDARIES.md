@@ -67,7 +67,27 @@ native library loading, and implicit network/filesystem access are outside the d
 Bots run out of process and communicate through normalized requests, legal actions, deadlines, and
 results. A bot crash or timeout must be distinguishable from a client or server error.
 
-## 7. Change rule
+## 7. Later simulation boundary
+
+A replay protocol log is structured evidence, not a guaranteed resumable simulator snapshot. Any
+future replay takeover, what-if analysis, mistake-training mode, or scenario sandbox requires a
+separate architecture decision and format-specific parity audit. The design must account for
+hidden information, RNG state, omitted simulator internals, and exact reconstruction semantics.
+
+For Studio-controlled captures, exact replay or takeover may record the original seed, complete
+teams, ordered simulator input log, and/or a verified simulator checkpoint at capture time. Exact
+support still requires a conformance harness that resumes at turn N and reproduces the remaining
+protocol output. Public replays without those inputs remain analysis-only or explicitly
+counterfactual.
+
+The repository's pinned and patched `smogon/pokemon-showdown` checkout is the first simulation
+distribution to audit for Champions because current eval runs already exercise that format there.
+`@pkmn/sim` remains a secondary research candidate; its packaged formats and mods must not be
+assumed to cover Champions or other custom Showdown formats. Neither is an approved Studio runtime
+dependency. Simulation runs out of process behind a versioned adapter; Godot never owns simulator
+state or mechanics.
+
+## 8. Change rule
 
 Changing these boundaries requires a reviewed architecture decision under `docs/decisions/`. An
 implementation plan may refine APIs inside a boundary but may not erase the boundary itself.

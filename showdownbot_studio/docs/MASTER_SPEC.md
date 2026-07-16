@@ -181,6 +181,11 @@ Included:
 
 Excluded: network, login, ladder, chat, team building, public plugins, external bots.
 
+Explicit post-v0 replay candidates are a score-over-time overview derived only from recorded
+scores, local session restore, portable annotation sidecars, and a local replay library with
+cross-replay statistics. None is required for Phase 0, and none may introduce mechanics
+recomputation into the viewer.
+
 ### Phase 1 — Live Spectator
 
 **Goal:** observe a running bot battle through the same presentation DTOs without controlling it.
@@ -212,6 +217,8 @@ Candidate capabilities:
 - damage ranges and survival checks;
 - Protect, move, item, and set priors;
 - archetype annotations and matchup notes.
+- provenance-visible data-freshness badges;
+- versioned team benchmark/regression assertions evaluated by the existing calc path.
 
 Hard boundaries:
 
@@ -235,6 +242,18 @@ Shared Phase-2 domain modules are Python-owned and may serve both products. The 
 are a provenance-complete usage-statistics snapshot adapter and a stable team-import/validation
 adapter. This ordering is planning input only: neither module is authorized by this master spec,
 and neither expands Phase 0.
+
+Replay takeover, interactive what-if simulation, mistake-training puzzles, and a scenario sandbox
+are not implied by Phase 2. They require a separately approved simulation design proving exact
+format support, state reconstruction, hidden-information rules, RNG handling, and reproducibility.
+Selecting a simulator package alone does not authorize or unlock those features.
+
+Two takeover classes must remain distinct. **Exact takeover** is eligible only for battles captured
+under Studio control with a pinned simulator build, complete teams, original seed, ordered input
+log or verified simulator checkpoint, and a conformance replay against the original output.
+**Approximate takeover** from a public replay may use explicit hidden-state hypotheses and a new
+future RNG stream, but must be labeled counterfactual and may never be presented as the original
+battle continuing exactly.
 
 ### Phase 3 — Full Showdown protocol client
 

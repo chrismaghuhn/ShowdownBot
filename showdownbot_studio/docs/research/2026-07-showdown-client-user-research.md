@@ -325,3 +325,58 @@ Primary references:
 - [`pkmn/stats` output contract](https://github.com/pkmn/stats/blob/main/stats/OUTPUT.md)
 - [Pokémon Showdown team-format documentation](https://github.com/smogon/pokemon-showdown/blob/master/sim/TEAMS.md)
 - [Limitless VGC teams](https://limitlessvgc.com/teams) (research candidate; terms review pending)
+
+### 7.6 Feature-backlog review: analysis, training, and local simulation
+
+An external feature review compared Studio with chess, RTS, and fighting-game analysis tools. The
+product patterns are useful, but its central premise needs correction: Showdown replays are already
+structured protocol data, not video. They support parsing and querying, but they do not necessarily
+contain a complete resumable simulator state, hidden information, or RNG state.
+
+The proposed `@pkmn/sim` dependency is therefore not a single enabler that automatically unlocks
+replay takeover, what-if analysis, mistake training, and a scenario sandbox. The package extracts
+the official Showdown simulator and supports Generations 1–9, but ships a selected format set;
+additional formats or mods may require separately supplied data and validation.
+
+The repository already has a stronger first candidate for Champions: its pinned, patched
+`smogon/pokemon-showdown` checkout runs `gen9championsvgc2026regma`, injects deterministic
+per-battle seeds, and records the seed actually used. This proves seed control, not takeover. The
+current harness does not persist Showdown's complete simulator input log or a resumable checkpoint,
+so that capture contract and a turn-N conformance harness remain prerequisites.
+
+| # | Candidate | Routing decision |
+|---|---|---|
+| 1 | Replay takeover from an arbitrary turn | Two separate products: exact takeover only for capture-time seed + complete teams + input-log/checkpoint evidence; public-replay takeover is optional, counterfactual, and hypothesis-labeled. |
+| 2 | Eval/momentum graph | v0.1 candidate using recorded aggregate scores and warning markers only. No viewer-side recomputation or claim of objective game-state value. |
+| 3 | One-ply what-if panel | Existing calc can provide assumption-labeled ranges without exact takeover. A complete alternate turn still requires a simulator and hidden-state hypothesis contract. |
+| 4 | "Learn from your mistakes" mode | Later training research. Critical-turn labels need a validated metric and must not be presented as ground-truth blunders. |
+| 5 | Local replay library with faceted search | Strong post-v0 candidate after the bundle/replay identity contract stabilizes. Local SQLite is an implementation option, not yet an architectural commitment. |
+| 6 | Cross-replay statistics | Follows the replay library. Every statistic must expose corpus, visibility, format, and sample-size provenance. |
+| 7 | Auto-synchronized damage panel | Phase 2 for replay analysis and Phase 3 for live battles, backed only by the existing Python/Node calc adapter. |
+| 8 | Speed/initiative board | Phase 2. Separate recorded facts from prior-based estimates and expose the usage-snapshot version. |
+| 9 | Persistent state banner | Already a Phase-0 viewer requirement and later reusable by the full client. |
+| 10 | Team-preview matchup matrix | Phase 2 candidate prepared asynchronously and progressively. No unmeasured latency promise and no hidden-opponent truth. |
+| 11 | Usage-integrated team analysis with freshness badge | Accepted Phase-2 direction through the provenance-complete usage/meta-prior schema. A full teambuilder remains outside the current slice. |
+| 12 | Offline team validation | Existing repository capability to standardize behind the team import/validation schema, not a greenfield validator. |
+| 13 | Scenario sandbox | Research only, behind the same simulation/parity gate as replay takeover. |
+| 14 | Team benchmark/regression assertions | Strong later Phase-2 candidate: saved, versioned claims re-evaluated by the pinned calc when a team or usage snapshot changes. |
+
+Smaller candidates are routed as follows: session restore is a v0.1 desktop-quality item;
+annotations use a portable sidecar after the replay identity contract stabilizes; color-vision
+support and redundant text/icon semantics are already cross-cutting requirements rather than a
+separate feature.
+
+The recommended order remains Phase 0 first, then stable replay/bundle identities, then shared
+usage and team-validation adapters. A replay library and team regression checks may follow. A
+Champions-aware audit of the pinned Showdown simulator can then make a scenario sandbox eligible;
+exact takeover follows only after capture-time input logging/checkpoints and turn-N conformance.
+Approximate public-replay takeover remains optional and separately labeled.
+
+References:
+
+- [`@pkmn/sim` package scope and format limitations](https://www.npmjs.com/package/@pkmn/sim)
+- [Repository seeded-Showdown harness](../../../tools/eval/patches/README.md)
+- [Pinned eval-server provenance](../../../config/eval/provenance.yaml)
+- [Lichess "Learn from your mistakes"](https://lichess.org/blog/WFvLpiQAACMA8e9D/learn-from-your-mistakes)
+- [Sc2ReplayStats](https://sc2replaystats.com/)
+- [Showdex](https://github.com/doshidak/showdex)
