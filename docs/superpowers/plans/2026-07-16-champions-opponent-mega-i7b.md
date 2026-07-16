@@ -2755,7 +2755,8 @@ def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_d
     import showdown_bot.battle.mega_scoring as mega_scoring_mod
     from showdown_bot.engine.species_meta import species_meta_table
 
-    req, kw = mega_decision_fixture
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)
     eligibility = _real_eligibility(kw)
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
     monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "1")
@@ -2786,7 +2787,20 @@ def test_depth2_for_foe_mega_branch_uses_that_branchs_own_projected_state(mega_d
         assert c.projected_state.side_mega_spent.get("p2", False)  # genuinely a post-branch state
 ```
 
-**Step 2 — confirm RED:** `python -m pytest tests/i7b/test_i7b_scoring.py -k depth2_for_foe_mega -q` → fails today, since neither `rec.diagnostic_contexts` nor the corrected per-index binding exist yet (`AttributeError`/`IndexError`, or the spy simply never observing a `foe_mega_slot is not None` ctx).
+**Step 2 — confirm RED:** `python -m pytest tests/i7b/test_i7b_scoring.py -k depth2_for_foe_mega -q`.
+
+**[REV.7 correction — the RED is no longer `AttributeError`-shaped.** Earlier revisions
+described this RED as "neither `rec.diagnostic_contexts` nor the corrected per-index
+binding exist yet (`AttributeError`/`IndexError`)". That is stale: **`rec.diagnostic_contexts`
+already exists and is populated by Task 4** (`64d47ba`, gated on `_i7b_active` since
+`ca39fb6`). The remaining defect is narrower and purely in the depth-2 wrap: it still
+binds **every** diagnostic index to the single blanket
+`ctx_by_slot[rec.variant.own_mega_slot]`. So the real RED is the spy observing depth-2
+genuinely running with a non-empty `seen_ctxs`, yet **never** receiving a context with
+`foe_mega_slot is not None` — a foe-Mega branch's diagnostic is refined against the
+own-only board instead of its own branch board. A failure from a fixture typo, missing
+import, or absent calc dependency is **not** this RED and must be fixed in the test
+setup first.]**
 
 **Step 3 — implement**: the ONLY change is inside the existing depth-2 wrap block (`mega_scoring.py:420-468`) — replace the single `ctx = ctx_by_slot[rec.variant.own_mega_slot]` line with a per-index lookup using Task 4's new `rec.diagnostic_contexts`:
 
