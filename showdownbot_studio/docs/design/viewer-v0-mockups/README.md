@@ -59,19 +59,53 @@ remain the same.
 
 ### 3. Missing data contracts
 
-The following mockup values are design placeholders until the Python exporter and versioned bundle
-schemas define them:
+**Corrected 2026-07-16 against the real producers.** This list originally named seven gaps. A code
+audit found that three of them are not gaps — the fields are recorded today — and that only their
+*structure* or *vocabulary* is undefined. The authority is
+[`../../specs/viewer-v0-bundle-contract-design.md`](../../specs/viewer-v0-bundle-contract-design.md)
+§2.7(a) and §10.2.
 
-- decision latency;
-- structured fallback reason;
-- warning object shape and severity vocabulary;
+Genuinely absent — no producer writes them, so they remain DESIGN INPUT MISSING:
+
+- warning object shape and severity vocabulary (no per-decision warning producer exists);
 - belief snapshot schema and the source of `suspected` information;
-- `selection_stage` vocabulary;
-- score components beyond fields already present in the recorded trace;
-- state-summary fields not already represented by an approved DTO.
+- score components beyond `aggregate_score` (`score_vector` and `OutcomeBreakdown` exist in memory
+  only and never reach the trace row);
+- state-summary fields not already represented by an approved DTO;
+- aggregation mode, `risk_lambda`, and `must_react_lambda` (carried in memory, not persisted).
 
-Godot must show `not recorded` or a degraded state when these values are absent. It must not infer
-them from `config_hash`, synthesize defaults, or copy the illustrative values from the mockup.
+Recorded today — the field exists, and only its shape or vocabulary is open:
+
+- **decision latency** — `decision_latency_ms` is a *required*, finite-validated field on every trace
+  row. It is not a placeholder;
+- **fallback reason** — `fallback_reason` is persisted as a nullable string with real recorded
+  values. What is missing is a *structured* object, not the field;
+- **`selection_stage`** — persisted as a nullable string with real recorded values. What is missing
+  is a *closed, validated vocabulary*; the trace validator enum-checks only `decision_phase`, so a
+  viewer must render an unrecognized value verbatim rather than mapping it to `unknown`.
+
+Godot must show `not recorded` or a degraded state when a value is genuinely absent. It must not
+infer anything from `config_hash`, synthesize defaults, or copy the illustrative values from the
+mockup.
+
+## Errata — statements superseded in the frozen dossier
+
+The dossier HTML is **preserved unedited** as the design input it was. Its bytes and the pinned
+SHA-256 values below are unchanged, and nothing in this section has been applied to those files.
+These entries record where the frozen artifact's text is no longer the binding rule and what
+replaced it. Read the dossier as a historical design input; read
+[`../../specs/viewer-v0-bundle-contract-design.md`](../../specs/viewer-v0-bundle-contract-design.md)
+for the rule in force.
+
+| Location in dossier | Historical statement | Binding rule today | Authority |
+|---|---|---|---|
+| `viewer-v0-design-dossier.html:239` | "Rang = abgeleitete Sortierposition, kein gespeichertes Feld." | `rank` **is** a recorded field: stored on `CandidateTrace` and persisted in every trace row. The claim holds for the separate `agg-trace-v1` schema, not for the trace row. Candidate sorting may reorder rows for display but never rewrites `rank` or the recorded selection. | [bundle contract](../../specs/viewer-v0-bundle-contract-design.md) §2.7(c), §10.2 |
+| `viewer-v0-design-dossier.html` — the `LATENCY` degradation chip | Latency is drawn as an unavailable/degraded placeholder. | `decision_latency_ms` is recorded on every trace row and is **mandatory** in the bundle. It is not a degraded value. | [bundle contract](../../specs/viewer-v0-bundle-contract-design.md) §2.7(a), §10.2 |
+
+No other dossier statement is superseded. The remaining design directions — the abstract
+sprite-free board, the four information states, structural candidate identity, fail-closed and
+degradation prominence, bounded rendering, and keyboard-first navigation — remain the accepted
+visual direction.
 
 ## Additional implementation clarification
 
