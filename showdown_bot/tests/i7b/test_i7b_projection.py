@@ -4,7 +4,12 @@ from __future__ import annotations
 import pytest
 
 from showdown_bot.engine.mega_form import mega_form_for
-from showdown_bot.engine.mega_projection import project_mega
+from showdown_bot.engine.mega_projection import (
+    WeightedMegaProjection,
+    compose_mega_projection_branches,
+    copy_battle_state,
+    project_mega,
+)
 from showdown_bot.engine.speed import mega_activation_order_key
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
 
@@ -111,6 +116,145 @@ def test_project_mega_own_side_default_is_byte_identical_to_before(i7b_projectio
         spread_lookup=i7b_aerodactyl_spreads,
     )
     assert result.projected_state.sides["p1"]["a"].species == "Aerodactyl-Mega"
+
+
+# --- Task 3: WeightedMegaProjection / compose_mega_projection_branches -------
+
+
+def _dual_mega_state() -> BattleState:
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Aerodactyl", item="aerodactylite", item_known=True, hp=100, max_hp=100)
+    st.sides["p1"]["b"] = PokemonState(species="Sneasler", hp=100, max_hp=100)
+    st.sides["p2"]["a"] = PokemonState(species="Meganium", item="meganiumite", item_known=True, hp=100, max_hp=100)
+    st.sides["p2"]["b"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    return st
+
+
+def test_unequal_pre_mega_speed_yields_one_full_weight_branch(i7b_projection_env, i7b_aerodactyl_spreads, opp_sets_meganium):
+    # Aerodactyl (~200 pre-mega speed) unambiguously outspeeds Meganium (100) here.
+    state = _dual_mega_state()
+    activations = [
+        ("p1", "a", mega_form_for("Aerodactyl", "Aerodactylite")),
+        ("p2", "a", mega_form_for("Meganium", "Meganiumite")),
+    ]
+    branches = compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_aerodactyl_spreads, opp_sets=opp_sets_meganium, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    assert len(branches) == 1
+    assert all(isinstance(b, WeightedMegaProjection) for b in branches)
+    assert branches[0].weight == 1.0
+    assert branches[0].activation_order[0] == ("p1", "a")  # Aerodactyl (faster) activates first
+
+
+def test_equal_pre_mega_speed_yields_two_half_weight_branches(
+    i7b_projection_env, i7b_aerodactyl_spreads, opp_sets_meganium, monkeypatch,
+):
+    """Force equal pre-mega speed via a direct monkeypatch on speed_for_species
+    (real fixture, patched return value -- not a fake stand-in class)."""
+    state = _dual_mega_state()
+    activations = [
+        ("p1", "a", mega_form_for("Aerodactyl", "Aerodactylite")),
+        ("p2", "a", mega_form_for("Meganium", "Meganiumite")),
+    ]
+    monkeypatch.setattr(
+        i7b_projection_env["speed_oracle"], "speed_for_species", lambda **kwargs: 150,
+    )
+    branches = compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_aerodactyl_spreads, opp_sets=opp_sets_meganium, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    assert len(branches) == 2
+    assert {b.weight for b in branches} == {0.5}
+    orders = {b.activation_order for b in branches}
+    assert orders == {
+        (("p1", "a"), ("p2", "a")),
+        (("p2", "a"), ("p1", "a")),
+    }  # both permutations present, no third/duplicate order
+
+
+def test_compose_never_mutates_input_state(i7b_projection_env, i7b_aerodactyl_spreads, opp_sets_meganium):
+    state = _dual_mega_state()
+    before = copy_battle_state(state)
+    activations = [
+        ("p1", "a", mega_form_for("Aerodactyl", "Aerodactylite")),
+        ("p2", "a", mega_form_for("Meganium", "Meganiumite")),
+    ]
+    compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_aerodactyl_spreads, opp_sets=opp_sets_meganium, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    assert state == before
+
+
+def test_weather_ordering_follows_the_LAST_processed_activator_not_the_first(
+    i7b_projection_env, i7b_froslass_spreads, i7b_opp_sets_tyranitar,
+):
+    """Froslass-Mega (Snow Warning) vs Tyranitar-Mega (Sand Stream), T26 §1,
+    CORRECTED per verified pinned Showdown mechanics (audit §Rev.2): the queue
+    processes the FASTER pre-mega activator's megaEvo action first (sim/battle.ts
+    comparePriority), which fires its weather ability's onStart first
+    (sim/pokemon.ts setAbility -> singleEvent('Start', ...) on Mega Evolution,
+    confirmed by reading the pinned f8ac140 source) -- then the SLOWER
+    activator's megaEvo processes second and its OWN weather ability's onStart
+    unconditionally OVERWRITES the field (data/abilities.ts's onStart calls
+    field.setWeather(...) unconditionally, no "first setter wins" guard). The
+    SLOWER (later-processed) activator's weather is therefore what remains
+    active -- NOT the faster one's. This implements the binding Rev. 10 correction
+    and matches Rev. 9's own tie-case prose ("last weather-setting ability wins within that
+    branch") -- one consistent rule governs both the unequal and tied cases."""
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(species="Froslass", item="froslassite", item_known=True, hp=100, max_hp=100)
+    state.sides["p1"]["b"] = PokemonState(species="Sneasler", hp=100, max_hp=100)
+    state.sides["p2"]["a"] = PokemonState(species="Tyranitar", item="tyranitarite", item_known=True, hp=100, max_hp=100)
+    state.sides["p2"]["b"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    activations = [
+        ("p1", "a", mega_form_for("Froslass", "Froslassite")),
+        ("p2", "a", mega_form_for("Tyranitar", "Tyranitarite")),
+    ]
+    branches = compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_froslass_spreads, opp_sets=i7b_opp_sets_tyranitar, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    assert len(branches) == 1
+    last_side, last_slot = branches[0].activation_order[-1]
+    expected_weather = "snowscape" if (last_side, last_slot) == ("p1", "a") else "sandstorm"
+    assert branches[0].projected_state.field.weather == expected_weather
+    # Sanity: this is genuinely the SLOWER activator, not accidentally the faster one.
+    assert branches[0].activation_order[-1] != branches[0].activation_order[0]
+
+
+def test_trick_room_reverses_activation_order_vs_no_tr(i7b_projection_env, i7b_froslass_spreads, i7b_opp_sets_tyranitar, monkeypatch):
+    """T26 §2: same speeds, Trick Room on -- activation order reversed vs the
+    no-TR unequal-speed case above."""
+    state = BattleState()
+    state.field.trick_room = True
+    state.sides["p1"]["a"] = PokemonState(species="Froslass", item="froslassite", item_known=True, hp=100, max_hp=100)
+    state.sides["p1"]["b"] = PokemonState(species="Sneasler", hp=100, max_hp=100)
+    state.sides["p2"]["a"] = PokemonState(species="Tyranitar", item="tyranitarite", item_known=True, hp=100, max_hp=100)
+    state.sides["p2"]["b"] = PokemonState(species="Incineroar", hp=100, max_hp=100)
+    activations = [
+        ("p1", "a", mega_form_for("Froslass", "Froslassite")),
+        ("p2", "a", mega_form_for("Tyranitar", "Tyranitarite")),
+    ]
+    tr_branches = compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_froslass_spreads, opp_sets=i7b_opp_sets_tyranitar, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    state.field.trick_room = False
+    no_tr_branches = compose_mega_projection_branches(
+        state, activations, our_side="p1", speed_oracle=i7b_projection_env["speed_oracle"],
+        our_spreads=i7b_froslass_spreads, opp_sets=i7b_opp_sets_tyranitar, book=None,
+        species_meta=i7b_projection_env["species_meta"], calc_profile=i7b_projection_env["calc_profile"],
+    )
+    assert len(tr_branches) == 1 and len(no_tr_branches) == 1
+    assert tr_branches[0].activation_order != no_tr_branches[0].activation_order
+    assert tr_branches[0].activation_order == tuple(reversed(no_tr_branches[0].activation_order))
 
 
 def test_project_mega_rejects_species_form_mismatch_and_does_not_mutate(i7b_projection_env, opp_sets_meganium):

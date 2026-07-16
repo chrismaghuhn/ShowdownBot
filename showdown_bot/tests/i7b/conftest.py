@@ -56,3 +56,31 @@ def i7b_aerodactyl_spreads():
 
     preset = SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}, items=["Aerodactylite"])
     return {"aerodactyl": SpeciesSpreads(offense=preset, defense=preset)}
+
+
+@pytest.fixture
+def i7b_froslass_spreads():
+    """evs={"spe": 32} (Timid) -- same modest-EV convention as
+    i7b_aerodactyl_spreads/opp_sets_meganium (Rev. 3 finding 6b), not 252.
+    Verified via direct SpeedOracle._base_speed computation against the real
+    calc backend: Froslass, Timid, evs={"spe": 32} -> pre-mega Speed 178,
+    unambiguously above i7b_opp_sets_tyranitar's 124 below -- a real,
+    checked ordering for test_weather_ordering_follows_the_LAST_processed_
+    activator_not_the_first and test_trick_room_reverses_activation_order_
+    vs_no_tr (neither test monkeypatches speed here, unlike the Aerodactyl/
+    Meganium tie test above, so this ordering must hold for real)."""
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+
+    preset = SpreadPreset(nature="Timid", evs={"spe": 32}, items=["Froslassite"])
+    return {"froslass": SpeciesSpreads(offense=preset, defense=preset)}
+
+
+@pytest.fixture
+def i7b_opp_sets_tyranitar():
+    """evs={"spe": 32} (Jolly) -- same modest-EV convention as the fixtures
+    above (Rev. 3 finding 6b). Verified: Tyranitar, Jolly, evs={"spe": 32} ->
+    pre-mega Speed 124, unambiguously below i7b_froslass_spreads's 178."""
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+
+    preset = SpreadPreset(nature="Jolly", evs={"spe": 32}, items=["Tyranitarite"])
+    return {"tyranitar": SpeciesSpreads(offense=preset, defense=preset)}
