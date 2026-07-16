@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke NOT IMPLEMENTED** — **Rev. 8**, correcting I7b-C's Task 2 evidence fixture and deferring Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
+**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke PARTIALLY IMPLEMENTED, under re-review** — **Rev. 9**, binding the four confirmed Codex pre-smoke findings (real production boundary, reranker sink, final-score evidence, LF-only bytes) and re-stating the true partial status. Rev. 8 corrected I7b-C's Task 2 evidence fixture and deferred Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
 
 > **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
@@ -13,6 +13,86 @@
 **Goal:** Deliver opponent-side Mega response modeling — limited-view eligibility, mega/no-mega twin expansion, coverage-preserving weight/cap discipline, dual (own+foe) same-turn Mega projection with Trick-Room-aware activation ordering, foe post-Mega speed replan, and a dedicated off-by-default telemetry sidecar proving a foe-Mega hypothesis was actually generated and scored — without touching decision-trace-v3, without a Champions-specific fork in the decision core, and without any Strength claim.
 
 **Tech Stack:** Python 3.11+, pytest, `@pkmn/dex` 0.10.11 (already pinned), pinned `@smogon/calc`. No Showdown server needed until a future, separately-authorized I7b live smoke (out of scope here).
+
+---
+
+## Rev. 9 — the four confirmed I7b-C pre-smoke findings [BINDING]
+
+Rev. 9 is a **contract correction**, not a redesign. The pre-smoke slice built a sidecar
+that is real, validated and off by default — and four things about it were wrong. All
+four were confirmed against the code, not accepted on report. Nothing from Rev. 2-8 is
+rewritten; this section states where those revisions were incomplete.
+
+### Finding 1 — classifying the env var is not wiring. The real boundary is the runner.
+
+Rev. 8's Task 2 named the chain `_Client.handle_request → agent_choose → … →
+score_evaluated_variants` and stopped there. That is the *internal* chain. The
+**production boundary** is:
+
+```text
+run_schedule → run_local_gauntlet → Hero _Client → handle_request → agent_choose → decision core
+```
+
+Adding `SHOWDOWN_OPP_MEGA_TRACE_OUT` to `NON_BEHAVIORAL` classifies a knob that nothing
+reads. `_Client` accepts a writer no caller can supply: `run_local_gauntlet` has no
+`opp_mega_trace_writer` parameter, and nothing anywhere constructs an
+`OppMegaTraceWriter`. **A live smoke would write zero rows.** This is the same defect
+class as the original I7b-C root cause (`opp_mega_evidence_sink` existed on
+`_choose_best_mega` but no caller ever passed one) — one layer further up. The I7b-C
+slice contract's "`SHOWDOWN_OPP_MEGA_TRACE_OUT` wiring" means the whole boundary, and
+Task 2 is not complete until `run_schedule` actually constructs the writer.
+
+### Finding 2 — `heuristic_reranker` runs the same scorer; the sink belongs there too
+
+The pre-smoke slice gated the sink to `agent == "heuristic"` and pinned that gate with a
+test. **The gate is a real fail-closed guard against a false all-empty row, but the
+premise is wrong**: `agent_choose`'s `heuristic_reranker` branch calls the SAME
+`choose_with_fallback` scorer and therefore generates and scores the SAME foe-Mega
+hypotheses. The right fix is to forward the sink there, not to exclude the agent.
+
+The sidecar records **which opponent hypotheses were generated and scored**. It is not a
+record of the final selection, so an override that changes the chosen action does not
+invalidate a single evidence row, and the override must never be allowed to reinterpret
+evidence as "the chosen candidate". The test asserting the reranker gets no sink is
+**factually wrong and must be replaced** by its counterproof.
+
+### Finding 3 — `raw_score` must be the value that actually entered `score_vector`
+
+Phase C appends `detail.score` to both `rec.score_vector` and the evidence. The depth-2
+wrap then **overwrites `rec.score_vector[i]` in place**, and `aggregate_score` is computed
+from that final vector. Evidence keeping the superseded 1-ply value attributes to the
+decision a number the decision never used — false provenance, and exactly the class of
+error this sidecar exists to prevent.
+
+**Binding:** `ScoredResponseEvidence.raw_score` is the final, unaggregated value actually
+present in the final `score_vector`. Metadata and score index must be coupled during
+evaluation and evidence finalised after depth-2 (or the referenced entries replaced with
+the final value under that same binding). Never re-derive the mapping from labels — a
+label cannot distinguish a no-mega response from its foe-Mega twin on a rebuilt board.
+`candidate_key`/`response_id`/`branch_index`/`world_index` keep their existing identity,
+and `ScoredResponseEvidence` must not drift into a pre-aggregated contribution model
+(`aggregate_scores` is non-linear; see Rev. 3 finding 4b/4c).
+
+### Finding 4 — JSONL must be LF-only and byte-deterministic across platforms
+
+`open(path, "a", encoding="utf-8")` applies the platform newline translation, so on
+Windows every `"\n"` lands as `"\r\n"`. The same decision then serialises to different
+bytes — and a different digest — than on the Linux CI/eval hosts. `sort_keys` does not
+address this. **Binding:** write with an explicit `newline=""` (or binary UTF-8), and
+assert on **raw bytes** — a text-mode read applies universal newlines and hides the bug
+on precisely the platform that has it.
+
+### True pre-smoke status as of Rev. 9
+
+| Item | Status |
+|---|---|
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **IMPLEMENTED**, LF byte-determinism fix outstanding (finding 4) |
+| I7b-C Task 2 — evidence-sink chain | **IMPLEMENTED internally up to `_Client`**; CLI/runner reach (finding 1) and reranker forwarding (finding 2) outstanding |
+| I7b-C Task 2 — evidence value correctness | **DEFECTIVE** — 1-ply score survives depth-2 (finding 3) |
+| I7b-C Task 3 — safety-smoke schedule design | **IMPLEMENTED (designed, not run)** |
+| I7b-C Task 4 — ROADMAP/PROJECT_INDEX | **DEFERRED** to the post-smoke evidence commit |
+| I7b-C live smoke | **NOT STARTED** |
+| Champions Strength | **NO-GO** — unchanged; the dedicated latency profile remains a load-bearing blocker and this slice does not touch it |
 
 ---
 
@@ -368,9 +448,9 @@ These corrections supersede the active Rev. 3 Task 2/Task 4/I7b-C snippets where
 | I7b-B Task 5 — fail-closed ability gate (test-only) | **MERGED** @ `a1757a4` |
 | I7b-B Task 6 — depth-2 per-index context binding | **MERGED** @ `b78cefb` |
 | **I7b-B overall** | **REVIEW-PASS (Codex: no merge blockers) · MERGED @ `755b144`** |
-| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **NOT IMPLEMENTED** |
-| I7b-C Task 2 — evidence-sink call chain + gauntlet wiring | **NOT IMPLEMENTED** |
-| I7b-C Task 3 — safety-smoke schedule design (no run) | **NOT IMPLEMENTED** |
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | see the **Rev. 9 status table** — this row was written pre-implementation |
+| I7b-C Task 2 — evidence-sink call chain + gauntlet wiring | see the **Rev. 9 status table** |
+| I7b-C Task 3 — safety-smoke schedule design (no run) | see the **Rev. 9 status table** |
 | I7b-C Task 4 — ROADMAP/PROJECT_INDEX status | **DEFERRED** to the post-smoke evidence commit |
 | I7b-C live smoke | **NOT STARTED** — separately authorized |
 
@@ -388,7 +468,7 @@ Each slice starts from the green, reviewed tip produced by the preceding slice. 
 |---|---|---|
 | I7b-A | `OppResponse` identity fields, limited-view `foe_mega_eligibility()`, fail-closed `OpponentResponseCapError`, fail-closed click-rate env parsing, the full cap-check→expand→weight→renormalize pipeline inside `predict_responses` (gated, additive, opt-in; switch/pivot slots excluded from expansion) | Any change to `mega_scoring.py`, `engine/mega_projection.py`, `engine/speed.py`; foe post-Mega speed replan; dual-Mega composition; trace/sidecar changes; any live decision-core wiring (no caller passes the new kwargs yet) |
 | I7b-B **[REV.4]** | Side-aware `project_mega` contract; `compose_mega_projection_branches`/`WeightedMegaProjection`/`mega_activation_order_key`; `ScoredResponseEvidence`; foe-Mega responses composed lazily and correctly weighted (`world_w × response_weight × branch_weight`) inside `score_evaluated_variants`; foe post-Mega `PlannedAction` replan at point of use; depth-2 threading; `decision.py::_choose_best_mega` wired (only) | `battle/baselines.py` (max_damage never models opponent responses — out of scope, audit finding 4); any new top-level `MegaEvaluationContext` multiplication in `build_own_mega_contexts` (deleted); trace/sidecar changes; ROADMAP/PROJECT_INDEX changes; Strength claims; any live battle |
-| I7b-C | `eval/opp_mega_trace.py` sidecar writer/schema/validator (built from `ScoredResponseEvidence`); `SHOWDOWN_OPP_MEGA_TRACE_OUT` wiring; safety-smoke design (not run) | Running the smoke; opponent-Mega-in-production claims; latency-budget changes; Strength claims |
+| I7b-C **[REV.9]** | `eval/opp_mega_trace.py` sidecar writer/schema/validator (built from `ScoredResponseEvidence`, LF-only bytes, `raw_score` = the FINAL post-depth-2 score); `SHOWDOWN_OPP_MEGA_TRACE_OUT` wiring **through the real boundary** (`run_schedule → run_local_gauntlet → hero `_Client``), sink forwarded on BOTH heuristic agents; safety-smoke design (not run) | Running the smoke; opponent-Mega-in-production claims; latency-budget changes; Strength claims |
 
 ## Cross-slice stop gates
 
@@ -1778,6 +1858,14 @@ git commit -m "feat(champions-i7b-b): compose_mega_projection_branches (dual-Meg
 - **Phase A — build & enqueue.** For each `(slot, ctx)`: generate `resps` via the existing Mega-aware `predict_responses` call. Record `required_classes` from eligibility and `retained_classes` from the actual returned responses; fail closed if `required_classes` is not a subset of `retained_classes`. Then, for each distinct `foe_mega_slot`, build branches once. For each branch: (a) replan every hero candidate against `branch.projected_state`; (b) regenerate the full opponent response set without recursive Mega expansion; (c) pair each original Mega hypothesis with its regenerated action plan by stable `.label`; and (d) enqueue the regenerated **actions** once. The pair deliberately preserves the original hypothesis's `response_id`, `foe_mega_slot`, and post-cap/click-rate `weight`.
 - **Phase B — one shared flush per world.** Every no-Mega and branch model uses the same `DamageOracle`, and every enqueue occurs before evaluation. Therefore one `oracle.flush()` after all Phase-A enqueues resolves the complete world queue. Additional per-branch calls would be empty no-ops because the first flush clears `_pending`.
 - **Phase C — evaluate weighted samples with full evidence.** For each `(slot, rec, response)` pair (no-mega AND foe-mega both), evaluate against the CORRECT already-built state/plan/actions/model from Phase A, append to `rec.score_vector`/`rec.score_weights`, and — if `opp_mega_evidence_sink is not None` — append one `ScoredResponseEvidence` per response (finding 4a) carrying RAW components only (finding 4b/4c): `world_index`, `world_weight`, `response_weight`, `branch_weight` (`1.0` for no-mega), `raw_score` — never a pre-multiplied "contribution", since no single per-response product is correct under both `MUST_REACT` and `NEUTRAL`'s non-linear operators; consumers multiply the components themselves according to whichever operator they need.
+  **[REV.9 finding 3]** `raw_score` is **not** `detail.score` as written at append time: the
+  depth-2 wrap below overwrites `rec.score_vector[i]` in place afterwards, and
+  `aggregate_score` is computed from that final vector, so a row keeping the superseded
+  1-ply value claims a number the decision never used. Carry each pending row's
+  `(record, score_index)` binding and resolve `raw_score` from `rec.score_vector[i]` after
+  depth-2, before the aggregate. Index-parallel by construction — within a record, Phase C
+  appends to `score_vector` and to the pending list in lockstep. Never re-derive the mapping
+  from labels.
 
 **Response identity across a re-generated `predict_responses` call:** `OppResponse.response_id` is `f"{label}|mega={none|0|1}"`. Match the original hypothesis to the branch-regenerated response by stable `.label`, but keep them as a pair. The regenerated response supplies only branch-correct `actions`; the original response remains authoritative for `response_id`, `foe_mega_slot`, and `weight`. Replacing those with the regenerated base response would erase `SHOWDOWN_OPP_MEGA_CLICK_RATE` and post-truncation renormalization. If a branch lacks an original label, raise `MissingBranchResponseError`.
 
@@ -3150,9 +3238,18 @@ class OppMegaTraceWriter:
 
     def write(self, row: dict) -> None:
         validate_opp_mega_trace_row(row)
-        with open(self.path, "a", encoding="utf-8") as fh:
+        # [REV.9 finding 4] newline="" -- see below. Without it this line is CRLF on Windows.
+        with open(self.path, "a", encoding="utf-8", newline="") as fh:
             fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
 ```
+
+**[REV.9 finding 4 — LF-only bytes are part of the schema, not a detail.]** Text mode applies
+the platform newline translation on write, so the `"\n"` above lands as `"\r\n"` under
+Windows and the SAME decision serialises to different bytes — and a different digest — than
+on the Linux CI/eval hosts. `sort_keys` fixes key order, not line endings. Write with an
+explicit `newline=""` (or a binary UTF-8 write), and assert on **raw bytes**: reading back in
+text mode applies universal newlines and translates `"\r\n"` to `"\n"`, so a text-mode
+assertion passes on exactly the platform that has the bug.
 
 **`max_candidates` provenance:** the audit confirmed no live caller overrides `predict_responses`'s default of `5` today. Task 2's gauntlet wiring passes the same `battle.opponent.DEFAULT_MAX_CANDIDATES` constant used by the real cap check. `required_classes` and `retained_classes` come from the scoring call's actual pre/post-cap response set; `scored_classes` comes from raw score evidence. None is reconstructed from another class.
 
@@ -3169,6 +3266,19 @@ git commit -m "feat(champions-i7b-c): add opp-mega evidence and cap-coverage sid
 `score_evaluated_variants` still returns only `list[MegaScoreRecord]`. The additive sink must traverse the complete real chain, preserving the same list object at every layer:
 
 `_Client.handle_request → agent_choose → choose_with_fallback(**deps) → heuristic_choose_for_request → _choose_best_ja → _choose_best → _choose_best_mega → score_evaluated_variants`.
+
+**[REV.9 finding 1 — that chain is the INTERNAL half only.** The production boundary is
+`run_schedule → run_local_gauntlet → Hero _Client → handle_request → agent_choose → decision core`.
+Wiring `_Client` while `run_local_gauntlet` has no writer parameter and nothing constructs an
+`OppMegaTraceWriter` leaves the seam unreachable and a live smoke writing zero rows.
+Task 2 is complete only when `run_schedule` reads `SHOWDOWN_OPP_MEGA_TRACE_OUT` and the
+writer plus a per-battle context reach the hero client. See Step 6 below.**]
+
+**[REV.9 finding 2 — `heuristic_reranker` gets the sink too.** It calls the SAME
+`choose_with_fallback` scorer and generates/scores the SAME foe-Mega hypotheses. The
+sidecar records the hypotheses that were scored, not the final selection, so an override
+changing the chosen action invalidates nothing — and must never reinterpret evidence as
+the chosen candidate. Forward the sink in that branch; do not exclude the agent.**]
 
 Add `opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None` to every explicit signature in that chain (`agent_choose`, `heuristic_choose_for_request`, `_choose_best_ja`, `_choose_best`, `_choose_best_mega`) and pass it unchanged. `choose_with_fallback` already forwards additive entries through `**deps`; do not add a second container there. `_Client.handle_request` creates one fresh list per eligible decision only when its writer is enabled, passes it to `agent_choose`, then writes exactly that list after a successful choice. The sidecar remains independent of `DecisionTrace` construction.
 
@@ -3300,6 +3410,41 @@ Expected: existing aggregation-trace tests remain green, the two wrapper identit
 git add src/showdown_bot/battle/decision.py src/showdown_bot/eval/config_env.py src/showdown_bot/client/gauntlet.py tests/i7b/test_i7b_scoring.py tests/test_config_env.py tests/test_gauntlet_dispatch.py
 git commit -m "feat(champions-i7b-c): wire opp-mega-trace sidecar into gauntlet (off by default)"
 ```
+
+**Step 6 [REV.9 finding 1] — make the seam reachable from the real runner.** Mirrors the
+`agg_trace_writer` precedent (`cli.py` constructs the writer from its flag and hands it to
+`run_local_gauntlet`, which gives it to the HERO client only).
+
+`run_local_gauntlet` gains `opp_mega_trace_writer=None` / `opp_mega_trace_context=None`:
+
+- exactly one of the two set → `ValueError` (a writer with no context cannot build a row;
+  a context with no writer silently drops evidence);
+- a context set → require `games == 1` (a context is per battle; reusing one across games
+  would stamp every row with the first battle's `battle_id`);
+- the HERO client gets both; the **villain never does** (its decisions are the opponent
+  policy's, not the bot under test);
+- both `None` → existing behavior byte-identical.
+
+`run_schedule` must actually read `SHOWDOWN_OPP_MEGA_TRACE_OUT`:
+
+- unset → no writer, no context, no new object, no behavior change;
+- set → construct **one run-scoped** `OppMegaTraceWriter`;
+- set without `--result-out` → fail closed with a readable message (evidence with no result
+  row to join against is unusable provenance);
+- target file already exists and is non-empty → fail closed (appending would silently
+  interleave two runs into one file that later reads as a single run);
+- **one fresh `OppMegaTraceContext` per schedule row**, built from the values the runner
+  already computes: `battle_id`, `config_id`, `config_hash`, `schedule_hash`, `format_id`,
+  `git_sha`. Two battles share the writer but **never** the context;
+- the plain gauntlet path (no schedule) must not silently ignore a set
+  `SHOWDOWN_OPP_MEGA_TRACE_OUT`: fail closed pointing at the supported schedule +
+  `--result-out` path.
+
+**Upper-boundary counterproof (required):** drive `run_schedule` with the env set and
+`run_local_gauntlet` mocked; assert a real `OppMegaTraceWriter` and the correct per-battle
+context arrive at the runner, and that two schedule rows produce two different
+`battle_id`s/contexts. Asserting "some object" or "a list" arrived is forbidden. With the
+env unset the runner must receive `None`. `/choose` is unchanged either way.
 
 ### Task 3: safety-smoke design (document only, do not run)
 
