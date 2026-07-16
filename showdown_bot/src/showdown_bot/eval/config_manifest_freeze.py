@@ -101,9 +101,23 @@ def write_config_manifest_sidecar(
             f"{out_path} already exists -- refusing to silently overwrite a frozen sidecar"
         )
 
+    # newline="\n": this sidecar is provenance and is pinned by sha256 in the eval reports,
+    # so the same manifest must serialise to the same BYTES on every platform. Without it
+    # write_text applies the platform default and emits CRLF on Windows, so a Windows-frozen
+    # sidecar and a Linux-frozen one disagree byte-for-byte for identical inputs -- and the
+    # recorded digest is reproducible on only one of them. (`data/eval/**` is marked -text in
+    # .gitattributes, which stops git rewriting bytes on checkout; it cannot stop this
+    # function from producing CRLF in the first place.) Mirrors BattleResultWriter and
+    # eval-report, which both already pass newline="\n".
+    #
+    # Deliberately NO trailing newline: json.dumps' output ends at `}` and the already-frozen
+    # I7a-C/I7b-C sidecars end there too. Appending one would change their bytes, break the
+    # sha256 their verdict reports pin, and make that committed evidence underivable from
+    # this function -- see test_config_manifest_sidecar_has_no_trailing_newline.
     out_path.write_text(
         json.dumps({"config_hash": computed_hash, "manifest": manifest}, indent=2, sort_keys=True),
         encoding="utf-8",
+        newline="\n",
     )
     return out_path
 

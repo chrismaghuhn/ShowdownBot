@@ -150,3 +150,91 @@ def test_verify_config_manifest_sidecar_fails_closed_when_a_result_row_no_longer
 
     with pytest.raises(ConfigManifestFreezeError, match="inconsistent|multiple"):
         verify_config_manifest_sidecar(results_path, agent="heuristic", format_id=FORMAT_ID, env={})
+
+
+# --- LF-only sidecar bytes --------------------------------------------------
+# write_config_manifest_sidecar used the platform default newline (unlike
+# BattleResultWriter / eval-report, which pass newline="\n"), so on Windows it
+# emitted CRLF. The frozen I7b-C evidence caught this: the on-disk sidecar was
+# CRLF while its blob was LF, and the verdict report initially pinned the CRLF
+# hash -- a value no checkout could reproduce.
+#
+# `data/eval/champions-panel-v0/** -text` stops git from REWRITING bytes on
+# checkout; it cannot stop a fresh Windows run from PRODUCING CRLF. This is the
+# writer-side half of that fix.
+
+
+def test_config_manifest_sidecar_bytes_are_lf_only(tmp_path):
+    """Assert on RAW BYTES: text mode applies universal newlines on read, so a
+    text-mode assertion passes on exactly the platform that has the bug."""
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    results_path = _write_results(tmp_path, make_config_hash(manifest))
+
+    out_path = write_config_manifest_sidecar(
+        results_path, agent="heuristic", format_id=FORMAT_ID, env={},
+    )
+
+    raw = out_path.read_bytes()
+    assert b"\r" not in raw, "config-manifest sidecar must be LF-only on every platform"
+    # The payload is pretty-printed JSON, so it MUST contain newlines -- otherwise
+    # "no CR" would be trivially true for a single-line file and prove nothing.
+    assert raw.count(b"\n") > 1
+
+
+def test_config_manifest_sidecar_has_no_trailing_newline(tmp_path):
+    """Pins the EXISTING byte contract, deliberately.
+
+    The writer emits `json.dumps(...)` with no terminator, so the file ends at
+    `}`. That is not an oversight to tidy up here: the frozen I7a-C and I7b-C
+    sidecars both end at `}`, and appending a trailing newline would change their
+    bytes, break the sha256 values their verdict reports pin, and make the
+    committed evidence unreproducible by this very function. If that contract is
+    ever revisited, the frozen sidecars must be re-frozen in the same change --
+    this test is here to force that conversation rather than let it happen
+    silently."""
+    manifest = effective_config_manifest(agent="heuristic", format_id=FORMAT_ID, env={})
+    results_path = _write_results(tmp_path, make_config_hash(manifest))
+
+    out_path = write_config_manifest_sidecar(
+        results_path, agent="heuristic", format_id=FORMAT_ID, env={},
+    )
+
+    raw = out_path.read_bytes()
+    assert raw.endswith(b"}")
+    assert not raw.endswith(b"\n")
+
+
+def test_regenerated_sidecar_is_byte_identical_to_the_frozen_i7b_evidence(tmp_path):
+    """The regression that matters: re-running the FIXED writer against the frozen
+    I7b-C results must reproduce the committed sidecar byte for byte. If it does
+    not, either the writer drifted or the frozen evidence is no longer derivable
+    from it -- both invalidate the freeze."""
+    import hashlib
+    import shutil
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    frozen_dir = repo_root / "data" / "eval" / "champions-panel-v0" / "smoke-i7b-mega"
+    frozen_results = frozen_dir / "results.jsonl"
+    frozen_sidecar = frozen_dir / "results.jsonl.config-manifest.json"
+    if not frozen_sidecar.exists():  # pragma: no cover - evidence not in this checkout
+        pytest.skip("frozen I7b-C smoke evidence not present in this checkout")
+
+    # Regenerate into a TEMP dir: the frozen sidecar is never touched, and the
+    # writer's own refuse-to-overwrite gate stays intact.
+    shutil.copy(frozen_results, tmp_path / "results.jsonl")
+    out_path = write_config_manifest_sidecar(
+        tmp_path / "results.jsonl", agent="heuristic", format_id=FORMAT_ID,
+        # The run's real BEHAVIOR_AFFECTING env -- both vars, not just the click
+        # rate: SHOWDOWN_HERO_AGENT is behavioural too, and omitting it computes
+        # 379c6df1176c2372 instead of the recorded 5fb04622afebd59f.
+        env={"SHOWDOWN_HERO_AGENT": "heuristic", "SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+    )
+
+    regenerated = out_path.read_bytes()
+    frozen = frozen_sidecar.read_bytes()
+    assert b"\r" not in regenerated
+    assert hashlib.sha256(regenerated).hexdigest() == hashlib.sha256(frozen).hexdigest(), (
+        "the fixed writer no longer reproduces the frozen I7b-C sidecar"
+    )
+    assert regenerated == frozen
