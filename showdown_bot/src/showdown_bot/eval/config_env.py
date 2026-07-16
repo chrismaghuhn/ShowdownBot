@@ -79,6 +79,10 @@ BEHAVIOR_AFFECTING = frozenset({
     # avoid repeating the SHOWDOWN_SEARCH_TOPN/TOPM conditional-exclusion bug the project's
     # audit found.
     "SHOWDOWN_ACCURACY_BRANCH_CAP",
+    # [I7b] Opponent Mega click-rate prior (opponent.opp_mega_click_rate) -- changes
+    # the weight split between an opponent's no-mega and mega response twins ->
+    # directly changes aggregate scoring -> config_hash.
+    "SHOWDOWN_OPP_MEGA_CLICK_RATE",
 })
 
 # Server-side (pokemon-showdown patch) flags that change SERVER behavior and so belong in the
