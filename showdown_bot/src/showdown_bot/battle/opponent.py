@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 
 from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.engine.mega_form import MegaForm, mega_form_for
 from showdown_bot.engine.moves import MoveMeta, get_move_meta, to_id
 from showdown_bot.engine.spread_lookup import lookup_opp_set
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
@@ -144,6 +145,51 @@ def _alive_slots(side_mons: dict[str, PokemonState]) -> list[str]:
         for slot, mon in side_mons.items()
         if not mon.fainted and mon.hp_fraction > 0 and slot in ("a", "b")
     ]
+
+
+def foe_mega_eligibility(
+    state: BattleState, opp_side: str, *, opp_sets: dict | None,
+) -> dict[str, MegaForm]:
+    """Limited-view Mega eligibility for the opponent's active slots (I7b §9.1).
+
+    A slot is eligible iff the side has not already spent its Mega this battle
+    AND EITHER (a) the mon's held item is revealed (``item_known`` and not
+    ``item_lost``) and resolves via ``mega_form_for``, OR (b) a curated
+    ``opp_sets`` preset for that species lists an item that resolves via
+    ``mega_form_for`` -- the SAME per-format curated hypothesis source
+    ``lookup_opp_set`` already uses, never the real battling opponent's actual
+    team file (which this function has no parameter to accept at all).
+
+    No ``book`` parameter (Rev. 3 audit finding 6d, corrected): unlike
+    ``speed_for_species`` (where ``book``-derived ``hypothesis_from_state`` is
+    the PRIMARY foe-speed source and ``opp_sets`` is only a fallback --
+    confirmed by reading ``engine/speed.py:169-176``), ``SpreadBook`` exposes
+    no item/held-item hypothesis at all, only nature/EV presets -- there is
+    nothing for an eligibility check to read from it. Accepting an unused
+    ``book`` parameter here would be a dead, YAGNI parameter; earlier plan
+    drafts wrongly claimed eligibility draws from "curated opp_sets/book"
+    symmetrically with the speed path, which does not hold for this function.
+    """
+    if state.side_mega_spent.get(opp_side, False):
+        return {}
+    result: dict[str, MegaForm] = {}
+    for slot, mon in state.sides.get(opp_side, {}).items():
+        if slot not in ("a", "b") or mon.fainted or mon.hp_fraction <= 0:
+            continue
+        if mon.item_known and not mon.item_lost and mon.item:
+            form = mega_form_for(mon.species, mon.item)
+            if form is not None:
+                result[slot] = form
+                continue
+        preset = lookup_opp_set(opp_sets, mon) if opp_sets else None
+        if preset is None:
+            continue
+        for candidate_item in list(preset.offense.items) + list(preset.defense.items):
+            form = mega_form_for(mon.species, candidate_item)
+            if form is not None:
+                result[slot] = form
+                break
+    return result
 
 
 def _item_for_speed(mon, curated_items):
