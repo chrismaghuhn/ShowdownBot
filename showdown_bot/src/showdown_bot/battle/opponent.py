@@ -76,6 +76,8 @@ class OppResponse:
     label: str
     flags: set[str] = field(default_factory=set)
     weight: float = 1.0  # likelihood weight (set from protect priors)
+    response_id: str = ""  # f"{label}|mega={none|0|1}"; "" only for pre-I7b-A construction sites
+    foe_mega_slot: int | None = None  # opp slot (0/1) this response assumes Mega'd this turn, else None
 
 
 def _types_of(mon: PokemonState | None, dex: SpeciesDex | None) -> list[str]:
