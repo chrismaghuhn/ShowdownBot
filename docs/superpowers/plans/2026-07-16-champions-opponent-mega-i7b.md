@@ -82,6 +82,22 @@ address this. **Binding:** write with an explicit `newline=""` (or binary UTF-8)
 assert on **raw bytes** — a text-mode read applies universal newlines and hides the bug
 on precisely the platform that has it.
 
+### Finding 5 [P1, re-review] — `decision_index` must be the request sequence, not a row count
+
+The sidecar stamped `decision_index` from its own written-row counter, so any decision that
+produced no row silently renumbered every later one. Team preview is the guaranteed case:
+decision capture writes a row for it (its write is **not** gated on `state`) while the
+sidecar cannot (`state is None` → no sink → no row). The first real decision therefore
+carried **trace `decision_index=1` and sidecar `decision_index=0`** — two numbers for one
+decision, breaking exactly the "same decision" join the smoke's evidence gate rests on. A
+degraded state, an agent crash, and a dropped best-effort write each shift it further.
+
+**Binding:** one shared request/decision sequence on the client, advanced once per handled
+non-wait request independent of any writer, read **before** the decision runs and stamped on
+the row. `wait` requests are not decisions and consume nothing. Sidecar rows may legitimately
+have **gaps**; they must never be renumbered. A per-writer counter may count rows written —
+it may never number a decision.
+
 ### True pre-smoke status as of Rev. 9
 
 **All four findings are now fixed on `feat/champions-i7b-c-telemetry-smoke` (local, unreviewed,

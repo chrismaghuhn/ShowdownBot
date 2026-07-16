@@ -310,7 +310,20 @@ class _Client:
         # byte-identical to before this seam existed.
         self.opp_mega_trace_writer = opp_mega_trace_writer
         self.opp_mega_trace_context = opp_mega_trace_context
-        self._opp_mega_trace_index = 0
+        # [P1] Rows WRITTEN, not the decision index. The two differ whenever a decision
+        # produces no row, which is why this must never be used to number one.
+        self._opp_mega_rows_written = 0
+        # [P1] The shared request/decision sequence: advances once per handled non-wait
+        # request, independent of any writer, and is what every sidecar row's
+        # `decision_index` is stamped with. A per-writer row counter cannot do this job:
+        # decision capture writes a row for team preview (its write is NOT gated on
+        # `state`) while the opp-mega sidecar cannot (state is None -> no sink -> no row),
+        # so a row counter gave the FIRST REAL decision trace index 1 and sidecar index 0 --
+        # two numbers for one decision, breaking exactly the join the smoke's evidence gate
+        # depends on. A state-build failure, an agent crash, or a dropped best-effort write
+        # each shifted it further. Sidecar rows may legitimately have GAPS; they must never
+        # be renumbered.
+        self._request_seq = 0
         # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
@@ -527,7 +540,13 @@ class _Client:
         req = BattleRequest.model_validate(json.loads(payload))
         if req.wait:
             # Opponent's turn; we've already locked in. Nothing to choose.
+            # Deliberately BEFORE the sequence is read: a wait request is not a decision
+            # and must not consume an index.
             return
+        # [P1] This request's slot in the shared sequence, read BEFORE any work so every
+        # sidecar row for THIS decision is stamped with the same number the decision-trace
+        # row for this decision carries -- whatever happens further down.
+        decision_seq = self._request_seq
         self.last_request[room] = payload
         state = self._state_for(room, req)
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
@@ -634,6 +653,13 @@ class _Client:
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
+        # [P1] The request has been answered, so it has consumed its slot -- advance the
+        # shared sequence here, BEFORE the sidecar writes below (which already captured
+        # `decision_seq`). Advancing here rather than at the end of the method is what makes
+        # the sequence robust: a crashed decision, a degraded state, or a dropped sidecar
+        # write all still consume exactly one slot, so the NEXT decision is numbered
+        # correctly instead of silently reusing this one's index.
+        self._request_seq += 1
         # Decision capture: write ONLY after a successful send, and never mutate an
         # already-validated row. Off (writer is None, the default) -> no-op; prepared_capture is
         # already None in that case too, so this is zero new objects, zero behavior change.
@@ -690,14 +716,15 @@ class _Client:
             try:
                 opp_mega_row = build_opp_mega_trace_row(
                     context=self.opp_mega_trace_context,
-                    decision_index=self._opp_mega_trace_index,
+                    # [P1] The request's own sequence number, NOT a count of rows written.
+                    decision_index=decision_seq,
                     turn_number=getattr(state, "turn", None),
                     evidence=opp_mega_evidence,
                     max_candidates=DEFAULT_MAX_CANDIDATES,
                     click_rate=opp_mega_click_rate(),
                 )
                 self.opp_mega_trace_writer.write(opp_mega_row)
-                self._opp_mega_trace_index += 1
+                self._opp_mega_rows_written += 1
             except Exception as exc:  # noqa: BLE001 - sidecar is best-effort; never stall the battle
                 logger.debug(
                     "[%s] opp-mega-trace write failed (decision dropped from sidecar): %s",
