@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — I7b-A implemented/merged (`cdc55c2`); **I7b-B Tasks 1-4 IMPLEMENTED on `feat/champions-i7b-b-dual-mega` @ `ca39fb6`** (not merged, not pushed); **Task 5, Task 6 and I7b-C NOT STARTED and review-gated** — **Rev. 7, reconciled with the committed code at `ca39fb6` (zero-weight scoring fix)**. Rev. 6 replaced Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the Task 4 integration fixture and added a species/form coherence gate to Task 2.
+**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke NOT IMPLEMENTED** — **Rev. 8**, correcting I7b-C's Task 2 evidence fixture and deferring Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
 
 > **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
@@ -356,19 +356,23 @@ These corrections supersede the active Rev. 3 Task 2/Task 4/I7b-C snippets where
 2. [I7b-B — Dual projection, activation ordering, scoring integration](#i7b-b-dual-projection-activation-ordering-scoring-integration)
 3. [I7b-C — Telemetry/provenance and safety-smoke design](#i7b-c-telemetryprovenance-and-safety-smoke-design)
 
-**Execution status as of Rev. 7** (branch `feat/champions-i7b-b-dual-mega` @ `ca39fb6`,
-not merged, not pushed):
+**Execution status as of Rev. 8** (all I7b-B work merged to `main` @ `755b144` via PR #13):
 
 | Slice / task | Status |
 |---|---|
-| I7b-A | **MERGED** to `main` @ `cdc55c2` |
-| I7b-B Task 1 — `mega_activation_order_key` | **DONE** @ `8ab6e6c` |
-| I7b-B Task 2 — side-aware `project_mega` + species coherence gate | **DONE** @ `e21a075` |
-| I7b-B Task 3 — `compose_mega_projection_branches` | **DONE** @ `f50c7af` |
-| I7b-B Task 4 — three-phase scoring integration + caller gate | **DONE** @ `64d47ba`, zero-weight fix @ `ca39fb6` |
-| I7b-B Task 5 — fail-closed ability gate | **NOT STARTED** — review-gated |
-| I7b-B Task 6 — depth-2 per-index context binding | **NOT STARTED** — review-gated |
-| I7b-C — telemetry/provenance + smoke design | **NOT STARTED** — review-gated |
+| I7b-A | **MERGED** to `main` @ `cdc55c2` (PR #12) |
+| I7b-B Task 1 — `mega_activation_order_key` | **MERGED** @ `8ab6e6c` |
+| I7b-B Task 2 — side-aware `project_mega` + species coherence gate | **MERGED** @ `e21a075` |
+| I7b-B Task 3 — `compose_mega_projection_branches` | **MERGED** @ `f50c7af` |
+| I7b-B Task 4 — three-phase scoring integration + caller gate | **MERGED** @ `64d47ba`; zero-weight P1 fix @ `ca39fb6` |
+| I7b-B Task 5 — fail-closed ability gate (test-only) | **MERGED** @ `a1757a4` |
+| I7b-B Task 6 — depth-2 per-index context binding | **MERGED** @ `b78cefb` |
+| **I7b-B overall** | **REVIEW-PASS (Codex: no merge blockers) · MERGED @ `755b144`** |
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **NOT IMPLEMENTED** |
+| I7b-C Task 2 — evidence-sink call chain + gauntlet wiring | **NOT IMPLEMENTED** |
+| I7b-C Task 3 — safety-smoke schedule design (no run) | **NOT IMPLEMENTED** |
+| I7b-C Task 4 — ROADMAP/PROJECT_INDEX status | **DEFERRED** to the post-smoke evidence commit |
+| I7b-C live smoke | **NOT STARTED** — separately authorized |
 
 Task 4 additionally carries five pre-flight caller-gate counterexamples
 (`tests/i7b/test_i7b_b_caller_gate.py`) that are **additive to this plan**, added on
@@ -2873,9 +2877,10 @@ git commit -m "feat(champions-i7b-b): bind depth-2 to each diagnostic index's ow
 - `showdown_bot/tests/i7b/test_i7b_scoring.py`
 - `showdown_bot/tests/test_config_env.py`
 - `showdown_bot/tests/test_gauntlet_dispatch.py`
-- `docs/ROADMAP.md`, `docs/PROJECT_INDEX.md` (status-line updates only — see below)
 
-**Explicitly excludes:** running the smoke; starting a Showdown server; any Strength claim; any latency-budget change.
+**[REV.8] `docs/ROADMAP.md` and `docs/PROJECT_INDEX.md` are NOT modified by the pre-smoke slice** — Task 4 is deferred to the post-smoke evidence commit (see Task 4). A status line is a claim; the pre-smoke slice wires an off-by-default sidecar and runs no battle, so it has nothing to claim.
+
+**Explicitly excludes:** running the smoke; starting a Showdown server; any Strength claim; any latency-budget change; any trace-v3 schema change; any I7b-A/B redesign; any `SHOWDOWN_SEARCH_TOPM` change.
 
 ### Task 1 [REV.4] — `eval/opp_mega_trace.py` — raw score evidence plus explicit cap coverage
 
@@ -3169,17 +3174,38 @@ Add `opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None` to ever
 
 **Step 0 — write one small wiring test proving the call chain, before the env/gauntlet work below:**
 
+**[REV.7 correction — fixture.** Earlier revisions wrote this test against
+`mega_decision_fixture`, whose `p2.a` is an **Incineroar with no item**. Measured against the
+real code: `foe_mega_eligibility(state, "p2", opp_sets=None)` returns `{}` there, so
+`_i7b_active` is `False`, no foe-Mega branch is ever composed, and
+`assert any(e.foe_mega_slot is not None for e in sink)` **can never be satisfied** — `assert
+sink` would still pass, because no-mega evidence rows are appended regardless of
+`_i7b_active`, so the test would fail on the one assertion that actually proves foe-Mega
+plumbing. This is the **same defect Rev. 5 already corrected for I7b-B Task 4** (the Incineroar
+board, 200 vs 123); the correction was simply never applied to I7b-C's own test. Use
+`mega_decision_tie_fixture` — Rev. 5 already built it (`p2.a` = a real Aerodactyl holding
+Aerodactylite, `item_known=True`, real eligibility `{'a': 'aerodactylmega'}`). **No new fixture
+may be built for this slice.]**
+
 ```python
-def test_choose_best_mega_extends_opp_mega_evidence_sink_when_provided(mega_decision_fixture):
+def test_choose_best_mega_extends_opp_mega_evidence_sink_when_provided(mega_decision_tie_fixture):
     """Plumbing only, not scoring logic: a caller-supplied list must be
     extended in place with whatever score_evaluated_variants would have
     produced via its own opp_mega_evidence_sink parameter -- proving the
     sink genuinely reaches _choose_best_mega's own call, not a disconnected
     parameter that gets silently dropped somewhere in between."""
     from showdown_bot.battle.decision import _choose_best_mega
-    from showdown_bot.engine.mega_form import mega_form_for
+    from showdown_bot.battle.opponent import foe_mega_eligibility
 
-    req, kw = mega_decision_fixture
+    req, kw = mega_decision_tie_fixture
+    # [REV.7] Pin the premise through the REAL limited-view path: without a genuine
+    # foe-Mega hypothesis on this board the foe-mega assertion below is vacuous, and
+    # a fixture/board drift must fail HERE with a readable message rather than as a
+    # confusing "no foe_mega_slot in sink" further down.
+    eligibility = foe_mega_eligibility(kw["state"], "p2", opp_sets=kw.get("opp_sets"))
+    assert eligibility, "fixture must yield a real foe-Mega hypothesis"
+    assert eligibility["a"].form_species_id == "aerodactylmega"
+
     sink: list = []
     _choose_best_mega(
         req, state=kw["state"], book=kw["book"], our_side="p1", opp_side="p2",
@@ -3192,11 +3218,17 @@ def test_choose_best_mega_extends_opp_mega_evidence_sink_when_provided(mega_deci
         opp_mega_evidence_sink=sink,
     )
     assert sink
-    assert any(e.foe_mega_slot is not None for e in sink)
+    # At least one genuine foe-Mega evidence row -- the only assertion that proves the
+    # sink carried foe-Mega branch evidence and not merely the no-mega twins.
+    foe_rows = [e for e in sink if e.foe_mega_slot is not None]
+    assert foe_rows
+    assert all(e.foe_mega_slot in (0, 1) for e in foe_rows)
     assert all(e.candidate_key for e in sink)
 ```
 
-Use the exact `_choose_best_mega` keyword list already pinned in the production-contract section and the additive `mega_decision_fixture` extension from I7b-B Task 4 Step 0. No further fixture invention is allowed in this slice.
+Use the exact `_choose_best_mega` keyword list already pinned in the production-contract section
+and the `mega_decision_tie_fixture` that Rev. 5 already added to `tests/conftest.py`. No further
+fixture invention is allowed in this slice.
 
 Add two wrapper tests so the lower integration test cannot hide a dropped middle or upper layer:
 
@@ -3292,20 +3324,31 @@ git add config/eval/schedules/champions_v0_smoke_i7b_2battle.yaml tests/test_sch
 git commit -m "docs(champions-i7b-c): design (not run) the I7b opponent-mega safety smoke"
 ```
 
-### Task 4: minimal ROADMAP.md / PROJECT_INDEX.md updates
+### Task 4: minimal ROADMAP.md / PROJECT_INDEX.md updates — **DEFERRED TO THE POST-SMOKE EVIDENCE COMMIT**
 
-Update only the status lines (do not rewrite unrelated sections):
+**[REV.7] DO NOT EXECUTE THIS TASK IN THE PRE-SMOKE SLICE.** `docs/ROADMAP.md` and
+`docs/PROJECT_INDEX.md` stay **unchanged** while I7b-C's telemetry/sidecar/schedule work lands.
+Status moves only **after a successful, frozen live smoke** produces real evidence — a status
+line is a claim, and the pre-smoke slice has nothing to claim yet: it wires a sidecar that is off
+by default and runs no battle. Kept here rather than deleted so the post-smoke evidence commit
+has its instruction ready.
 
-- `docs/ROADMAP.md`: change "I7b opponent Mega NOT STARTED" → "I7b opponent Mega DESIGN/PLAN PROPOSED (not implemented)"; add a pointer to this plan and its audit; keep "Strength blocked... NO-GO until I7b + latency" verbatim (implementation, not just design, is still required before that gate can move); keep the `rain_offense` non-holdout sentence verbatim.
-- `docs/PROJECT_INDEX.md`: same status change in "Current Priority" item 1 and "Open blockers"; update "Last reconciled" date.
+**Also stale as written** (recorded, not silently rewritten): the wording below predates the
+merges. It says to change *"I7b opponent Mega NOT STARTED" → "DESIGN/PLAN PROPOSED (not
+implemented)"*, but I7b-A merged at `cdc55c2` (PR #12), I7b-B Tasks 1-6 merged at `755b144`
+(PR #13), and both status documents were already reconciled to that at `f0b0b74` (PR #14). The
+post-smoke commit must therefore write the *smoke's* verdict, not this obsolete transition.
 
-**Step — commit:**
+**When it does run (post-smoke), update only the status lines** (do not rewrite unrelated
+sections): record the smoke's own verdict and artifacts; keep the `rain_offense` non-holdout
+sentence verbatim; keep Strength **NO-GO** until the dedicated latency gate has also passed — the
+smoke is safety evidence, never a Strength result.
+
+**Step — commit (post-smoke only):**
 ```powershell
 git add docs/ROADMAP.md docs/PROJECT_INDEX.md
-git commit -m "docs(champions-i7b): record I7b design/plan proposed status"
+git commit -m "docs(champions-i7b): record I7b-C smoke verdict"
 ```
-
-(This governing design/audit session does not execute this task's commit — see "Deliverables" below; it proposes the exact diff, uncommitted, for review alongside the audit/plan documents.)
 
 ### I7b-C completion gate
 
