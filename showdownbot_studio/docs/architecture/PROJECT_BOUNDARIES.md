@@ -21,6 +21,7 @@ Allowed:
 ```text
 showdown_bot artifacts -> Studio Python adapters -> Studio schemas -> Godot
 public Showdown protocol -> approved adapter -> Studio schemas -> Godot
+approved external data snapshot -> Python domain adapter -> Studio schemas -> Godot
 ```
 
 Disallowed:
@@ -31,7 +32,15 @@ Godot -> recompute policy/damage/beliefs
 showdown_bot decision core -> depend on Studio UI
 viewer bundle -> execute embedded code
 plugin -> unrestricted Godot internals/credentials/filesystem/network
+Godot -> scrape usage, paste, or tournament sites
+Godot -> implement a second team validator or damage calculator
 ```
+
+Shared domain modules may serve both the bot and Studio, but remain Python-owned and expose
+versioned schemas. Existing bot capabilities are reused behind adapters: packed-team loading,
+official Showdown team validation/packing, and the pinned calc bridge are not reimplemented in
+GDScript. External usage or tournament data must first become a provenance-complete frozen
+snapshot; live scraping is not a cross-boundary contract.
 
 ## 3. Phase-0 boundary
 

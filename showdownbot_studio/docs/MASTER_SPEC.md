@@ -141,6 +141,8 @@ Schema families are separate and versioned independently:
 - normalized battle/replay events;
 - decision and candidate presentation;
 - live spectator updates;
+- usage and meta-prior snapshots;
+- team import and validation;
 - team-analysis results;
 - client commands and acknowledgements;
 - add-on capabilities;
@@ -215,9 +217,24 @@ Hard boundaries:
 
 - Python produces all calculations;
 - format-aware validation is mandatory;
+- team import reuses the repository's existing Showdown export/packed-team adapters and the
+  pinned official Showdown validator path; Godot does not implement a second team parser or
+  legality engine;
+- usage/meta-prior snapshots record their source, source snapshot date or month, `format_id`,
+  rating cutoff, content hash, and license/terms-review status;
+- imported usage data is normalized into a versioned snapshot before either the bot or Studio may
+  consume it;
 - no independent GDScript calculator;
+- no second damage-calculation stack; analysis reuses the existing pinned Python/Node calc adapter;
 - no claim that priors equal hidden truth;
+- no runtime dependency on Pikalytics, Poképaste scraping, or an unreviewed tournament-site
+  scraper;
 - no online team marketplace in this phase.
+
+Shared Phase-2 domain modules are Python-owned and may serve both products. The first candidates
+are a provenance-complete usage-statistics snapshot adapter and a stable team-import/validation
+adapter. This ordering is planning input only: neither module is authorized by this master spec,
+and neither expands Phase 0.
 
 ### Phase 3 — Full Showdown protocol client
 

@@ -297,3 +297,31 @@ for normalized protocol behavior. Phase 0 does not add it as a runtime dependenc
 reference tests requires an explicit dependency and license decision.
 
 Reference: [`pkmn/ps`](https://github.com/pkmn/ps).
+
+### 7.5 Shared domain-module candidates
+
+The strongest later Studio modules are Python-domain modules that can also improve the bot. This
+is planning input for Phase 2 and beyond, not an expansion of the Phase-0 viewer.
+
+| Candidate | Verified repository/source state | Product routing |
+|---|---|---|
+| Usage/meta-prior snapshots | The repository has curated `likely_sets`, move, and Protect priors, but no Smogon usage-statistics ingest. Smogon's programmatic `chaos.json` family includes a metagame identifier, cutoff, battle count, abilities, items, stats/spreads, moves, teammates, and counters. | Highest-value future shared module. Freeze source month/date, `format_id`, rating cutoff, content hash, and terms status before deriving bot priors or Studio views. |
+| Team import and validation | Showdown documents export, JSON, and packed team formats. This repository already loads packed teams and uses the pinned official Showdown CLI to `pack-team` and `validate-team` in panel gates. | Standardize the existing paths behind a versioned adapter/schema; do not build a second parser or validator in Godot. |
+| Damage and speed analysis | The bot already owns a pinned `@smogon/calc` bridge plus format-aware speed logic. | Expose display DTOs from Python for Phase 2; never add an independent GDScript calculator. |
+| Tournament teams/archetypes | Champions panel provenance already cites specific Limitless team pages, but no general ingest contract or terms review exists. | Research-gated candidate only. Do not scrape or treat it as a bot prior until provenance, permission, format identity, and snapshot rules are approved. |
+
+Smogon usage data is preferable to making Pikalytics a data dependency. Text paste is sufficient
+for an initial team-import boundary; Poképaste scraping is not required. Limitless and wrapper
+libraries remain research references until a separate source and license/terms audit approves an
+ingest.
+
+Studio-only later modules remain routed to their existing phases: replay-URL import after the
+offline bundle contract, notifications and rooms/ladder in the full-client phase, and themes in the
+add-on phase. Fast doubles simulation and live timer management remain bot-roadmap concerns rather
+than Studio modules.
+
+Primary references:
+
+- [`pkmn/stats` output contract](https://github.com/pkmn/stats/blob/main/stats/OUTPUT.md)
+- [Pokémon Showdown team-format documentation](https://github.com/smogon/pokemon-showdown/blob/master/sim/TEAMS.md)
+- [Limitless VGC teams](https://limitlessvgc.com/teams) (research candidate; terms review pending)
