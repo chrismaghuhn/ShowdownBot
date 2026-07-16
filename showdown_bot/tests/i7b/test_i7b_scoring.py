@@ -355,6 +355,44 @@ def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_tie
     assert call_count["n"] == 1
 
 
+def test_foe_mega_with_unsupported_ability_is_excluded_not_crashed(
+    mega_decision_unsupported_ability_fixture,
+):
+    """Task 5. A foe eligibility entry resolving to an unsupported-ability form
+    (Scovillain-Mega / 'Spicy Spray') must be silently excluded from
+    evidence/scoring via the SAME UnsupportedMegaAbilityError/FAIL_CLOSED_ABILITIES
+    gate I7a already uses -- never a new exception type, never an alternate gate,
+    never a crash.
+
+    Test-only proof of Task 4's existing
+    `try/except (UnsupportedMegaAbilityError, MissingMegaSpreadError): branches = []`.
+    No production change belongs to this task: if this fails, the gap is in Task 4's
+    implementation, not a missing mechanism here.
+
+    [REV.5 correction 3] The foe really IS a Scovillain and eligibility comes from
+    the real foe_mega_eligibility(), so Task 2's coherence check passes and the
+    ability gate is the thing under test. Rev. 4 injected the form onto a mismatched
+    species, which post-correction-2 raises MegaProjectionSpeciesMismatchError first
+    -- an error Task 4 deliberately does NOT catch."""
+    req, kw = mega_decision_unsupported_ability_fixture
+    eligibility = _real_eligibility(kw)
+    # The gate's real target, resolved through the real limited-view path -- not a
+    # hand-built MegaForm.
+    assert eligibility["a"].form_species_id == "scovillainmega"
+    assert eligibility["a"].base_species_id == "scovillain"
+
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence)
+
+    # Exclusion, proven off the real foe_mega_slot field -- never by parsing
+    # response_id's "|mega=" suffix.
+    assert all(e.foe_mega_slot != 0 for e in evidence)
+    # ...and it is exclusion, not wipe-out: the no-Mega rows stay scoreable.
+    assert evidence
+    assert all(e.foe_mega_slot is None for e in evidence)
+    assert records and all(r.score_vector for r in records)
+
+
 def test_branch_replan_speed_matches_final_branch_state_speed(mega_decision_tie_fixture, monkeypatch):
     """[REV.6] The own-Mega speed override fed into the branch replan -- and the
     speed actually stored on the resulting PlannedAction -- must equal the speed

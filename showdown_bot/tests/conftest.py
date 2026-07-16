@@ -243,3 +243,25 @@ def mega_decision_tie_fixture():
         item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100,
     )
     return _build_mega_decision_kw(_mega_state(foe_a=foe))
+
+
+@pytest.fixture
+def mega_decision_unsupported_ability_fixture():
+    """[REV.5 correction 3] p2.a is a REAL Scovillain holding Scovillainite, so
+    Task 2's species/form coherence check PASSES and the FAIL_CLOSED_ABILITIES gate
+    ('Spicy Spray' -- verified against species_meta as the dex's only fail-closed
+    mega ability) is what actually fires.
+
+    The foe genuinely IS the form's base species: Rev. 4 injected a Scovillain-Mega
+    form onto a non-Scovillain foe, which post-Task-2 raises
+    MegaProjectionSpeciesMismatchError BEFORE the ability gate is ever reached --
+    Task 4 deliberately does not catch that error, so such a test would crash instead
+    of proving exclusion, and would not exercise the ability gate at all.
+
+    No speed tie is needed or asserted here: this fixture is about exclusion, not
+    branch weighting (that is mega_decision_tie_fixture's job)."""
+    foe = PokemonState(
+        species="Scovillain", base_species_id="scovillain", item="Scovillainite",
+        item_known=True, types=["Grass", "Fire"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
