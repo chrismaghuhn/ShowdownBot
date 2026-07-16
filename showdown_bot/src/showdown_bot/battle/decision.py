@@ -297,6 +297,7 @@ def _choose_best(
     opp_sets: dict | None = None,
     trace=None,
     format_config=None,
+    opp_mega_evidence_sink: list | None = None,
 ) -> tuple[JointAction, float]:
     """One-ply heuristic decision core. Returns ``(chosen_ja, best_val)``.
 
@@ -412,6 +413,7 @@ def _choose_best(
             trace=trace, format_config=format_config, calc_profile=calc_profile,
             accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
             endgame=endgame, fast_board=fast_board, mode=mode, my_actions=my_actions,
+            opp_mega_evidence_sink=opp_mega_evidence_sink,
         )
 
     plans = {
@@ -1234,6 +1236,7 @@ def _choose_best_ja(
     opp_sets: dict | None = None,
     trace=None,
     format_config=None,
+    opp_mega_evidence_sink: list | None = None,
 ) -> JointAction:
     """Thin alias for ``_choose_best`` that returns only the chosen ``JointAction``.
 
@@ -1259,6 +1262,7 @@ def _choose_best_ja(
         opp_sets=opp_sets,
         trace=trace,
         format_config=format_config,
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
     )[0]
 
 
@@ -1282,6 +1286,7 @@ def heuristic_choose_for_request(
     opp_sets: dict | None = None,
     trace=None,
     format_config=None,
+    opp_mega_evidence_sink: list | None = None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -1313,6 +1318,7 @@ def heuristic_choose_for_request(
         opp_sets=opp_sets,
         trace=trace,
         format_config=format_config,
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
     )
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 

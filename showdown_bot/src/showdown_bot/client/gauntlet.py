@@ -68,6 +68,7 @@ def agent_choose(
     dex=None,
     override=None,
     format_config=None,
+    opp_mega_evidence_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -141,9 +142,17 @@ def agent_choose(
             our_spreads=our_spreads, opp_sets=opp_sets, trace=local_trace,
             calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
             format_config=format_config,
+            # [I7b-C REV.9 finding 2] Same scorer as the plain heuristic branch below,
+            # so it generates and scores the SAME foe-Mega hypotheses and must fill the
+            # SAME sink. Omitting it here made every reranker decision invisible to the
+            # sidecar.
+            opp_mega_evidence_sink=opp_mega_evidence_sink,
         )
         if override is None:
             return heuristic_choose
+        # The sink is deliberately NOT passed to the override: the sidecar records which
+        # opponent hypotheses were generated and scored, not which action finally won.
+        # An override may change the choice; it may never reinterpret or edit evidence.
         return override.override_choice(
             trace=local_trace, state=state, request=req,
             heuristic_choose=heuristic_choose, our_side=our_side,
@@ -153,6 +162,9 @@ def agent_choose(
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
         calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
         format_config=format_config,
+        # Rides through choose_with_fallback's existing **deps into
+        # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
     )
 
 
@@ -256,7 +268,8 @@ class _Client:
     def __init__(self, conn, name, agent, *, book, priors, format_id, format_config=None, packed_team, trace=False, opp_sets=None,
                  export_runtime=None, allow_own_export=True, is_mirror=True,
                  decision_trace_writer=None, decision_trace_context=None,
-                 agg_trace_writer=None, agg_trace_context=None):
+                 agg_trace_writer=None, agg_trace_context=None,
+                 opp_mega_trace_writer=None, opp_mega_trace_context=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -286,6 +299,31 @@ class _Client:
         self.agg_trace_writer = agg_trace_writer
         self.agg_trace_context = agg_trace_context
         self._agg_trace_index = 0
+        # Opponent-Mega evidence seam (I7b-C Task 2) — off by default, and a THIRD writer/
+        # context/counter, independent of BOTH seams above (it does not read, build or need
+        # `trace_obj` at all: its evidence comes from the scoring call's own
+        # `opp_mega_evidence_sink`, not from DecisionTrace). A caller can supply an
+        # OppMegaTraceWriter + a per-battle OppMegaTraceContext (eval/opp_mega_trace.py) to
+        # record which foe-Mega hypotheses were generated AND scored for each decision.
+        # `None` (both, the default) is a NO-OP: `handle_request` allocates no evidence list,
+        # passes an explicit `None` down the chain, and the dispatched /choose messages are
+        # byte-identical to before this seam existed.
+        self.opp_mega_trace_writer = opp_mega_trace_writer
+        self.opp_mega_trace_context = opp_mega_trace_context
+        # [P1] Rows WRITTEN, not the decision index. The two differ whenever a decision
+        # produces no row, which is why this must never be used to number one.
+        self._opp_mega_rows_written = 0
+        # [P1] The shared request/decision sequence: advances once per handled non-wait
+        # request, independent of any writer, and is what every sidecar row's
+        # `decision_index` is stamped with. A per-writer row counter cannot do this job:
+        # decision capture writes a row for team preview (its write is NOT gated on
+        # `state`) while the opp-mega sidecar cannot (state is None -> no sink -> no row),
+        # so a row counter gave the FIRST REAL decision trace index 1 and sidecar index 0 --
+        # two numbers for one decision, breaking exactly the join the smoke's evidence gate
+        # depends on. A state-build failure, an agent crash, or a dropped best-effort write
+        # each shifted it further. Sidecar rows may legitimately have GAPS; they must never
+        # be renumbered.
+        self._request_seq = 0
         # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
@@ -502,7 +540,13 @@ class _Client:
         req = BattleRequest.model_validate(json.loads(payload))
         if req.wait:
             # Opponent's turn; we've already locked in. Nothing to choose.
+            # Deliberately BEFORE the sequence is read: a wait request is not a decision
+            # and must not consume an index.
             return
+        # [P1] This request's slot in the shared sequence, read BEFORE any work so every
+        # sidecar row for THIS decision is stamped with the same number the decision-trace
+        # row for this decision carries -- whatever happens further down.
+        decision_seq = self._request_seq
         self.last_request[room] = payload
         state = self._state_for(room, req)
         report: list[str] | None = [] if (self.trace and self.agent == "heuristic") else None
@@ -559,6 +603,25 @@ class _Client:
         override = self._reranker_override()
         capture_stage_override = None
         capture_reason_override = None
+        # Opponent-Mega evidence (I7b-C Task 2, off by default): ONE fresh list per decision,
+        # allocated ONLY when this seam's own writer is enabled — with it off, `None` goes down
+        # the chain and not a single object is created. The agent gate matches
+        # agg_wants_trace's own pair: BOTH heuristic agents run the same
+        # choose_with_fallback scorer and therefore score the same foe-Mega hypotheses
+        # ([REV.9] finding 2 — an earlier revision excluded "heuristic_reranker" because that
+        # branch dropped the sink; the branch now forwards it, and excluding the agent had
+        # silently made every reranker decision invisible to the sidecar). Agents that never
+        # run that scorer (max_damage models no opponent responses at all) stay out: they could
+        # only ever produce an all-empty row, which is a FALSE "this decision generated no
+        # foe-Mega hypothesis" claim.
+        opp_mega_evidence: list | None = (
+            [] if (
+                self.opp_mega_trace_writer is not None
+                and self.agent in ("heuristic", "heuristic_reranker")
+                and state is not None
+            ) else None
+        )
+        opp_mega_agent_ok = True
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -569,6 +632,7 @@ class _Client:
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
                 override=override,
                 format_config=self.format_config,
+                opp_mega_evidence_sink=opp_mega_evidence,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -577,6 +641,11 @@ class _Client:
             trace_obj = None  # discard partial trace on crash
             capture_stage_override = "client_exception_default"
             capture_reason_override = "agent_exception"
+            # Discard partial foe-Mega evidence for the same reason the trace is discarded:
+            # the dispatched choice is a blind `/choose default`, so writing this decision's
+            # (possibly empty, possibly half-filled) evidence would misattribute provenance to
+            # a decision that never actually completed.
+            opp_mega_agent_ok = False
         # Existing decision-latency window (choice computed, not yet sent) — measured ONCE here
         # so the capture sidecar's decision_latency_ms and self.latencies derive from the exact
         # SAME perf_counter() call; the sidecar latency is never the WebSocket send time.
@@ -584,6 +653,13 @@ class _Client:
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
+        # [P1] The request has been answered, so it has consumed its slot -- advance the
+        # shared sequence here, BEFORE the sidecar writes below (which already captured
+        # `decision_seq`). Advancing here rather than at the end of the method is what makes
+        # the sequence robust: a crashed decision, a degraded state, or a dropped sidecar
+        # write all still consume exactly one slot, so the NEXT decision is numbered
+        # correctly instead of silently reusing this one's index.
+        self._request_seq += 1
         # Decision capture: write ONLY after a successful send, and never mutate an
         # already-validated row. Off (writer is None, the default) -> no-op; prepared_capture is
         # already None in that case too, so this is zero new objects, zero behavior change.
@@ -627,6 +703,32 @@ class _Client:
             except Exception as exc:  # noqa: BLE001 - agg-trace is best-effort; never stall the battle
                 logger.debug(
                     "[%s] agg-trace write failed (decision dropped from sidecar): %s", self.name, exc
+                )
+        # Opponent-Mega evidence (I7b-C Task 2): write ONLY after a successful send AND only for
+        # a decision the agent actually completed, mirroring the two seams above in placement and
+        # best-effort discipline but with its OWN writer/context/counter and NO dependence on
+        # trace_obj. `opp_mega_evidence is not None` already implies the writer is enabled and
+        # the heuristic state path was active, so this is the whole gate. Off -> no-op.
+        if opp_mega_evidence is not None and opp_mega_agent_ok:
+            from showdown_bot.battle.opponent import DEFAULT_MAX_CANDIDATES, opp_mega_click_rate
+            from showdown_bot.eval.opp_mega_trace import build_opp_mega_trace_row
+
+            try:
+                opp_mega_row = build_opp_mega_trace_row(
+                    context=self.opp_mega_trace_context,
+                    # [P1] The request's own sequence number, NOT a count of rows written.
+                    decision_index=decision_seq,
+                    turn_number=getattr(state, "turn", None),
+                    evidence=opp_mega_evidence,
+                    max_candidates=DEFAULT_MAX_CANDIDATES,
+                    click_rate=opp_mega_click_rate(),
+                )
+                self.opp_mega_trace_writer.write(opp_mega_row)
+                self._opp_mega_rows_written += 1
+            except Exception as exc:  # noqa: BLE001 - sidecar is best-effort; never stall the battle
+                logger.debug(
+                    "[%s] opp-mega-trace write failed (decision dropped from sidecar): %s",
+                    self.name, exc,
                 )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
@@ -1007,6 +1109,8 @@ async def run_local_gauntlet(
     decision_trace_context=None,
     agg_trace_writer=None,
     agg_trace_context=None,
+    opp_mega_trace_writer=None,
+    opp_mega_trace_context=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -1055,6 +1159,15 @@ async def run_local_gauntlet(
     the hero client never sees a non-None agg writer/context, so ``_Client.handle_request``
     never builds a ``DecisionTrace`` for THIS trigger, never calls ``build_agg_row``, and the
     dispatched ``/choose`` messages are unchanged.
+
+    ``opp_mega_trace_writer``/``opp_mega_trace_context`` (I7b-C Task 2 Step 6, off by
+    default): a THIRD, INDEPENDENT optional per-decision sidecar recording which foe-Mega
+    hypotheses were generated AND scored (see ``eval/opp_mega_trace.py``) — same hero-only
+    contract and the same pairing/``games == 1`` validation as the two seams above, and
+    likewise independent of both. Unlike them it needs no ``DecisionTrace`` at all: its
+    evidence comes from the scoring call's own ``opp_mega_evidence_sink``. Both ``None``
+    (the default) is byte-identical: the hero client allocates no evidence list, passes an
+    explicit ``None`` down the chain, and the dispatched ``/choose`` messages are unchanged.
     """
     if (decision_trace_writer is None) != (decision_trace_context is None):
         raise ValueError(
@@ -1066,6 +1179,12 @@ async def run_local_gauntlet(
         raise ValueError(
             "agg_trace_writer and agg_trace_context must be given together"
         )
+    if (opp_mega_trace_writer is None) != (opp_mega_trace_context is None):
+        raise ValueError(
+            "opp_mega_trace_writer and opp_mega_trace_context must be given together"
+        )
+    if opp_mega_trace_context is not None and games != 1:
+        raise ValueError("opp_mega_trace_context requires games == 1")
     if agg_trace_context is not None and games != 1:
         raise ValueError("agg_trace_context requires games == 1")
     cfg, book, priors, opp_sets = _load_belief_deps(format_id)
@@ -1094,7 +1213,12 @@ async def run_local_gauntlet(
                    decision_trace_writer=decision_trace_writer,
                    decision_trace_context=decision_trace_context,
                    agg_trace_writer=agg_trace_writer,
-                   agg_trace_context=agg_trace_context)
+                   agg_trace_context=agg_trace_context,
+                   opp_mega_trace_writer=opp_mega_trace_writer,
+                   opp_mega_trace_context=opp_mega_trace_context)
+    # The villain deliberately receives NO opp-mega writer/context (same hero-only contract
+    # as export_runtime and both trace seams): its decisions are the opponent policy's, not
+    # the bot under test, so its foe-Mega hypotheses are not the evidence this smoke is about.
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        format_config=cfg, packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)

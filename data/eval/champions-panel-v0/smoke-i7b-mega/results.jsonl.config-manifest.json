@@ -1,0 +1,18 @@
+{
+  "config_hash": "b3cb6ea1a4836060",
+  "manifest": {
+    "agent": "heuristic",
+    "calc_pin_hash": "79a4877538c8740f",
+    "env": {
+      "SHOWDOWN_HERO_AGENT": "heuristic",
+      "SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"
+    },
+    "format_config_hash": "fa8eb689e95c03c6",
+    "format_id": "gen9championsvgc2026regma",
+    "itemdata_hash": "c5b00bfb5f093e98",
+    "movedata_hash": "20b3c72e72480ee1",
+    "priors_hash": "64943d724ac1c9d0",
+    "speciesdata_hash": "b6e121e58c592056",
+    "spreads_hash": "c3a07a45d4dd05b0"
+  }
+}

@@ -1,0 +1,228 @@
+{
+  "aggregates": {
+    "losing_cells": [],
+    "overall_pooled": {
+      "n": 2,
+      "wilson_hi": 0.6576280471103807,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    "per_policy": [
+      {
+        "n": 1,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.7934567085261071,
+        "wilson_lo": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      },
+      {
+        "n": 1,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.7934567085261071,
+        "wilson_lo": 0.0,
+        "win_rate": 0.0,
+        "wins": 0
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.0,
+    "worst_cell": {
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "cells": [
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "0054b6894af7215a",
+      "opp_team_path": "teams/panel_champions_v0/goodstuff.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 1,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e0c96fa0cabf1def",
+      "opp_team_path": "teams/panel_champions_v0/rain_offense.txt",
+      "ties": 0,
+      "wilson_hi": 0.7934567085261071,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    }
+  ],
+  "heldout": true,
+  "mode": "gate",
+  "paired": false,
+  "provenance": {
+    "config_hash": "5fb04622afebd59f",
+    "config_id": "heuristic",
+    "dirty": false,
+    "environment": {
+      "deps": {
+        "lightgbm": "4.6.0",
+        "pydantic": "2.13.4",
+        "websockets": "16.0"
+      },
+      "node": "v24.16.0",
+      "platform": "Windows-11-10.0.26200-SP0",
+      "python": "3.14.5"
+    },
+    "format_id": "gen9championsvgc2026regma",
+    "git_sha": "96671cb31f3eaece9ff3b9544803d5bd2f1f76f7",
+    "input_sha256": {
+      "manifest": "ed91989dea55e0f103762845a5a0d200e5d65a1156cc16c86c1c8927aa785e23",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "3c705fb21e5b6935e00e963b60272a1978cf46b7d4182e5f0f4bb0819ad2734c",
+      "schedule": "88475a4897bcd2492c36c434baf7e992bf345b96f471d3dfeac5c9ee75dd8481",
+      "seedlog": "b9b52e62c25493f1ee0cceba0670dabe59e570c5f9087aa8ed82795ddcc3b847"
+    },
+    "panel_hash": "aac1ea30446fde88",
+    "pythonhashseed": "0",
+    "recomputed_panel_hash": "aac1ea30446fde88",
+    "row_count": 2,
+    "run_id": "f61212da239c9ee6",
+    "schedule_hash": "b67a851881d76918",
+    "seed_base": "champions-panel-v0-smoke-i7b-mega",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+    "start_ts": "2026-07-16T18:57:03.104113+00:00"
+  },
+  "reproduction": {
+    "env": {
+      "PYTHONHASHSEED": "0",
+      "SHOWDOWN_BATTLE_SEED_BASE": "champions-panel-v0-smoke-i7b-mega"
+    },
+    "input_sha256": {
+      "manifest": "ed91989dea55e0f103762845a5a0d200e5d65a1156cc16c86c1c8927aa785e23",
+      "panel": "a391ef7cdc14214bed7fe6f4e19e59c052f20ff54ce6c426678a75fb38159fad",
+      "results": "3c705fb21e5b6935e00e963b60272a1978cf46b7d4182e5f0f4bb0819ad2734c",
+      "schedule": "88475a4897bcd2492c36c434baf7e992bf345b96f471d3dfeac5c9ee75dd8481",
+      "seedlog": "b9b52e62c25493f1ee0cceba0670dabe59e570c5f9087aa8ed82795ddcc3b847"
+    },
+    "report_command": "python -m showdown_bot.cli eval-report --run-a results.jsonl --seedlog-a seeds.jsonl --schedule champions_v0_smoke_i7b_2battle.yaml --panel panel_champions_v0.yaml --out <dir> --mode gate",
+    "run_command": "python -m showdown_bot.cli gauntlet --schedule ../config/eval/schedules/champions_v0_smoke_i7b_2battle.yaml --panel ../config/eval/panels/panel_champions_v0.yaml --result-out ../data/eval/champions-panel-v0/smoke-i7b-mega/results.jsonl --decision-trace-out ../data/eval/champions-panel-v0/smoke-i7b-mega/decision_trace.jsonl",
+    "server_patch_hash": "86e31891547e87da",
+    "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+  },
+  "safety_gates": [
+    {
+      "gate": "rows_match_schedule",
+      "measured": "2 == 2",
+      "status": "PASS"
+    },
+    {
+      "gate": "invalid_choices",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "crashes",
+      "measured": "0",
+      "status": "PASS"
+    },
+    {
+      "gate": "end_reason_normal",
+      "measured": "all normal",
+      "status": "PASS"
+    },
+    {
+      "gate": "latency_p95",
+      "measured": "worst=637 (budget 1000)",
+      "status": "PASS"
+    },
+    {
+      "gate": "seed_log_alignment",
+      "measured": "2 contiguous, derived",
+      "status": "PASS"
+    },
+    {
+      "gate": "no_duplicate_rows",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "panel_hash_match",
+      "measured": "aac1ea30446fde88",
+      "status": "PASS"
+    },
+    {
+      "gate": "dirty",
+      "measured": "none",
+      "status": "PASS"
+    },
+    {
+      "gate": "team_hashes_present",
+      "measured": "present",
+      "status": "PASS"
+    },
+    {
+      "gate": "opp_hashes_subset_panel",
+      "measured": "subset",
+      "status": "PASS"
+    },
+    {
+      "gate": "split_integrity",
+      "measured": "consistent",
+      "status": "PASS"
+    },
+    {
+      "gate": "reproducible_policies",
+      "measured": "all reproducible",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_config_hash",
+      "measured": "5fb04622afebd59f",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_schedule_hash",
+      "measured": "b67a851881d76918",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_seed_base",
+      "measured": "champions-panel-v0-smoke-i7b-mega",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_run_id",
+      "measured": "f61212da239c9ee6",
+      "status": "PASS"
+    },
+    {
+      "gate": "one_git_sha",
+      "measured": "96671cb31f3eaece9ff3b9544803d5bd2f1f76f7",
+      "status": "PASS"
+    },
+    {
+      "gate": "manifest_match",
+      "measured": "ok",
+      "status": "PASS"
+    }
+  ],
+  "safety_pass": true,
+  "schema_version": 1,
+  "verdict": "SINGLE-RUN SAFETY-PASS",
+  "warnings": [
+    "This is a single-run safety readout, not a comparison. A single run cannot establish improvement over any baseline \u2014 it can only pass or fail the safety gates. Any strength claim requires a paired run against a pinned baseline (T6) with the positive-evidence rule.",
+    "Ceiling/floor effect: cells at 0% or 100% win rate sit against a hard bound, so their Wilson interval understates uncertainty at these sample sizes. Small-n cells carry no strength claim.",
+    "HELD-OUT RUN \u2014 these numbers must never inform tuning decisions."
+  ]
+}

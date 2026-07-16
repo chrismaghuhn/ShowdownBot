@@ -26,16 +26,23 @@ As of **2026-07-16**:
 | Champions format: gen-0 speed and live damage | Safety-validated |
 | Champions own Mega (`I7a`) | Merged; safety pass, no strength claim |
 | Champions opponent Mega (`I7b-A` / `I7b-B`) | Merged; limited-view hypotheses and dual-Mega scoring are live for Mega-enabled formats |
-| Champions telemetry/smoke (`I7b-C`) | [PR #17](https://github.com/chrismaghuhn/ShowdownBot/pull/17) open and blocked pending LF-stable configuration provenance |
-| Champions strength | **NO-GO** until I7b-C is complete and a dedicated latency gate passes |
+| Champions telemetry/smoke (`I7b-C`) | Safety pass with **narrow exposure**: only 1 of 17 scored decisions exposed an opponent-Mega hypothesis, slot 1 only. No strength claim, no latency claim |
+| Champions strength | **NO-GO** until a dedicated latency gate passes |
 | ShowdownBot Studio | Product and bundle-contract design approved; exporter planning is separate from the bot runtime |
 
-The active provenance issue is explicit: several configuration identities were historically
-computed from raw text-file bytes whose CRLF/LF representation depended on the checkout platform.
-The affected smoke evidence remains historical evidence of the Windows run, but it must not be
-presented as a platform-independent configuration identity. The repair is being handled as a
-dedicated infrastructure slice; CI must pass on both Windows and Linux without skipping the
-cross-platform check before I7b-C can merge.
+That provenance issue is now fixed. Several configuration identities were historically computed
+from raw text-file bytes whose CRLF/LF representation depended on the checkout platform, so the
+same configuration hashed differently on Windows than on Linux. Every raw-byte-hashed provenance
+input is now pinned to LF, and **CI proves the platform independence rather than asserting it**:
+a dedicated job runs on both Windows and Linux and requires them to compute the identical
+configuration hash. A single-platform job could not catch this class of defect at all — it only
+ever showed up as a disagreement *between* hosts.
+
+Evidence recorded before that fix is kept, not rewritten: the rows record what the run that
+actually happened computed, so re-hashing them would falsify it. Such runs are archived under a
+`superseded-*` path and are explicitly marked as carrying a platform-specific configuration
+identity, which must not be compared against or joined with any later run. The I7b-C smoke was
+re-recorded from the identical schedule and seed base under the platform-stable hash.
 
 ## What is in the bot?
 

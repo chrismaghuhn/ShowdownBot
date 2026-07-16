@@ -853,3 +853,726 @@ def test_agg_trace_write_failure_is_best_effort_and_does_not_block_dispatch(monk
 
     assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch still went out
     assert client._agg_trace_index == 0  # NOT incremented on a failed write
+
+
+# --- I7b-C Task 2: opp-mega evidence-sink call chain -------------------------
+# Each link gets its own assertion: a single deep integration test would let a
+# dropped middle or upper layer hide behind a working lower one.
+
+
+def test_agent_choose_passes_same_opp_mega_sink_to_choose_with_fallback(monkeypatch):
+    """Upper link. Identity, not equality: the SAME list object must arrive, or
+    the sidecar would write an empty list while scoring filled a different one."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    sink = []
+    seen = {}
+
+    def fake_choose(req, **kwargs):
+        seen["sink"] = kwargs["opp_mega_evidence_sink"]
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(gauntlet, "choose_with_fallback", fake_choose)
+    out = gauntlet.agent_choose(
+        "heuristic", _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert out.startswith("/choose ")
+    assert seen["sink"] is sink
+
+
+def test_public_heuristic_wrapper_passes_same_sink_to_choose_best(monkeypatch):
+    """Middle link: heuristic_choose_for_request -> _choose_best_ja -> _choose_best."""
+    import showdown_bot.battle.decision as decision
+    from showdown_bot.battle.actions import enumerate_my_actions
+
+    sink = []
+    seen = {}
+    legal = enumerate_my_actions(_req())[0]
+
+    def fake_choose_best(req, **kwargs):
+        seen["sink"] = kwargs["opp_mega_evidence_sink"]
+        return legal, 0.0
+
+    monkeypatch.setattr(decision, "_choose_best", fake_choose_best)
+    decision.heuristic_choose_for_request(
+        _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert seen["sink"] is sink
+
+
+def test_choose_with_fallback_forwards_sink_through_deps(monkeypatch):
+    """The one link with NO explicit parameter: choose_with_fallback forwards
+    additive entries through its existing **deps. Pinned so nobody 'helpfully'
+    adds a second container there and silently shadows the real one."""
+    import showdown_bot.battle.decision as decision
+
+    sink = []
+    seen = {}
+
+    def fake_heuristic(req, **kwargs):
+        seen["sink"] = kwargs.get("opp_mega_evidence_sink", "ABSENT")
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(decision, "heuristic_choose_for_request", fake_heuristic)
+    decision.choose_with_fallback(
+        _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert seen["sink"] is sink
+
+
+# ---------------------------------------------------------------------------
+# I7b-C Task 2 (part 2): the opponent-Mega evidence sidecar wired into
+# _Client.handle_request. A THIRD, INDEPENDENT writer/context/counter next to
+# decision capture and the aggregation trace -- same off-by-default discipline,
+# same write-only-after-a-successful-send placement, its own gate.
+#
+# The gate deliberately does NOT copy agg_wants_trace's ("heuristic",
+# "heuristic_reranker") agent tuple: agent_choose's heuristic_reranker branch
+# calls choose_with_fallback WITHOUT opp_mega_evidence_sink, so a sink handed to
+# it would be silently dropped and the writer would emit an all-empty row -- a
+# false "this decision generated no foe-Mega hypothesis" claim. Fail closed:
+# only the plain "heuristic" path, which is the one actually wired end to end.
+# ---------------------------------------------------------------------------
+
+
+def _sentinel_evidence():
+    """A ScoredResponseEvidence whose values cannot arise by accident, so a row
+    carrying them proves THE agent-supplied object reached the writer."""
+    from showdown_bot.battle.mega_scoring import ScoredResponseEvidence
+
+    return ScoredResponseEvidence(
+        candidate_key="SENTINEL-CAND->a|mega=0",
+        response_id="SENTINEL-RESP",
+        foe_mega_slot=0,
+        branch_index=3,
+        branch_weight=0.35,
+        world_index=0,
+        world_weight=1.0,
+        response_weight=0.5,
+        raw_score=-12.5,
+        required_classes=("0", "none"),
+        retained_classes=("0", "none"),
+    )
+
+
+class _FakeOppMegaTraceWriter:
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def write(self, row):
+        self.rows.append(row)
+
+
+class _RaisingOppMegaTraceWriter:
+    def write(self, row):
+        raise RuntimeError("boom: simulated opp-mega-trace write failure")
+
+
+def _opp_mega_context():
+    from showdown_bot.eval.opp_mega_trace import OppMegaTraceContext
+
+    return OppMegaTraceContext(
+        battle_id="battle-x", config_id="heuristic", config_hash="cfg-hash",
+        schedule_hash="sched-hash", format_id="gen9championsvgc2026regma",
+        git_sha="a" * 40,
+    )
+
+
+def test_opp_mega_trace_off_default_client_has_no_writer_or_context():
+    """Constructing a `_Client` the plain way (no opp-mega kwargs, matching every
+    caller that predates this seam) leaves it fully disabled."""
+    client = _client(agent="heuristic")
+    assert client.opp_mega_trace_writer is None
+    assert client.opp_mega_trace_context is None
+    assert client._opp_mega_rows_written == 0
+    assert client._request_seq == 0  # [P1] the shared sequence starts at the first request
+
+
+def test_opp_mega_trace_off_passes_none_sink_and_is_byte_identical(monkeypatch, decision_fixture):
+    """THE off-by-default gate: no writer -> handle_request allocates NO evidence
+    list, passes an explicit None down the chain, never constructs an
+    OppMegaTraceWriter, and the dispatched /choose is byte-identical."""
+    import showdown_bot.client.gauntlet as gauntlet
+    import showdown_bot.eval.opp_mega_trace as opp_mega_trace_mod
+
+    monkeypatch.delenv("SHOWDOWN_OPP_MEGA_TRACE_OUT", raising=False)
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    client = _client(conn=conn, agent="heuristic", book=kw["book"])
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+    monkeypatch.setattr(
+        opp_mega_trace_mod, "OppMegaTraceWriter",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("opp-mega-trace-off path constructed an OppMegaTraceWriter")),
+    )
+
+    seen = {}
+
+    def fake_agent_choose(agent, request, **kwargs):
+        seen["kwargs"] = kwargs
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+    assert client.opp_mega_trace_writer is None  # default _client() never sets it
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]
+    # Explicit None, not an omitted kwarg: the contract is "pass None and allocate
+    # no list", and a KeyError here means handle_request never wired it at all.
+    assert seen["kwargs"]["opp_mega_evidence_sink"] is None
+
+
+def test_opp_mega_trace_on_writes_row_without_changing_dispatch(monkeypatch, decision_fixture):
+    """UPPER-BOUNDARY COUNTERPROOF. agent_choose appends a sentinel
+    ScoredResponseEvidence to the sink it is handed -- exactly what
+    score_evaluated_variants does -- and the sidecar row must carry THAT
+    sentinel's own values. Asserting the sink is merely a list would pass even if
+    handle_request wrote a fresh empty list, so it is forbidden here."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch unchanged
+    assert len(writer.rows) == 1
+    row = writer.rows[0]
+    # The sentinel survived the whole seam, component by component.
+    assert row["candidate_keys"] == ["SENTINEL-CAND->a|mega=0"]
+    assert row["response_ids"] == ["SENTINEL-RESP"]
+    assert row["foe_mega_slots"] == [0]
+    assert row["branch_indices"] == [3]
+    assert row["branch_weights"] == [0.35]
+    assert row["world_indices"] == [0]
+    assert row["world_weights"] == [1.0]
+    assert row["response_weights"] == [0.5]
+    assert row["raw_scores"] == [-12.5]
+    assert row["required_classes"] == ["0", "none"]
+    assert row["retained_classes"] == ["0", "none"]
+    assert row["scored_classes"] == ["0"]
+    assert row["battle_id"] == "battle-x"
+    assert row["decision_index"] == 0
+    assert client._opp_mega_rows_written == 1
+    # Independent of the other two seams.
+    assert client.agg_trace_writer is None
+    assert client.decision_trace_writer is None
+
+
+def test_opp_mega_trace_writes_no_row_when_agent_crashes(monkeypatch, decision_fixture):
+    """An agent crash falls back to `/choose default` having done no real
+    opponent-Mega reasoning. Writing the (possibly partial) evidence anyway would
+    be a FALSE provenance claim about a decision that never completed, so the row
+    must be suppressed -- the battle still goes on."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def exploding_agent_choose(agent, request, **kwargs):
+        # Partial work already sitting in the sink when the crash hits.
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        raise RuntimeError("boom: simulated agent crash mid-scoring")
+
+    monkeypatch.setattr(gauntlet, "agent_choose", exploding_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # battle kept alive
+    assert client.crashes == 1
+    assert writer.rows == []  # no false row for a decision that never ran
+    assert client._opp_mega_rows_written == 0
+
+
+def test_opp_mega_trace_reranker_agent_gets_a_sink_and_writes_a_row(monkeypatch, decision_fixture):
+    """[REV.9 finding 2] heuristic_reranker scores the SAME foe-Mega hypotheses
+    via the SAME choose_with_fallback, so with the writer on it must get its own
+    fresh sink and produce a real row -- the sidecar is about scored hypotheses,
+    not about which action the override finally picked.
+
+    This replaces an earlier test asserting the reranker got NO sink. That gate
+    was fail-closed but built on a wrong premise, and it silently made the
+    reranker invisible to the smoke."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic_reranker", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        assert agent == "heuristic_reranker"
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]
+    assert len(writer.rows) == 1
+    assert writer.rows[0]["response_ids"] == ["SENTINEL-RESP"]  # the real sink reached the writer
+    assert client._opp_mega_rows_written == 1
+
+
+def test_opp_mega_trace_non_heuristic_agent_allocates_no_sink(monkeypatch, decision_fixture):
+    """The gate still excludes agents that never run the heuristic scorer at all
+    (max_damage models no opponent responses -- audit finding 4). They would only
+    ever produce an all-empty row, which is a false claim, so they get no sink."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="max_damage", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    seen = {}
+
+    def fake_agent_choose(agent, request, **kwargs):
+        seen["kwargs"] = kwargs
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert seen["kwargs"]["opp_mega_evidence_sink"] is None  # no list allocated
+    assert writer.rows == []
+    assert client._opp_mega_rows_written == 0
+
+
+def test_opp_mega_trace_write_failure_is_best_effort_and_does_not_block_dispatch(monkeypatch, decision_fixture):
+    """A raising opp_mega_trace_writer.write must NOT propagate out of
+    handle_request, must NOT block the dispatched /choose, and must NOT increment
+    the counter (which then reflects only successfully written rows)."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=_RaisingOppMegaTraceWriter(),
+        opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch still went out
+    assert client._opp_mega_rows_written == 0  # NOT incremented on a failed write
+
+
+def test_opp_mega_trace_row_from_handle_request_passes_the_real_writer(monkeypatch, decision_fixture, tmp_path):
+    """End-to-end through the REAL OppMegaTraceWriter, not the fake one.
+
+    The fakes above never call validate_opp_mega_trace_row, so on their own they
+    cannot catch a row that handle_request builds but the real writer rejects --
+    and the write is deliberately best-effort, so a rejected row would be
+    swallowed at debug level and EVERY row would vanish silently. This closes
+    that loop: the real writer validates, serialises, and the file must contain
+    exactly one deterministic JSON line carrying the sentinel."""
+    import json
+
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.eval.opp_mega_trace import OppMegaTraceWriter
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    out = tmp_path / "opp_mega_trace.jsonl"
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=OppMegaTraceWriter(str(out)),
+        opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    # The counter only advances on a write the real writer accepted, so this
+    # failing means validation rejected the row rather than the seam misfiring.
+    assert client._opp_mega_rows_written == 1
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["response_ids"] == ["SENTINEL-RESP"]
+    assert row["foe_mega_slots"] == [0]
+    assert row["max_candidates"] == 5  # battle.opponent.DEFAULT_MAX_CANDIDATES
+    # Deterministic serialisation: sorted keys, compact separators.
+    assert lines[0] == json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def test_agent_choose_reranker_passes_same_opp_mega_sink_to_choose_with_fallback(monkeypatch):
+    """[REV.9 finding 2] heuristic_reranker runs the SAME choose_with_fallback
+    scorer as plain heuristic, so it generates and scores the SAME foe-Mega
+    hypotheses -- and must receive the SAME list object. Identity, not equality:
+    a copy would leave the sidecar writing an empty list while scoring filled a
+    different one.
+
+    This replaces an earlier test that pinned the reranker NOT receiving the
+    sink. That test was factually wrong: it documented the omission as if it were
+    the contract."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    sink = []
+    seen = {}
+
+    def fake_choose(req, **kwargs):
+        seen["sink"] = kwargs["opp_mega_evidence_sink"]
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(gauntlet, "choose_with_fallback", fake_choose)
+    out = gauntlet.agent_choose(
+        "heuristic_reranker", _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert out.startswith("/choose ")
+    assert seen["sink"] is sink
+
+
+def test_reranker_override_cannot_reinterpret_evidence_as_the_selection(monkeypatch):
+    """The sidecar records which opponent hypotheses were GENERATED AND SCORED,
+    never the final selection. An override that changes the chosen action must
+    therefore leave every evidence row intact: the hypotheses were still scored,
+    whichever action won. This pins that the override neither sees nor edits the
+    sink."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    sink = []
+
+    def fake_choose(req, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose HEURISTIC|{req.rqid}"
+
+    class _Override:
+        def __init__(self):
+            self.seen_kwargs = None
+
+        def override_choice(self, **kwargs):
+            self.seen_kwargs = kwargs
+            return "/choose OVERRIDDEN|1"
+
+    override = _Override()
+    monkeypatch.setattr(gauntlet, "choose_with_fallback", fake_choose)
+    out = gauntlet.agent_choose(
+        "heuristic_reranker", _req(), state=_state(), book=_book(), our_side="p1",
+        override=override, opp_mega_evidence_sink=sink,
+    )
+
+    assert out == "/choose OVERRIDDEN|1"          # the override really did fire
+    assert "opp_mega_evidence_sink" not in override.seen_kwargs  # never handed the evidence
+    assert len(sink) == 1                          # unchanged by the override
+    assert sink[0] == _sentinel_evidence()         # and not rewritten
+
+
+# --- I7b-C Rev. 9 finding 1: run_local_gauntlet must accept + route the seam ---
+# _Client accepting a writer no caller can supply is the same dead end the
+# original I7b-C root cause had one layer down. These pin the runner contract
+# without opening a socket: run_local_gauntlet's validation happens before any
+# connection, so an invalid pairing must raise synchronously.
+
+
+def test_run_local_gauntlet_rejects_writer_without_context():
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    with pytest.raises(ValueError, match="opp_mega_trace_writer and opp_mega_trace_context"):
+        asyncio.run(run_local_gauntlet(
+            games=1, format_id="gen9vgc2025regi", team_path="x",
+            opp_mega_trace_writer=object(),
+        ))
+
+
+def test_run_local_gauntlet_rejects_context_without_writer():
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    with pytest.raises(ValueError, match="opp_mega_trace_writer and opp_mega_trace_context"):
+        asyncio.run(run_local_gauntlet(
+            games=1, format_id="gen9vgc2025regi", team_path="x",
+            opp_mega_trace_context=_opp_mega_context(),
+        ))
+
+
+def test_run_local_gauntlet_context_requires_single_battle():
+    """A context is per battle. Reusing one across games would stamp every row
+    with the first battle's battle_id -- provenance that reads as one battle."""
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    with pytest.raises(ValueError, match="opp_mega_trace_context requires games == 1"):
+        asyncio.run(run_local_gauntlet(
+            games=2, format_id="gen9vgc2025regi", team_path="x",
+            opp_mega_trace_writer=_FakeOppMegaTraceWriter(),
+            opp_mega_trace_context=_opp_mega_context(),
+        ))
+
+
+def test_run_local_gauntlet_signature_exposes_the_seam():
+    """The parameters must exist and default to None, or no caller can reach the
+    sidecar and every 'off by default' claim is vacuous."""
+    import inspect
+
+    from showdown_bot.client.gauntlet import run_local_gauntlet
+
+    params = inspect.signature(run_local_gauntlet).parameters
+    assert params["opp_mega_trace_writer"].default is None
+    assert params["opp_mega_trace_context"].default is None
+
+
+# --- [P1] decision_index must be the REQUEST sequence, not a row counter -------
+# The sidecar counter only advanced on rows actually written, so anything that
+# produced no row silently shifted every later index by one. Team preview is the
+# guaranteed case: decision capture writes a row for it (its write is NOT gated
+# on `state`), while the sidecar cannot (state is None -> no sink -> no row). The
+# first real decision then carried trace decision_index=1 and sidecar
+# decision_index=0 -- two different numbers for the SAME decision, which is
+# exactly the join the smoke's evidence gate depends on. A state build failure, an
+# agent crash and a failed sidecar write shift it further.
+#
+# Sidecar rows may legitimately have GAPS; they must never be re-numbered.
+
+
+def _preview_req():
+    return BattleRequest.model_validate(
+        json.loads((FIXTURES / "request_team_preview.json").read_text())
+    )
+
+
+def test_opp_mega_decision_index_survives_team_preview(monkeypatch, decision_fixture):
+    """[P1] THE counterproof: team preview -> regular turn. The regular turn is
+    request #1, so its sidecar row must say decision_index=1 -- matching the trace
+    row for that same decision -- not 0 because it happens to be the first row in
+    the file."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    preview = _preview_req()
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    # Real team preview -> the REAL _state_for returns None for it (req.team_preview),
+    # and the real state for the regular turn. No simulation of the mechanism.
+    monkeypatch.setattr(
+        client, "_state_for",
+        lambda room, request: None if request.team_preview else kw["state"],
+    )
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        sink = kwargs["opp_mega_evidence_sink"]
+        if sink is not None:
+            sink.append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", preview.model_dump_json(by_alias=True)))
+    assert writer.rows == []  # preview produced no evidence row, by design
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    assert len(writer.rows) == 1
+    assert writer.rows[0]["decision_index"] == 1, (
+        "the regular turn is request #1; a sidecar row numbered 0 would claim to be "
+        "the same decision as the trace's preview row"
+    )
+
+
+def test_opp_mega_decision_index_matches_decision_trace_for_the_same_decision(
+    monkeypatch, decision_fixture
+):
+    """[P1] The join the smoke actually needs: with BOTH sidecars on, the trace row
+    and the opp-mega row for one decision must carry the SAME decision_index --
+    across a preview that only one of them records."""
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.eval.decision_capture import BattleTraceContext
+
+    req, kw = decision_fixture
+    preview = _preview_req()
+    conn = _RecordingConn()
+    opp_writer = _FakeOppMegaTraceWriter()
+    trace_writer = _FakeCaptureWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        decision_trace_writer=trace_writer,
+        decision_trace_context=BattleTraceContext(
+            battle_id="battle-x", seed_index=0, config_id="heuristic",
+            config_hash="cfg", schedule_hash="sched",
+            format_id="gen9championsvgc2026regma", git_sha="a" * 40,
+        ),
+        opp_mega_trace_writer=opp_writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(
+        client, "_state_for",
+        lambda room, request: None if request.team_preview else kw["state"],
+    )
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        sink = kwargs["opp_mega_evidence_sink"]
+        if sink is not None:
+            sink.append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", preview.model_dump_json(by_alias=True)))
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    # Decision capture recorded BOTH requests; the sidecar only the second one.
+    assert [r["decision_index"] for r in trace_writer.rows] == [0, 1]
+    assert [r["decision_index"] for r in opp_writer.rows] == [1]  # a GAP at 0, not a renumber
+
+
+def test_opp_mega_decision_index_survives_a_crashed_decision(monkeypatch, decision_fixture):
+    """[P1] A crashed agent writes no row (that decision never ran). The NEXT
+    decision must still be numbered 1 -- the crash consumed request slot 0."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    calls = {"n": 0}
+
+    def flaky_agent_choose(agent, request, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom: simulated crash on the first decision")
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", flaky_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    assert writer.rows == []  # crashed decision -> no row
+    assert client.crashes == 1
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    assert len(writer.rows) == 1
+    assert writer.rows[0]["decision_index"] == 1  # NOT 0
+
+
+def test_opp_mega_decision_index_survives_a_failed_sidecar_write(monkeypatch, decision_fixture):
+    """[P1] A dropped row (best-effort write failure) must leave a GAP, never
+    renumber the rows after it."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+
+    class _FlakyWriter:
+        def __init__(self):
+            self.rows: list[dict] = []
+
+        def write(self, row):
+            if not self.rows and row["decision_index"] == 0:
+                self.rows.append(None)  # mark the attempt, then fail it
+                raise RuntimeError("boom: simulated sidecar write failure")
+            self.rows.append(row)
+
+    writer = _FlakyWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    written = [r for r in writer.rows if r is not None]
+    assert len(written) == 1
+    assert written[0]["decision_index"] == 1  # the dropped row's slot 0 stays a gap
+
+
+def test_wait_request_does_not_consume_a_decision_index(monkeypatch, decision_fixture):
+    """[P1] A `wait` request is the opponent's turn, not a decision of ours: it must
+    not consume a sequence slot, or every later index would drift the other way."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    writer = _FakeOppMegaTraceWriter()
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=writer, opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", json.dumps({"wait": True, "rqid": 1})))
+    assert client._request_seq == 0  # nothing consumed
+    assert conn.sent == []           # and nothing dispatched
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+    assert writer.rows[0]["decision_index"] == 0  # still the FIRST decision
