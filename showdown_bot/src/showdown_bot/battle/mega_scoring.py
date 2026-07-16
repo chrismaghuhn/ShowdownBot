@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from showdown_bot.battle.actions import JointAction
 from showdown_bot.battle.decision import _plan_my_actions, _search_depth, _search_topm, _search_topn
@@ -11,7 +11,7 @@ from showdown_bot.battle.mega_variants import (
     expand_mega_variants,
     filter_projectable_variants,
 )
-from showdown_bot.battle.opponent import SpeciesDex, predict_responses
+from showdown_bot.battle.opponent import OppResponse, SpeciesDex, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import aggregate_scores
 from showdown_bot.battle.resolve import PlannedAction
@@ -23,6 +23,7 @@ from showdown_bot.engine.belief.world_sampler import (
 )
 from showdown_bot.engine.calc.client import CalcClient
 from showdown_bot.engine.calc_profile import CalcProfile
+from showdown_bot.engine.mega_form import MegaForm, mega_form_for
 from showdown_bot.engine.mega_projection import (
     MegaProjectionResult,
     copy_battle_state,
@@ -257,6 +258,61 @@ class MegaScoreRecord:
     diagnostic_details: list[LineEvaluation]
     diagnostic_weights: list[float] | None
     aggregate_score: float = 0.0
+    diagnostic_contexts: list["MegaEvaluationContext"] = field(default_factory=list)
+    # World-0-only, same length/cadence as diagnostic_details/diagnostic_weights
+    # (never populated for pooled-world indices beyond world 0): records WHICH
+    # MegaEvaluationContext each diagnostic index's detail/outcome was actually
+    # computed against -- the pre-existing own-mega-only ctx for a no-mega
+    # index, or that specific foe-mega branch's own branch_ctx for a foe-mega
+    # index. Task 6 depends on this to bind depth-2 to the CORRECT context per
+    # index, since a record's own top-M diagnostic indices may span both a
+    # no-mega response and one or more foe-mega branch responses.
+
+
+@dataclass(frozen=True)
+class ScoredResponseEvidence:
+    """One (candidate, opponent response, Mega branch) scored contribution --
+    NOT persisted to decision-trace-v3 (battle_id/decision_index co-location
+    does not prove which candidate was scored against which response). Raw
+    components only -- NOT a pre-multiplied "contribution": aggregate_scores
+    (policy.py) is non-linear under MUST_REACT (`mean - lambda*(mean-min)`) and
+    NEUTRAL (`mean - lambda*variance`), so no single per-response product is the
+    correct "contribution" under both operators; consumers multiply these
+    components themselves per their own operator. Built inline during scoring;
+    consumed directly by eval/opp_mega_trace.py (I7b-C), never reconstructed
+    after the fact."""
+
+    candidate_key: str
+    response_id: str
+    foe_mega_slot: int | None
+    branch_index: int
+    branch_weight: float
+    world_index: int
+    world_weight: float
+    response_weight: float
+    raw_score: float
+    required_classes: tuple[str, ...]
+    retained_classes: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _BranchResponsePair:
+    """Original hypothesis metadata plus actions replanned on the branch.
+
+    ``original`` owns response_id/foe_mega_slot/weight after I7b-A's click-rate,
+    cap, and renormalization pipeline. ``replanned`` owns only the actions that
+    see the branch's projected state, weather, species, and speeds.
+    """
+
+    original: OppResponse
+    replanned: OppResponse
+
+
+class MissingBranchResponseError(ValueError):
+    """A foe-Mega branch's re-generated predict_responses() call did not
+    reproduce one of the original top-M response labels (e.g.
+    revealed_support becoming newly available post-Mega). Fail closed rather
+    than silently drop or mismatch a response."""
 
 
 def _world_seed_board_key(state: BattleState, opp_side: str) -> str:
@@ -300,6 +356,9 @@ def score_evaluated_variants(
     accuracy_branch_cap: int,
     endgame: bool,
     fast_board: bool,
+    foe_mega_eligibility: dict[str, MegaForm] | None = None,
+    species_meta: dict[str, SpeciesFormMeta] | None = None,
+    opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None,
 ) -> list[MegaScoreRecord]:
     """Expand no actions -- score exactly the supplied ``evaluated_variants``
     against the already-built ``contexts`` (I7a-B Task 3).
@@ -371,36 +430,175 @@ def score_evaluated_variants(
     for rec in records:
         records_by_slot.setdefault(rec.variant.own_mega_slot, []).append(rec)
 
+    from showdown_bot.battle.candidate_identity import joint_action_key_v2
+    from showdown_bot.battle.opponent import OpponentResponseCapError, opp_mega_click_rate
+    from showdown_bot.engine.mega_projection import (
+        UnsupportedMegaAbilityError,
+        compose_mega_projection_branches,
+    )
+    from showdown_bot.engine.speed import MissingMegaSpreadError
+
+    _click_rate = opp_mega_click_rate() if foe_mega_eligibility else None
+    _i7b_active = bool(foe_mega_eligibility)
+
     for world_idx, (world_sets, world_w) in enumerate(worlds):
         merged_sets = {**(opp_sets or {}), **world_sets}
-        world_resps_by_slot: dict[int | None, list] = {}
+        world_resps_by_slot: dict[int | None, list[OppResponse]] = {}
         world_model_by_slot: dict[int | None, DamageModel] = {}
+        world_no_mega_resps_by_slot: dict[int | None, list[OppResponse]] = {}
+        world_coverage_by_slot: dict[int | None, tuple[tuple[str, ...], tuple[str, ...]]] = {}
 
+        # --- Phase A, part 1: existing no-mega responses/model (byte-identical) ---
         for slot, ctx in ctx_by_slot.items():
             resps = predict_responses(
                 ctx.projected_state, our_side, opp_side, speed_oracle=speed_oracle,
                 book=book, dex=dex, field=ctx.field, priors=priors,
                 threatened_slots=threatened, opp_sets=merged_sets,
+                foe_mega_eligibility=foe_mega_eligibility, opp_mega_click_rate=_click_rate,
             )
             model = DamageModel(
                 ctx.projected_state, our_side, opp_side, book=book, oracle=oracle,
                 field=ctx.field, our_spreads=our_spreads, opp_sets=merged_sets,
                 calc_profile=calc_profile,
             )
-            model.enqueue(list(ctx.plans.values()) + [r.actions for r in resps])
+            no_mega_resps = [r for r in resps if r.foe_mega_slot is None]
+            required_classes = tuple(sorted(
+                {"none"} | {str(0 if s == "a" else 1) for s in foe_mega_eligibility}
+            )) if _i7b_active else ("none",)
+            retained_classes = tuple(sorted({
+                "none" if r.foe_mega_slot is None else str(r.foe_mega_slot)
+                for r in resps
+            }))
+            if _i7b_active and not set(required_classes) <= set(retained_classes):
+                raise OpponentResponseCapError(
+                    f"required opponent response classes {required_classes} "
+                    f"not retained by predict_responses: {retained_classes}"
+                )
+            model.enqueue(list(ctx.plans.values()) + [r.actions for r in no_mega_resps])
             world_resps_by_slot[slot] = resps
             world_model_by_slot[slot] = model
+            world_no_mega_resps_by_slot[slot] = no_mega_resps
+            world_coverage_by_slot[slot] = (required_classes, retained_classes)
 
-        # All contexts for THIS world are enqueued above -- flush exactly once
-        # per world, never per-context (I7a-B Task 3 batching invariant).
-        oracle.flush()
-
+        # --- Phase A, part 2: every foe-Mega branch, built ONCE per
+        # (slot, foe_mega_slot, branch_idx), shared across every candidate ---
+        branch_bundles: dict[tuple, dict] = {}
         for slot, ctx in ctx_by_slot.items():
             resps = world_resps_by_slot[slot]
+            foe_mega_slots = {r.foe_mega_slot for r in resps if r.foe_mega_slot is not None}
+            for foe_mega_slot in foe_mega_slots:
+                own_form = None
+                own_slot_key = "a" if slot == 0 else "b" if slot is not None else None
+                if slot is not None:
+                    own_mon = state.sides[our_side][own_slot_key]
+                    own_form = mega_form_for(own_mon.species, own_mon.item) if own_mon.item else None
+                activations = []
+                if own_form is not None:
+                    activations.append((our_side, own_slot_key, own_form))
+                foe_slot_key = "a" if foe_mega_slot == 0 else "b"
+                activations.append((opp_side, foe_slot_key, foe_mega_eligibility[foe_slot_key]))
+                try:
+                    branches = compose_mega_projection_branches(
+                        state, activations, our_side=our_side, speed_oracle=speed_oracle,
+                        our_spreads=our_spreads, opp_sets=merged_sets, book=book,
+                        species_meta=species_meta, calc_profile=calc_profile,
+                    )
+                except (UnsupportedMegaAbilityError, MissingMegaSpreadError):
+                    branches = []  # fail-closed: exclude, never crash the whole score
+
+                for branch_idx, branch in enumerate(branches):
+                    # PokemonState carries NO effective_speed -- post-Mega speed lives
+                    # on MegaProjectionResult, which compose_mega_projection_branches
+                    # does not surface. Re-derive from the COMPLETE, FINAL branch state
+                    # via the central resolver, so the override stays correct even if a
+                    # weather-sensitive speed modifier is ever added (weather is not one
+                    # today: speed_modifiers_from_state reads only boost/tailwind/
+                    # paralysis/scarf/booster). Never hand-rolled stat math, never a
+                    # private SpeedOracle method, never the pre-branch own-Mega context.
+                    own_override = None
+                    if ctx.own_mega_slot is not None:
+                        own_slot_letter = "a" if ctx.own_mega_slot == 0 else "b"
+                        own_projected = branch.projected_state.sides[our_side][own_slot_letter]
+                        own_override = {
+                            ctx.own_mega_slot: speed_oracle.speed_for_species(
+                                species_name=own_projected.species,
+                                base_species_id=own_projected.base_species_id or own_projected.species,
+                                side=our_side,
+                                mon=own_projected,
+                                field=branch.projected_state.field,
+                                our_spreads=our_spreads,
+                                opp_sets=None,
+                                book=book,
+                                is_ours=True,
+                            )
+                        }
+                    replanned_plans = {
+                        joint: _plan_my_actions(
+                            req, joint, state=branch.projected_state, our_side=our_side,
+                            opp_side=opp_side, speed_oracle=speed_oracle,
+                            planned_speed_overrides_by_slot=own_override,
+                        )
+                        for joint in ctx.plans
+                    }
+                    branch_resps = predict_responses(
+                        branch.projected_state, our_side, opp_side, speed_oracle=speed_oracle,
+                        book=book, dex=dex, field=branch.projected_state.field, priors=priors,
+                        threatened_slots=threatened, opp_sets=merged_sets,
+                    )
+                    branch_resps_by_label = {r.label: r for r in branch_resps}
+                    matching_original = [r for r in resps if r.foe_mega_slot == foe_mega_slot]
+                    for r in matching_original:
+                        if r.label not in branch_resps_by_label:
+                            raise MissingBranchResponseError(
+                                f"branch-regenerated responses missing label {r.label!r}"
+                            )
+                    branch_model = DamageModel(
+                        branch.projected_state, our_side, opp_side, book=book, oracle=oracle,
+                        field=branch.projected_state.field, our_spreads=our_spreads,
+                        opp_sets=merged_sets, calc_profile=calc_profile,
+                    )
+                    response_pairs = [
+                        _BranchResponsePair(
+                            original=original,
+                            replanned=branch_resps_by_label[original.label],
+                        )
+                        for original in matching_original
+                    ]
+                    branch_model.enqueue(
+                        list(replanned_plans.values())
+                        + [pair.replanned.actions for pair in response_pairs]
+                    )
+                    # Task 6: a real MegaEvaluationContext bound to THIS branch, so
+                    # depth-2's existing depth2_value_for_mega_context can be reused
+                    # completely unmodified -- never a different branch's or the
+                    # base own-mega-only context's projected_state/oracle.
+                    branch_ctx = MegaEvaluationContext(
+                        context_id=f"foe_mega:{foe_mega_slot}:{branch_idx}",
+                        projected_state=branch.projected_state,
+                        own_mega_slot=ctx.own_mega_slot, foe_mega_slot=foe_mega_slot,
+                        branch_weight=branch.weight, activation_order=branch.activation_order,
+                        field=branch.projected_state.field, plans=replanned_plans,
+                        damage_model=branch_model,
+                    )
+                    branch_bundles[(slot, foe_mega_slot, branch_idx)] = {
+                        "branch": branch, "model": branch_model,
+                        "replanned_plans": replanned_plans,
+                        "response_pairs": response_pairs,
+                        "branch_ctx": branch_ctx,
+                    }
+
+        # --- Phase B: one shared flush for every enqueue in this world ---
+        oracle.flush()
+
+        # --- Phase C: evaluate weighted samples with full evidence ---
+        for slot, ctx in ctx_by_slot.items():
             model = world_model_by_slot[slot]
-            targets = resps if resps else [None]
+            targets = world_no_mega_resps_by_slot[slot] if world_no_mega_resps_by_slot[slot] else [None]
             for rec in records_by_slot.get(slot, []):
                 plan = ctx.plans[rec.variant.joint]
+                candidate_key = joint_action_key_v2(rec.variant.joint)
+                required_classes, retained_classes = world_coverage_by_slot[slot]
+
                 for r in targets:
                     opp_actions = r.actions if r is not None else []
                     detail = _evaluate_line_details(
@@ -410,12 +608,60 @@ def score_evaluated_variants(
                         fast_board=fast_board, accuracy_mode=accuracy_mode,
                         accuracy_branch_cap=accuracy_branch_cap,
                     )
-                    raw_w = r.weight if (priors is not None and r is not None) else 1.0
+                    if _i7b_active:
+                        raw_w = r.weight if r is not None else 1.0  # consistent under the active path
+                    else:
+                        raw_w = r.weight if (priors is not None and r is not None) else 1.0  # legacy, unchanged
                     rec.score_vector.append(detail.score)
                     rec.score_weights.append(world_w * raw_w)
                     if world_idx == 0:
                         rec.diagnostic_details.append(detail)
                         rec.diagnostic_weights.append(raw_w)
+                        rec.diagnostic_contexts.append(ctx)  # Task 6: per-index context binding
+                    if opp_mega_evidence_sink is not None:
+                        opp_mega_evidence_sink.append(ScoredResponseEvidence(
+                            candidate_key=candidate_key,
+                            response_id=(r.response_id if r is not None else "none"),
+                            foe_mega_slot=None, branch_index=0, branch_weight=1.0,
+                            world_index=world_idx, world_weight=world_w,
+                            response_weight=raw_w, raw_score=detail.score,
+                            required_classes=required_classes,
+                            retained_classes=retained_classes,
+                        ))
+
+                for (b_slot, foe_mega_slot, branch_idx), bundle in branch_bundles.items():
+                    if b_slot != slot:
+                        continue
+                    replanned_plan = bundle["replanned_plans"][rec.variant.joint]
+                    branch = bundle["branch"]
+                    branch_model = bundle["model"]
+                    for pair in bundle["response_pairs"]:
+                        original = pair.original
+                        replanned = pair.replanned
+                        detail = _evaluate_line_details(
+                            branch.projected_state, replanned_plan, replanned.actions,
+                            branch_model.damage_fn,
+                            our_side=our_side, weights=weights, field=branch.projected_state.field,
+                            rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
+                            accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+                        )
+                        raw_w = original.weight
+                        rec.score_vector.append(detail.score)
+                        rec.score_weights.append(world_w * raw_w * branch.weight)
+                        if world_idx == 0:
+                            rec.diagnostic_details.append(detail)
+                            rec.diagnostic_weights.append(raw_w * branch.weight)
+                            rec.diagnostic_contexts.append(bundle["branch_ctx"])  # Task 6
+                        if opp_mega_evidence_sink is not None:
+                            opp_mega_evidence_sink.append(ScoredResponseEvidence(
+                                candidate_key=candidate_key, response_id=original.response_id,
+                                foe_mega_slot=original.foe_mega_slot, branch_index=branch_idx,
+                                branch_weight=branch.weight, world_index=world_idx,
+                                world_weight=world_w, response_weight=raw_w,
+                                raw_score=detail.score,
+                                required_classes=required_classes,
+                                retained_classes=retained_classes,
+                            ))
 
     if _search_depth() > 1 and world_samples() <= 1:
         # --- depth-2 wrap for the Mega grid (I7a-B Task 1 follow-up; mirrors

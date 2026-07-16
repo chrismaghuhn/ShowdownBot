@@ -1,0 +1,288 @@
+"""I7b-B Task 4 (Rev. 6): three-phase foe-Mega scoring integration."""
+from __future__ import annotations
+
+import pytest
+
+from showdown_bot.battle.candidate_identity import joint_action_key_v2
+from showdown_bot.battle.mega_scoring import MegaScoreRecord, score_evaluated_variants
+
+# [REV.5] `mega_form_for` is deliberately NOT imported here any more: every test in
+# this file now derives its hypothesis through the real foe_mega_eligibility() via
+# _real_eligibility(), so a hand-built MegaForm has no remaining call site (it would
+# be an unused import, and re-introducing one would reopen the incoherent-hypothesis
+# defect Rev. 5 closes).
+
+
+def _real_eligibility(kw):
+    """[REV.5] Derive eligibility through the REAL limited-view path, never by
+    hand-injecting a MegaForm. Rev. 4 injected an Aerodactyl-Mega form onto an
+    Incineroar -- a hypothesis foe_mega_eligibility() can never produce (it resolves
+    species-bound via mega_form_for(mon.species, mon.item)) and which Task 2's Rev. 5
+    coherence check now rejects outright."""
+    from showdown_bot.battle.opponent import foe_mega_eligibility
+
+    elig = foe_mega_eligibility(kw["state"], "p2", opp_sets=kw.get("opp_sets"))
+    assert elig, "fixture must yield a real foe-Mega hypothesis for this test to mean anything"
+    return elig
+
+
+def _pre_mega_speeds(kw):
+    st, so = kw["state"], kw["speed_oracle"]
+    own_mon, foe_mon = st.sides["p1"]["a"], st.sides["p2"]["a"]
+    own = so.speed_for_species(
+        species_name=own_mon.species, base_species_id=own_mon.base_species_id or own_mon.species,
+        side="p1", mon=own_mon, field=st.field, our_spreads=kw["our_spreads"],
+        opp_sets=None, book=kw["book"], is_ours=True,
+    )
+    foe = so.speed_for_species(
+        species_name=foe_mon.species, base_species_id=foe_mon.base_species_id or foe_mon.species,
+        side="p2", mon=foe_mon, field=st.field, our_spreads=None,
+        opp_sets=kw.get("opp_sets"), book=kw["book"], is_ours=False,
+    )
+    return own, foe
+
+
+def _assert_pre_mega_speeds_tie(kw):
+    """[REV.5] Explicit real-backend precondition for every test that asserts two
+    0.5-weight branches. Rev. 4's defect was asserting a tie nobody ever computed
+    (Aerodactyl 200 vs Incineroar 123); this makes the tie a checked fact, and makes
+    a fixture/backend drift fail HERE with a readable message instead of surfacing as
+    a confusing `assert tied_groups` failure downstream. The absolute value is pinned
+    too, not just the equality, so a drift that moves BOTH sides is caught as well."""
+    own, foe = _pre_mega_speeds(kw)
+    assert own == foe == 200, f"tie fixture must tie at 200: p1.a={own} p2.a={foe}"
+
+
+def _score(kw, req, *, eligibility=None, sink=None):
+    from showdown_bot.engine.species_meta import species_meta_table
+
+    return score_evaluated_variants(
+        kw["evaluated_variants"], kw["contexts"], req=req, state=kw["state"], book=kw["book"],
+        our_side="p1", opp_side="p2", calc=kw["calc"], oracle=kw["oracle"],
+        speed_oracle=kw["speed_oracle"], dex=kw["dex"], priors=None, weights=kw["weights"],
+        mode=kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
+        opp_sets=None, calc_profile=kw["calc_profile"], accuracy_mode=False, accuracy_branch_cap=6,
+        endgame=False, fast_board=False,
+        foe_mega_eligibility=eligibility, species_meta=species_meta_table() if eligibility else None,
+        opp_mega_evidence_sink=sink,
+    )
+
+
+def test_return_type_is_unchanged_records_only(mega_decision_fixture):
+    """Finding 4e: the return type stays `list[MegaScoreRecord]` -- NOT a
+    tuple -- so every existing real call site (`decision.py` and 7 in
+    `tests/i7a/test_i7a_decision.py`, none of which unpack a tuple today)
+    keeps working unmodified. Evidence is opt-in via `opp_mega_evidence_sink`."""
+    req, kw = mega_decision_fixture
+    records = _score(kw, req)
+    assert isinstance(records, list)
+    assert all(isinstance(r, MegaScoreRecord) for r in records)
+
+
+def test_foe_mega_evidence_is_weighted_by_world_times_response_times_branch(mega_decision_tie_fixture):
+    """T19/T26 weighting: sibling evidence rows for the SAME (candidate,
+    response) tie must have equal, sub-1.0 branch_weight values summing to
+    1.0 -- a regression that drops branch.weight from the branch-building or
+    evaluation path would either collapse the tie to one branch (failing the
+    `tied_groups` non-empty check) or leave both siblings at weight 1.0
+    (failing the sum-to-1.0 check).
+
+    [REV.5] Uses mega_decision_tie_fixture (real Aerodactyl foe, 200 vs 200), NOT
+    the default Incineroar board (200 vs 123) whose single weight-1.0 branch made
+    Rev. 4's `assert tied_groups` unsatisfiable. Real-backend integration test --
+    Task 3's monkeypatched tie test covers branch ENUMERATION in isolation; this
+    one must earn its tie from the real backend, so it never monkeypatches speed."""
+    req, kw = mega_decision_tie_fixture
+    _assert_pre_mega_speeds_tie(kw)  # REV.5: checked precondition, not an assumption
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+
+    foe_evidence = [e for e in evidence if e.foe_mega_slot is not None]
+    assert foe_evidence
+    by_response: dict[tuple[str, str], list] = {}
+    for e in foe_evidence:
+        by_response.setdefault((e.candidate_key, e.response_id), []).append(e)
+    tied_groups = [g for g in by_response.values() if len(g) > 1]
+    assert tied_groups  # this fixture's speed values must exercise a genuine tie
+    for group in tied_groups:
+        branch_weights = {round(e.branch_weight, 9) for e in group}
+        assert len(branch_weights) == 1
+        assert next(iter(branch_weights)) < 1.0
+        assert sum(e.branch_weight for e in group) == pytest.approx(1.0)
+
+
+def test_no_mega_responses_also_produce_evidence_rows(mega_decision_tie_fixture):
+    """Finding 4a: the future smoke's evidence gate requires BOTH a no-mega
+    and a mega twin for the same decision -- Rev. 2 only ever appended
+    inside the foe-mega branch loop."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+    assert any(e.foe_mega_slot is None for e in evidence)
+    assert any(e.foe_mega_slot is not None for e in evidence)
+
+
+def test_evidence_candidate_key_matches_joint_action_key_v2(mega_decision_tie_fixture):
+    """Finding 4d: `candidate_key` must come from the real module-level
+    `joint_action_key_v2`, not a nonexistent `.joint_action_key()` method."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence)
+    valid_keys = {joint_action_key_v2(r.variant.joint) for r in records}
+    assert evidence
+    assert all(e.candidate_key in valid_keys for e in evidence)
+
+
+def test_evidence_carries_raw_unmultiplied_components(mega_decision_tie_fixture):
+    """Finding 4b/4c: evidence exposes world_index/world_weight/response_weight
+    as separate fields, and `raw_score` is the per-response detail score
+    alone -- never pre-multiplied into a single "contribution", since
+    aggregate_scores (policy.py) is non-linear (MUST_REACT/NEUTRAL) and no
+    single per-response product is correct under both operators."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+    assert evidence
+    for e in evidence:
+        assert isinstance(e.world_index, int)
+        assert isinstance(e.world_weight, float)
+        assert isinstance(e.response_weight, float)
+        assert isinstance(e.raw_score, float)
+
+
+def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_decision_tie_fixture):
+    """Finding 3: when foe_mega_eligibility is non-empty, EVERY response
+    (no-mega included) must use its real r.weight -- not the legacy
+    `1.0`-under-priors=None default, which would otherwise make no-mega and
+    mega responses incomparable within the same decision."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+    no_mega = [e for e in evidence if e.foe_mega_slot is None]
+    assert no_mega
+    assert any(e.response_weight != 1.0 for e in no_mega)
+
+
+def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """A branch replan may replace actions, never the original Mega hypothesis's
+    identity/weight. At click-rate zero the Mega twin still exists but its
+    response weight must remain exactly zero after branch replanning."""
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+    mega_rows = [e for e in evidence if e.foe_mega_slot == 0]
+    assert mega_rows
+    assert all(e.response_id.endswith("|mega=0") for e in mega_rows)
+    assert all(e.response_weight == pytest.approx(0.0) for e in mega_rows)
+
+
+def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_tie_fixture):
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    _score(kw, req, eligibility=eligibility, sink=evidence)
+    assert evidence
+    assert all(set(e.required_classes) <= set(e.retained_classes) for e in evidence)
+    assert all(e.required_classes == ("0", "none") for e in evidence)
+
+
+def test_no_eligibility_is_byte_identical_to_pre_i7b_scoring(mega_decision_fixture):
+    """Reg-I / omitted-kwarg safety net: calling with the two new
+    keyword-only parameters left at their defaults must be numerically
+    identical to calling with them passed explicitly as empty/None, and must
+    use the UNCHANGED legacy weighting gate (not finding 3's I7b-active
+    override)."""
+    req, kw = mega_decision_fixture
+    records_default = _score(kw, req)
+    records_explicit = _score(kw, req, eligibility=None)
+    assert len(records_default) == len(records_explicit)
+    for a, b in zip(records_default, records_explicit):
+        assert a.score_vector == pytest.approx(b.score_vector)
+        assert a.score_weights == pytest.approx(b.score_weights)
+
+
+def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_tie_fixture, monkeypatch):
+    """Every model shares one oracle and all enqueues precede Phase B, so the
+    complete world's pending queue is resolved by exactly one flush."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    call_count = {"n": 0}
+    real_flush = kw["oracle"].flush
+
+    def counting_flush():
+        call_count["n"] += 1
+        return real_flush()
+
+    monkeypatch.setattr(kw["oracle"], "flush", counting_flush)
+    records = _score(kw, req, eligibility=eligibility)
+    assert len(records) >= 2  # this fixture must score more than one candidate
+    assert call_count["n"] == 1
+
+
+def test_branch_replan_speed_matches_final_branch_state_speed(mega_decision_tie_fixture, monkeypatch):
+    """[REV.6] The own-Mega speed override fed into the branch replan -- and the
+    speed actually stored on the resulting PlannedAction -- must equal the speed
+    derived from the COMPLETE, FINAL branch.projected_state via the central
+    resolver.
+
+    Rev. 4/5 read `branch.projected_state.sides[our_side][...].effective_speed`,
+    which does not exist on PokemonState. RED before the Rev. 6 correction with the
+    real error:
+        AttributeError: 'PokemonState' object has no attribute 'effective_speed'
+    """
+    import showdown_bot.battle.mega_scoring as ms
+
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+
+    real_plan = ms._plan_my_actions
+    captured: list[dict] = []
+
+    def _spy_plan(req_, ja, *, state, our_side, opp_side, speed_oracle,
+                  planned_speed_overrides_by_slot=None):
+        out = real_plan(
+            req_, ja, state=state, our_side=our_side, opp_side=opp_side,
+            speed_oracle=speed_oracle,
+            planned_speed_overrides_by_slot=planned_speed_overrides_by_slot,
+        )
+        captured.append({
+            "state": state, "overrides": planned_speed_overrides_by_slot, "plan": out,
+        })
+        return out
+
+    monkeypatch.setattr(ms, "_plan_my_actions", _spy_plan)
+    _score(kw, req, eligibility=eligibility)
+
+    branch_calls = [
+        c for c in captured
+        if c["overrides"] and c["state"].side_mega_spent.get("p2", False)
+    ]
+    assert branch_calls, "no foe-Mega branch replan carrying an own-Mega speed override was observed"
+
+    for call in branch_calls:
+        for slot_idx, override_speed in call["overrides"].items():
+            letter = "a" if slot_idx == 0 else "b"
+            mon = call["state"].sides["p1"][letter]
+            expected = kw["speed_oracle"].speed_for_species(
+                species_name=mon.species,
+                base_species_id=mon.base_species_id or mon.species,
+                side="p1", mon=mon, field=call["state"].field,
+                our_spreads=kw["our_spreads"], opp_sets=None, book=kw["book"], is_ours=True,
+            )
+            assert override_speed == expected, (
+                f"override {override_speed} != final-branch-state speed {expected}"
+            )
+            stored = [a for a in call["plan"] if a.slot == letter and a.is_ours]
+            assert stored, f"no own PlannedAction for slot {letter}"
+            assert stored[0].speed == expected, (
+                f"PlannedAction.speed {stored[0].speed} != final-branch-state speed {expected}"
+            )

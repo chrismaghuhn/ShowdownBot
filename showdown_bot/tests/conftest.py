@@ -157,7 +157,8 @@ def _mega_req():
     })
 
 
-def _mega_state():
+def _mega_state(foe_a: "PokemonState | None" = None):
+    """Default (foe_a=None) is byte-identical to the pre-Rev.5 board: p2.a Incineroar."""
     st = BattleState()
     st.sides["p1"]["a"] = PokemonState(
         species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
@@ -167,23 +168,29 @@ def _mega_state():
         species="Whimsicott", base_species_id="whimsicott",
         types=["Grass", "Fairy"], hp=100, max_hp=100,
     )
-    st.sides["p2"]["a"] = PokemonState(
+    st.sides["p2"]["a"] = foe_a if foe_a is not None else PokemonState(
         species="Incineroar", base_species_id="incineroar",
         types=["Fire", "Dark"], hp=100, max_hp=100,
     )
     return st
 
 
-@pytest.fixture
-def mega_decision_fixture():
+def _build_mega_decision_kw(state):
+    """Test-only builder. contexts/evaluated_variants are built FROM ``state``, so a
+    caller-supplied board is coherent from the start -- never a post-hoc
+    kw["state"] swap after contexts already exist (which would leave every context's
+    projected_state/plans/damage_model bound to the OTHER board)."""
+    from showdown_bot.battle.actions import enumerate_my_actions
+    from showdown_bot.battle.evaluate import EvalWeights
+    from showdown_bot.battle.mega_scoring import build_own_mega_contexts
     from showdown_bot.battle.oracle import DamageOracle
-    from showdown_bot.engine.belief.hypotheses import (
-        SpeciesSpreads, SpreadBook, SpreadPreset,
-    )
+    from showdown_bot.engine.belief.game_mode import GameMode
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadBook, SpreadPreset
     from showdown_bot.engine.calc.client import SubprocessCalcBackend
     from showdown_bot.engine.calc_profile import calc_profile_from_config
     from showdown_bot.engine.format_config import load_format_config
     from showdown_bot.engine.speed import SpeedOracle
+    from showdown_bot.engine.species_meta import species_meta_table
 
     cfg = load_format_config("gen9championsvgc2026regma")
     calc_profile = calc_profile_from_config(cfg)
@@ -194,13 +201,45 @@ def mega_decision_fixture():
     )
     book = SpreadBook(default=spreads)
     req = _mega_req()
+    oracle = DamageOracle()
+    our_spreads = {"aerodactyl": spreads, "whimsicott": spreads, "incineroar": spreads}
+    contexts, evaluated_variants = build_own_mega_contexts(
+        req, state, our_side="p1", opp_side="p2", book=book, oracle=oracle,
+        speed_oracle=speed_oracle, species_meta=species_meta_table(),
+        our_spreads=our_spreads, opp_sets=None, calc_profile=calc_profile,
+        my_actions=enumerate_my_actions(req),
+    )
     kw = dict(
-        state=_mega_state(),
-        book=book,
-        our_side="p1",
-        oracle=DamageOracle(),
-        speed_oracle=speed_oracle,
-        format_config=cfg,
-        calc_profile=calc_profile,
+        state=state, book=book, our_side="p1", oracle=oracle, speed_oracle=speed_oracle,
+        format_config=cfg, calc_profile=calc_profile,
+        evaluated_variants=evaluated_variants, contexts=contexts, calc=oracle.client,
+        dex=None, weights=EvalWeights(), mode=GameMode.NEUTRAL,
+        our_spreads=our_spreads, opp_sets=None,
     )
     return req, kw
+
+
+@pytest.fixture
+def mega_decision_fixture():
+    """Unchanged default board (p2.a Incineroar). NOT usable for foe-Mega scoring:
+    its foe is not a Mega holder, so the real foe_mega_eligibility() returns {}."""
+    return _build_mega_decision_kw(_mega_state())
+
+
+@pytest.fixture
+def mega_decision_tie_fixture():
+    """[REV.5 correction 1] p2.a is a REAL Aerodactyl holding Aerodactylite with
+    item_known=True, so the real foe_mega_eligibility() yields a coherent
+    Aerodactyl-Mega hypothesis AND both pre-mega speeds tie -- the two branches at
+    weight 0.5 that Task 4's weighting test requires.
+
+    Verified against the real SpeedOracle + real SubprocessCalcBackend, not assumed:
+      p1.a Aerodactyl (our_spreads, is_ours=True)  -> 200
+      p2.a Aerodactyl (book.default, is_ours=False) -> 200   => tie, 2 branches @ 0.5
+    (Rev. 4 used the Incineroar board here: 200 vs 123, one branch @ 1.0, so its own
+    `assert tied_groups` could never pass -- see the plan's Rev. 5 section.)"""
+    foe = PokemonState(
+        species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+        item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100,
+    )
+    return _build_mega_decision_kw(_mega_state(foe_a=foe))
