@@ -39,6 +39,58 @@ jobs:
           tests/test_fast_board_protect.py
           -q --tb=line
 
+  # Provenance byte-stability, run on BOTH platforms deliberately.
+  #
+  # config_hash is built from RAW FILE BYTES (format_config_hash, file_content_hash), and
+  # core.autocrlf made those bytes platform-dependent: the same Champions config hashed to
+  # 5fb04622afebd59f on Windows and b3cb6ea1a4836060 on Linux. A single-platform job cannot
+  # catch that -- it is only visible as a DISAGREEMENT between hosts. So this matrix asserts
+  # both runners reach the identical hash; a one-sided failure means the `text eol=lf` pin
+  # regressed on that platform.
+  #
+  # test_eval_report_golden.py is included here for the same reason: its golden pins the raw
+  # sha256 of the schedule/panel yaml, so it was platform-specific and, running on no CI job
+  # at all until now, would have been red on Linux the whole time without anyone seeing it.
+  provenance-bytes:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: showdown_bot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install calc bridge dependencies
+        run: npm ci --prefix tools/calc --no-audit --no-fund
+
+      - name: Install showdown_bot package
+        run: pip install -e ".[dev]"
+
+      # Prove the runner's checkout actually differs in the way that matters, before the
+      # assertions: on Windows this is where CRLF would appear if the pin ever regressed.
+      - name: Report git eol settings for the pinned provenance inputs
+        run: git ls-files --eol ../showdown_bot/config/formats/gen9championsvgc2026regma.yaml ../config/eval/panels/panel_champions_v0.yaml ../showdown_bot/tools/calc/PINNED_CALC.json
+
+      - name: Run provenance byte-stability tests
+        run: >
+          python -m pytest
+          tests/test_config_hash_provenance.py
+          tests/test_eval_report_golden.py
+          tests/test_config_manifest_freeze.py
+          tests/test_config_env.py
+          -q --tb=short -rs
+
   # Separate, parallel job -- deliberately NOT folded into slice-smoke's list.
   # The Champions Mega track (I7a + I7b) was invisible to CI until now: a green run on a
   # Champions-Mega PR proved only that nothing ELSE broke. Its own job means a failure

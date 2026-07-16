@@ -60,6 +60,32 @@ showdown_bot/tests/generalisation/golden/** -text
 # Windows would rewrite checkout to CRLF and drift the pin hash — force LF.
 showdown_bot/tools/calc/PINNED_CALC.json text eol=lf
 
+# --- Provenance inputs hashed by RAW BYTES: force LF on index AND checkout ----------
+#
+# PINNED_CALC.json above had the right idea and the wrong scope. These files are read with
+# `.read_bytes()` and hashed directly, so `core.autocrlf` made their digests -- and every
+# hash derived from them -- PLATFORM-DEPENDENT. Measured, not assumed: the same Champions
+# config hashes to 5fb04622afebd59f on Windows and b3cb6ea1a4836060 on Linux, purely
+# because git checked the same blobs out with different line endings. That means two runs
+# of an identical configuration on different hosts record different config_hash values, so
+# any cross-platform A/B comparison silently compares "different" configs.
+#
+# The raw-byte hashers, and what each reads:
+#   engine/calc/pin.py::format_config_hash  sha1(source_path.read_bytes())  -> config/formats/*.yaml
+#   eval/config_env.py::file_content_hash   sha1(path.read_bytes())         -> meta priors/spreads, movedata.json
+#   eval/report.py::_sha256_file            sha256(path.read_bytes())       -> report.json input_sha256: schedule, panel, ...
+#   eval/baseline.py::_sha256_file          sha256(path.read_bytes())       -> panel yaml
+# (engine/generated_data_hash.py::embedded_table_hash re-dumps PARSED json, so itemdata_hash
+# and speciesdata_hash were already platform-stable and are not the reason for the drift.)
+#
+# `text eol=lf` rather than `-text` deliberately: `-text` only stops conversion, leaving
+# whatever bytes are already on disk; `text eol=lf` normalises on ADD as well, so a CRLF
+# working copy can never be committed back in and the index stays LF forever.
+showdown_bot/config/**/*.yaml text eol=lf
+showdown_bot/config/**/*.json text eol=lf
+config/eval/**/*.yaml text eol=lf
+config/eval/**/*.jsonl text eol=lf
+
 # Frozen Studio mockup sources are recorded with byte-level SHA-256 provenance.
 # Do not let platform checkout rules rewrite their line endings.
 showdownbot_studio/docs/design/viewer-v0-mockups/*.html -text
