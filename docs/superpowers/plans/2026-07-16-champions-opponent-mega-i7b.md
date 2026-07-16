@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement these plans in order. Steps use checkbox (`- [ ]`) syntax for tracking. This plan is executable without the conversation that produced it — every task names exact files, exact existing symbols, complete new-API signatures, RED test names, a GREEN implementation boundary, a verification command, and a commit boundary.
 
-**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke PARTIALLY IMPLEMENTED, under re-review** — **Rev. 9**, binding the four confirmed Codex pre-smoke findings (real production boundary, reranker sink, final-score evidence, LF-only bytes) and re-stating the true partial status. Rev. 8 corrected I7b-C's Task 2 evidence fixture and deferred Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
+**Status:** APPROVED — **I7b-A MERGED** (`cdc55c2`, PR #12); **I7b-B Tasks 1-6 REVIEW-PASS and MERGED** (`755b144`, PR #13; Codex verdict: PASS, no merge blockers); **I7b-C pre-smoke IMPLEMENTED (local, unreviewed, unmerged) — live smoke NOT STARTED** — **Rev. 9**, binding the four confirmed Codex pre-smoke findings (real production boundary, reranker sink, final-score evidence, LF-only bytes), all four now fixed, and re-stating the true status. Rev. 8 corrected I7b-C's Task 2 evidence fixture and deferred Task 4's status updates to the post-smoke evidence commit. Rev. 7 reconciled the plan with the committed zero-weight scoring fix (`ca39fb6`); Rev. 6 replaced I7b-B Task 4's invalid `own_override` speed access with a final-branch-state derivation; Rev. 5 corrected the I7b-B Task 4 integration fixture and added a species/form coherence gate to Task 2.
 
 > **Rev. 4's header claimed "No production code, test code, or run artifact from this plan exists yet."** That is stale as of `cdc55c2`: I7b-A's production code and `tests/i7b/` exist and are merged. Left otherwise untouched here — Rev. 5 is deliberately narrow (see below) and re-statusing the whole document is not in its scope.
 
@@ -84,15 +84,24 @@ on precisely the platform that has it.
 
 ### True pre-smoke status as of Rev. 9
 
+**All four findings are now fixed on `feat/champions-i7b-c-telemetry-smoke` (local, unreviewed,
+unmerged).** The table records what the code does; it is **not** a review verdict and not a PASS.
+
 | Item | Status |
 |---|---|
-| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **IMPLEMENTED**, LF byte-determinism fix outstanding (finding 4) |
-| I7b-C Task 2 — evidence-sink chain | **IMPLEMENTED internally up to `_Client`**; CLI/runner reach (finding 1) and reranker forwarding (finding 2) outstanding |
-| I7b-C Task 2 — evidence value correctness | **DEFECTIVE** — 1-ply score survives depth-2 (finding 3) |
-| I7b-C Task 3 — safety-smoke schedule design | **IMPLEMENTED (designed, not run)** |
-| I7b-C Task 4 — ROADMAP/PROJECT_INDEX | **DEFERRED** to the post-smoke evidence commit |
-| I7b-C live smoke | **NOT STARTED** |
-| Champions Strength | **NO-GO** — unchanged; the dedicated latency profile remains a load-bearing blocker and this slice does not touch it |
+| I7b-C Task 1 — `eval/opp_mega_trace.py` sidecar | **PRE-SMOKE IMPLEMENTED** — LF-only bytes fixed (finding 4), asserted on raw bytes |
+| I7b-C Task 2 — evidence-sink chain | **PRE-SMOKE IMPLEMENTED** — reachable from `run_schedule` through to the decision core (finding 1); sink forwarded on **both** heuristic agents (finding 2) |
+| I7b-C Task 2 — evidence value correctness | **PRE-SMOKE IMPLEMENTED** — `raw_score` resolved from the final post-depth-2 `score_vector` (finding 3) |
+| I7b-C Task 3 — safety-smoke schedule design | **PRE-SMOKE IMPLEMENTED (designed, NOT run)** |
+| I7b-C Task 4 — ROADMAP/PROJECT_INDEX | **DEFERRED** to the post-smoke evidence commit — unchanged |
+| I7b-C live smoke | **NOT STARTED** — separately authorized |
+| Champions Strength | **NO-GO** — unchanged. The dedicated Champions latency profile remains a **load-bearing blocker**; this slice does not measure, change, or improve latency, and the active foe-Mega path's measured overhead stands unaddressed. |
+
+**What "PRE-SMOKE IMPLEMENTED" does and does not mean.** It means the code exists, is
+covered by tests that were RED first, and the seam is reachable from the real runner. It
+does **not** mean a battle has been run, that any row has ever been produced by a live
+Showdown game, or that opponent Mega works in production — only the smoke can show that,
+and it has not run. No Strength or latency claim follows from any row in this table.
 
 ---
 
