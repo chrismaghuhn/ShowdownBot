@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 import os
 
 from dataclasses import dataclass, field
 
 from showdown_bot.battle.resolve import PlannedAction
+from showdown_bot.engine.mega_form import MegaForm, mega_form_for
 from showdown_bot.engine.moves import MoveMeta, get_move_meta, to_id
 from showdown_bot.engine.spread_lookup import lookup_opp_set
 from showdown_bot.engine.state import BattleState, FieldState, PokemonState
@@ -76,6 +78,8 @@ class OppResponse:
     label: str
     flags: set[str] = field(default_factory=set)
     weight: float = 1.0  # likelihood weight (set from protect priors)
+    response_id: str = ""  # f"{label}|mega={none|0|1}"; "" only for pre-I7b-A construction sites
+    foe_mega_slot: int | None = None  # opp slot (0/1) this response assumes Mega'd this turn, else None
 
 
 def _types_of(mon: PokemonState | None, dex: SpeciesDex | None) -> list[str]:
@@ -144,6 +148,82 @@ def _alive_slots(side_mons: dict[str, PokemonState]) -> list[str]:
     ]
 
 
+def foe_mega_eligibility(
+    state: BattleState, opp_side: str, *, opp_sets: dict | None,
+) -> dict[str, MegaForm]:
+    """Limited-view Mega eligibility for the opponent's active slots (I7b §9.1).
+
+    A slot is eligible iff the side has not already spent its Mega this battle
+    AND EITHER (a) the mon's held item is revealed (``item_known`` and not
+    ``item_lost``) and resolves via ``mega_form_for``, OR (b) a curated
+    ``opp_sets`` preset for that species lists an item that resolves via
+    ``mega_form_for`` -- the SAME per-format curated hypothesis source
+    ``lookup_opp_set`` already uses, never the real battling opponent's actual
+    team file (which this function has no parameter to accept at all).
+
+    No ``book`` parameter (Rev. 3 audit finding 6d, corrected): unlike
+    ``speed_for_species`` (where ``book``-derived ``hypothesis_from_state`` is
+    the PRIMARY foe-speed source and ``opp_sets`` is only a fallback --
+    confirmed by reading ``engine/speed.py:169-176``), ``SpreadBook`` exposes
+    no item/held-item hypothesis at all, only nature/EV presets -- there is
+    nothing for an eligibility check to read from it. Accepting an unused
+    ``book`` parameter here would be a dead, YAGNI parameter; earlier plan
+    drafts wrongly claimed eligibility draws from "curated opp_sets/book"
+    symmetrically with the speed path, which does not hold for this function.
+    """
+    if state.side_mega_spent.get(opp_side, False):
+        return {}
+    result: dict[str, MegaForm] = {}
+    for slot, mon in state.sides.get(opp_side, {}).items():
+        if slot not in ("a", "b") or mon.fainted or mon.hp_fraction <= 0:
+            continue
+        if mon.item_known:
+            # Known item truth is authoritative -- a revealed non-Mega item or a
+            # known-lost item must never be overridden by an opp_sets Mega
+            # hypothesis for the same species (Codex review: both cases were
+            # previously falling through to the opp_sets fallback below).
+            if not mon.item_lost and mon.item:
+                form = mega_form_for(mon.species, mon.item)
+                if form is not None:
+                    result[slot] = form
+            continue
+        preset = lookup_opp_set(opp_sets, mon) if opp_sets else None
+        if preset is None:
+            continue
+        for candidate_item in list(preset.offense.items) + list(preset.defense.items):
+            form = mega_form_for(mon.species, candidate_item)
+            if form is not None:
+                result[slot] = form
+                break
+    return result
+
+
+class InvalidOppMegaClickRateError(ValueError):
+    """SHOWDOWN_OPP_MEGA_CLICK_RATE is set but is not a finite float in [0.0, 1.0]."""
+
+
+def opp_mega_click_rate() -> float:
+    raw = os.environ.get("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.35")
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise InvalidOppMegaClickRateError(
+            f"SHOWDOWN_OPP_MEGA_CLICK_RATE={raw!r} is not a float"
+        ) from exc
+    if not math.isfinite(value) or not (0.0 <= value <= 1.0):
+        raise InvalidOppMegaClickRateError(
+            f"SHOWDOWN_OPP_MEGA_CLICK_RATE={value!r} must be a finite value in [0.0, 1.0]"
+        )
+    return value
+
+
+class OpponentResponseCapError(ValueError):
+    """format_config.mega is in play and the number of mandatory reserve
+    classes (no-mega + one per eligible foe Mega slot) exceeds max_candidates.
+    Raised BEFORE response expansion/truncation -- never silently drops a
+    required class (spec §9.5)."""
+
+
 def _item_for_speed(mon, curated_items):
     """Item that determines Scarf speed. Revealed item / known-absence beats the
     curated item; the curated item is used only when the item is unknown."""
@@ -176,6 +256,9 @@ def _opponent_speed(mon, field, opp_side, *, speed_oracle, book, opp_sets):
     return speed_oracle.opponent_range(mon, field, opp_side, book=book).max
 
 
+DEFAULT_MAX_CANDIDATES = 5
+
+
 def predict_responses(
     state: BattleState,
     our_side: str,
@@ -185,10 +268,12 @@ def predict_responses(
     book=None,
     dex: SpeciesDex | None = None,
     field: FieldState | None = None,
-    max_candidates: int = 5,
+    max_candidates: int = DEFAULT_MAX_CANDIDATES,
     priors=None,
     threatened_slots: set[str] | None = None,
     opp_sets: dict | None = None,
+    foe_mega_eligibility: dict[str, MegaForm] | None = None,
+    opp_mega_click_rate: float | None = None,
 ) -> list[OppResponse]:
     """A small set of plausible opponent joint responses for one-ply scoring.
 
@@ -272,25 +357,114 @@ def predict_responses(
         acts = [switch(opp_slots[0]), attack(opp_slots[1], our_slots[0])]
         responses.append(OppResponse(acts, label="pivot", flags={"switch"}))
 
-    responses = responses[:max_candidates]
+    mega_active = bool(foe_mega_eligibility) and opp_mega_click_rate is not None
 
-    if priors is not None and responses:
-        threatened_slots = threatened_slots or set()
-        pslot = opp_slots[0]
-        p_protect = priors.rate(
-            opp_mons[pslot].species,
-            threatened=pslot in threatened_slots,
-            consecutive=opp_mons[pslot].consecutive_protect,
-        )
-        non_protect = [r for r in responses if "protect" not in r.label]
+    if not mega_active:
+        # Byte-identical to pre-I7b-A behavior, with response_id populated
+        # (harmless -- consumed by nothing that affects weight/choice today).
+        responses = responses[:max_candidates]
         for r in responses:
-            if "protect" in r.label:
-                r.weight = p_protect
-            else:
-                r.weight = (1.0 - p_protect) / len(non_protect) if non_protect else 0.0
-        total = sum(r.weight for r in responses)
-        if total > 0:
-            for r in responses:
-                r.weight /= total
+            r.response_id = f"{r.label}|mega=none"
+        if priors is not None and responses:
+            _apply_protect_prior_split(responses, opp_mons, opp_slots, priors, threatened_slots)
+        return responses
 
-    return responses
+    # --- I7b mega-aware pipeline (spec §9.4/§9.5): cap-check -> expand -> weight -> ---
+    # --- coverage-preserving truncate -> renormalize                                ---
+
+    # Cap check FIRST, before any expansion (spec §9.5 binding order; Rev. 1 checked
+    # this only after expansion -- corrected here).
+    classes = {"none"} | {str(0 if s == "a" else 1) for s in foe_mega_eligibility}
+    if len(classes) > max_candidates:
+        raise OpponentResponseCapError(
+            f"format_config.mega requires {len(classes)} reserve classes "
+            f"({sorted(classes)}) but max_candidates={max_candidates}"
+        )
+
+    for r in responses:
+        r.response_id = f"{r.label}|mega=none"
+    if priors is not None and responses:
+        _apply_protect_prior_split(responses, opp_mons, opp_slots, priors, threatened_slots)
+    else:
+        n = len(responses) or 1
+        for r in responses:
+            r.weight = 1.0 / n
+
+    expanded: list[OppResponse] = []
+    for family in responses:
+        expanded.append(family)
+        # A slot whose action IN THIS RESPONSE is a switch cannot also Mega this
+        # turn -- Mega Evolution requires a move-class action. Exclude it from
+        # this family's twin expansion (Codex review: pivot/switch must never
+        # grow a Mega variant for the switching slot).
+        acting_move_slots = {a.slot for a in family.actions if a.kind != "switch"}
+        eligible_here = sorted(acting_move_slots & foe_mega_eligibility.keys())
+        if not eligible_here:
+            # No legal Mega twin exists for this family (its only eligible
+            # slot(s), if any, switch in this specific response) -- keep the
+            # full original weight; discounting by opp_mega_click_rate here
+            # would shed mass with no twin to redistribute it to (Codex
+            # review: this was silently deflating switch-only families).
+            continue
+        family_mega_weight = family.weight * opp_mega_click_rate
+        family.weight *= (1.0 - opp_mega_click_rate)
+        n_split = len(eligible_here)
+        for slot in eligible_here:
+            slot_index = 0 if slot == "a" else 1
+            twin = OppResponse(
+                actions=list(family.actions),
+                label=family.label,
+                flags=set(family.flags),
+                weight=family_mega_weight / n_split,
+                response_id=f"{family.label}|mega={slot_index}",
+                foe_mega_slot=slot_index,
+            )
+            expanded.append(twin)
+
+    total = sum(r.weight for r in expanded)
+    if total > 0:
+        for r in expanded:
+            r.weight /= total
+
+    def _class_of(r: OppResponse) -> str:
+        return "none" if r.foe_mega_slot is None else str(r.foe_mega_slot)
+
+    reserved: dict[str, OppResponse] = {}
+    for cls in classes:
+        candidates = [r for r in expanded if _class_of(r) == cls]
+        reserved[cls] = sorted(candidates, key=lambda r: (-r.weight, r.response_id))[0]
+    reserved_ids = {id(r) for r in reserved.values()}
+    remaining_budget = max_candidates - len(reserved)
+    unreserved = sorted(
+        (r for r in expanded if id(r) not in reserved_ids),
+        key=lambda r: (-r.weight, r.response_id),
+    )
+    kept = list(reserved.values()) + unreserved[:remaining_budget]
+    kept.sort(key=lambda r: r.response_id)
+
+    total_kept = sum(r.weight for r in kept)
+    if total_kept > 0:
+        for r in kept:
+            r.weight /= total_kept
+
+    return kept
+
+
+def _apply_protect_prior_split(responses, opp_mons, opp_slots, priors, threatened_slots) -> None:
+    threatened_slots = threatened_slots or set()
+    pslot = opp_slots[0]
+    p_protect = priors.rate(
+        opp_mons[pslot].species,
+        threatened=pslot in threatened_slots,
+        consecutive=opp_mons[pslot].consecutive_protect,
+    )
+    non_protect = [r for r in responses if "protect" not in r.label]
+    for r in responses:
+        if "protect" in r.label:
+            r.weight = p_protect
+        else:
+            r.weight = (1.0 - p_protect) / len(non_protect) if non_protect else 0.0
+    total = sum(r.weight for r in responses)
+    if total > 0:
+        for r in responses:
+            r.weight /= total

@@ -1,7 +1,7 @@
 # I7 — Champions Mega Evolution Design (MegaProjection / I7a / I7b)
 
-**Status:** APPROVED — implementation planning allowed; no code yet
-**Date:** 2026-07-15
+**Status:** APPROVED — I7a implemented and merged; I7b implementation planning allowed, I7b not implemented
+**Date:** 2026-07-16 (Rev. 10 correction accepted)
 **Design input:** protocol audit commit `fc4f251` on `main`
 **Artifact:** `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md` (commit hash recorded at merge)
 
@@ -9,6 +9,9 @@
 - **I7a alone:** own-side Mega + projection + trace-v3 + full consumer wiring (`max_damage` mandatory) — **no Strength claim**; **not** “full panel mega support” while Scovillain fail-closed
 - **I7b required:** Champions **Strength NO-GO — opponent Mega response modeling missing** until I7b
 - **Strength overall:** blocked until **I7b + latency profile**
+
+**Rev. 10 correction log (binding — Codex/maintainer sign-off 2026-07-16):**
+1. **T26 test 1 weather-winner rule corrected.** §2.5's own general branch rule (line 202 below) already states the winner order-based ("last weather-setting ability wins within that branch"), and real pinned-Showdown mechanics (`sim/battle-actions.ts::runMegaEvo`, `sim/pokemon.ts::setAbility`, `data/abilities.ts`; checkout `f8ac140`) confirm weather-setting abilities unconditionally overwrite `field.weather` with no "only if not already set" guard — so the LATER-processed (slower pre-mega) activator's weather is what remains active. T26 test 1's former prose ("faster activator's weather wins") contradicted both of these; the binding expectation is "later (= slower, since faster activates first per line 199) activator's weather wins". This does not change test 2 (TR-reversed: the slower-under-TR activator now activates first, so the fast-under-TR one activates last and its weather wins) or test 3 (true tie: unaffected, already order/permutation-based).
 
 **Rev. 9 correction log (binding):**
 1. Mega activation order — Trick-Room-aware via `mega_activation_order_key`; T26 extended (no TR / TR / tie).
@@ -203,8 +206,8 @@ def compose_mega_projection_branches(
 - **No** merging tie permutations into one state; **no** Showdown RNG seed.
 
 **Mandatory test T26** (I7b): Froslass-Mega (Snow Warning) vs Tyranitar-Mega (Sand Stream):
-1. **Unequal pre-mega speed, no Trick Room** — faster activator’s weather wins; weighted score = branch score.
-2. **Same speeds, Trick Room on** — activation order **reversed** vs (1); weather order reversed accordingly.
+1. **Unequal pre-mega speed, no Trick Room** — the LATER-activating side's weather wins, i.e. the SLOWER pre-mega activator (binding Rev. 10 correction; matching this section's own "last weather-setting ability wins within that branch" rule and real Showdown mechanics); weighted score = branch score.
+2. **Same speeds, Trick Room on** — activation order **reversed** vs (1); weather order reversed accordingly (i.e. under TR the slower-under-normal-rules side now activates first, so the OTHER side activates last and its weather wins).
 3. **Equal pre-mega speed tie** — two branches at 0.5; assert per-branch weather **and** weighted final candidate value `0.5×score(A)+0.5×score(B)`.
 
 Single-slot own mega (I7a) uses `project_mega` directly (implicit branch weight `1.0`).
@@ -997,7 +1000,7 @@ Mega depends on **both** `itemdata.json` and `speciesdata.json`.
 
 ---
 
-## Sign-off rev. 9
+## Sign-off rev. 10
 
 | Check | Status |
 |-------|--------|
@@ -1006,5 +1009,6 @@ Mega depends on **both** `itemdata.json` and `speciesdata.json`.
 | Exact candidate key v2 schema (T52–T54) | Yes |
 | I7a / I7b test slice split | Yes |
 | Prior rev. 8 architecture retained | Yes |
+| T26 weather winner matches pinned Showdown activation order | Yes — later/slower setter wins outside Trick Room |
 
-**Next artifact:** I7a implementation plan (`docs/superpowers/plans/2026-07-15-champions-mega-i7a.md`).
+**Current artifacts:** I7a is merged on `main`; I7b remains design/plan-only in `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md` and `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md`.

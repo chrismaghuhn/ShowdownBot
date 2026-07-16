@@ -205,3 +205,11 @@ def test_opponent_speed_curated_resolves_post_mega_species_via_base_id():
     )
 
     assert speed == 100  # curated likely speed, not the 150 pessimistic fallback
+
+
+def test_opp_response_default_response_id_and_foe_mega_slot_are_backward_compatible():
+    from showdown_bot.battle.opponent import OppResponse
+
+    r = OppResponse(actions=[], label="aggro->a")
+    assert r.response_id == ""
+    assert r.foe_mega_slot is None

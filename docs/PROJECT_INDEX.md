@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-16 (**I7a own-Mega SAFETY PASS** — `reports/champions-panel-v0-i7a-mega-smoke.md`, on `feat/champions-i7a-c-reconcile-smoke` @ `5690de7`, not yet merged to `main`; I7 Mega design spec rev. 9 **APPROVED**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
+Last reconciled: 2026-07-16 (**I7a own-Mega SAFETY PASS, merged to `main` @ `1053cf1`**; **I7b PLAN APPROVED · I7b-A implementation authorized · NOT IMPLEMENTED** — `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`, `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md`; I7 Mega design spec rev. 10 **APPROVED**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
 
 ---
 
@@ -29,10 +29,10 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 Ordered front-track work as of **2026-07-16** (post I6; protocol audit @ `fc4f251`):
 
-1. **I7a own Mega — SAFETY PASS** (`reports/champions-panel-v0-i7a-mega-smoke.md`; branch
-   `feat/champions-i7a-c-reconcile-smoke` @ `5690de7`, not yet merged to `main`) — real Mega
-   click + protocol-bound state rebuild proven; next: merge I7a-C to `main`, then **I7b
-   opponent Mega** (spec: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`).
+1. **I7a own Mega — SAFETY PASS, merged to `main`** (`reports/champions-panel-v0-i7a-mega-smoke.md`
+   @ `1053cf1`) — real Mega click + protocol-bound state rebuild proven; next: **I7b PLAN APPROVED ·
+   I7b-A implementation authorized · NOT IMPLEMENTED** (`docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`,
+   `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md`).
 2. **Champions latency** — I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I gate (that run also
    contained state-degradation; no causal link to p95 established); I6 2-battle smoke measured
    **331 ms** worst p95; I7a-C 2-battle smoke measured **588 ms** worst p95 (all safety passes,
@@ -59,7 +59,7 @@ Ordered front-track work as of **2026-07-16** (post I6; protocol audit @ `fc4f25
 
 | | |
 |---|---|
-| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix PASS** @ `62117b5`; **I6 PASS** @ `3bcd4b3`; audit @ `fc4f251`; **I7 Mega design APPROVED rev. 9**; **I7a own-Mega SAFETY PASS** @ `5690de7` on `feat/champions-i7a-c-reconcile-smoke` (not yet merged); **I7b not started**. |
+| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix PASS** @ `62117b5`; **I6 PASS** @ `3bcd4b3`; audit @ `fc4f251`; **I7 Mega design APPROVED rev. 10**; **I7a own-Mega SAFETY PASS, merged to `main`** @ `1053cf1`; **I7b PLAN APPROVED · I7b-A implementation authorized · NOT IMPLEMENTED**. |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -75,12 +75,13 @@ Ordered front-track work as of **2026-07-16** (post I6; protocol audit @ `fc4f25
 | I5 FormatConfig smoke | **Mixed** @ `4da007b` (`dirty=false`) | `reports/champions-panel-v0-i5-smoke.md`, `data/eval/champions-panel-v0/smoke-i5/` |
 | I5 HP-fix revalidation | **HP-SUFFIX PASS** @ `62117b5` (`dirty=false`) | `reports/champions-panel-v0-i5-hpfix-validation.md`, `data/eval/champions-panel-v0/smoke-i5-hpfix-validation/` (incl. `suffix-evidence.json`) |
 | I6 Live-damage gen-0 smoke | **I6 PASS · 2-BATTLE SAFETY-PASS** @ `3bcd4b3` (`dirty=false`) | `reports/champions-panel-v0-i6-smoke.md`, `data/eval/champions-panel-v0/smoke-i6-damage-gen0/` |
-| I7a-C own-Mega smoke | **I7a OWN-MEGA SAFETY PASS** @ `5690de7` (`dirty=false`, on `feat/champions-i7a-c-reconcile-smoke`, not yet merged) | `reports/champions-panel-v0-i7a-mega-smoke.md`, `data/eval/champions-panel-v0/smoke-i7a-mega/` (incl. `mega-evidence.json`) |
+| I7a-C own-Mega smoke | **I7a OWN-MEGA SAFETY PASS, merged to `main`** @ `1053cf1` (`dirty=false`) | `reports/champions-panel-v0-i7a-mega-smoke.md`, `data/eval/champions-panel-v0/smoke-i7a-mega/` (incl. `mega-evidence.json`) |
+| I7b opponent-Mega audit + plan | **I7b PLAN APPROVED · I7b-A implementation authorized · NOT IMPLEMENTED** | `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`, `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md` |
 
 **Open blockers**
 
-- **Mega overlay:** **I7a own-Mega SAFETY PASS** on the I7a-C branch (not yet merged to `main`); **I7b (opponent Mega) not started** — spec: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`.
-- **Opponent Mega response model (I7b):** missing — **Strength NO-GO** until complete.
+- **Mega overlay:** **I7a own-Mega SAFETY PASS**, merged to `main`; **I7b (opponent Mega) PLAN APPROVED · I7b-A implementation authorized · NOT IMPLEMENTED** — spec: `docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`; audit+plan: `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`, `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md`.
+- **Opponent Mega response model (I7b):** missing — **Strength NO-GO** until implemented.
 - **Latency gate:** I5 pre-fix worst p95 **3235 ms** vs **1000 ms** Reg-I budget (that run also
   contained state-degradation; no causal link established); I6 2-battle smoke **331 ms** worst p95
   (safety pass only) — dedicated profile/budget still needed before Strength.
