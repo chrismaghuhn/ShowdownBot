@@ -270,3 +270,65 @@ def test_i7a_mega_smoke_schedule_loads_and_shapes():
     assert isinstance(sched.schedule_hash, str) and sched.schedule_hash  # non-empty, deterministic
     # Re-loading must reproduce the same hash (determinism, not just non-empty).
     assert load_schedule(str(schedule_path)).schedule_hash == sched.schedule_hash
+
+
+def test_i7b_mega_smoke_schedule_loads_and_shapes():
+    """I7b-C Task 3: the opponent-Mega safety-smoke schedule, DESIGNED not run.
+
+    Follows test_i7a_mega_smoke_schedule_loads_and_shapes exactly, plus the one
+    property that makes this file a *frozen copy* rather than a new experiment:
+    compute_schedule_hash covers version + (format_id, hero_team_path, opp_policy,
+    opp_team_path, seed_index) only, so an exact row copy MUST hash identically to
+    the I7a schedule. That equality is the assertion -- it fails the moment anyone
+    drifts a row here, which is exactly what "same frozen battles, new code" means.
+    The I7b run is distinguished by git_sha, never by the battles it runs.
+    """
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]  # tests/ -> showdown_bot/ -> <repo>
+    schedules = repo_root / "config" / "eval" / "schedules"
+    schedule_path = schedules / "champions_v0_smoke_i7b_2battle.yaml"
+    sched = load_schedule(str(schedule_path))
+
+    assert len(sched.rows) == 2
+    assert sched.panel_hash == "aac1ea30446fde88"
+    assert all(r.format_id == "gen9championsvgc2026regma" for r in sched.rows)
+    assert [r.seed_index for r in sched.rows] == [0, 1]
+    assert isinstance(sched.schedule_hash, str) and sched.schedule_hash
+    # Re-loading must reproduce the same hash (determinism, not just non-empty).
+    assert load_schedule(str(schedule_path)).schedule_hash == sched.schedule_hash
+
+    # The two frozen rows, pinned: both opponent teams are Mega-capable
+    # (Delphox @ Delphoxite / Meganium @ Meganiumite) and neither is Scovillain.
+    assert [r.opp_policy for r in sched.rows] == ["heuristic", "max_damage"]
+    assert [r.opp_team_path for r in sched.rows] == [
+        "teams/panel_champions_v0/goodstuff.txt",
+        "teams/panel_champions_v0/rain_offense.txt",
+    ]
+    assert all(r.hero_team_path == "teams/fixed_champions_v0.txt" for r in sched.rows)
+    # rain_offense stays declared heldout -- safety evidence only, never an
+    # independent Strength holdout result.
+    assert [r.panel_split for r in sched.rows] == ["dev", "heldout"]
+
+    # Same frozen battle set as I7a, by construction.
+    i7a = load_schedule(str(schedules / "champions_v0_smoke_i7a_2battle.yaml"))
+    assert sched.schedule_hash == i7a.schedule_hash
+
+
+def test_i7b_mega_smoke_schedule_team_hashes_match_committed_artifacts():
+    """The stamped provenance hashes must be recomputable from the real committed
+    .txt + .packed files. A stale hash here would silently invalidate the smoke's
+    entire provenance chain, and copying it from the I7a file proves nothing --
+    so recompute it from the artifacts themselves."""
+    from pathlib import Path
+
+    from showdown_bot.eval.panel import team_content_hash
+
+    repo_root = Path(__file__).resolve().parents[2]
+    teams_root = str(repo_root / "showdown_bot")
+    sched = load_schedule(
+        str(repo_root / "config" / "eval" / "schedules" / "champions_v0_smoke_i7b_2battle.yaml")
+    )
+    for row in sched.rows:
+        assert row.hero_team_hash == team_content_hash(teams_root, row.hero_team_path)
+        assert row.opp_team_hash == team_content_hash(teams_root, row.opp_team_path)
