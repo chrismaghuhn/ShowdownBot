@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import os
 
 from dataclasses import dataclass, field
@@ -190,6 +191,25 @@ def foe_mega_eligibility(
                 result[slot] = form
                 break
     return result
+
+
+class InvalidOppMegaClickRateError(ValueError):
+    """SHOWDOWN_OPP_MEGA_CLICK_RATE is set but is not a finite float in [0.0, 1.0]."""
+
+
+def opp_mega_click_rate() -> float:
+    raw = os.environ.get("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.35")
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise InvalidOppMegaClickRateError(
+            f"SHOWDOWN_OPP_MEGA_CLICK_RATE={raw!r} is not a float"
+        ) from exc
+    if not math.isfinite(value) or not (0.0 <= value <= 1.0):
+        raise InvalidOppMegaClickRateError(
+            f"SHOWDOWN_OPP_MEGA_CLICK_RATE={value!r} must be a finite value in [0.0, 1.0]"
+        )
+    return value
 
 
 def _item_for_speed(mon, curated_items):
