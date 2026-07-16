@@ -53,19 +53,104 @@ def _assert_pre_mega_speeds_tie(kw):
     assert own == foe == 200, f"tie fixture must tie at 200: p1.a={own} p2.a={foe}"
 
 
-def _score(kw, req, *, eligibility=None, sink=None):
+def _score(kw, req, *, eligibility=None, sink=None, mode=None):
     from showdown_bot.engine.species_meta import species_meta_table
 
     return score_evaluated_variants(
         kw["evaluated_variants"], kw["contexts"], req=req, state=kw["state"], book=kw["book"],
         our_side="p1", opp_side="p2", calc=kw["calc"], oracle=kw["oracle"],
         speed_oracle=kw["speed_oracle"], dex=kw["dex"], priors=None, weights=kw["weights"],
-        mode=kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
+        mode=mode or kw["mode"], risk_lambda=0.5, rollout_horizon=0, our_spreads=kw.get("our_spreads"),
         opp_sets=None, calc_profile=kw["calc_profile"], accuracy_mode=False, accuracy_branch_cap=6,
         endgame=False, fast_board=False,
         foe_mega_eligibility=eligibility, species_meta=species_meta_table() if eligibility else None,
         opp_mega_evidence_sink=sink,
     )
+
+
+def test_must_react_min_is_weight_blind_which_is_why_zero_weight_samples_are_excluded():
+    """[P1 rationale, pinned] The reason the two counterexamples below exist.
+
+    aggregate_scores' MUST_REACT operator is `avg - lambda*(avg - min(scores))`,
+    and that `min(scores)` is computed WITHOUT weights (policy.py). So a
+    zero-weight sample cannot move the weighted mean, but DOES move the aggregate:
+
+        [10]        w=[1]    -> 10.0
+        [10, -100]  w=[1, 0] -> -56.0     (lambda 0.6: 10 - 0.6*(10 - -100))
+
+    A zero-weight response is therefore NOT harmless, and must never reach
+    score_vector/score_weights. NEUTRAL/AHEAD are unaffected (both weight their
+    mean and variance), so this is MUST_REACT-specific. If policy.py ever starts
+    weighting the min, this test fails and the exclusion rule can be revisited --
+    that is exactly what it is here to tell you."""
+    from showdown_bot.battle.policy import aggregate_scores
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    lone = aggregate_scores([10.0], GameMode.MUST_REACT, weights=[1.0])
+    with_zero = aggregate_scores([10.0, -100.0], GameMode.MUST_REACT, weights=[1.0, 0.0])
+    assert lone == pytest.approx(10.0)
+    assert with_zero != pytest.approx(lone)  # <-- the whole point
+    assert with_zero == pytest.approx(-56.0)
+    # ...and the contrast: NEUTRAL genuinely ignores a zero-weight sample.
+    assert aggregate_scores([10.0, -100.0], GameMode.NEUTRAL, weights=[1.0, 0.0], risk_lambda=0.5) \
+        == pytest.approx(aggregate_scores([10.0], GameMode.NEUTRAL, weights=[1.0], risk_lambda=0.5))
+
+
+def test_click_rate_zero_makes_the_foe_mega_hypothesis_completely_inert(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """[P1 counterexample 1 of 2] At click rate 0.0 every foe-Mega twin carries
+    weight 0, so the hypothesis must be COMPLETELY inert: no branch composed (no
+    wasted calc), no evidence row, no score sample. I7b-A still emits the twin for
+    identity/cap coverage -- that is upstream of this path and unchanged.
+
+    RED before the fix: zero-weight mega rows are scored, and score_weights
+    contains 0.0 -- which under MUST_REACT's weight-blind min() silently moves the
+    decision (see the rationale test above)."""
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence, mode=GameMode.MUST_REACT)
+
+    assert not [e for e in evidence if e.foe_mega_slot is not None], (
+        "click rate 0.0: zero-weight foe-Mega twins must not be enqueued, scored, or evidenced"
+    )
+    assert [e for e in evidence if e.foe_mega_slot is None], "the no-mega twins must still be scored"
+    for r in records:
+        assert r.score_weights
+        assert all(w > 0 for w in r.score_weights), (
+            f"zero-weight sample reached score_weights: {r.score_weights}"
+        )
+
+
+def test_click_rate_one_makes_the_no_mega_twin_completely_inert(
+    mega_decision_tie_fixture, monkeypatch,
+):
+    """[P1 counterexample 2 of 2] Mirror image: at click rate 1.0 the no-mega twin
+    carries weight 0 and must not be scored either -- same weight-blind-min reason.
+
+    RED before the fix: zero-weight no-mega rows are scored, and score_weights
+    contains 0.0."""
+    from showdown_bot.engine.belief.game_mode import GameMode
+
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "1")
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    evidence: list = []
+    records = _score(kw, req, eligibility=eligibility, sink=evidence, mode=GameMode.MUST_REACT)
+
+    assert not [e for e in evidence if e.foe_mega_slot is None], (
+        "click rate 1.0: zero-weight no-mega twins must not be enqueued, scored, or evidenced"
+    )
+    assert [e for e in evidence if e.foe_mega_slot is not None], "the mega twins must still be scored"
+    for r in records:
+        assert r.score_weights
+        assert all(w > 0 for w in r.score_weights), (
+            f"zero-weight sample reached score_weights: {r.score_weights}"
+        )
 
 
 def test_return_type_is_unchanged_records_only(mega_decision_fixture):
@@ -168,13 +253,19 @@ def test_i7b_active_path_weights_no_mega_and_mega_responses_consistently(mega_de
     assert any(e.response_weight != 1.0 for e in no_mega)
 
 
-def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
+def test_branch_replan_preserves_original_mega_identity_and_weight(
     mega_decision_tie_fixture, monkeypatch,
 ):
     """A branch replan may replace actions, never the original Mega hypothesis's
-    identity/weight. At click-rate zero the Mega twin still exists but its
-    response weight must remain exactly zero after branch replanning."""
-    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0")
+    identity or its click-rate/cap/renormalised weight -- the branch-regenerated
+    base response must supply ONLY actions.
+
+    Pinned at an explicit mid click rate so the Mega twin is genuinely scored.
+    (Rev. 4 pinned this at rate 0.0 and asserted the twin was scored with weight
+    0.0; that is now forbidden -- a zero-weight sample moves MUST_REACT's
+    weight-blind min(). The rate-0.0 case is covered by its own counterexample
+    above, which asserts the twin is excluded outright.)"""
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.35")
     req, kw = mega_decision_tie_fixture
     eligibility = _real_eligibility(kw)
     evidence: list = []
@@ -182,7 +273,9 @@ def test_branch_replan_preserves_original_mega_identity_and_zero_click_weight(
     mega_rows = [e for e in evidence if e.foe_mega_slot == 0]
     assert mega_rows
     assert all(e.response_id.endswith("|mega=0") for e in mega_rows)
-    assert all(e.response_weight == pytest.approx(0.0) for e in mega_rows)
+    # The click-rate-derived weight survived the replan: neither 0 (dropped) nor
+    # 1.0 (replaced by the regenerated base response's default weight).
+    assert all(0.0 < e.response_weight < 1.0 for e in mega_rows)
 
 
 def test_scoring_evidence_proves_required_classes_were_retained(mega_decision_tie_fixture):
@@ -208,6 +301,40 @@ def test_no_eligibility_is_byte_identical_to_pre_i7b_scoring(mega_decision_fixtu
     for a, b in zip(records_default, records_explicit):
         assert a.score_vector == pytest.approx(b.score_vector)
         assert a.score_weights == pytest.approx(b.score_weights)
+
+
+def test_legacy_path_leaves_diagnostic_contexts_structurally_empty(mega_decision_fixture):
+    """Parity is STRUCTURAL, not just numeric. Task 6's depth-2 binding is specified
+    as `rec.diagnostic_contexts[i] if rec.diagnostic_contexts else
+    ctx_by_slot[rec.variant.own_mega_slot]` -- i.e. an EMPTY list means "pre-I7b-B,
+    use the legacy blanket context". Populating the field on the legacy path would
+    make that fallback dead code and quietly falsify the byte-identity claim, even
+    though the bound context happens to be numerically the same one."""
+    req, kw = mega_decision_fixture
+    records = _score(kw, req)  # no eligibility => legacy path
+    assert records
+    assert all(r.diagnostic_contexts == [] for r in records)
+
+
+def test_active_path_binds_one_diagnostic_context_per_diagnostic_index(mega_decision_tie_fixture):
+    """...and when I7b IS active the parallel-array contract must hold, so Task 6
+    can index diagnostic_contexts[i] directly against diagnostic_details[i]. A
+    record's top-M may span a no-mega response AND foe-mega branch responses, which
+    is exactly why the per-index binding exists."""
+    req, kw = mega_decision_tie_fixture
+    eligibility = _real_eligibility(kw)
+    records = _score(kw, req, eligibility=eligibility)
+    assert records
+    for r in records:
+        assert r.diagnostic_contexts
+        assert len(r.diagnostic_contexts) == len(r.diagnostic_details)
+        assert len(r.diagnostic_contexts) == len(r.diagnostic_weights)
+    # at least one record must genuinely span both kinds, or the per-index binding
+    # would be untested in practice
+    assert any(
+        {c.foe_mega_slot is None for c in r.diagnostic_contexts} == {True, False}
+        for r in records
+    ), "no record's diagnostics span both a no-mega and a foe-mega branch context"
 
 
 def test_flush_count_is_bounded_independent_of_candidate_count(mega_decision_tie_fixture, monkeypatch):

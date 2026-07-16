@@ -461,7 +461,19 @@ def score_evaluated_variants(
                 field=ctx.field, our_spreads=our_spreads, opp_sets=merged_sets,
                 calc_profile=calc_profile,
             )
-            no_mega_resps = [r for r in resps if r.foe_mega_slot is None]
+            # [P1] A zero-weight response cannot move a weighted mean, but
+            # aggregate_scores' MUST_REACT operator takes `min(scores)` WITHOUT
+            # weights (policy.py) -- so a weight-0 sample DOES move the aggregate
+            # ([10] w=[1] -> 10.0, but [10,-100] w=[1,0] -> -56.0). It must never be
+            # enqueued, evaluated, or appended to score_vector. Only on the I7b-active
+            # path: the legacy path's weights are untouched, so its behavior stays
+            # byte-identical. I7b-A still EMITS the zero-weight twins upstream for
+            # identity/cap coverage -- `resps` (not this filtered list) feeds
+            # retained_classes below, so cap discipline is unaffected.
+            no_mega_resps = [
+                r for r in resps
+                if r.foe_mega_slot is None and (not _i7b_active or r.weight > 0)
+            ]
             required_classes = tuple(sorted(
                 {"none"} | {str(0 if s == "a" else 1) for s in foe_mega_eligibility}
             )) if _i7b_active else ("none",)
@@ -485,7 +497,15 @@ def score_evaluated_variants(
         branch_bundles: dict[tuple, dict] = {}
         for slot, ctx in ctx_by_slot.items():
             resps = world_resps_by_slot[slot]
-            foe_mega_slots = {r.foe_mega_slot for r in resps if r.foe_mega_slot is not None}
+            # sorted(), not raw set iteration: evidence rows and score_vector entries
+            # are appended in this order, so an unordered iteration would make both
+            # non-reproducible. [P1] weight > 0 filter: a zero-weight Mega class is
+            # inert (see the no_mega filter above), so composing its branches would
+            # only burn calc latency for samples that must not be scored anyway.
+            foe_mega_slots = sorted({
+                r.foe_mega_slot for r in resps
+                if r.foe_mega_slot is not None and r.weight > 0
+            })
             for foe_mega_slot in foe_mega_slots:
                 own_form = None
                 own_slot_key = "a" if slot == 0 else "b" if slot is not None else None
@@ -546,7 +566,11 @@ def score_evaluated_variants(
                         threatened_slots=threatened, opp_sets=merged_sets,
                     )
                     branch_resps_by_label = {r.label: r for r in branch_resps}
-                    matching_original = [r for r in resps if r.foe_mega_slot == foe_mega_slot]
+                    # [P1] weight > 0: same exclusion rule as the no-mega path.
+                    matching_original = [
+                        r for r in resps
+                        if r.foe_mega_slot == foe_mega_slot and r.weight > 0
+                    ]
                     for r in matching_original:
                         if r.label not in branch_resps_by_label:
                             raise MissingBranchResponseError(
@@ -593,7 +617,16 @@ def score_evaluated_variants(
         # --- Phase C: evaluate weighted samples with full evidence ---
         for slot, ctx in ctx_by_slot.items():
             model = world_model_by_slot[slot]
-            targets = world_no_mega_resps_by_slot[slot] if world_no_mega_resps_by_slot[slot] else [None]
+            no_mega = world_no_mega_resps_by_slot[slot]
+            if _i7b_active:
+                # NO [None] fallback on the active path: at click rate 1.0 the no-mega
+                # twin is zero-weight and excluded above, and this record's samples come
+                # from the foe-Mega branches below. Falling back to [None] here would
+                # inject a phantom no-opponent-action line at weight 1.0 -- the same
+                # zero-weight distortion this filter exists to prevent, in reverse.
+                targets = no_mega
+            else:
+                targets = no_mega if no_mega else [None]
             for rec in records_by_slot.get(slot, []):
                 plan = ctx.plans[rec.variant.joint]
                 candidate_key = joint_action_key_v2(rec.variant.joint)
@@ -617,7 +650,13 @@ def score_evaluated_variants(
                     if world_idx == 0:
                         rec.diagnostic_details.append(detail)
                         rec.diagnostic_weights.append(raw_w)
-                        rec.diagnostic_contexts.append(ctx)  # Task 6: per-index context binding
+                        if _i7b_active:
+                            # Only on the active path. Task 6's depth-2 binding treats an
+                            # EMPTY diagnostic_contexts as "pre-I7b-B, fall back to
+                            # ctx_by_slot[own_mega_slot]"; populating it here on the legacy
+                            # path would make that fallback dead and break the structural
+                            # (not just numeric) parity claim.
+                            rec.diagnostic_contexts.append(ctx)
                     if opp_mega_evidence_sink is not None:
                         opp_mega_evidence_sink.append(ScoredResponseEvidence(
                             candidate_key=candidate_key,
