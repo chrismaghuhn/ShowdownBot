@@ -451,3 +451,21 @@ def test_effective_config_manifest_hash_matches_cli_config_hash_for_same_inputs(
     manifest2 = effective_config_manifest(agent="heuristic", format_id=format_id, env={})
     assert manifest == manifest2
     assert make_config_hash(manifest) == make_config_hash(manifest2)
+
+
+def test_opp_mega_click_rate_is_behavior_affecting_and_classified():
+    assert "SHOWDOWN_OPP_MEGA_CLICK_RATE" in BEHAVIOR_AFFECTING
+    assert is_classified("SHOWDOWN_OPP_MEGA_CLICK_RATE")
+
+
+def test_behavior_env_includes_opp_mega_click_rate(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.5")
+    assert behavior_env()["SHOWDOWN_OPP_MEGA_CLICK_RATE"] == "0.5"
+
+
+def test_config_hash_changes_when_opp_mega_click_rate_toggled(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.20")
+    m1 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s")
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.50")
+    m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s")
+    assert make_config_hash(m1) != make_config_hash(m2)
