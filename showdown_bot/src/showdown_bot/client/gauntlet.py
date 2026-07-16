@@ -260,7 +260,8 @@ class _Client:
     def __init__(self, conn, name, agent, *, book, priors, format_id, format_config=None, packed_team, trace=False, opp_sets=None,
                  export_runtime=None, allow_own_export=True, is_mirror=True,
                  decision_trace_writer=None, decision_trace_context=None,
-                 agg_trace_writer=None, agg_trace_context=None):
+                 agg_trace_writer=None, agg_trace_context=None,
+                 opp_mega_trace_writer=None, opp_mega_trace_context=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -290,6 +291,18 @@ class _Client:
         self.agg_trace_writer = agg_trace_writer
         self.agg_trace_context = agg_trace_context
         self._agg_trace_index = 0
+        # Opponent-Mega evidence seam (I7b-C Task 2) — off by default, and a THIRD writer/
+        # context/counter, independent of BOTH seams above (it does not read, build or need
+        # `trace_obj` at all: its evidence comes from the scoring call's own
+        # `opp_mega_evidence_sink`, not from DecisionTrace). A caller can supply an
+        # OppMegaTraceWriter + a per-battle OppMegaTraceContext (eval/opp_mega_trace.py) to
+        # record which foe-Mega hypotheses were generated AND scored for each decision.
+        # `None` (both, the default) is a NO-OP: `handle_request` allocates no evidence list,
+        # passes an explicit `None` down the chain, and the dispatched /choose messages are
+        # byte-identical to before this seam existed.
+        self.opp_mega_trace_writer = opp_mega_trace_writer
+        self.opp_mega_trace_context = opp_mega_trace_context
+        self._opp_mega_trace_index = 0
         # Real own-team spreads (Stage C), default on. SHOWDOWN_REAL_SPREADS=0
         # falls back to the worst-case proxy (OUR_DEF_PRESET) for a clean A/B.
         _real = os.environ.get("SHOWDOWN_REAL_SPREADS", "1") != "0"
@@ -563,6 +576,22 @@ class _Client:
         override = self._reranker_override()
         capture_stage_override = None
         capture_reason_override = None
+        # Opponent-Mega evidence (I7b-C Task 2, off by default): ONE fresh list per decision,
+        # allocated ONLY when this seam's own writer is enabled — with it off, `None` goes down
+        # the chain and not a single object is created. Unlike agg_wants_trace this deliberately
+        # does NOT accept "heuristic_reranker": agent_choose's reranker branch calls
+        # choose_with_fallback WITHOUT opp_mega_evidence_sink, so a sink handed to it would be
+        # silently dropped and the writer would then emit an all-empty row — a FALSE "this
+        # decision generated no foe-Mega hypothesis" claim. Fail closed to the one agent whose
+        # chain is actually wired end to end.
+        opp_mega_evidence: list | None = (
+            [] if (
+                self.opp_mega_trace_writer is not None
+                and self.agent == "heuristic"
+                and state is not None
+            ) else None
+        )
+        opp_mega_agent_ok = True
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -573,6 +602,7 @@ class _Client:
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
                 override=override,
                 format_config=self.format_config,
+                opp_mega_evidence_sink=opp_mega_evidence,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -581,6 +611,11 @@ class _Client:
             trace_obj = None  # discard partial trace on crash
             capture_stage_override = "client_exception_default"
             capture_reason_override = "agent_exception"
+            # Discard partial foe-Mega evidence for the same reason the trace is discarded:
+            # the dispatched choice is a blind `/choose default`, so writing this decision's
+            # (possibly empty, possibly half-filled) evidence would misattribute provenance to
+            # a decision that never actually completed.
+            opp_mega_agent_ok = False
         # Existing decision-latency window (choice computed, not yet sent) — measured ONCE here
         # so the capture sidecar's decision_latency_ms and self.latencies derive from the exact
         # SAME perf_counter() call; the sidecar latency is never the WebSocket send time.
@@ -631,6 +666,31 @@ class _Client:
             except Exception as exc:  # noqa: BLE001 - agg-trace is best-effort; never stall the battle
                 logger.debug(
                     "[%s] agg-trace write failed (decision dropped from sidecar): %s", self.name, exc
+                )
+        # Opponent-Mega evidence (I7b-C Task 2): write ONLY after a successful send AND only for
+        # a decision the agent actually completed, mirroring the two seams above in placement and
+        # best-effort discipline but with its OWN writer/context/counter and NO dependence on
+        # trace_obj. `opp_mega_evidence is not None` already implies the writer is enabled and
+        # the heuristic state path was active, so this is the whole gate. Off -> no-op.
+        if opp_mega_evidence is not None and opp_mega_agent_ok:
+            from showdown_bot.battle.opponent import DEFAULT_MAX_CANDIDATES, opp_mega_click_rate
+            from showdown_bot.eval.opp_mega_trace import build_opp_mega_trace_row
+
+            try:
+                opp_mega_row = build_opp_mega_trace_row(
+                    context=self.opp_mega_trace_context,
+                    decision_index=self._opp_mega_trace_index,
+                    turn_number=getattr(state, "turn", None),
+                    evidence=opp_mega_evidence,
+                    max_candidates=DEFAULT_MAX_CANDIDATES,
+                    click_rate=opp_mega_click_rate(),
+                )
+                self.opp_mega_trace_writer.write(opp_mega_row)
+                self._opp_mega_trace_index += 1
+            except Exception as exc:  # noqa: BLE001 - sidecar is best-effort; never stall the battle
+                logger.debug(
+                    "[%s] opp-mega-trace write failed (decision dropped from sidecar): %s",
+                    self.name, exc,
                 )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
