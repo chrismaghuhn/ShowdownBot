@@ -47,6 +47,12 @@ jobs:
   # (~14 min locally). CI stays a targeted gate by design.
   # test_candidate_identity / test_decision_capture are deliberately absent: slice-smoke
   # already covers them, and running them twice per PR buys nothing.
+  #
+  # -rs: report every skip with its test name and reason. This job legitimately skips
+  # test_panel.py::test_panel_champions_v0_packed_reproducible_from_txt ("pinned
+  # pokemon-showdown not installed" -- CI never provisions the server), and a bare `-q`
+  # reports only the COUNT. A silently growing skip count is how a test stops running
+  # without anyone noticing, so the reason is printed on every run.
   champions-mega:
     runs-on: ubuntu-latest
     defaults:
@@ -100,6 +106,8 @@ jobs:
           tests/test_mega_evidence.py
           tests/test_config_manifest_freeze.py
           tests/test_gauntlet_dispatch.py
+          tests/test_opp_mega_trace.py
+          tests/test_cli_opp_mega_trace.py
           tests/test_panel.py
           tests/test_schedule.py
-          -q --tb=line
+          -q --tb=line -rs
