@@ -110,6 +110,14 @@ SERVER_SIDE_BEHAVIOR_AFFECTING = frozenset({
 NON_BEHAVIORAL = frozenset({
     "SHOWDOWN_TURN_TRACE",
     "SHOWDOWN_DECISION_DIFF",
+    # [I7b-C Task 2] Opponent-Mega evidence sidecar output PATH (eval/opp_mega_trace.py).
+    # Same species as SHOWDOWN_AGG_TRACE_OUT below: an IO path with no /choose effect, so it
+    # must stay OUT of config_hash -- otherwise merely writing telemetry to a different file
+    # would perturb the hash and break run pairing. This classifies the sidecar's PATH only;
+    # the click-rate knob the sidecar RECORDS (SHOWDOWN_OPP_MEGA_CLICK_RATE) genuinely does
+    # affect decisions and is already BEHAVIOR_AFFECTING from I7b-A -- the two must not be
+    # confused.
+    "SHOWDOWN_OPP_MEGA_TRACE_OUT",
     # [2c-Slice-0b Task 3] Research-only full-fidelity aggregation sidecar PATH (env alias for
     # --agg-trace-out; the Kaggle datagen kernel injects it via EXTRA_ENV). IO/telemetry-only,
     # no /choose effect -> excluded from config_hash. MUST stay non-behavioral so a per-shard

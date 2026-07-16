@@ -68,6 +68,7 @@ def agent_choose(
     dex=None,
     override=None,
     format_config=None,
+    opp_mega_evidence_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -153,6 +154,9 @@ def agent_choose(
         our_spreads=our_spreads, opp_sets=opp_sets, trace=trace,
         calc=calc, oracle=oracle, speed_oracle=speed_oracle, dex=dex,
         format_config=format_config,
+        # Rides through choose_with_fallback's existing **deps into
+        # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
     )
 
 

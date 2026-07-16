@@ -853,3 +853,71 @@ def test_agg_trace_write_failure_is_best_effort_and_does_not_block_dispatch(monk
 
     assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch still went out
     assert client._agg_trace_index == 0  # NOT incremented on a failed write
+
+
+# --- I7b-C Task 2: opp-mega evidence-sink call chain -------------------------
+# Each link gets its own assertion: a single deep integration test would let a
+# dropped middle or upper layer hide behind a working lower one.
+
+
+def test_agent_choose_passes_same_opp_mega_sink_to_choose_with_fallback(monkeypatch):
+    """Upper link. Identity, not equality: the SAME list object must arrive, or
+    the sidecar would write an empty list while scoring filled a different one."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    sink = []
+    seen = {}
+
+    def fake_choose(req, **kwargs):
+        seen["sink"] = kwargs["opp_mega_evidence_sink"]
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(gauntlet, "choose_with_fallback", fake_choose)
+    out = gauntlet.agent_choose(
+        "heuristic", _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert out.startswith("/choose ")
+    assert seen["sink"] is sink
+
+
+def test_public_heuristic_wrapper_passes_same_sink_to_choose_best(monkeypatch):
+    """Middle link: heuristic_choose_for_request -> _choose_best_ja -> _choose_best."""
+    import showdown_bot.battle.decision as decision
+    from showdown_bot.battle.actions import enumerate_my_actions
+
+    sink = []
+    seen = {}
+    legal = enumerate_my_actions(_req())[0]
+
+    def fake_choose_best(req, **kwargs):
+        seen["sink"] = kwargs["opp_mega_evidence_sink"]
+        return legal, 0.0
+
+    monkeypatch.setattr(decision, "_choose_best", fake_choose_best)
+    decision.heuristic_choose_for_request(
+        _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert seen["sink"] is sink
+
+
+def test_choose_with_fallback_forwards_sink_through_deps(monkeypatch):
+    """The one link with NO explicit parameter: choose_with_fallback forwards
+    additive entries through its existing **deps. Pinned so nobody 'helpfully'
+    adds a second container there and silently shadows the real one."""
+    import showdown_bot.battle.decision as decision
+
+    sink = []
+    seen = {}
+
+    def fake_heuristic(req, **kwargs):
+        seen["sink"] = kwargs.get("opp_mega_evidence_sink", "ABSENT")
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(decision, "heuristic_choose_for_request", fake_heuristic)
+    decision.choose_with_fallback(
+        _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert seen["sink"] is sink

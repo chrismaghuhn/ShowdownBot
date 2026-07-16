@@ -16,6 +16,7 @@ import pytest
 import showdown_bot.eval.config_env as config_env
 from showdown_bot.eval.config_env import (
     BEHAVIOR_AFFECTING,
+    NON_BEHAVIORAL,
     SERVER_SIDE_BEHAVIOR_AFFECTING,
     behavior_env,
     build_config_manifest,
@@ -469,3 +470,25 @@ def test_config_hash_changes_when_opp_mega_click_rate_toggled(monkeypatch):
     monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.50")
     m2 = build_config_manifest(agent="a", format_id="f", priors_hash="p", spreads_hash="s")
     assert make_config_hash(m1) != make_config_hash(m2)
+
+
+def test_opp_mega_trace_out_is_non_behavioral_and_classified():
+    """I7b-C: the sidecar's output PATH is IO-only -- it must never enter
+    config_hash, or writing telemetry to a different file would perturb the hash
+    and break run pairing. Same species as SHOWDOWN_AGG_TRACE_OUT."""
+    assert "SHOWDOWN_OPP_MEGA_TRACE_OUT" in NON_BEHAVIORAL
+
+
+def test_behavior_env_excludes_opp_mega_trace_out(monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_TRACE_OUT", "/tmp/x.jsonl")
+    assert "SHOWDOWN_OPP_MEGA_TRACE_OUT" not in behavior_env()
+
+
+def test_opp_mega_click_rate_stays_behavior_affecting_not_confused_with_the_path(monkeypatch):
+    """The two I7b env knobs must never be conflated: the sidecar PATH is
+    non-behavioral, but the click rate it RECORDS genuinely changes decisions and
+    must stay inside config_hash (I7b-A)."""
+    assert "SHOWDOWN_OPP_MEGA_CLICK_RATE" in BEHAVIOR_AFFECTING
+    assert "SHOWDOWN_OPP_MEGA_CLICK_RATE" not in NON_BEHAVIORAL
+    monkeypatch.setenv("SHOWDOWN_OPP_MEGA_CLICK_RATE", "0.5")
+    assert "SHOWDOWN_OPP_MEGA_CLICK_RATE" in behavior_env()
