@@ -1168,3 +1168,73 @@ def test_opp_mega_trace_write_failure_is_best_effort_and_does_not_block_dispatch
 
     assert conn.sent == [f"battle-test|/choose default|{req.rqid}"]  # dispatch still went out
     assert client._opp_mega_trace_index == 0  # NOT incremented on a failed write
+
+
+def test_opp_mega_trace_row_from_handle_request_passes_the_real_writer(monkeypatch, decision_fixture, tmp_path):
+    """End-to-end through the REAL OppMegaTraceWriter, not the fake one.
+
+    The fakes above never call validate_opp_mega_trace_row, so on their own they
+    cannot catch a row that handle_request builds but the real writer rejects --
+    and the write is deliberately best-effort, so a rejected row would be
+    swallowed at debug level and EVERY row would vanish silently. This closes
+    that loop: the real writer validates, serialises, and the file must contain
+    exactly one deterministic JSON line carrying the sentinel."""
+    import json
+
+    import showdown_bot.client.gauntlet as gauntlet
+    from showdown_bot.eval.opp_mega_trace import OppMegaTraceWriter
+
+    req, kw = decision_fixture
+    conn = _RecordingConn()
+    out = tmp_path / "opp_mega_trace.jsonl"
+    client = _client(
+        conn=conn, agent="heuristic", book=kw["book"],
+        opp_mega_trace_writer=OppMegaTraceWriter(str(out)),
+        opp_mega_trace_context=_opp_mega_context(),
+    )
+    monkeypatch.setattr(client, "_state_for", lambda room, request: kw["state"])
+    monkeypatch.setattr(client, "_decision_deps", lambda: (None, None, None, None))
+
+    def fake_agent_choose(agent, request, **kwargs):
+        kwargs["opp_mega_evidence_sink"].append(_sentinel_evidence())
+        return f"/choose default|{request.rqid}"
+
+    monkeypatch.setattr(gauntlet, "agent_choose", fake_agent_choose)
+
+    asyncio.run(client.handle_request("battle-test", req.model_dump_json(by_alias=True)))
+
+    # The counter only advances on a write the real writer accepted, so this
+    # failing means validation rejected the row rather than the seam misfiring.
+    assert client._opp_mega_trace_index == 1
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    row = json.loads(lines[0])
+    assert row["response_ids"] == ["SENTINEL-RESP"]
+    assert row["foe_mega_slots"] == [0]
+    assert row["max_candidates"] == 5  # battle.opponent.DEFAULT_MAX_CANDIDATES
+    # Deterministic serialisation: sorted keys, compact separators.
+    assert lines[0] == json.dumps(row, sort_keys=True, separators=(",", ":"))
+
+
+def test_agent_choose_reranker_branch_does_not_forward_sink_today(monkeypatch):
+    """TRIPWIRE, not an endorsement. This pins the CURRENT fact that justifies
+    handle_request's "heuristic"-only gate: agent_choose's heuristic_reranker
+    branch calls choose_with_fallback WITHOUT opp_mega_evidence_sink, so a sink
+    handed to it is silently dropped. If someone wires that branch, this test
+    fails -- and the gate must then be widened deliberately, instead of the
+    sidecar quietly emitting all-empty rows for every reranker decision."""
+    import showdown_bot.client.gauntlet as gauntlet
+
+    sink = []
+    seen = {}
+
+    def fake_choose(req, **kwargs):
+        seen["sink"] = kwargs.get("opp_mega_evidence_sink", "ABSENT")
+        return f"/choose default|{req.rqid}"
+
+    monkeypatch.setattr(gauntlet, "choose_with_fallback", fake_choose)
+    gauntlet.agent_choose(
+        "heuristic_reranker", _req(), state=_state(), book=_book(), our_side="p1",
+        opp_mega_evidence_sink=sink,
+    )
+    assert seen["sink"] == "ABSENT"
