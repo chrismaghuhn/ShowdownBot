@@ -13,27 +13,28 @@ general — see "Narrow exposure" below, which is part of the verdict, not a foo
 
 | field | value |
 |---|---|
-| run_id | `f61212da239c9ee6` |
+| run_id | `d074ce1c8a69a2e1` |
 | config_id | `heuristic` |
-| config_hash | `5fb04622afebd59f` |
+| config_hash | `b3cb6ea1a4836060` (LF-stable, platform-independent) |
 | format_id | `gen9championsvgc2026regma` |
 | schedule_hash | `b67a851881d76918` |
 | panel_hash | `aac1ea30446fde88` |
 | seed_base | `champions-panel-v0-smoke-i7b-mega` |
-| git_sha | `96671cb31f3eaece9ff3b9544803d5bd2f1f76f7` |
+| git_sha | `3d23e654a29689b68f3c936653726d6a36a6934d` |
 | showdown_commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
 | server_patch_hash | `86e31891547e87da` |
 | dirty | `false` |
-| start_ts | `2026-07-16T18:57:03.104113+00:00` |
+| start_ts | see `results.jsonl.manifest.json` |
 
 `schedule_hash` equals the I7a smoke's by construction: `compute_schedule_hash` covers
 `version` + `(format_id, hero_team_path, opp_policy, opp_team_path, seed_index)`, and the
 I7b schedule is an exact copy of those frozen rows. Same battles, new code — the runs are
 distinguished by `git_sha`, never by the battles they run.
 
-`config_hash` differs from I7a's `e137fce925f25bd8` because this run set two
-BEHAVIOR_AFFECTING variables (below). That difference is expected and is exactly what the
-config-manifest sidecar exists to record.
+`config_hash` `b3cb6ea1a4836060` is the **platform-stable LF value**: a Linux and a Windows
+checkout now compute it identically, and CI's `provenance-bytes` job asserts that on both.
+It is not comparable to I7a's `e137fce925f25bd8`, which is a pre-fix Windows-byte-specific
+value (see "Superseded first run" below).
 
 ## Run environment (complete)
 
@@ -71,7 +72,7 @@ afterwards.
 | invalid_choices | 0 |
 | crashes | 0 |
 | end_reason_normal | all normal |
-| latency_p95 | worst=637 (budget 1000) |
+| latency_p95 | worst=672 (budget 1000) |
 | seed_log_alignment | 2 contiguous, derived |
 | one_config_hash / one_schedule_hash / one_seed_base / one_run_id / one_git_sha | single value each |
 | manifest_match | ok |
@@ -157,8 +158,8 @@ Unit and integration tests cover the other paths; this run does not.
 
 ## Latency
 
-Worst `decision_latency_p95_ms` = **637 ms** against the unchanged 1000 ms budget; per
-battle 637 / 396.
+Worst `decision_latency_p95_ms` = **672 ms** against the unchanged 1000 ms budget; per
+battle 672 / 421.
 
 **This is not a latency result.** It says only that *this* run passed the standard gate. It
 does **not** replace the dedicated Champions latency profile, and it does **not** refute the
@@ -172,14 +173,14 @@ Committed under `data/eval/champions-panel-v0/smoke-i7b-mega/`:
 
 | file | sha256 |
 |---|---|
-| `results.jsonl` | `3c705fb21e5b6935e00e963b60272a1978cf46b7d4182e5f0f4bb0819ad2734c` |
-| `results.jsonl.manifest.json` | `ed91989dea55e0f103762845a5a0d200e5d65a1156cc16c86c1c8927aa785e23` |
-| `results.jsonl.config-manifest.json` | `f4ba9341048cdce7c10d141998a03c0f7c87ee96fd312723e355bd0aa8ae4803` |
+| `results.jsonl` | `51b44a42d9f99d44987e0e44b2497962af6ebe64dba1623a9359c8d549e88639` |
+| `results.jsonl.manifest.json` | `930084e02067ebbccdadd3a108fd3b7f80f6f6b1c3804b449ffbb5acf427b602` |
+| `results.jsonl.config-manifest.json` | `eec436004502d381645da3b19b6cf3c3253a713b2f79603e294fc4093178674d` |
 | `seeds.jsonl` | `b9b52e62c25493f1ee0cceba0670dabe59e570c5f9087aa8ed82795ddcc3b847` |
-| `decision_trace.jsonl` | `408fbbb988acd60de78191e7520c8486881c1f1f1b8c011afda21df05cf0f5db` |
-| `opp_mega_trace.jsonl` | `cfb5040c21cafe2241e2bafc1abfdcc4f8486b1c57143fe2b73ed4debc58b97d` |
-| `report.json` | `d3e4d0cb04e8d067a9265637c9a78cc9f70995677dee8a49fad82d37c6a640a9` |
-| `report.md` | `a6875214faa64c1379cd18b1eb36cf211aa654f953a3344fef9a59cbb7e74d25` |
+| `decision_trace.jsonl` | `7d41824727fa9d03560ca82d856446f2d2d82427fb3479a785182447f90a52d4` |
+| `opp_mega_trace.jsonl` | `8469a15ae0b6a90efa6917f83416b174ae20e811d8b0d552f4b2f618b32d69c1` |
+| `report.json` | `364a753c1d034601ee3f07692cc6b111449281e916cb256e573618c5209fec92` |
+| `report.md` | `ad266e075e18c76b68d665f8f779a9dd2db461d14197f64141337b8d10c3d79f` |
 
 Local-only, never committed (external cache
 `~/.cache/showdownbot/measurements/champions-panel-v0-smoke-i7b-mega/`): 2 raw room logs,
@@ -237,12 +238,43 @@ manifest.
    `write_config_manifest_sidecar` should pass `newline="\n"` like the other JSONL/JSON
    writers; `.gitattributes` protects the committed bytes but does not fix the writer.
 
+## Superseded first run (why this evidence was re-recorded)
+
+An earlier execution of these identical battles (`run_id f61212da239c9ee6`,
+`git_sha 96671cb3`) is archived at
+`data/eval/champions-panel-v0/superseded-smoke-i7b-mega-crlf-config-hash/`. It was sound in
+every respect except one: its `config_hash` `5fb04622afebd59f` was **Windows-byte-specific**.
+
+`config_hash` was built from raw file bytes over inputs that `core.autocrlf` checked out as
+CRLF on Windows and LF on Linux, so the identical configuration hashed to `5fb04622afebd59f`
+on this machine and `b3cb6ea1a4836060` on CI. `config_hash` was an identity of the
+configuration *plus the host's line endings*. Fixed on `main` (PR #18): `text eol=lf` for
+every raw-byte-hashed provenance input, plus a `provenance-bytes` CI job that runs on
+**both** ubuntu and windows and asserts they agree.
+
+The archived rows are **not** re-hashed. They record what the run that actually happened
+computed; rewriting them to the LF value would falsify a run that never produced those bytes.
+This run re-records the same battles under the fixed, platform-stable hash.
+
+One further attempt (`run_id 57367d7a2e6bfd83`) was discarded outside the repository: it
+recorded `dirty=true` because the evidence archive was still uncommitted when the gauntlet
+read `git_sha_and_dirty()`. Operational failure, before any gate evaluation, so it was voided
+and repeated with a clean tree rather than explained away.
+
 ## Explicit non-claims
 
 - **No strength claim.** 0/2 says nothing; a strength result needs a paired run against a
   pinned baseline with the positive-evidence rule.
-- **No latency claim.** 637 ms passed *this* run's gate; the dedicated latency profile is
+- **No latency claim.** 672 ms passed *this* run's gate; the dedicated latency profile is
   still outstanding and the ~2.4× foe-Mega overhead is untouched by this evidence.
 - **No broad opponent-Mega correctness claim.** 1/17 decisions, slot 1 only.
 - **No budget change.** The 1000 ms budget is unchanged.
-- The run was executed exactly once with this seed base. No rerun, no seed shopping.
+- The battles were executed with the schedule and seed base unchanged. The seed log is
+  **byte-identical** to the superseded run's, so these are the same two battles -- not a
+  reseed and not seed shopping.
+- No claim is made that this run's telemetry is byte-identical to the superseded one; it is
+  not, and it should not be. `opp_mega_trace.jsonl` differs in exactly `config_hash` and
+  `git_sha`; `decision_trace.jsonl` additionally in `decision_latency_ms` (timing) and
+  `request_hash`/`observable_state_hash` (the bots' per-run name suffixes). The
+  `normalized_room_log_sha256` values are identical, which is what says the battles
+  themselves played out the same.

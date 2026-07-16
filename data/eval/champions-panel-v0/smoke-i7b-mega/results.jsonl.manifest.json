@@ -1,0 +1,35 @@
+{
+  "cli_invocation": [
+    "showdown_bot.cli",
+    "gauntlet",
+    "--schedule",
+    "../config/eval/schedules/champions_v0_smoke_i7b_2battle.yaml",
+    "--panel",
+    "../config/eval/panels/panel_champions_v0.yaml",
+    "--result-out",
+    "../data/eval/champions-panel-v0/smoke-i7b-mega/results.jsonl",
+    "--decision-trace-out",
+    "../data/eval/champions-panel-v0/smoke-i7b-mega/decision_trace.jsonl"
+  ],
+  "config_hash": "b3cb6ea1a4836060",
+  "dirty": false,
+  "environment": {
+    "deps": {
+      "lightgbm": "4.6.0",
+      "pydantic": "2.13.4",
+      "websockets": "16.0"
+    },
+    "node": "v24.16.0",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.5"
+  },
+  "git_sha": "3d23e654a29689b68f3c936653726d6a36a6934d",
+  "panel_hash": "aac1ea30446fde88",
+  "pythonhashseed": "0",
+  "run_id": "d074ce1c8a69a2e1",
+  "schedule_hash": "b67a851881d76918",
+  "seed_base": "champions-panel-v0-smoke-i7b-mega",
+  "server_patch_hash": "86e31891547e87da",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "start_ts": "2026-07-16T21:03:03.753845+00:00"
+}
