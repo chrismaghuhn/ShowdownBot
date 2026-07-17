@@ -29,11 +29,19 @@ CFG_HASH = "0123456789abcdef"
 
 
 def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=CFG_HASH):
+    """`arms` is a LIST with arm_id as a field (design §2.7 + Erratum 1).
+
+    Not a mapping keyed by arm_id: a mapping cannot represent a duplicate arm_id, so the
+    duplicate would vanish at construction and the frozen manifest could never be
+    re-checked for it.
+    """
     return {
-        "arms": {
-            ARM: {
+        "arms": [
+            {
+                "arm_id": ARM,
                 "effective_config_hash": config_hash,
                 "warmup": warmup,
+                "reps": 3,
                 "lifecycle": {
                     "calc_backend": calc_backend,
                     "damage_oracle": cache,
@@ -42,7 +50,7 @@ def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=
                     "contexts_and_variants": "per_rep",
                 },
             }
-        },
+        ],
     }
 
 
@@ -389,7 +397,7 @@ def test_a_live_row_may_not_carry_any_cache_field(field):
     ],
 )
 def test_expected_cache_class_is_total_and_zero_based(lifecycle, warmup, rep, expected):
-    arm = _manifest(cache=lifecycle, warmup=warmup)["arms"][ARM]
+    arm = _manifest(cache=lifecycle, warmup=warmup)["arms"][0]
     assert expected_cache_class(arm, rep) == expected
 
 
@@ -461,7 +469,7 @@ def test_a_manifest_whose_three_caches_disagree_is_invalid():
     # is not total. Rejecting the manifest is what avoids inventing a `mixed` class --
     # the reflex that produced §9 entries 27-30.
     m = _manifest(cache="per_arm")
-    m["arms"][ARM]["lifecycle"]["speed_oracle"] = "per_rep"
+    m["arms"][0]["lifecycle"]["speed_oracle"] = "per_rep"
     with pytest.raises(DecisionProfileError, match="disagreeing cache lifecycles"):
         validate_decision_profile_row(_micro(m), manifest=m)
 
@@ -548,7 +556,7 @@ def test_the_manifest_hash_is_COMPUTED_not_read_from_the_manifest():
     validate_decision_profile_row(row, manifest=m)
 
     tampered = _manifest()
-    tampered["arms"][ARM]["warmup"] = 5           # content changed -> identity changed
+    tampered["arms"][0]["warmup"] = 5           # content changed -> identity changed
     tampered["profile_manifest_hash"] = row["profile_manifest_hash"]   # a lie in a field
     with pytest.raises(DecisionProfileError):
         validate_decision_profile_row(row, manifest=tampered)
@@ -556,7 +564,7 @@ def test_the_manifest_hash_is_COMPUTED_not_read_from_the_manifest():
 
 def test_the_manifest_hash_is_stable_and_order_independent():
     a = _manifest()
-    b = {"arms": {ARM: dict(reversed(list(a["arms"][ARM].items())))}}
+    b = {"arms": [dict(reversed(list(a["arms"][0].items())))]}
     assert profile_manifest_hash(a) == profile_manifest_hash(b)
 
 

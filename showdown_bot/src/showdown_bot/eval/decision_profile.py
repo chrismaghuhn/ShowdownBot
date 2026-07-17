@@ -312,6 +312,89 @@ def backend_class_of(
     return "contaminated"
 
 
+def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
+    """Validate the manifest's arms **list** in full, then return an ``arm_id`` -> entry index.
+
+    Design §2.7 + Erratum 1. The order is the contract: **validate everything, then index.**
+    An implementation that indexed as it went would have to decide what a duplicate means
+    before anything had judged it -- and would already have dropped the first entry by the
+    time it noticed.
+
+    ``arms`` is a LIST with ``arm_id`` as a field of each entry, not a mapping keyed by it.
+    That is not a style choice. A mapping **cannot represent** a duplicate ``arm_id``:
+    ``{a["arm_id"]: a for a in arms}`` silently drops one at construction, so the duplicate
+    never reaches the frozen artifact and can only ever be caught by trusting the producer.
+    The dataset tier already rests on the opposite principle -- frozen evidence must not
+    blindly trust the writer that made it.
+    """
+    _require(isinstance(manifest, dict), f"manifest must be a dict, got {type(manifest).__name__}")
+    # Erratum 1: warmup is per-arm. A run-level one alongside it would be a second truth
+    # about the same quantity, and nothing would say which reading wins.
+    _require(
+        "warmup" not in manifest,
+        "manifest carries a run-level 'warmup': it is a per-arm field (Erratum 1), and two "
+        "truths about the same quantity is the drift that erratum removes",
+    )
+
+    arms = manifest.get("arms")
+    _require(
+        isinstance(arms, list),
+        f"manifest 'arms' must be a list of arm entries, got {type(arms).__name__}: a mapping "
+        f"keyed by arm_id cannot represent a duplicate arm_id (§2.7, Erratum 1)",
+    )
+    _require(arms, "manifest declares no arms")
+
+    index: dict[str, dict] = {}
+    for position, arm in enumerate(arms):
+        where = f"arms[{position}]"
+        _require(isinstance(arm, dict), f"{where} must be a dict, got {type(arm).__name__}")
+
+        arm_id = arm.get("arm_id")
+        _require(
+            isinstance(arm_id, str) and arm_id,
+            f"{where} has no usable arm_id: {arm_id!r}",
+        )
+        _require(
+            arm_id not in index,
+            f"{where}: duplicate arm_id {arm_id!r}; two arms cannot claim one identity",
+        )
+
+        warmup = arm.get("warmup")
+        _require(
+            isinstance(warmup, int) and not isinstance(warmup, bool) and warmup >= 0,
+            f"{where} ({arm_id!r}) must declare a non-negative int warmup, got {warmup!r}",
+        )
+        # Raises on a mixed declaration, which is what keeps expected_cache_class total
+        # without inventing a `mixed` class (§9 entries 27-30).
+        cache = cache_lifecycle_of(arm)
+        _require(
+            not (cache == "per_rep" and warmup >= 1),
+            f"{where} ({arm_id!r}) declares per_rep caches and warmup={warmup}: a cold-cache "
+            f"arm that warms up is a contradiction, because its caches are discarded anyway "
+            f"(§2.8)",
+        )
+
+        index[arm_id] = arm
+
+    return index
+
+
+def arm_by_id(manifest: dict, arm_id: str) -> dict:
+    """The ONE way to reach an arm. Validates the whole manifest, then resolves.
+
+    Central by design: a call site that scanned for itself would resolve against a manifest
+    nobody had judged, so a duplicate elsewhere in the list would pass unnoticed for every
+    row that did not happen to name it.
+    """
+    index = validate_profile_manifest(manifest)
+    arm = index.get(arm_id)
+    _require(
+        arm is not None,
+        f"unknown arm_id {arm_id!r}: the manifest declares {sorted(index)}",
+    )
+    return arm
+
+
 def cache_lifecycle_of(arm: dict) -> str:
     """The one lifecycle shared by the three semantic caches.
 
@@ -488,8 +571,10 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         row["profile_manifest_hash"] == profile_manifest_hash(manifest),
         "profile_manifest_hash does not identify the supplied manifest",
     )
-    arm = (manifest.get("arms") or {}).get(row["arm_id"])
-    _require(arm is not None, f"unknown arm_id {row['arm_id']!r} for this manifest")
+    # ONE lookup helper: it validates the whole arms list before resolving, so a duplicate
+    # arm_id elsewhere in the manifest cannot pass unnoticed just because this row named a
+    # different arm. An unknown arm_id raises here.
+    arm = arm_by_id(manifest, row["arm_id"])
     _require(
         row["config_hash"] == arm.get("effective_config_hash"),
         "config_hash does not match this arm's effective_config_hash",
@@ -571,7 +656,7 @@ def validate_decision_profile_dataset(path: str, manifest: dict) -> dict:
     }
     for arm_id, reps in sorted(by_arm.items()):
         ordered = [reps[k] for k in sorted(reps)]
-        _check_arm(arm_id, manifest["arms"][arm_id], ordered)
+        _check_arm(arm_id, arm_by_id(manifest, arm_id), ordered)
         report["arms"][arm_id] = {"reps": len(ordered)}
         for row in ordered:
             klass = row["backend_class"]
@@ -663,7 +748,7 @@ def _check_fixture_identity(by_arm: dict[str, dict[int, dict]], manifest: dict) 
     """
     seen: dict[str, tuple[int, str]] = {}
     for arm_id, reps in sorted(by_arm.items()):
-        fixture = manifest["arms"][arm_id].get("fixture_input_hash")
+        fixture = arm_by_id(manifest, arm_id).get("fixture_input_hash")
         if fixture is None:
             continue
         for rep in sorted(reps):

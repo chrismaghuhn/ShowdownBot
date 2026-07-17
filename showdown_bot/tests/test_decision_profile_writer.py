@@ -43,10 +43,12 @@ def _manifest() -> dict:
     hashed consistently. The row's profile_manifest_hash is computed FROM this (§2.7).
     """
     return {
-        "arms": {
-            ARM: {
+        "arms": [
+            {
+                "arm_id": ARM,
                 "effective_config_hash": CFG_HASH,
                 "warmup": 0,
+                "reps": 3,
                 "lifecycle": {
                     "calc_backend": "per_rep",
                     "damage_oracle": "per_rep",
@@ -55,7 +57,7 @@ def _manifest() -> dict:
                     "contexts_and_variants": "per_rep",
                 },
             }
-        },
+        ],
     }
 
 

@@ -40,12 +40,15 @@ CFG_HASH = "0123456789abcdef"
 
 
 def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,), fixture="fix-a"):
+    """`arms` is a LIST with arm_id as a field (design §2.7 + Erratum 1)."""
     return {
-        "arms": {
-            a: {
+        "arms": [
+            {
+                "arm_id": a,
                 "effective_config_hash": CFG_HASH,
                 "warmup": warmup,
-                "fixture_input_hash": fixture if a == ARM else fixture,
+                "fixture_input_hash": fixture,
+                "reps": 3,
                 "lifecycle": {
                     "calc_backend": calc_backend,
                     "damage_oracle": cache,
@@ -55,7 +58,7 @@ def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,),
                 },
             }
             for a in arms
-        },
+        ],
     }
 
 

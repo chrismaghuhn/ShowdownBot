@@ -4,7 +4,11 @@
 closed. Approval covers **planning the implementation**: it authorizes no profile run, no live
 run, no optimization, no Strength run and no measurement claim.
 
-**Revision:** Rev. 11. Each revision's errors are recorded in §9 rather than silently rewritten.
+**Revision:** Rev. 11 + **Erratum 1**. Each revision's errors are recorded in §9 rather than
+silently rewritten. Erratum 1 corrects a self-contradiction Rev. 11 shipped: §2.7's manifest table
+placed `warmup` at **run** level while §2.8, §2.4's validator list and §5.4's
+`expected_cache_class` all read **`arm.warmup`**. It changes no decision, no gate and no D-1
+term — it makes the manifest say what the rest of the design already required (§9, Erratum 1).
 Rev. 11 fixes three contradictions Rev. 10's own cache/backend rules introduced: they were
 written for microprofile rows but applied to **every** row, so a live row — which has no arm, no
 `rep` and no declared lifecycle — could not satisfy them (§2.4); `expected_cache_class` branched
@@ -675,8 +679,19 @@ everything an arm can change lives in the arm entry:
 | `calc_pin_hash` | run | the pinned calc bundle (`engine/calc/pin.py`) |
 | `format_id`, `format_config_hash` | run | the format all arms share |
 | `speciesdata_hash`, `itemdata_hash`, `movedata_hash` | run | generated-data provenance (re-serialised hashes, platform-stable — §0.3 of the I7b-C precedent) |
-| `warmup` | run | stated once: how many **untimed** repetitions precede timed ones per arm, and whether the backend is re-created between arms |
-| `arms[]` | — | one entry per arm, below |
+| `arms[]` | — | one entry per arm, below. **A LIST, and `arm_id` is a field of the entry** — not a mapping keyed by `arm_id`. The distinction is load-bearing: a mapping cannot *represent* a duplicate `arm_id`, so the duplicate would vanish at construction and the frozen manifest could never be re-checked for it. Frozen evidence must not have to trust the writer that produced it |
+
+**There is deliberately no run-level `warmup` (Erratum 1).** It is a **per-arm** field, declared in
+the arm entry below. Rev. 5's manifest did pin a single run-level warmup count (§9 entry 24), and
+Rev. 6 moved the lifecycle per-arm and wrote "**Warmup** is declared per arm" in §2.8 — but this
+table was never updated, so the design carried both readings at once. §2.8, §2.4's validator list
+(`arm.warmup`) and §5.4's `expected_cache_class` (`arm.warmup == 0`) are the four places that
+agree; this row was the one that did not.
+
+Per-arm is also the only coherent reading: §2.8 states that a **cold-cache** arm which "warms up"
+is *a contradiction, because its caches are discarded anyway*. A run-level warmup would force every
+cold-cache arm to declare one it cannot use. **A manifest that carries a top-level `warmup` is
+rejected** — two truths about the same quantity is exactly the drift this erratum removes.
 
 **Arm entry (exact):**
 
@@ -689,6 +704,7 @@ everything an arm can change lives in the arm entry:
 | `scoring_params` | the **call-bound** semantic arguments — group B below. An arm is precisely a choice of these plus `arm_params` |
 | `fixture_input_hash` | group A below |
 | `reps` | timed repetitions |
+| `warmup` | **per arm** (Erratum 1): how many **untimed** repetitions precede this arm's timed ones. Arms may differ. **Required**, and it must cohere with `lifecycle`: an arm whose caches are `per_rep` must declare `warmup == 0`, because a cold-cache arm that warms up is a contradiction (§2.8) |
 | `lifecycle` | which objects are rebuilt per repetition — see §2.8. **Required**; there is no default |
 
 **`fixture_input_hash` — exact DTO over every direct scoring input (Rev. 6 correction).**
@@ -1704,3 +1720,13 @@ Recorded rather than silently rewritten.
 | 51 | `calc_backend_lifecycle == "per_arm" and (rep > 1 or warmup >= 1) ⇒ spawn_calls == 0` as a **per-row** rule (§2.8, entry 47) | **UNSOUND — REJECTS A REAL, SUCCESSFUL ROW. This supersedes entry 47's fix.** | Its own justification named the flaw: *"a process constructed once **and still alive** cannot spawn again"*. `per_arm` declares the **object** is reused, not that the OS process survives — `_ensure` (`client.py:176-180`) revives one that died between reps **before the first attempt**, no failure, no retry: `spawn_calls == 1`, correct result, rule fails it. **This is entry 23 verbatim**, and Rev. 10 committed it one bullet *after* citing entry 23 as the mistake it was avoiding (entry 44). Citing a lesson is not learning it. It was also **redundant**: §5.5's `contaminated` residual already excludes a respawn from the contrast without rejecting the row — the tell that it was the wrong mechanism. And no sound per-row replacement exists: `per_arm and rep >= 1 ⇒ spawn_count_before >= 1` also fails, because a rep that used no calc never starts the process. Moved to **dataset-level**, where §2.8's original words ("the **arm's** rows are void") always said it belonged: compare each arm's observed `backend_class` distribution against its declared lifecycle. Rev. 10 read an arm-level verdict as a row-level rejection. |
 | 52 | "**dataset-level** — run once over a finished sidecar" (§2.4) | **A TIER WITH NO ENFORCEMENT — the defect the tiers existed to fix** | Rev. 10 named the tier and listed invariants for it, but gave it no owner, no trigger and no consequence. That is precisely "declared, bound to nothing" (entries 43-48) reproduced at the level of the fix for it. Now concrete: `validate_decision_profile_dataset(path, manifest)`, run once when the profile run finishes and before any row is read as evidence, **failing the run** rather than annotating it. The cross-artifact tier is explicitly enforced by **nobody** and closed to new entries, so it cannot quietly become the same hiding place. |
 | 53 | Field types: the three `*_cache_size_at_rep_start` declared `int` while the prose said `null` for live (§2.4); the lifecycle table's `calc_backend` row and its "reps 2..N"/"after rep 1" prose (§2.8) | **STALE AFTER 49-51** | Swept: the three sizes are `int \| null`; the `calc_backend` row no longer claims `spawn_calls == 0` after the first rep (a respawn is legitimate — 51) and states the reuse invariant as `spawn_count_before >= 1` instead; and the 1-based colloquialisms that produced 50 are gone in favour of "the first rep". |
+
+### Erratum 1 — Rev. 11 contradicted itself about `warmup`
+
+Not a revision: no claim is withdrawn and no gate moves. Rev. 11 stated one quantity two ways, and
+the implementation could not satisfy both.
+
+| # | Rev. 11 as shipped | verdict | why |
+|---|---|---|---|
+| E1 | §2.7's manifest table: `\| warmup \| run \| stated once …` | **CONTRADICTS FOUR OTHER PLACES IN THE SAME DOCUMENT** | §2.8 ("**Warmup** is declared per arm"), §2.4's validator rule (`arm.warmup`), §2.4's `cache_class == "warm" ⇒ rep >= 1 or arm.warmup >= 1`, and §5.4's `expected_cache_class` (`arm.warmup == 0`) all read it per-arm. §9 entry 24 shows the origin: Rev. 5 pinned a run-level warmup, Rev. 6 moved the lifecycle per-arm and declared warmup per-arm in §2.8 — and this table row was never updated. Per-arm is also the only coherent reading, since §2.8 calls a warming-up cold-cache arm a contradiction and a run-level value would force one on every such arm. Corrected: `warmup` moves to the arm entry, a top-level `warmup` is **rejected** so the two readings cannot coexist, and the arm entry states the coherence rule (`per_rep` caches ⇒ `warmup == 0`). |
+| E2 | `arms[]` left implicit enough that an implementation read it as a mapping keyed by `arm_id` | **A MAPPING DEFEATS A FAIL-CLOSED CHECK THE SLICE REQUIRES** | The design says "one entry per arm" and gives each entry an `arm_id` **field**, which is redundant in a mapping — the tell that a list was meant. It matters beyond style: a mapping **cannot represent** a duplicate `arm_id`, so the duplicate disappears at construction and the frozen manifest can never be re-checked for it. That contradicts the principle the dataset tier already rests on — frozen evidence must not blindly trust the writer. Stated explicitly as a LIST, validated in full before any lookup index is built. |
