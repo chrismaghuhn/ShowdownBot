@@ -1,6 +1,6 @@
 # Champions I8 — Active Foe-Mega Latency Profile: Implementation Plan
 
-**Status:** `I8-A COMPLETE · I8-B COMPLETE · NO LIVE WIRING · NO LIVE RUN`
+**Status:** `I8-A/B/C COMPLETE (I8-C merged, PR #20 @ 32cdd4e) · D0 + Kaggle D0-K cost calibration DONE (scratch, no verdict) · reps=30 / D-2=200·2000 / host=fixed-Windows CLOSED · microprofile run NEXT (separately authorized) · NO LATENCY/STRENGTH CLAIM`
 
 I8-A landed as `b87d5a6` — counters on both calc backends, the planned/implicit batch split, and
 the cache-size characterization. I8-B follows it: the sidecar, both validator tiers, and the one
@@ -714,7 +714,7 @@ measurement outcome, not a consolation.
 
 ---
 
-## 4.1 D-2 — the cap. **Open; needs approval before I8-D starts.**
+## 4.1 D-2 — the cap. **CLOSED 2026-07-17 — `MAX_BATTLES = 200` / `MAX_SCORED_DECISIONS = 2000`, now costed by D0 (see §7).**
 
 The design forbids inventing thresholds, and the cap **cannot be derived** — it is a cost decision,
 exactly as D-1 was. The arithmetic from §0, at 8.5 scored decisions/battle:
@@ -749,7 +749,7 @@ battles". **That was wrong, and the error mattered:**
 
 | | |
 |---|---|
-| **Status** | **BLOCKED — needs its own explicit authorization**, requested separately, before D-2 |
+| **Status** | **DONE 2026-07-17 (cost data only)** — Windows D0 + Kaggle D0-K calibration ran; artifacts scratch-only, not frozen; no latency/exposure/Strength verdict (see §7) |
 | **Scope** | replay the existing 2-battle smoke schedule (`champions_v0_smoke_i7b_2battle.yaml`), unchanged, to record wall-clock per battle and per decision |
 | **Produces** | a runtime figure only. **No latency verdict, no exposure claim, no strength claim** — n = 2 battles decides nothing about D-1 |
 | **Artifacts** | written to a scratch path and **not** frozen as evidence; the existing frozen smoke is not overwritten, re-hashed, or touched |
@@ -774,8 +774,19 @@ plan says so rather than pretending the number exists.
 
 ## 7. Open decisions
 
+**All I8 execution parameters are now CLOSED (2026-07-17).** D0 and its Kaggle calibration ran;
+`reps`, D-2 and the measurement host are fixed. What remains is authorizing the microprofile run
+itself and, later, I8-D — each still separately gated. **No latency, exposure or Strength verdict
+exists**, and nothing here authorizes a run.
+
 | id | decision | status |
 |---|---|---|
 | **D-1** | Exposure floor | **CLOSED** — approver-set (design §5.4): ≥ 60 active from ≥ 20 battles; PASS/FAIL/INCONCLUSIVE; no statistical or strength claim |
-| **D-2** | `MAX_BATTLES` / `MAX_SCORED_DECISIONS` | **OPEN** — recommendation 200 / 2000 (§4.1); blocks I8-D; wants D0's per-battle runtime first |
-| **D0** | Authorize a 2-battle timing run to cost D-2 | **BLOCKED — needs its own authorization** (§4.1). It is a **new live run**; no earlier smoke authorization covers it |
+| **D0** | 2-battle timing run to cost D-2 | **DONE — cost data only** — Windows D0 + Kaggle **D0-K** hardware calibration executed; artifacts **scratch-only, not frozen**; **no latency/exposure/Strength verdict**. The two battles were **byte-identical across platforms** (same `battle_id`, `turns`, `end_hp_diff`, and `normalized_room_log_sha256`), so the platforms played the same battles; Kaggle per-decision compute ran ~1.2–1.3× slower **and** its CPU changes between sessions, so a Kaggle p95 is not reproducibly comparable |
+| **D-2** | `MAX_BATTLES` / `MAX_SCORED_DECISIONS` | **CLOSED — `MAX_BATTLES = 200`, `MAX_SCORED_DECISIONS = 2000`** (§4.1 recommendation, now costed by D0; whichever binds first). `INCONCLUSIVE` is accepted in advance if the true active rate is ≤ ~3.5 % |
+| **reps** | Microprofile timed repetitions per arm | **CLOSED — 30 timed reps/arm**, existing arm-specific warmups **unchanged** → 15 arms × 30 = **450 profile rows**. Gives a usable per-arm distribution; **no general statistical claim** is drawn from it |
+| **host** | Measurement host for the latency track | **CLOSED — the fixed Windows machine** for both the microprofile run and I8-D. The I8 gate needs exposure **and** latency from the **same** run, so Kaggle-coverage and Windows-latency can never be combined into one verdict. **Kaggle is reserved for later large coverage / outcome / Strength runs, each as its own hardware stratum; platforms are never pooled** |
+
+**Still gated, not closed here:** the **microprofile run** (I8-C execution, 450 rows on the fixed
+Windows host) and the **I8-D live run** each need their own explicit authorization. This plan now
+records every parameter they need; it starts neither run.

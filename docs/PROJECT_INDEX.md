@@ -5,7 +5,7 @@ This file is an entry map — not a replacement for [`docs/ROADMAP.md`](ROADMAP.
 the authoritative status matrix and next-decision source. When they disagree, trust the roadmap
 and git history; update this index if it drifts.
 
-Last reconciled: 2026-07-17 (**I8-A–C offline latency machinery MERGED via PR #20 @ `32cdd4e` — measurement machine built and proven offline, NO runs, no latency/Strength claim; D0 next, separately authorized; `reps` and D-2 open and dependent on D0**; **I7a own-Mega SAFETY PASS, merged to `main` @ `1053cf1`**; **I7b-A MERGED via PR #12 @ `cdc55c2`**; **I7b-B Tasks 1-6 REVIEW-PASS · MERGED via PR #13 @ `755b144`**, full suite **2169 passed, 2 skipped, 1 xfailed**, foe-Mega modeling now LIVE for `format_config.mega` and byte-identical for Reg-I/`None`; **I7b-C PRE-SMOKE REVIEW-PASS + 2-battle opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE, merged via PR #17 @ `8942232`** (1/17 scored decisions, slot 1 only; `reports/champions-panel-v0-i7b-mega-smoke.md`) — safety/telemetry evidence only; **Strength still NO-GO** — the dedicated latency gate is the load-bearing blocker, followed by an explicit coverage/independent-holdout gate before any Strength run; I7 Mega design spec rev. 10 **APPROVED**, implementation plan **Rev. 9 / execution complete**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
+Last reconciled: 2026-07-17 (**I8-A–C offline latency machinery MERGED via PR #20 @ `32cdd4e` — measurement machine built and proven offline; the only runs since are the D0 + Kaggle D0-K timing calibrations (cost data only, scratch, no latency/exposure/Strength verdict); `reps`=30, D-2=200/2000 and the fixed Windows measurement host CLOSED; the microprofile run is next, separately authorized; Kaggle reserved for later coverage/outcome/Strength as its own hardware stratum, never pooled**; **I7a own-Mega SAFETY PASS, merged to `main` @ `1053cf1`**; **I7b-A MERGED via PR #12 @ `cdc55c2`**; **I7b-B Tasks 1-6 REVIEW-PASS · MERGED via PR #13 @ `755b144`**, full suite **2169 passed, 2 skipped, 1 xfailed**, foe-Mega modeling now LIVE for `format_config.mega` and byte-identical for Reg-I/`None`; **I7b-C PRE-SMOKE REVIEW-PASS + 2-battle opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE, merged via PR #17 @ `8942232`** (1/17 scored decisions, slot 1 only; `reports/champions-panel-v0-i7b-mega-smoke.md`) — safety/telemetry evidence only; **Strength still NO-GO** — the dedicated latency gate is the load-bearing blocker, followed by an explicit coverage/independent-holdout gate before any Strength run; I7 Mega design spec rev. 10 **APPROVED**, implementation plan **Rev. 9 / execution complete**; protocol audit @ `fc4f251`; I6 @ `3bcd4b3` on `main`).
 
 ---
 
@@ -27,22 +27,28 @@ Build a **reproducible** Pokémon Showdown / Champions bot whose decision pipeli
 
 ## Current Priority
 
-Ordered front-track work as of **2026-07-17** (I8-A–C offline latency machinery merged, PR #20 @ `32cdd4e`; D0 next, separately authorized):
+Ordered front-track work as of **2026-07-17** (I8-A–C offline latency machinery merged, PR #20 @ `32cdd4e`; D0 + Kaggle D0-K cost calibration done; reps/D-2/host CLOSED; microprofile run next, separately authorized):
 
-1. **Champions latency — offline machinery built and merged (I8-A–C, PR #20 @ `32cdd4e`); D0
-   is the next, separately-authorized step.** The measurement-only latency machinery is now on
+1. **Champions latency — offline machinery built and merged (I8-A–C, PR #20 @ `32cdd4e`);
+   D0 + Kaggle D0-K cost calibration done; reps/D-2/host CLOSED; the microprofile run is next.**
+   The measurement-only latency machinery is now on
    `main`: instrumentation of the calc cost drivers, the decision-profile sidecar + both
    validator tiers, the manifest producer, the microprofile arm matrix/harness and all six
    previously-unconstructible arms (P-1…P-5), built and proven **offline** against a
    production-topology session (full suite at merge **2615 passed, 2 skipped, 1 xfailed**).
-   **No run has been taken and no latency claim exists.** The next step is **D0**: a small
-   **live** timing run to cost the cap — a **new live run, authorized separately** — which
-   fixes `reps` (no default anywhere) and **D-2** (`MAX_BATTLES` / `MAX_SCORED_DECISIONS`),
-   both **open and dependent on D0**. Context, measured not assumed (I7b-B): the genuinely
+   **No latency, exposure or Strength verdict exists.** D0 and its Kaggle **D0-K** calibration
+   have since run (cost data only, scratch-only, not frozen): the two battles were
+   **byte-identical across platforms**, but Kaggle per-decision compute ran ~1.2–1.3× slower and
+   its CPU changes between sessions, so a Kaggle p95 is not reproducibly comparable. The execution
+   decisions are now **CLOSED**: **`reps` = 30 timed reps/arm** (warmups unchanged → 15 × 30 =
+   450 rows), **`MAX_BATTLES` = 200 / `MAX_SCORED_DECISIONS` = 2000**, and the **fixed Windows
+   machine** as the measurement host for the microprofile run and I8-D; **Kaggle is reserved for
+   later coverage/outcome/Strength as its own hardware stratum, never pooled**. The next step is
+   the **microprofile run** (450 rows), authorized separately. Context, measured not assumed (I7b-B): the genuinely
    ACTIVE foe-Mega path costs ≈2.4× the inactive decision on a synthetic tie fixture (16 vs 6
    calc batches); prior safety smokes ran at worst p95 331/588/672 ms against the unchanged
-   1000 ms budget, **none a dedicated profile** — so the profile is still owed, and D0 is how
-   it starts.
+   1000 ms budget, **none a dedicated profile** — so the profile is still owed, and the
+   microprofile run is how it starts.
 2. **Champions coverage + Strength design** — starts only after the dedicated latency gate
    passes. The design must pre-register a broader opponent-Mega exposure requirement (including
    both foe slots and dual-Mega/activation-ordering cases) and a genuinely independent Strength
@@ -75,7 +81,7 @@ Ordered front-track work as of **2026-07-17** (I8-A–C offline latency machiner
 
 | | |
 |---|---|
-| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix PASS** @ `62117b5`; **I6 PASS** @ `3bcd4b3`; audit @ `fc4f251`; **I7 Mega design APPROVED rev. 10** (plan Rev. 9); **I7a own-Mega SAFETY PASS, merged to `main`** @ `1053cf1`; **I7b-A MERGED** @ `cdc55c2`; **I7b-B Tasks 1-6 REVIEW-PASS/MERGED** @ `755b144` (PR #13); **I7b-C PRE-SMOKE REVIEW-PASS + opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE** (1/17 decisions, slot 1 only) @ `3d23e654`; **I8-A–C offline latency machinery MERGED via PR #20 @ `32cdd4e`** (measurement machine built & proven offline, no runs) — **D0 next (separately authorized)**, `reps`/D-2 open & dependent on D0 — no Strength/latency claim. |
+| **Status** | P0–P4 on main; I5 mixed @ `4da007b`; **HP-suffix PASS** @ `62117b5`; **I6 PASS** @ `3bcd4b3`; audit @ `fc4f251`; **I7 Mega design APPROVED rev. 10** (plan Rev. 9); **I7a own-Mega SAFETY PASS, merged to `main`** @ `1053cf1`; **I7b-A MERGED** @ `cdc55c2`; **I7b-B Tasks 1-6 REVIEW-PASS/MERGED** @ `755b144` (PR #13); **I7b-C PRE-SMOKE REVIEW-PASS + opponent-Mega SAFETY SMOKE PASS · NARROW EXPOSURE** (1/17 decisions, slot 1 only) @ `3d23e654`; **I8-A–C offline latency machinery MERGED via PR #20 @ `32cdd4e`** (measurement machine built & proven offline) — **D0 + Kaggle D0-K cost calibration DONE** (scratch, no verdict); **reps=30, D-2=200/2000, host=fixed-Windows CLOSED**; microprofile run next (separately authorized); Kaggle = coverage-only stratum, never pooled — no Strength/latency claim. |
 | **Format** | `gen9championsvgc2026regma` (Champions M-A BO1) |
 | **Panel hash** | `aac1ea30446fde88` (pinned in `config/eval/panels/panel_champions_v0.yaml`) |
 
@@ -95,7 +101,7 @@ Ordered front-track work as of **2026-07-17** (I8-A–C offline latency machiner
 | I7b-A opponent-Mega foundation | **IMPLEMENTED · CODE-REVIEWED · MERGED via PR #12 @ `cdc55c2`** (focused gate 106 passed; full suite 2132 passed, 2 skipped, 1 xfailed) · additive/inert until I7b-B | `docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md`, `docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md` |
 | I7b-B dual projection + scoring | **REVIEW-PASS · MERGED via PR #13 @ `755b144`** (Tasks 1-6; full suite 2169 passed, 2 skipped, 1 xfailed, no new skip/xfail) · foe-Mega modeling LIVE for `format_config.mega`, byte-identical for Reg-I/`None` · `baselines.py`/`search.py` byte-identical across the slice | plan Rev. 7 (`docs/superpowers/plans/2026-07-16-champions-opponent-mega-i7b.md`); no report — no live run, no Strength claim |
 | I7b-C telemetry + opponent-Mega smoke | **PRE-SMOKE REVIEW-PASS + LIVE SMOKE PASS · NARROW EXPOSURE** @ `3d23e654` (`dirty=false`; 19/19 standard gates PASS, worst p95 672 ms; 19/19 trace-v3 rows, 17/17 sidecar rows LF-only; every sidecar `(battle_id, decision_index)` → exactly one trace row, gaps only at `team_preview`) · **1 of 17** decisions exposed a foe-Mega hypothesis, **slot 1 only** — slot 0/dual-Mega/activation-ordering never exercised live · **no Strength claim, no latency claim** | `reports/champions-panel-v0-i7b-mega-smoke.md`, `data/eval/champions-panel-v0/smoke-i7b-mega/` (incl. `opp_mega_trace.jsonl`, `results.jsonl.config-manifest.json`); plan Rev. 9 |
-| I8 offline latency machinery (A–C) | **MERGED via PR #20 @ `32cdd4e`** — instrumentation, decision-profile sidecar + both validator tiers, manifest producer, microprofile arm matrix/harness, and all six previously-blocked arms (P-1…P-5), built & proven **offline** against a production-topology session (full suite **2615 passed, 2 skipped, 1 xfailed**) · **no live battle, microprofile, benchmark or frozen evidence; no latency or Strength claim** · **D0 next (separately authorized)**; `reps` (no default) and D-2 (`MAX_BATTLES`/`MAX_SCORED_DECISIONS`) open & dependent on D0 | `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Errata 1–2, §4.2 C3 status), `docs/superpowers/plans/2026-07-17-champions-i8-latency.md`; **no report — no run** |
+| I8 offline latency machinery (A–C) | **MERGED via PR #20 @ `32cdd4e`** — instrumentation, decision-profile sidecar + both validator tiers, manifest producer, microprofile arm matrix/harness, and all six previously-blocked arms (P-1…P-5), built & proven **offline** against a production-topology session (full suite **2615 passed, 2 skipped, 1 xfailed**) · **no microprofile, benchmark or frozen evidence; no latency or Strength claim** · **D0 + Kaggle D0-K cost calibration DONE** (2 battles each, scratch-only, not frozen, no verdict); **reps=30, D-2=`MAX_BATTLES`200/`MAX_SCORED_DECISIONS`2000, host=fixed-Windows CLOSED**; microprofile run next (separately authorized); **Kaggle = coverage-only stratum, never pooled** | `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Errata 1–2, §4.2 C3 status), `docs/superpowers/plans/2026-07-17-champions-i8-latency.md`; **no report — no run** |
 
 **Open blockers**
 
@@ -104,10 +110,12 @@ Ordered front-track work as of **2026-07-17** (I8-A–C offline latency machiner
   the pinned **1000 ms** budget (that run also contained state-degradation; no causal link);
   I6/I7a-C/I7b-C safety smokes measured 331/588/672 ms, none a dedicated profile; the active
   foe-Mega path still measures about **2.4×** the inactive decision on the synthetic tie fixture.
-  The next step is **D0**, a small **live** timing run — a new live run **authorized separately**
-  — which fixes `reps` (no default) and **D-2** (`MAX_BATTLES` / `MAX_SCORED_DECISIONS`), both
-  open and dependent on D0. Do not optimize, lower the click rate, or change the budget before
-  that profile runs.
+  D0 and its Kaggle **D0-K** calibration have since run (cost data only, scratch, no verdict),
+  closing the execution decisions — **`reps` = 30/arm** (15 × 30 = 450 rows), **`MAX_BATTLES` =
+  200 / `MAX_SCORED_DECISIONS` = 2000**, **fixed Windows host** for the microprofile run and I8-D;
+  **Kaggle is a coverage-only stratum, never pooled** (its per-session CPU makes a Kaggle p95
+  non-comparable). The next step is the **microprofile run**, authorized separately. Do not
+  optimize, lower the click rate, or change the budget before that profile runs.
 - **Opponent-Mega live coverage:** I7b-C is merged and its telemetry chain is live, but the
   frozen smoke exposed a hypothesis in only **1/17** scored decisions and only for foe slot 1.
   Slot 0, dual-Mega, and activation ordering still need a pre-registered coverage gate before
