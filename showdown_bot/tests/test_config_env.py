@@ -248,13 +248,23 @@ _READ = re.compile(
 )
 
 
+# A module constant bound to a SHOWDOWN_* literal: the name is used as an env key even
+# though no literal appears at the read site.
+_ENV_CONST = re.compile(
+    r"""^[A-Z][A-Z0-9_]*\s*(?::[^=
+]+)?=\s*["'](SHOWDOWN_[A-Z0-9_]+)["']""",
+    re.MULTILINE,
+)
+
+
 def _scanned_reads() -> dict[str, list[str]]:
     """Map each SHOWDOWN_* env-read name -> files it appears in, across the whole package."""
     found: dict[str, list[str]] = {}
     for py in _PKG_ROOT.rglob("*.py"):
         if "__pycache__" in py.parts:
             continue
-        for name in _READ.findall(py.read_text(encoding="utf-8")):
+        text = py.read_text(encoding="utf-8")
+        for name in _READ.findall(text) + _ENV_CONST.findall(text):
             found.setdefault(name, []).append(py.name)
     return found
 

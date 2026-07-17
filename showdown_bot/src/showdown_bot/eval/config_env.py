@@ -118,6 +118,12 @@ NON_BEHAVIORAL = frozenset({
     # affect decisions and is already BEHAVIOR_AFFECTING from I7b-A -- the two must not be
     # confused.
     "SHOWDOWN_OPP_MEGA_TRACE_OUT",
+    # I8-B decision-profile sidecar sink. Same species as the trace paths above: an IO
+    # path with no /choose effect. It must be classified, not merely commented as
+    # NON_BEHAVIORAL -- is_excluded fails closed toward INCLUSION, so leaving it unknown
+    # would put it in behavior_env and thus in config_hash, and enabling a measurement
+    # sidecar would change the identity of the run being measured.
+    "SHOWDOWN_DECISION_PROFILE_OUT",
     # [2c-Slice-0b Task 3] Research-only full-fidelity aggregation sidecar PATH (env alias for
     # --agg-trace-out; the Kaggle datagen kernel injects it via EXTRA_ENV). IO/telemetry-only,
     # no /choose effect -> excluded from config_hash. MUST stay non-behavioral so a per-shard
