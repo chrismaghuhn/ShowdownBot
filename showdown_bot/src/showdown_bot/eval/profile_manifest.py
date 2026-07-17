@@ -72,6 +72,10 @@ class ArmSpec:
     reps: int
     warmup: int
     lifecycle: dict = field(default_factory=dict)
+    # The microprofile scope this arm is measured at (§2.5, C3-fix). Pinned in the manifest so
+    # the row validator can check every row against it; no default, because an unstated scope
+    # is exactly the second, unpinned truth this field exists to remove.
+    timer_scope: str = "score_evaluated_variants"
 
 
 def build_profile_manifest(*, agent: str, format_id: str, arms: list[ArmSpec]) -> dict:
@@ -116,6 +120,7 @@ def build_profile_manifest(*, agent: str, format_id: str, arms: list[ArmSpec]) -
                 "reps": spec.reps,
                 "warmup": spec.warmup,
                 "lifecycle": dict(spec.lifecycle),
+                "timer_scope": spec.timer_scope,
             }
         )
 

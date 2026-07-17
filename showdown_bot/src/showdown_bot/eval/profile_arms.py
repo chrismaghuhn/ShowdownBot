@@ -49,33 +49,22 @@ def design_arm_ids() -> tuple[str, ...]:
     return _DESIGN_ARM_ORDER
 
 
-# Arms §4 audits as NOT constructible today, each with the plan input that blocks it (§4.1).
-# Recorded rather than omitted: a bounded coverage claim that reads as complete is the
-# defect the design forbids. Unblocking these is C3's work, not C2's.
-_BLOCKED_ARMS: dict[str, str] = {
-    "5": "P-1 -- no fixture places a Mega-capable mon in p2.b; _mega_state() takes only "
-         "foe_a and never populates p2.b. Production supports it; only predict_responses-"
-         "level coverage exists, via a hand-built eligibility dict that bypasses "
-         "foe_mega_eligibility().",
-    "7": "P-2 -- no board where our side lacks a Mega option: every mega request fixture "
-         "hard-codes canMegaEvo: True. The branch is reachable inside the tie fixture's "
-         "own_mega_slot=None context; the BOARD is not.",
-    "8": "P-3 -- no decision-level board with dual-Mega at UNEQUAL pre-Mega speed. The only "
-         "board with both a real foe hypothesis and a projectable own Mega is the tie "
-         "fixture (200/200). This is the configuration the one live active decision "
-         "actually used, so its absence at decision level is a real gap.",
-    "10": "P-4 -- no Trick-Room board at decision level. mega_activation_order_key exists "
-          "and is tested against a hand-built state, but a post-hoc kw['state'] swap is "
-          "forbidden because contexts are pre-bound.",
-    "13b": "P-5 -- persistent COLD cannot be cleanly isolated in a fixture-based "
-           "microprofile: fixtures' SpeedOracle does not share the calc backend while "
-           "production does, and sharing it makes context construction spawn the backend "
-           "BEFORE score_evaluated_variants is entered. Needs P-5 and the "
-           "timer_scope=contexts_and_score decision taken together.",
-    "14": "P-5 -- persistent WARM is SPLIT in fixtures for the same reason: the fixtures' "
-          "two backends make 'warm' mean something different than it does in production, "
-          "where one backend is shared across damage and speed.",
-}
+# Arms §4 audited as NOT constructible at C2 time, each with the plan input that blocked it
+# (§4.1). C3 unblocked all six by building I8-specific coherent boards and a production-
+# topology session (one backend shared across damage/speed/dex), so this map is now empty.
+# It is kept -- rather than deleted -- as the structural home for any FUTURE arm the design
+# audits as unconstructible: §5 forbids a bounded coverage claim that reads as complete, and
+# an absent-from-the-matrix arm reads as "covered". An entry here is the honest alternative.
+#
+# How each was unblocked (proven arm-by-arm in tests/i8/test_profile_arms_end_to_end.py):
+#   5   (P-1) real Mega holder in p2.b, resolved by the REAL foe_mega_eligibility().
+#   7   (P-2) a board coherent on BOTH signals -- no own stone AND canMegaEvo False.
+#   8   (P-3) decision-level dual-Mega at unequal speed (own 200 vs foe 145).
+#   10  (P-4) Trick Room set on the FINAL state before contexts are built.
+#   13b (P-5) one shared backend (production topology) + timer_scope=contexts_and_score,
+#             so the scope contains the spawn context construction does.
+#   14  (P-5) same shared backend, per_arm + warmup, measured at the same wide scope.
+_BLOCKED_ARMS: dict[str, str] = {}
 
 # Read-only. This records which arms the design audited as unconstructible; a caller able
 # to add or drop an entry could make an arm "covered" or "excused" at runtime without
@@ -105,6 +94,14 @@ class ArmDecl:
     scoring_params: dict = field(default_factory=dict)
     lifecycle: dict = field(default_factory=dict)
     warmup: int = 0
+    # The microprofile timer scope this arm is measured at (§2.5). Default is the narrow
+    # score_evaluated_variants; the persistent backend arms (13b cold, 14 warm) override it to
+    # contexts_and_score, because on a shared backend the spawn happens during context
+    # construction, so only a scope that CONTAINS context construction can measure it (§2.8,
+    # §4 arm 13b). It is a harness run parameter, not part of the manifest arm identity: two
+    # arms measured at different scopes are already distinguished by arm_params where they
+    # differ (13a oneshot vs 13b/14 persistent), and every row carries its own timer_scope.
+    timer_scope: str = "score_evaluated_variants"
     note: str = ""
 
     def __post_init__(self) -> None:
@@ -123,11 +120,29 @@ _COLD = {
     "contexts_and_variants": "per_rep",
 }
 
-# The two fixtures §4 actually names at decision level.
-_F_NO_FOE = "mega_decision_fixture"       # p2.a Incineroar -> eligibility {}
-_F_TIE = "mega_decision_tie_fixture"      # own == foe == 200, real backend
+# Warm-cache lifecycle: the backend and the three semantic caches are per_arm (carry across
+# reps), while contexts_and_variants stay per_rep (rebuilt each rep). §2.8's second coherent
+# configuration -- the marginal cost of a decision whose calc results are already known. Only
+# arm 14 uses it, paired with warmup=1 so the first timed rep already starts warm.
+_WARM = {
+    "calc_backend": "per_arm",
+    "damage_oracle": "per_arm",
+    "speed_oracle": "per_arm",
+    "species_dex": "per_arm",
+    "contexts_and_variants": "per_rep",
+}
 
-PROFILE_ARMS: tuple[ArmDecl, ...] = (
+# The decision-level boards §4 names. The first two existed at C2; the four I8-specific
+# boards (C3) unblock arms 5/7/8/10 and live in tests/i8/profile_boards.py -- production code
+# cannot reach a test fixture, so these are names the test-side registry resolves to sessions.
+_F_NO_FOE = "mega_decision_fixture"                       # p2.a Incineroar -> eligibility {}
+_F_TIE = "mega_decision_tie_fixture"                      # own == foe == 200, real backend
+_F_FOE_SLOTB = "mega_decision_foe_slotb_fixture"          # A05: Mega holder in p2.b (P-1)
+_F_NO_OWN_MEGA = "mega_decision_no_own_mega_fixture"      # A07: our side has no Mega (P-2)
+_F_DUAL_UNEQUAL = "mega_decision_dual_unequal_fixture"    # A08: own 200 vs foe 145 (P-3)
+_F_DUAL_UNEQUAL_TR = "mega_decision_dual_unequal_tr_fixture"  # A10: + Trick Room (P-4)
+
+_DECLARED_ARMS: tuple[ArmDecl, ...] = (
     ArmDecl(
         arm_id="A01_no_foe_mega",
         design_arm="1",
@@ -232,8 +247,92 @@ PROFILE_ARMS: tuple[ArmDecl, ...] = (
         lifecycle=_COLD,
         note="oneshot: a fresh Node process per batch. NON_BEHAVIORAL, so it shares arm 3's "
              "effective_config_hash -- which is what makes the two comparable at all. Its "
-             "persistent counterparts (13b cold, 14 warm) are blocked by P-5.",
+             "persistent counterparts are 13b (cold) and 14 (warm) below.",
     ),
+    # ---- C3: the six arms §4 audited as unconstructible at C2, now built ----
+    ArmDecl(
+        arm_id="A05_foe_mega_slot1",
+        design_arm="5",
+        fixture=_F_FOE_SLOTB,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_COLD,
+        note="Foe-Mega on opponent slot 1 (p2.b) -- the P-1 gap. A real Mega holder placed in "
+             "p2.b and resolved by the REAL foe_mega_eligibility(), never a hand-built dict.",
+    ),
+    ArmDecl(
+        arm_id="A07_foe_mega_no_own_mega",
+        design_arm="7",
+        fixture=_F_NO_OWN_MEGA,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_COLD,
+        note="Foe-Mega with NO own-Mega option (P-2). The board is coherent on BOTH signals: "
+             "p1.a holds no stone AND the request's canMegaEvo is False, so contexts=[None] "
+             "and the foe-Mega branch composes against the no-own-mega context. Setting only "
+             "one signal would be the incoherent board the design forbids.",
+    ),
+    ArmDecl(
+        arm_id="A08_dual_mega_unequal",
+        design_arm="8",
+        fixture=_F_DUAL_UNEQUAL,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_COLD,
+        note="Dual-Mega at UNEQUAL pre-Mega speed (P-3): own Aerodactyl 200 vs foe Meganium "
+             "145 -> one full-weight branch. This is the decision-level configuration the one "
+             "live active decision actually used. Only the INEQUALITY is load-bearing; 200/145 "
+             "is the real book-driven speed, not the projection fixture's opp_sets-driven 100.",
+    ),
+    ArmDecl(
+        arm_id="A10_trick_room_activation_order",
+        design_arm="10",
+        fixture=_F_DUAL_UNEQUAL_TR,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_COLD,
+        note="Trick Room reverses Mega-activation order (P-4): the dual-unequal board with "
+             "field.trick_room set on the FINAL state BEFORE contexts are built -- never a "
+             "post-hoc kw['state'] swap, which the pre-bound contexts forbid.",
+    ),
+    ArmDecl(
+        arm_id="A13b_persistent_cold",
+        design_arm="13b",
+        fixture=_F_TIE,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35", "SHOWDOWN_CALC_BACKEND": "persistent"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_COLD,
+        timer_scope="contexts_and_score",
+        note="Persistent backend, first request incl. the spawn (P-5). MEASURED AT "
+             "contexts_and_score, not the narrow scope: on a shared backend (production "
+             "topology) the spawn happens during context construction, so only a scope that "
+             "CONTAINS context construction can measure it (§2.5/§2.8, §4 arm 13b). per_rep "
+             "everything, warmup=0 -- every rep is a genuine cold start.",
+    ),
+    ArmDecl(
+        arm_id="A14_persistent_warm",
+        design_arm="14",
+        fixture=_F_TIE,
+        env={"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35", "SHOWDOWN_CALC_BACKEND": "persistent"},
+        scoring_params={"mode": "NEUTRAL"},
+        lifecycle=_WARM,
+        warmup=1,
+        timer_scope="contexts_and_score",
+        note="Persistent backend, steady state (P-5). Backend and the three caches per_arm so "
+             "they carry across reps; contexts_and_variants per_rep (rebuilt each rep); "
+             "warmup=1 so the first timed rep starts warm -- one identical untimed repetition "
+             "populating the same fixed fixture keys. contexts_and_score scope, matching 13b "
+             "so cold and warm are compared at the SAME boundary.",
+    ),
+)
+
+# Ordered by §4's design arm order, NOT by definition order above. The manifest's `arms` is a
+# LIST whose order is part of its hash, so the canonical order is enforced here -- keyed off
+# the single source design_arm_ids() -- rather than trusted to the literal, which a future
+# edit could reorder (C3 appended six arms out of order, and this is what keeps that from
+# moving the hash).
+PROFILE_ARMS: tuple[ArmDecl, ...] = tuple(
+    sorted(_DECLARED_ARMS, key=lambda a: _DESIGN_ARM_ORDER.index(a.design_arm))
 )
 
 
@@ -278,6 +377,7 @@ def arm_specs(fixture_hashes: dict[str, str], *, reps: int) -> list[ArmSpec]:
                 reps=reps,
                 warmup=decl.warmup,
                 lifecycle=dict(decl.lifecycle),
+                timer_scope=decl.timer_scope,
             )
         )
     return specs

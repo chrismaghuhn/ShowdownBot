@@ -40,7 +40,8 @@ ARM2 = "arm-02"
 CFG_HASH = "0123456789abcdef"
 
 
-def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,), fixture="fix-a"):
+def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,), fixture="fix-a",
+              timer_scope="score_evaluated_variants"):
     """`arms` is a LIST with arm_id as a field (design §2.7 + Erratum 1)."""
     return {
         "schema_version": PROFILE_MANIFEST_SCHEMA_VERSION,
@@ -62,6 +63,7 @@ def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,),
                 "warmup": warmup,
                 "fixture_input_hash": fixture,
                 "reps": 3,
+                "timer_scope": timer_scope,
                 "lifecycle": {
                     "calc_backend": calc_backend,
                     "damage_oracle": cache,

@@ -37,7 +37,8 @@ ARM2 = "arm-02"
 CFG_HASH = "0123456789abcdef"
 
 
-def _arm(arm_id=ARM, *, calc_backend="per_rep", cache="per_rep", warmup=0, fixture="fix-a"):
+def _arm(arm_id=ARM, *, calc_backend="per_rep", cache="per_rep", warmup=0, fixture="fix-a",
+         timer_scope="score_evaluated_variants"):
     return {
         "arm_id": arm_id,
         "effective_config_hash": CFG_HASH,
@@ -47,6 +48,7 @@ def _arm(arm_id=ARM, *, calc_backend="per_rep", cache="per_rep", warmup=0, fixtu
         "warmup": warmup,
         "fixture_input_hash": fixture,
         "reps": 3,
+        "timer_scope": timer_scope,
         "lifecycle": {
             "calc_backend": calc_backend,
             "damage_oracle": cache,
@@ -97,7 +99,7 @@ def test_the_run_field_set_is_the_designs():
 def test_the_arm_field_set_is_the_designs():
     assert set(MANIFEST_ARM_FIELDS) == {
         "arm_id", "effective_config_hash", "behavior_env", "arm_params",
-        "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle",
+        "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle", "timer_scope",
     }
 
 
@@ -184,7 +186,7 @@ def test_dirty_must_be_a_bool():
 @pytest.mark.parametrize(
     "field",
     ["arm_id", "effective_config_hash", "behavior_env", "arm_params",
-     "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle"],
+     "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle", "timer_scope"],
 )
 def test_a_missing_arm_field_is_rejected(field):
     arm = _arm()

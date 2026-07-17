@@ -212,6 +212,51 @@ def fixture_input_hash(inputs: dict) -> str:
     return _sha1_16(encode(inputs))
 
 
+def group_a_fixture_dto(
+    *, req, state, my_actions, book, our_spreads, opp_sets, calc_profile, our_side, opp_side
+) -> dict:
+    """The COMPLETE §2.7 group-A input set -- every input that determines V (n_candidates) and
+    the scoring -- assembled for :func:`fixture_input_hash`.
+
+    It binds the **request**, the full **state** (both sides AND the field), the action
+    **order**, the **book**, **our_spreads**, **opp_sets**, the **calc_profile** and the side
+    labels. Crucially it does NOT hand-pick fields: it hands the RAW objects to ``encode``,
+    which serialises each one completely -- a dataclass by every one of its fields (name-
+    sorted, recursed), a pydantic model by ``model_dump`` -- so a change to any move, spread,
+    item, nature, EV or field flips the hash automatically, and a field added to any of these
+    types later is picked up without editing here.
+
+    This is the fix for a reduced descriptor that enumerated only a board slice (species/item
+    per slot). That descriptor omitted moves, spreads and most of the request, so two
+    genuinely different boards could share a hash -- which silently defeats the dataset
+    fixture-identity check (identical ``fixture_input_hash`` is supposed to GUARANTEE identical
+    ``n_candidates``). Under-binding here is the one failure mode §2.7 cannot tolerate, so the
+    builder binds the whole input and lets ``encode`` be exhaustive.
+
+    The action ORDER is the one input NOT handed raw: each action is bound by
+    ``joint_action_key_v2`` -- the SAME canonical identity the scoring path stamps onto
+    ``candidate_key`` (``mega_scoring.py``). Re-encoding a ``JointAction``'s dataclass fields
+    here would be a second action-identity recipe free to disagree with the canonical one
+    (its v2 schema deliberately overlays the mega/tera flags), which is exactly the "two
+    canonicalisations drift" defect §2.7 exists to prevent.
+    """
+    from showdown_bot.battle.candidate_identity import joint_action_key_v2
+
+    return {
+        "our_side": our_side,
+        "opp_side": opp_side,
+        "request": req,
+        "state": state,
+        # canonical per-action key, order preserved (the first-wins tie-break) -- NOT a raw
+        # re-encoding of the action internals, which would be a second identity recipe.
+        "action_order": [joint_action_key_v2(j) for j in my_actions],
+        "book": book,
+        "our_spreads": our_spreads,
+        "opp_sets": opp_sets,
+        "calc_profile": calc_profile,
+    }
+
+
 def _sha1_16(encoded) -> str:
     # `encode` has already fixed all ordering, so sort_keys is deliberately NOT used: it
     # would re-sort nothing and must not be relied on to.
@@ -338,7 +383,10 @@ MANIFEST_RUN_FIELDS: tuple[str, ...] = (
     "arms",
 )
 
-# Design §2.7's arm-entry table, exactly.
+# Design §2.7's arm-entry table, exactly. `timer_scope` is pinned per arm (C3-fix): an arm
+# is measured at exactly one microprofile scope, so the manifest must record it and the row
+# validator must check every row against it -- otherwise the harness could carry a second,
+# independent scope truth that the frozen evidence never cross-checks (§2.5).
 MANIFEST_ARM_FIELDS: tuple[str, ...] = (
     "arm_id",
     "effective_config_hash",
@@ -349,6 +397,7 @@ MANIFEST_ARM_FIELDS: tuple[str, ...] = (
     "reps",
     "warmup",
     "lifecycle",
+    "timer_scope",
 )
 
 # Provenance that must actually pin something. `None` is what file_content_hash returns
@@ -483,6 +532,13 @@ def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
             f"{where} ({arm_id!r}) declares per_rep caches and warmup={warmup}: a cold-cache "
             f"arm that warms up is a contradiction, because its caches are discarded anyway "
             f"(§2.8)",
+        )
+
+        scope = arm.get("timer_scope")
+        _require(
+            scope in _MICRO_SCOPES,
+            f"{where} ({arm_id!r}) has timer_scope {scope!r}; a microprofile arm must declare "
+            f"one of {sorted(_MICRO_SCOPES)} (§2.5). agent_choose is live-only",
         )
 
         index[arm_id] = arm
@@ -689,6 +745,14 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
     _require(
         row["config_hash"] == arm.get("effective_config_hash"),
         "config_hash does not match this arm's effective_config_hash",
+    )
+    # timer_scope is pinned per arm (§2.5, C3-fix): a row measured at a different scope than
+    # its arm declares is a category error the harness must not be free to introduce -- there
+    # is one scope per arm, recorded in the manifest, and every row is checked against it.
+    _require(
+        row["timer_scope"] == arm.get("timer_scope"),
+        f"timer_scope {row['timer_scope']!r} does not match arm {row['arm_id']!r}'s declared "
+        f"{arm.get('timer_scope')!r}: the row was measured at a scope the manifest did not pin",
     )
 
     for field in _SIZE_FIELDS:

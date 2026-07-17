@@ -29,7 +29,8 @@ ARM = "arm-01"
 CFG_HASH = "0123456789abcdef"
 
 
-def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=CFG_HASH):
+def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=CFG_HASH,
+              timer_scope="score_evaluated_variants"):
     """`arms` is a LIST with arm_id as a field (design §2.7 + Erratum 1).
 
     Not a mapping keyed by arm_id: a mapping cannot represent a duplicate arm_id, so the
@@ -56,6 +57,7 @@ def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=
                 "effective_config_hash": config_hash,
                 "warmup": warmup,
                 "reps": 3,
+                "timer_scope": timer_scope,
                 "lifecycle": {
                     "calc_backend": calc_backend,
                     "damage_oracle": cache,
@@ -513,8 +515,19 @@ def test_an_unknown_timer_scope_is_rejected():
 
 
 def test_the_wider_microprofile_scope_is_accepted():
-    row = _micro(timer_scope="contexts_and_score")
-    validate_decision_profile_row(row, manifest=_manifest())
+    m = _manifest(timer_scope="contexts_and_score")
+    row = _micro(m, timer_scope="contexts_and_score")
+    validate_decision_profile_row(row, manifest=m)
+
+
+def test_a_row_scope_that_disagrees_with_its_manifest_arm_is_rejected():
+    # timer_scope is pinned per arm (§2.5, C3-fix): a row valid in isolation but measured at a
+    # different scope than its arm declares is rejected, so the harness cannot carry a second,
+    # unpinned scope truth the frozen evidence never checks.
+    m = _manifest(timer_scope="score_evaluated_variants")
+    row = _micro(m, timer_scope="contexts_and_score")   # both are valid microprofile scopes...
+    with pytest.raises(DecisionProfileError, match="timer_scope"):
+        validate_decision_profile_row(row, manifest=m)   # ...but they disagree, so it fails
 
 
 # ==========================================================================

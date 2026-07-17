@@ -4,11 +4,15 @@
 closed. Approval covers **planning the implementation**: it authorizes no profile run, no live
 run, no optimization, no Strength run and no measurement claim.
 
-**Revision:** Rev. 11 + **Erratum 1**. Each revision's errors are recorded in §9 rather than
+**Revision:** Rev. 11 + **Errata 1–2**. Each revision's errors are recorded in §9 rather than
 silently rewritten. Erratum 1 corrects a self-contradiction Rev. 11 shipped: §2.7's manifest table
 placed `warmup` at **run** level while §2.8, §2.4's validator list and §5.4's
 `expected_cache_class` all read **`arm.warmup`**. It changes no decision, no gate and no D-1
 term — it makes the manifest say what the rest of the design already required (§9, Erratum 1).
+Erratum 2 (C3, found in implementation) precisifies §2.5's "contains the spawn? **no**" for the
+narrow scope: it means *context construction is excluded*, **not** that `score()` cannot spawn —
+arm 7 (no own Mega) is the real counterexample. No gate, no D-1 term, no arm changes (§9,
+Erratum 2).
 Rev. 11 fixes three contradictions Rev. 10's own cache/backend rules introduced: they were
 written for microprofile rows but applied to **every** row, so a live row — which has no arm, no
 `rep` and no declared lifecycle — could not satisfy them (§2.4); `expected_cache_class` branched
@@ -706,6 +710,7 @@ rejected** — two truths about the same quantity is exactly the drift this erra
 | `reps` | timed repetitions |
 | `warmup` | **per arm** (Erratum 1): how many **untimed** repetitions precede this arm's timed ones. Arms may differ. **Required**, and it must cohere with `lifecycle`: an arm whose caches are `per_rep` must declare `warmup == 0`, because a cold-cache arm that warms up is a contradiction (§2.8) |
 | `lifecycle` | which objects are rebuilt per repetition — see §2.8. **Required**; there is no default |
+| `timer_scope` | the microprofile scope this arm is measured at (§2.5): `"score_evaluated_variants"` (narrow, every branch-cost arm) or `"contexts_and_score"` (wide, the persistent-backend spawn arms 13b/14). **Required** (C3). Pinned here so it is not a second, unpinned truth the harness carries: the row validator checks every row's `timer_scope` against this field, and `run_arm` reads it from the arm rather than accepting it as an argument |
 
 **`fixture_input_hash` — exact DTO over every direct scoring input (Rev. 6 correction).**
 Rev. 4 hashed "the constructed board". Rev. 5 replaced that with "all ten inputs, canonically
@@ -1371,6 +1376,30 @@ constructible today are recorded as plan inputs, not papered over.
 Arms 5, 7-board, 8-decision and 10 are **NOT MEASURABLE** under this spec as written. A profile
 run that omits them must not claim coverage of them.
 
+### 4.2 C3 implementation status — P-1…P-5 closed
+
+**The paragraphs above are the historical audit and are preserved verbatim.** They record what
+was unconstructible *at C2 time* and why; they are not rewritten, because the reasoning is the
+evidence that the closure below is real rather than assumed. This subsection records that C3
+closed them.
+
+| blocker | closed by | proof |
+|---|---|---|
+| **P-1** (foe Mega in p2.b) | an I8 board that places a real Aerodactylite holder in `p2.b`, resolved by the **real** `foe_mega_eligibility()` | `tests/i8`… `test_each_c3_arm_is_constructible_and_its_rows_validate[5]` |
+| **P-2** (no own Mega) | a board coherent on **both** signals — `p1.a` holds no stone **and** the request's `canMegaEvo` is False — so `contexts=[None]` and the foe-Mega branch composes against it | arm 7 proof |
+| **P-3** (dual-Mega, unequal speed, decision level) | a decision-level board with own Aerodactyl 200 vs foe Meganium 145; only the inequality is pinned, `200/145` is the real book-driven value | arm 8 proof |
+| **P-4** (Trick Room, decision level) | the dual-unequal board with `field.trick_room` set on the **final** state before contexts are built — never a post-hoc `kw["state"]` swap | arm 10 proof |
+| **P-5** (fixtures split the backend) | a **production-topology session** that shares one calc backend across damage/speed/dex (`gauntlet.py`'s topology), measured at `timer_scope="contexts_and_score"` so the scope contains the spawn context construction does | arms 13b (`clean_cold`) and 14 (`clean_warm`) proofs |
+
+Also closed in support: **P-6/P-7** (per-decision deltas and the planned/implicit split — I8-A);
+**P-9** (per-method transport + physical attempts — I8-A); **P-10** (the profile manifest
+producer — I8-C/C1); and the request-outcome counters and the at-origin `MegaShapeCounts`
+work-set telemetry the row shape needs (I8-A addendum + the C3 telemetry addendum). `timer_scope`
+is now a pinned manifest field checked against every row, `behavior_env` is mandatory from the
+manifest arm, and `fixture_input_hash` binds the complete §2.7 group-A input via
+`group_a_fixture_dto`. **No run, evidence, D0, D-2 or optimization is authorized by this status;
+it records that the arms are constructible, nothing about their measured latency.**
+
 ---
 
 ## 5. Gates — fixed before any run
@@ -1730,3 +1759,12 @@ the implementation could not satisfy both.
 |---|---|---|---|
 | E1 | §2.7's manifest table: `\| warmup \| run \| stated once …` | **CONTRADICTS FOUR OTHER PLACES IN THE SAME DOCUMENT** | §2.8 ("**Warmup** is declared per arm"), §2.4's validator rule (`arm.warmup`), §2.4's `cache_class == "warm" ⇒ rep >= 1 or arm.warmup >= 1`, and §5.4's `expected_cache_class` (`arm.warmup == 0`) all read it per-arm. §9 entry 24 shows the origin: Rev. 5 pinned a run-level warmup, Rev. 6 moved the lifecycle per-arm and declared warmup per-arm in §2.8 — and this table row was never updated. Per-arm is also the only coherent reading, since §2.8 calls a warming-up cold-cache arm a contradiction and a run-level value would force one on every such arm. Corrected: `warmup` moves to the arm entry, a top-level `warmup` is **rejected** so the two readings cannot coexist, and the arm entry states the coherence rule (`per_rep` caches ⇒ `warmup == 0`). |
 | E2 | `arms[]` left implicit enough that an implementation read it as a mapping keyed by `arm_id` | **A MAPPING DEFEATS A FAIL-CLOSED CHECK THE SLICE REQUIRES** | The design says "one entry per arm" and gives each entry an `arm_id` **field**, which is redundant in a mapping — the tell that a list was meant. It matters beyond style: a mapping **cannot represent** a duplicate `arm_id`, so the duplicate disappears at construction and the frozen manifest can never be re-checked for it. That contradicts the principle the dataset tier already rests on — frozen evidence must not blindly trust the writer. Stated explicitly as a LIST, validated in full before any lookup index is built. |
+
+### Erratum 2 — §2.5's "narrow scope contains the spawn? no" was too strong
+
+Not a revision: no claim is withdrawn, no gate moves, no arm changes. Found while building the C3
+harness against the real scoring path.
+
+| # | as shipped | verdict | why |
+|---|---|---|---|
+| E3 | §2.5's `score_evaluated_variants` row: "contains the spawn? **no** — context construction has already spawned the shared backend (§2.8)" | **TRUE FOR THE ARMS §2.8 REASONED ABOUT, BUT NOT UNIVERSAL** | The "no" was derived on a board where context construction *does* spawn the shared backend (an own-Mega projection calls `speed_for_species` → `stats_batch` → spawn, §2.8's call chain), so the process is already alive when the narrow window opens. That is not guaranteed. **Arm 7** (foe-Mega with **no** own Mega) has no own projection, so context construction spawns **nothing** (measured: `spawn_count` 0→0 across `build_own_mega_contexts`); its first spawn is the damage batch *inside* `score_evaluated_variants`. So `clean_cold` **is** reachable at the narrow scope for that arm. The precise statement: the narrow scope **excludes context construction** from the window; it does **not** assert `score()` performs no spawn. This changes nothing operationally — the branch-cost arms stay at the narrow scope, arm 13b (the spawn-cost arm) is measured at `contexts_and_score` regardless, and `backend_class` is still recomputed per row from its own facts — but the one-word "no" would mislead a reader into thinking a narrow-scope row can never be `clean_cold`. |

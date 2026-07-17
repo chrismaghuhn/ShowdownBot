@@ -63,6 +63,7 @@ def _manifest() -> dict:
                 "effective_config_hash": CFG_HASH,
                 "warmup": 0,
                 "reps": 3,
+                "timer_scope": "score_evaluated_variants",
                 "lifecycle": {
                     "calc_backend": "per_rep",
                     "damage_oracle": "per_rep",

@@ -90,7 +90,7 @@ def test_each_arm_carries_the_designs_arm_entry_fields():
     arm = _built()["arms"][0]
     assert set(arm) == {
         "arm_id", "effective_config_hash", "behavior_env", "arm_params",
-        "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle",
+        "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle", "timer_scope",
     }
 
 

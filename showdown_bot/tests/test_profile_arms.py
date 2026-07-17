@@ -51,10 +51,27 @@ def test_every_blocked_arm_names_its_blocker():
         assert len(reason) > 6, f"{arm_id}: blocker reason is not a reason"
 
 
-def test_the_blocked_set_is_exactly_the_designs_five_blockers():
-    # P-1 slot 1, P-2 no-own-Mega board, P-3 unequal-speed decision board, P-4 Trick Room,
-    # P-5 fixtures do not share the backend (13b cold and 14 warm).
-    assert set(BLOCKED_ARMS) == {"5", "7", "8", "10", "13b", "14"}
+def test_c3_unblocked_all_six_so_the_blocked_set_is_empty():
+    # C3 built I8-specific coherent boards (P-1..P-4) and a production-topology session
+    # (P-5), so the six arms §4 audited as unconstructible at C2 -- 5, 7, 8, 10, 13b, 14 --
+    # are now runnable. None was dropped for convenience; each is proven arm-by-arm in
+    # tests/i8/test_profile_arms_end_to_end.py.
+    assert set(BLOCKED_ARMS) == set()
+    runnable = {a.design_arm for a in PROFILE_ARMS}
+    assert {"5", "7", "8", "10", "13b", "14"} <= runnable
+    # and the whole design set is now runnable, nothing left blocked
+    assert runnable == set(design_arm_ids())
+
+
+def test_the_two_persistent_arms_use_the_wide_timer_scope():
+    # 13b (cold) and 14 (warm) measure the backend spawn, which on a shared backend happens
+    # during context construction -- so they must be measured at a scope that CONTAINS it
+    # (§2.5/§2.8). Every other arm stays at the narrow score_evaluated_variants.
+    by_id = {a.design_arm: a for a in PROFILE_ARMS}
+    assert by_id["13b"].timer_scope == "contexts_and_score"
+    assert by_id["14"].timer_scope == "contexts_and_score"
+    narrow = [a.design_arm for a in PROFILE_ARMS if a.timer_scope == "score_evaluated_variants"]
+    assert set(narrow) == set(design_arm_ids()) - {"13b", "14"}
 
 
 # ==========================================================================
