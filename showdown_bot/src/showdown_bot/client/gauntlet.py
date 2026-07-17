@@ -69,6 +69,8 @@ def agent_choose(
     override=None,
     format_config=None,
     opp_mega_evidence_sink=None,
+    stage_sink=None,
+    shape_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -147,6 +149,7 @@ def agent_choose(
             # SAME sink. Omitting it here made every reranker decision invisible to the
             # sidecar.
             opp_mega_evidence_sink=opp_mega_evidence_sink,
+            stage_sink=stage_sink, shape_sink=shape_sink,
         )
         if override is None:
             return heuristic_choose
@@ -165,6 +168,7 @@ def agent_choose(
         # Rides through choose_with_fallback's existing **deps into
         # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
         opp_mega_evidence_sink=opp_mega_evidence_sink,
+            stage_sink=stage_sink, shape_sink=shape_sink,
     )
 
 

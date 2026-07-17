@@ -299,6 +299,7 @@ def _choose_best(
     trace=None,
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
+    shape_sink=None,
 ) -> tuple[JointAction, float]:
     """One-ply heuristic decision core. Returns ``(chosen_ja, best_val)``.
 
@@ -414,7 +415,7 @@ def _choose_best(
             trace=trace, format_config=format_config, calc_profile=calc_profile,
             accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
             endgame=endgame, fast_board=fast_board, mode=mode, my_actions=my_actions,
-            opp_mega_evidence_sink=opp_mega_evidence_sink,
+            opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
         )
 
     plans = {
@@ -702,6 +703,7 @@ def _choose_best_mega(
     mode,
     my_actions: list[JointAction],
     opp_mega_evidence_sink: list | None = None,
+    shape_sink=None,
 ) -> tuple[JointAction, float]:
     """Own-Mega-aware ranking (I7a-B Task 4, design spec Sec.7.1/7.3): every
     own-Mega variant is scored as a first-class candidate in the SAME grid as
@@ -755,7 +757,7 @@ def _choose_best_mega(
         calc_profile=calc_profile, accuracy_mode=accuracy_mode,
         accuracy_branch_cap=accuracy_branch_cap, endgame=endgame, fast_board=fast_board,
         foe_mega_eligibility=_foe_eligibility, species_meta=species_meta_table(),
-        opp_mega_evidence_sink=opp_mega_evidence_sink,
+        opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
     )
     if not records:
         raise ValueError("no evaluated Mega variants")
@@ -1238,6 +1240,7 @@ def _choose_best_ja(
     trace=None,
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
+    shape_sink=None,
 ) -> JointAction:
     """Thin alias for ``_choose_best`` that returns only the chosen ``JointAction``.
 
@@ -1263,7 +1266,7 @@ def _choose_best_ja(
         opp_sets=opp_sets,
         trace=trace,
         format_config=format_config,
-        opp_mega_evidence_sink=opp_mega_evidence_sink,
+        opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
     )[0]
 
 
@@ -1288,6 +1291,7 @@ def heuristic_choose_for_request(
     trace=None,
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
+    shape_sink=None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -1319,7 +1323,7 @@ def heuristic_choose_for_request(
         opp_sets=opp_sets,
         trace=trace,
         format_config=format_config,
-        opp_mega_evidence_sink=opp_mega_evidence_sink,
+        opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
     )
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 
