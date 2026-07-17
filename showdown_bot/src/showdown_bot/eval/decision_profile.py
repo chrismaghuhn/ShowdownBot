@@ -182,6 +182,44 @@ _SOURCES = frozenset({"live", "microprofile"})
 _BACKENDS = frozenset({"oneshot", "persistent"})
 _OUTCOMES = frozenset({"ok", "crash", "fallback", "degraded_state"})
 
+# The AUTHORITATIVE live-outcome vocabulary (I8-D): exactly the selection stages
+# `choose_with_fallback` marks via `_mark_selection` (`battle/decision.py`), partitioned.
+# `"heuristic"` is the only completed-decision stage; the other three are its fallback layers.
+# `"team_preview"` never reaches this classifier (team preview emits no profile row). This is
+# NOT a second vocabulary — it references the existing stages verbatim.
+LIVE_OK_STAGE = "heuristic"
+LIVE_FALLBACK_STAGES = frozenset(
+    {"max_damage_fallback", "deterministic_default_pair", "server_default"}
+)
+
+
+def classify_live_outcome(*, crashed: bool, state_degraded: bool,
+                          selection_stage: str | None) -> str:
+    """Map a live decision to its `outcome`, from EXISTING signals only (I8-D, §2.6).
+
+    Order is load-bearing: `crash` (the `agent_choose` exception handler) and `degraded_state`
+    (`state is None and not team_preview`) are classified INDEPENDENTLY of the stage sink and
+    dominate it, so a crash or a degraded decision is never mislabelled `fallback`. Only for a
+    completed, non-degraded decision is the authoritative `selection_stage` consulted:
+    `"heuristic"` ⇒ `ok`, a fallback stage ⇒ `fallback`. `fallback_reason` is deliberately NOT
+    a parameter — the fallback verdict is the STAGE, never a reason that happens to be set. An
+    unknown or absent stage on a completed decision fails closed rather than guessing.
+    """
+    if crashed:
+        return "crash"
+    if state_degraded:
+        return "degraded_state"
+    if selection_stage == LIVE_OK_STAGE:
+        return "ok"
+    if selection_stage in LIVE_FALLBACK_STAGES:
+        return "fallback"
+    raise DecisionProfileError(
+        f"unclassifiable live decision: selection_stage={selection_stage!r} is neither "
+        f"{LIVE_OK_STAGE!r} nor a fallback stage {sorted(LIVE_FALLBACK_STAGES)} "
+        f"(crash/degraded are classified separately)"
+    )
+
+
 # Provenance a row always carries, whatever its source.
 _ALWAYS_SET = ("config_id", "format_id", "git_sha", "config_hash")
 

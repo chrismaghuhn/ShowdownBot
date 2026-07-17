@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+from dataclasses import dataclass
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
@@ -1370,14 +1371,39 @@ def _maybe_tera(
     return best
 
 
-def _mark_selection(trace, stage: str, reason: str | None = None) -> None:
+@dataclass
+class SelectionStageSink:
+    """Optional, off-by-default carrier for the AUTHORITATIVE decision selection stage (I8-D).
+
+    It transports the EXISTING ``selection_stage``/``fallback_reason`` that
+    ``choose_with_fallback`` already sets — it invents no second vocabulary, never touches the
+    returned action, and is written only inside ``_mark_selection`` (two small scalar
+    assignments, nothing serialised). ``None`` is the default through the whole call chain: with
+    no sink, nothing is allocated and no ``DecisionTrace`` is built for the profile. Because the
+    stage is recorded where the fallback contract is decided, the live outcome can never be
+    reconstructed from the action, an exception text, candidate data, or timing.
+    """
+
+    selection_stage: str | None = None
+    fallback_reason: str | None = None
+
+
+def _mark_selection(trace, stage: str, reason: str | None = None, *,
+                    stage_sink: "SelectionStageSink | None" = None) -> None:
     """Pure side-effect telemetry marker: records which stage produced the
     chosen ``/choose`` string (and, on a fallback, why) on the passed
     ``DecisionTrace``. No-op when ``trace`` is None -- never influences which
-    branch ``choose_with_fallback`` takes or what it returns."""
+    branch ``choose_with_fallback`` takes or what it returns.
+
+    ``stage_sink`` (I8-D, off by default) receives the SAME ``stage``/``reason`` this already
+    writes onto ``trace``: two scalar assignments, no serialisation, no file touched. It is the
+    authoritative live-outcome source, set exactly where the fallback contract is decided."""
     if trace is not None:
         trace.selection_stage = stage
         trace.fallback_reason = reason
+    if stage_sink is not None:
+        stage_sink.selection_stage = stage
+        stage_sink.fallback_reason = reason
 
 
 def choose_with_fallback(
@@ -1390,15 +1416,20 @@ def choose_with_fallback(
     report: list[str] | None = None,
     trace=None,
     format_config=None,
+    stage_sink: "SelectionStageSink | None" = None,
     **deps,
 ) -> str:
     """Hard fallback chain: heuristic -> max_damage -> random -> first legal.
 
     Each layer catches exceptions/timeouts of the layer above so a turn is never
     skipped and the bot never crashes the battle loop.
+
+    ``stage_sink`` (I8-D, off by default) mirrors ``trace``: it receives the selection stage at
+    the SAME ``_mark_selection`` points, so a caller can learn the authoritative stage without
+    building a ``DecisionTrace``. It never changes which branch is taken or what is returned.
     """
     if req.team_preview:
-        _mark_selection(trace, "team_preview")
+        _mark_selection(trace, "team_preview", stage_sink=stage_sink)
         return encode_team_preview(pick_team_preview_default(req), rqid=req.rqid)
 
     fallback_reason: str | None = None
@@ -1416,7 +1447,7 @@ def choose_with_fallback(
                 format_config=format_config, **deps,
             )
             choice = fut.result(timeout=hard_timeout)
-            _mark_selection(trace, "heuristic")
+            _mark_selection(trace, "heuristic", stage_sink=stage_sink)
             return choice
         except FutureTimeout:
             fallback_reason = "heuristic_timeout"
@@ -1439,7 +1470,7 @@ def choose_with_fallback(
                 format_config=format_config,
                 **deps,
             )
-            _mark_selection(trace, "max_damage_fallback", fallback_reason)
+            _mark_selection(trace, "max_damage_fallback", fallback_reason, stage_sink=stage_sink)
             return choice
     except Exception as exc:  # noqa: BLE001
         fallback_reason = "max_damage_error"
@@ -1447,10 +1478,10 @@ def choose_with_fallback(
 
     try:
         choice = encode_choose(pick_default_pair(req), rqid=req.rqid)
-        _mark_selection(trace, "deterministic_default_pair", fallback_reason)
+        _mark_selection(trace, "deterministic_default_pair", fallback_reason, stage_sink=stage_sink)
         return choice
     except Exception as exc:  # noqa: BLE001
         logger.warning("random fallback failed: %s", exc)
 
-    _mark_selection(trace, "server_default", "default_pair_error")
+    _mark_selection(trace, "server_default", "default_pair_error", stage_sink=stage_sink)
     return f"/choose default|{req.rqid}"
