@@ -35,6 +35,32 @@ from showdown_bot.models.request import BattleRequest
 
 
 @dataclass
+class MegaShapeCounts:
+    """Optional at-origin work-set telemetry for ``score_evaluated_variants`` (I8, C3-fix).
+
+    Every field is counted WHERE THE WORK HAPPENS, never estimated afterwards from the
+    evidence sink: ``n_candidates`` is V, ``n_responses`` every scored response line,
+    ``n_mega_twins`` the foe-Mega subset of those lines, ``n_branches`` every projection
+    branch composed, ``n_worlds`` K, and ``depth2_frontier`` every (record, index) the
+    depth-2 wrap actually refined (``0`` at depth 1 by construction).
+
+    OFF by default: ``score_evaluated_variants(..., shape_sink=None)`` increments nothing and
+    is byte-identical to the legacy path. A profile session passes one and reads it; nothing
+    on the live decision path does. It is separate from ``opp_mega_evidence_sink`` on purpose
+    -- that sink is per-response provenance for the opp-Mega trace, this one is a per-decision
+    work-set count, and deriving the second from the first is exactly the after-the-fact
+    estimation this addendum removes.
+    """
+
+    n_candidates: int = 0
+    n_responses: int = 0
+    n_mega_twins: int = 0
+    n_branches: int = 0
+    n_worlds: int = 0
+    depth2_frontier: int = 0
+
+
+@dataclass
 class MegaEvaluationContext:
     """One evaluation branch for our own Mega decision (design spec Sec.6.1).
 
@@ -359,6 +385,7 @@ def score_evaluated_variants(
     foe_mega_eligibility: dict[str, MegaForm] | None = None,
     species_meta: dict[str, SpeciesFormMeta] | None = None,
     opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None,
+    shape_sink: MegaShapeCounts | None = None,
 ) -> list[MegaScoreRecord]:
     """Expand no actions -- score exactly the supplied ``evaluated_variants``
     against the already-built ``contexts`` (I7a-B Task 3).
@@ -429,6 +456,11 @@ def score_evaluated_variants(
     records_by_slot: dict[int | None, list[MegaScoreRecord]] = {}
     for rec in records:
         records_by_slot.setdefault(rec.variant.own_mega_slot, []).append(rec)
+
+    if shape_sink is not None:
+        # V and K, set once at origin. The remaining counts accumulate as the work is done.
+        shape_sink.n_candidates = len(records)
+        shape_sink.n_worlds = len(worlds)
 
     from showdown_bot.battle.candidate_identity import joint_action_key_v2
     from showdown_bot.battle.opponent import OpponentResponseCapError, opp_mega_click_rate
@@ -536,6 +568,9 @@ def score_evaluated_variants(
                     )
                 except (UnsupportedMegaAbilityError, MissingMegaSpreadError):
                     branches = []  # fail-closed: exclude, never crash the whole score
+
+                if shape_sink is not None:
+                    shape_sink.n_branches += len(branches)   # projection branches composed
 
                 for branch_idx, branch in enumerate(branches):
                     # PokemonState carries NO effective_speed -- post-Mega speed lives
@@ -652,6 +687,8 @@ def score_evaluated_variants(
                         fast_board=fast_board, accuracy_mode=accuracy_mode,
                         accuracy_branch_cap=accuracy_branch_cap,
                     )
+                    if shape_sink is not None:
+                        shape_sink.n_responses += 1     # one scored response line (no-mega path)
                     if _i7b_active:
                         raw_w = r.weight if r is not None else 1.0  # consistent under the active path
                     else:
@@ -695,6 +732,9 @@ def score_evaluated_variants(
                             rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
                             accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
                         )
+                        if shape_sink is not None:
+                            shape_sink.n_responses += 1    # a scored response line...
+                            shape_sink.n_mega_twins += 1   # ...on the foe-Mega branch path
                         raw_w = original.weight
                         rec.score_vector.append(detail.score)
                         rec.score_weights.append(world_w * raw_w * branch.weight)
@@ -756,6 +796,8 @@ def score_evaluated_variants(
             top_m_idx = sorted(range(len(resp_ws)), key=lambda i: -resp_ws[i])[:top_m]
 
             for i in top_m_idx:
+                if shape_sink is not None:
+                    shape_sink.depth2_frontier += 1   # this (record, index) is actually refined
                 outcome = rec.diagnostic_details[i].representative_outcome
                 # Task 6: bind to THIS index's own context -- the own-only ctx_by_slot
                 # entry for a no-mega index, or that specific foe-mega branch's own
