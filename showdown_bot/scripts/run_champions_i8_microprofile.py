@@ -9,9 +9,10 @@ The repetition count is REQUIRED and must be exactly ``30`` -- the approved micr
 unlogged lever on which arm looks cheap, and a wrong one silently changes the run. The reusable
 runner accepts any positive value for tests; only this entrypoint pins 30.
 
-    Usage (from showdown_bot/):
-        PYTHONPATH="$(pwd)/src" python scripts/run_champions_i8_microprofile.py \
-            --reps 30 --out-dir <path/to/output-dir>
+    Usage (PowerShell, from the repo; Windows is the fixed measurement host):
+        Set-Location showdown_bot
+        $env:PYTHONPATH = (Resolve-Path "src").Path
+        python scripts/run_champions_i8_microprofile.py --reps 30 --out-dir <output-dir>
 
 This starts no server and plays no battle: it drives the promoted fixtures through the scoring
 path offline, and refuses to overwrite an existing --out-dir.

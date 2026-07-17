@@ -15,11 +15,23 @@ each of those has exactly one home, and this module only calls it:
 There is no battle and no server here: the runner drives fixtures through the scoring path, the
 same as the C3 proof, and every arm's calc backend is whatever that arm declares.
 
+Two properties protect the evidential value of a published profile:
+
+* **Locked provenance (public API).** :func:`run_microprofile` -- the ONLY entry the authorized
+  script calls -- takes no session or fixture injection. It always measures the real promoted
+  fixtures over the full design matrix, so a published directory can never carry fabricated
+  counters or a fixture identity that was substituted at the seam. Tests drive the orchestration
+  through the private :func:`_run_microprofile`, which is where the injection lives.
+* **Complete-or-nothing (completeness gate).** A run publishes only if the finished dataset
+  covers EVERY ``PROFILE_ARMS`` arm at exactly ``reps`` reps. A subset run -- however valid its
+  rows -- is refused, so 'a final directory exists' means 'the whole matrix', not 'some subset
+  that happened to validate'.
+
 Atomic output
 -------------
-A run produces a fully-validated output directory or nothing. Rows and the manifest are written
-into a SIBLING ``<name>.staging`` directory; only after every row has passed the per-row
-validator (on write) AND the finished dataset has passed the dataset tier is the staging
+Rows and the manifest are written into a SIBLING ``<name>.staging`` directory; only after every
+row has passed the per-row validator (on write), the finished dataset has passed the dataset
+tier, AND the completeness gate has confirmed the full matrix is present, is the staging
 directory renamed onto the final path -- one atomic move, on the same filesystem. Refusing to
 overwrite an existing final directory, and removing the staging directory on any failure, keep a
 partial or unvalidated result from ever being exposed.
@@ -32,6 +44,7 @@ from pathlib import Path
 
 from showdown_bot.eval import profile_fixtures
 from showdown_bot.eval.decision_profile import (
+    DecisionProfileError,
     DecisionProfileWriter,
     arm_by_id,
     profile_manifest_hash,
@@ -52,36 +65,72 @@ def run_microprofile(
     agent: str = "heuristic",
     format_id: str | None = None,
     config_id: str = "champions-i8-microprofile",
-    arms=None,
-    session_provider=None,
-    fixture_hashes=None,
     log=None,
 ) -> dict:
-    """Run the microprofile matrix into ``out_dir`` and return the dataset-validation report.
+    """Run the FULL microprofile matrix into ``out_dir`` and return the dataset-validation report.
 
-    ``reps`` is REQUIRED and has no default -- it is a run parameter (profile_arms.arm_specs).
-    The reusable runner accepts any positive value so tests can run cheaply; only the executable
+    This is the authorized, provenance-locked entry point -- the ONLY one the executable script
+    calls. It exposes no session or fixture injection: the run always measures the real promoted
+    fixtures (``profile_fixtures.make_session`` / ``FIXTURE_HASHES``) over the full design matrix
+    (``PROFILE_ARMS``). A caller therefore cannot publish a profile whose counters were fabricated
+    by a stub or whose fixture identity was swapped at a seam.
+
+    ``reps`` is REQUIRED and has no default -- it is a run parameter (profile_arms.arm_specs). The
+    reusable orchestration accepts any positive value so tests can run cheaply; only the executable
     entrypoint pins the authorized 30.
-
-    ``session_provider`` (fixture name -> session) and ``fixture_hashes`` default to the promoted
-    ``profile_fixtures``; they are injectable so tests can drive the orchestration over node-free
-    stubs without changing the runner.
     """
+    return _run_microprofile(
+        out_dir,
+        reps=reps, agent=agent, format_id=format_id, config_id=config_id, log=log,
+        arms=PROFILE_ARMS,
+        session_provider=profile_fixtures.make_session,
+        fixture_hashes=profile_fixtures.FIXTURE_HASHES,
+    )
+
+
+def _run_microprofile(
+    out_dir,
+    *,
+    reps: int,
+    agent: str,
+    format_id: str | None,
+    config_id: str,
+    log,
+    arms,
+    session_provider,
+    fixture_hashes,
+) -> dict:
+    """The orchestration, with the injection seams. PRIVATE: authorized callers use the public
+    :func:`run_microprofile`, which fixes ``arms``/``session_provider``/``fixture_hashes`` to the
+    real matrix and fixtures. Tests reach in here to drive stubs and subsets -- neither of which
+    can ever publish (the completeness gate below requires the full ``PROFILE_ARMS`` matrix)."""
     if not isinstance(reps, int) or isinstance(reps, bool) or reps < 1:
         raise ValueError(f"reps must be a positive int, got {reps!r}")
 
     format_id = format_id or profile_fixtures.FORMAT
-    arms = tuple(PROFILE_ARMS if arms is None else arms)
-    session_provider = session_provider or profile_fixtures.make_session
-    fixture_hashes = profile_fixtures.FIXTURE_HASHES if fixture_hashes is None else fixture_hashes
+    run_arms = tuple(arms)
+    run_ids = [a.arm_id for a in run_arms]
+    if len(set(run_ids)) != len(run_ids):
+        raise DecisionProfileError(f"duplicate arm in the run set: {run_ids}")
 
     final = Path(out_dir)
-    # Fail closed on an existing destination: a finished run is a fixed artifact, and silently
-    # overwriting one would destroy evidence a later reader might still be relying on.
+    # Fail closed on an existing destination BEFORE doing any work: a finished run is a fixed
+    # artifact, and silently overwriting one would destroy evidence a later reader might rely on.
     if final.exists():
         raise FileExistsError(
             f"{final} already exists; the microprofile writes its output directory once"
         )
+
+    # The manifest is built over EXACTLY the arms that will be run, so a manifest can never claim
+    # arms whose rows are absent. arm_specs is computed over PROFILE_ARMS; select the run arms
+    # from it (design order), failing closed on an arm that is not in the design matrix.
+    by_id = {s.arm_id: s for s in arm_specs(fixture_hashes, reps=reps)}
+    try:
+        specs = [by_id[aid] for aid in run_ids]
+    except KeyError as exc:
+        raise DecisionProfileError(
+            f"arm {exc.args[0]!r} is not in the design matrix PROFILE_ARMS"
+        ) from exc
 
     final.parent.mkdir(parents=True, exist_ok=True)
     # A SIBLING staging dir (same parent, same filesystem) so the final exposure is a single
@@ -91,7 +140,6 @@ def run_microprofile(
     os.makedirs(staging)
 
     try:
-        specs = arm_specs(fixture_hashes, reps=reps)
         manifest = build_profile_manifest(agent=agent, format_id=format_id, arms=specs)
         mhash = profile_manifest_hash(manifest)
         write_profile_manifest(manifest, str(staging / MANIFEST_NAME))
@@ -100,7 +148,7 @@ def run_microprofile(
         n_rows = 0
         # PROFILE_ARMS order; within an arm, run_arm returns reps 0..reps-1 in order. The rows
         # file is therefore deterministic: (arm order) x (rep order).
-        for decl in arms:
+        for decl in run_arms:
             entry = arm_by_id(manifest, decl.arm_id)
             for row in _run_one_arm(
                 decl, entry, session_provider,
@@ -113,9 +161,11 @@ def run_microprofile(
         # The dataset gate runs over the FINISHED file, before anything is exposed. It re-runs
         # the per-row validator on every row AND enforces the cross-row identities.
         report = validate_decision_profile_dataset(str(staging / ROWS_NAME), manifest)
+        # The completeness gate: publish ONLY the full design matrix (see module docstring).
+        _require_complete_matrix(report, reps)
 
         # Atomic exposure: nothing named `final` existed until this rename, and it happens ONLY
-        # after both validator tiers passed.
+        # after both validator tiers AND the completeness gate passed.
         os.rename(staging, final)
     except BaseException:
         # Never leave a partial or unvalidated result behind. rmtree targets EXACTLY the staging
@@ -124,8 +174,39 @@ def run_microprofile(
         raise
 
     if log is not None:
-        log(f"microprofile: {len(arms)} arms x {reps} reps = {n_rows} rows -> {final}")
+        log(f"microprofile: {len(run_arms)} arms x {reps} reps = {n_rows} rows -> {final}")
     return report
+
+
+def _require_complete_matrix(report: dict, reps: int) -> None:
+    """Refuse to publish anything less than the full design matrix.
+
+    ``validate_decision_profile_dataset`` proves every row present is valid and mutually
+    consistent, but it says nothing about rows that are ABSENT: a run of a single arm produces a
+    perfectly valid one-arm dataset. For the authorized run the evidential claim is '450 rows =
+    15 arms x 30 reps', so a published directory must contain EVERY ``PROFILE_ARMS`` arm at
+    exactly ``reps`` reps. Anything short of that is refused here, before the atomic rename, so it
+    is never exposed.
+    """
+    design_ids = {a.arm_id for a in PROFILE_ARMS}
+    got = report.get("arms", {})
+    missing = sorted(design_ids - set(got))
+    unexpected = sorted(set(got) - design_ids)
+    if missing or unexpected:
+        raise DecisionProfileError(
+            f"incomplete matrix: a published profile must cover all {len(design_ids)} design "
+            f"arms; missing {missing}, unexpected {unexpected}"
+        )
+    off = {aid: info["reps"] for aid, info in got.items() if info["reps"] != reps}
+    if off:
+        raise DecisionProfileError(
+            f"incomplete matrix: these arms are not at {reps} reps: {off}"
+        )
+    expected_rows = len(design_ids) * reps
+    if report.get("rows") != expected_rows:
+        raise DecisionProfileError(
+            f"incomplete matrix: {report.get('rows')} rows != {len(design_ids)} arms x {reps} reps"
+        )
 
 
 def _run_one_arm(decl, entry, session_provider, *, agent, format_id, config_id,

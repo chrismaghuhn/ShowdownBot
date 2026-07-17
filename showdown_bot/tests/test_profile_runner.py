@@ -87,9 +87,12 @@ def _read_rows(path):
 
 
 def _run(out_dir, *, reps=2, arms=None, log=None, **provider_kw):
+    # Drives the PRIVATE orchestration seam -- the only place session/fixture injection lives.
+    # The public run_microprofile is provenance-locked and takes none of these.
     log = {} if log is None else log
-    return profile_runner.run_microprofile(
-        out_dir, reps=reps, arms=arms,
+    return profile_runner._run_microprofile(
+        out_dir, reps=reps, agent="heuristic", format_id=None, config_id="test", log=None,
+        arms=(PROFILE_ARMS if arms is None else arms),
         session_provider=_stub_provider(log, **provider_kw),
         fixture_hashes=pf.FIXTURE_HASHES,
     ), log
@@ -133,6 +136,21 @@ def test_no_server_or_battle_apis_in_the_driver():
     entry = _ENTRYPOINT.read_text(encoding="utf-8")
     for token in forbidden:
         assert token not in entry, f"entrypoint references {token!r}"
+
+
+def test_public_run_microprofile_exposes_no_provenance_injection():
+    """P1: the authorized entry must NOT let a caller substitute the session or the fixture
+    hashes -- otherwise a published profile could carry fabricated counters or a swapped fixture
+    identity. The injection seams live only on the private _run_microprofile."""
+    import inspect
+
+    public = set(inspect.signature(profile_runner.run_microprofile).parameters)
+    for seam in ("session_provider", "fixture_hashes", "arms"):
+        assert seam not in public, f"public run_microprofile must not expose {seam!r}"
+    # and the entrypoint calls the PUBLIC, locked function -- never the private seam.
+    entry = _ENTRYPOINT.read_text(encoding="utf-8")
+    assert "run_microprofile(" in entry
+    assert "_run_microprofile" not in entry
 
 
 # --------------------------------------------------------------------------
@@ -183,6 +201,18 @@ def test_output_is_lf_only_as_raw_bytes(tmp_path):
         raw = (tmp_path / "out" / name).read_bytes()
         assert b"\r\n" not in raw, name
         assert raw.endswith(b"\n")
+
+
+def test_an_incomplete_matrix_is_refused_and_publishes_nothing(tmp_path):
+    """P1: a run that covers fewer than all PROFILE_ARMS arms produces perfectly VALID rows and a
+    valid one-arm dataset -- yet it must NOT be published, or a truncated profile could pass for
+    the full 15x30 matrix. The completeness gate refuses it before the atomic rename."""
+    assert len(PROFILE_ARMS) > 1
+    one = [PROFILE_ARMS[0]]
+    with pytest.raises(DecisionProfileError, match="incomplete matrix"):
+        _run(tmp_path / "out", reps=2, arms=one)     # valid rows, but 1 of 15 arms
+    assert not (tmp_path / "out").exists()
+    assert not (tmp_path / "out.staging").exists()
 
 
 # --------------------------------------------------------------------------
@@ -254,13 +284,15 @@ def test_environment_is_restored_after_success_and_after_failure(tmp_path):
 # the real machinery, small, into tmp only
 # --------------------------------------------------------------------------
 
-def test_small_real_end_to_end_run_into_tmp(tmp_path):
-    """Two REAL cold arms at reps=2 through the real scoring path -- proves the runner drives
-    the actual machinery and the dataset validates. Small and tmp-only: no evidence, no 450-row
-    profile. This is the only test here that touches the calc bridge."""
-    arms = [a for a in PROFILE_ARMS if a.arm_id in ("A01_no_foe_mega", "A03_click_rate_default")]
-    report = profile_runner.run_microprofile(tmp_path / "real", reps=2, arms=arms)
-    assert report["rows"] == 2 * len(arms)
+def test_full_matrix_real_end_to_end_at_reps_1_into_tmp(tmp_path):
+    """The full design matrix through the REAL scoring path at reps=1 (15 rows), via the PUBLIC
+    provenance-locked run_microprofile -- proving the authorized path drives the actual machinery,
+    passes both validator tiers AND the completeness gate, and publishes. reps=1 and tmp-only: this
+    is NOT the authorized 450-row (reps=30) run, and it freezes no evidence. The one test here that
+    touches the calc bridge."""
+    report = profile_runner.run_microprofile(tmp_path / "real", reps=1)
+    assert report["rows"] == len(PROFILE_ARMS)                 # 15 arms x 1 rep, complete
+    assert set(report["arms"]) == {a.arm_id for a in PROFILE_ARMS}
     assert (tmp_path / "real" / "profile.jsonl").exists()
     assert (tmp_path / "real" / "profile_manifest.json").exists()
     raw = (tmp_path / "real" / "profile.jsonl").read_bytes()
