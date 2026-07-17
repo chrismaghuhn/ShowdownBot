@@ -220,6 +220,106 @@ def classify_live_outcome(*, crashed: bool, state_degraded: bool,
     )
 
 
+# The cumulative calc counters whose per-decision deltas a live row carries. Same set and
+# order the microprofile session snapshots, so live and microprofile deltas are one quantity.
+_LIVE_DELTA_FIELDS = (
+    "damage_batch_calls", "planned_damage_batches", "implicit_damage_batches",
+    "stats_batch_calls", "types_batch_calls", "requests_total", "requests_unique",
+    "cache_hits", "transport_attempts",
+)
+
+
+def snapshot_calc_counters(oracle, backend) -> dict:
+    """The client-owned cumulative calc counters at one instant (I8-D live), mirroring the
+    microprofile session's ``counters()`` exactly. Read-only: no counter is reset per decision,
+    so a per-decision figure is a before/after difference, never the raw total."""
+    return {
+        "damage_batch_calls": oracle.batch_calls,
+        "planned_damage_batches": oracle.planned_damage_batches,
+        "implicit_damage_batches": oracle.implicit_damage_batches,
+        "stats_batch_calls": backend.stats_batch_calls,
+        "types_batch_calls": backend.types_batch_calls,
+        "transport_attempts": backend.transport_attempts,
+        "spawn_count": backend.spawn_count,
+        "requests_total": oracle.requests_total,
+        "requests_unique": oracle.requests_unique,
+        "cache_hits": oracle.cache_hits,
+    }
+
+
+def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash: str,
+                           config_id: str, format_id: str, git_sha: str, config_hash: str,
+                           calc_backend: str, outcome: str, latency_ms: float,
+                           counters_before: dict, counters_after: dict, shape) -> dict:
+    """Assemble ONE live decision-profile row -- the single place a live row is built (§2.4/§2.6).
+
+    ``measured_ms`` is the ``agent_choose`` latency ONLY when ``outcome == "ok"``; otherwise it
+    is ``null`` (§2.6), while the real counter deltas are kept. Counters are after-minus-before
+    deltas of the client's cumulative calc counters. Live identity (battle_id/decision_index/
+    schedule_hash) is set; the microprofile identity (arm_id/rep/profile_manifest_hash) and every
+    cache field are ``null``. ``backend_class`` is COMPUTED from the deltas, never supplied.
+    ``shape`` is the ``MegaShapeCounts`` filled at origin during the decision, or ``None`` for a
+    decision that scored nothing (all shape fields 0, ``foe_mega_active`` False).
+    """
+    if outcome not in _OUTCOMES:
+        raise DecisionProfileError(f"unknown outcome {outcome!r}")
+    delta = {f: counters_after[f] - counters_before[f] for f in _LIVE_DELTA_FIELDS}
+    spawn_count_before = counters_before["spawn_count"]
+    spawn_calls = counters_after["spawn_count"] - counters_before["spawn_count"]
+    transport_calls = (
+        delta["damage_batch_calls"] + delta["stats_batch_calls"] + delta["types_batch_calls"]
+    )
+    transport_retried = delta["transport_attempts"] > transport_calls
+    row = {
+        "schema_version": SCHEMA_VERSION,
+        "source": "live",
+        "battle_id": battle_id,
+        "decision_index": decision_index,
+        "arm_id": None,
+        "rep": None,
+        "config_id": config_id,
+        "format_id": format_id,
+        "git_sha": git_sha,
+        "config_hash": config_hash,
+        "schedule_hash": schedule_hash,
+        "profile_manifest_hash": None,
+        "calc_backend": calc_backend,
+        "backend_class": backend_class_of(
+            calc_backend, spawn_count_before, spawn_calls, transport_retried
+        ),
+        "cache_class": None,
+        "damage_cache_size_at_rep_start": None,
+        "speed_cache_size_at_rep_start": None,
+        "dex_cache_size_at_rep_start": None,
+        "spawn_count_before": spawn_count_before,
+        "transport_retried": transport_retried,
+        "timer_scope": "agent_choose",
+        # §2.6: a non-ok wall clock is the crash handler / fallback layer, not decision work.
+        "measured_ms": float(latency_ms) if outcome == "ok" else None,
+        "damage_batch_calls": delta["damage_batch_calls"],
+        "planned_damage_batches": delta["planned_damage_batches"],
+        "implicit_damage_batches": delta["implicit_damage_batches"],
+        "stats_batch_calls": delta["stats_batch_calls"],
+        "types_batch_calls": delta["types_batch_calls"],
+        "transport_calls": transport_calls,
+        "transport_attempts": delta["transport_attempts"],
+        "spawn_calls": spawn_calls,
+        "requests_total": delta["requests_total"],
+        "requests_unique": delta["requests_unique"],
+        "cache_hits": delta["cache_hits"],
+        "n_candidates": shape.n_candidates if shape is not None else 0,
+        "n_responses": shape.n_responses if shape is not None else 0,
+        "n_mega_twins": shape.n_mega_twins if shape is not None else 0,
+        "n_branches": shape.n_branches if shape is not None else 0,
+        "n_worlds": shape.n_worlds if shape is not None else 0,
+        "depth2_frontier": shape.depth2_frontier if shape is not None else 0,
+        "foe_mega_active": bool(shape is not None and shape.n_mega_twins > 0),
+        "outcome": outcome,
+    }
+    validate_profile_row_fields(row)   # exact-closed field set, fail closed
+    return row
+
+
 # Provenance a row always carries, whatever its source.
 _ALWAYS_SET = ("config_id", "format_id", "git_sha", "config_hash")
 
