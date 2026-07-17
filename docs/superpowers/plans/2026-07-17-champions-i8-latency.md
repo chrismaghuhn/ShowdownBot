@@ -1,11 +1,36 @@
 # Champions I8 — Active Foe-Mega Latency Profile: Implementation Plan
 
-**Status:** `I8-A COMPLETE · I8-B AUTHORIZED · NO LIVE RUN`
+**Status:** `I8-A COMPLETE · I8-B COMPLETE · NO LIVE WIRING · NO LIVE RUN`
 
 I8-A landed as `b87d5a6` — counters on both calc backends, the planned/implicit batch split, and
-the cache-size characterization. Full suite 2260 passed / 2 skipped / 1 xfailed; no behaviour
-change; nothing reads the counters yet. **No run of any kind is authorized by this plan** — not a
-smoke, not a server, not a battle. I8-C's microprofile and I8-D's live run each need their own.
+the cache-size characterization. I8-B follows it: the sidecar, both validator tiers, and the one
+canonical encoder. **Nothing imports the profile module yet** — there is no live wiring, and none
+is authorized here. **No run of any kind is authorized by this plan** — not a smoke, not a server,
+not a battle. I8-C's microprofile and I8-D's live run each need their own.
+
+**I8-B, as built.** Four review findings landed against it first:
+
+| finding | what it was |
+|---|---|
+| the field set was 39, must be **41** | the design declares `config_id`, `format_id` and `git_sha` on **one** table row; a parse taking the first backticked name per row dropped two mandatory fields — **and the drift guard used the same parser**, so it certified the wrong set |
+| the manifest was **self-referential** | it stored `profile_manifest_hash` inside itself. A document carrying a digest of itself cannot be hashed: the field is an input to the digest that depends on it. The hash is now **computed** from content |
+| semantically invalid rows **passed** | `schema_version`, the `outcome` enum, `calc_backend`, bool/float types and non-empty provenance were unvalidated. Structural completeness is not validity |
+| the sink path was **unclassified** | `config_env.is_excluded` fails closed toward **inclusion**, so `SHOWDOWN_DECISION_PROFILE_OUT` would have entered `behavior_env` and `config_hash` — enabling a measurement sidecar would have changed the identity of the run being measured |
+
+The last has a second half worth stating: the drift scanner that exists to catch it matches only a
+**string literal at an `os.environ.get` call site**, and `env.get(PROFILE_OUT_ENV, …)` dodged it on
+both counts — a constant instead of a literal, an injected mapping instead of `os.environ`. The var
+was registered **and** the scanner widened, so the next constant-named var cannot hide the same way.
+
+**Mutation testing then caught two vacuous tests of this slice's own.** Weakening the `outcome`
+enum to `is not None` left all 83 tests green: the test's rows were rejected by the
+`outcome ⇔ measured_ms` rule, never by the enum it named. The `cache_class` enum was worse — **dead
+code**, since `expected_cache_class` returns only `"cold"`/`"warm"` and the equality rule already
+constrains the domain; no test could distinguish its presence from its absence, so it was removed
+rather than left implying a guard that never fires. Both are now pinned with `match=`, which is
+what made them visible. The same technique showed the design's `warm ⇒ rep>=1 or warmup>=1` rule is
+a **backstop** against `expected_cache_class` itself being wrong rather than an independently
+reachable rule, and it is now tested as one.
 
 **Approved design:** `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11,
 `APPROVED — implementation planning allowed; no run authorized`, committed `12b19c2`). The design
@@ -381,7 +406,7 @@ unauthorized and impossible, and is withdrawn:**
 | **Sidecar** | **off by default** and **LF-stable**, asserted on raw bytes |
 | **Not authorized** | no smoke, no server, no push |
 
-**Checkpoint after B2, before B3/B4 begin.**
+**Checkpoint after B2, before B3/B4 begin.** — passed at 2360 passed / 2 skipped / 1 xfailed.
 
 ### Task B1 — `eval/decision_profile.py`, off by default
 The row contract is design §2.4, verbatim: exact-closed field set, LF-only bytes
@@ -507,6 +532,37 @@ per_rep  caches:  size_at_rep_start[n] == 0   for every n
 
 Also owned: `fixture_input_hash ⇒ constant n_candidates`; contaminated/excluded counts reported by
 raw fact.
+
+**LANDED** — `validate_decision_profile_dataset(path, manifest)`, 17 tests, corrupted files
+written first. Two details the design's prose left implicit and the implementation had to settle:
+
+- **The grouping key is the ARM's `fixture_input_hash`, not `arm_id`.** `fixture_input_hash` is an
+  *arm-entry* field while `n_candidates` is a *row* field, so the join runs row → `arm_id` →
+  `manifest.arms[…]`. It matters: two arms differing only in call-bound `scoring_params` share a
+  fixture, and V is fixture-determined, so they **must** agree on `n_candidates`.
+- **The dataset tier re-validates every row.** A file on disk is not a trusted writer — it may have
+  been hand-edited, truncated or concatenated since its rows were checked on write. Without this,
+  "no consumer may read rows as evidence without it" would be satisfiable by a tampered file.
+
+The respawn case has its own test asserting it **passes**: it only adds to `spawn_calls`, so the
+identity stays exact and the row is counted as `contaminated` rather than rejected. A
+"predominantly clean_warm" rule would have voided that arm.
+
+### Task B4 — LANDED: one encoder, two hashes
+
+`encode` is public in `eval/decision_profile.py` and is the **only** canonicalisation in the
+slice: `profile_manifest_hash` and `fixture_input_hash` are both `_sha1_16(encode(x))`. It came
+forward from B4 into B2 because a computed manifest hash cannot rest on a provisional serialiser,
+and B4 **extended that same function** rather than introducing a second one — two
+canonicalisations would be free to disagree about the one question both exist to answer.
+
+21 tests, each pinning a rule the design shipped and withdrew (§9 entries 33-37): `items` order
+changes the hash (`items[0]` is the default assumption); `legal_actions` order changes it (the
+first-wins tie-break); `offense`/`defense` are not collapsed; a `set` hashes identically in any
+iteration order **because a set has no order to preserve**; an unhandled type fails closed; a
+dataclass field added later is picked up automatically. The pydantic branch is verified against
+the real `BattleRequest`: `by_alias` is honoured (`forceSwitch`, not `force_switch`) and two
+independent builds encode identically.
 
 **RED — the B → C gate. Each corrupted sidecar must fail; the legitimate one must pass:**
 
