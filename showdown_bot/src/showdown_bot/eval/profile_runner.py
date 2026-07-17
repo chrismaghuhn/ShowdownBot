@@ -38,6 +38,7 @@ partial or unvalidated result from ever being exposed.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -58,22 +59,24 @@ MANIFEST_NAME = "profile_manifest.json"
 ROWS_NAME = "profile.jsonl"
 
 
-def run_microprofile(
-    out_dir,
-    *,
-    reps: int,
-    agent: str = "heuristic",
-    format_id: str | None = None,
-    config_id: str = "champions-i8-microprofile",
-    log=None,
-) -> dict:
+# The authorized run's provenance is FIXED, not caller-supplied. The fixtures embody Champions
+# Reg-MA scored by the heuristic path, so the manifest's format/agent and every row's config_id
+# must match what is actually measured. Locking them is the other half of provenance integrity:
+# removing the session/fixture seams stopped fabricated COUNTERS; fixing these stops a fabricated
+# LABEL -- e.g. recording format_id="gen9ou" while measuring the Champions boards.
+_AGENT = "heuristic"
+_CONFIG_ID = "champions-i8-microprofile"
+
+
+def run_microprofile(out_dir, *, reps: int, log=None) -> dict:
     """Run the FULL microprofile matrix into ``out_dir`` and return the dataset-validation report.
 
     This is the authorized, provenance-locked entry point -- the ONLY one the executable script
-    calls. It exposes no session or fixture injection: the run always measures the real promoted
-    fixtures (``profile_fixtures.make_session`` / ``FIXTURE_HASHES``) over the full design matrix
-    (``PROFILE_ARMS``). A caller therefore cannot publish a profile whose counters were fabricated
-    by a stub or whose fixture identity was swapped at a seam.
+    calls. It takes NO provenance inputs. Not the session or fixtures (which would let a caller
+    fabricate the measured counters), and not the agent/format/config_id (which would let a caller
+    record a LABEL that disagrees with the Champions Reg-MA heuristic fixtures actually measured).
+    Everything is fixed to the real matrix and fixtures; the only inputs are where to write and how
+    many reps.
 
     ``reps`` is REQUIRED and has no default -- it is a run parameter (profile_arms.arm_specs). The
     reusable orchestration accepts any positive value so tests can run cheaply; only the executable
@@ -81,7 +84,8 @@ def run_microprofile(
     """
     return _run_microprofile(
         out_dir,
-        reps=reps, agent=agent, format_id=format_id, config_id=config_id, log=log,
+        reps=reps, log=log,
+        agent=_AGENT, format_id=profile_fixtures.FORMAT, config_id=_CONFIG_ID,
         arms=PROFILE_ARMS,
         session_provider=profile_fixtures.make_session,
         fixture_hashes=profile_fixtures.FIXTURE_HASHES,
@@ -162,7 +166,7 @@ def _run_microprofile(
         # the per-row validator on every row AND enforces the cross-row identities.
         report = validate_decision_profile_dataset(str(staging / ROWS_NAME), manifest)
         # The completeness gate: publish ONLY the full design matrix (see module docstring).
-        _require_complete_matrix(report, reps)
+        _require_complete_matrix(str(staging / ROWS_NAME), reps)
 
         # Atomic exposure: nothing named `final` existed until this rename, and it happens ONLY
         # after both validator tiers AND the completeness gate passed.
@@ -178,35 +182,45 @@ def _run_microprofile(
     return report
 
 
-def _require_complete_matrix(report: dict, reps: int) -> None:
-    """Refuse to publish anything less than the full design matrix.
+def _require_complete_matrix(rows_path: str, reps: int) -> None:
+    """Refuse to publish anything but the full design matrix, EXACTLY.
 
-    ``validate_decision_profile_dataset`` proves every row present is valid and mutually
-    consistent, but it says nothing about rows that are ABSENT: a run of a single arm produces a
-    perfectly valid one-arm dataset. For the authorized run the evidential claim is '450 rows =
-    15 arms x 30 reps', so a published directory must contain EVERY ``PROFILE_ARMS`` arm at
-    exactly ``reps`` reps. Anything short of that is refused here, before the atomic rename, so it
-    is never exposed.
+    ``validate_decision_profile_dataset`` proves every row present is valid and that no arm repeats
+    a rep, but it does not check which ``(arm, rep)`` coordinates are ABSENT: a one-arm dataset, or
+    an arm whose reps are ``{0, 2}`` instead of ``{0, 1}``, both validate -- and the second has the
+    right ROW COUNT, so a count-only gate would pass it. For the authorized run the claim is
+    '450 rows = every one of the 15 arms at reps 0..29', so this reads the finished file and
+    requires the coordinate set to be EXACTLY ``PROFILE_ARMS`` x ``{0..reps-1}`` -- catching a
+    missing arm, a missing rep, a count-preserving gap, or an out-of-range rep. It runs before the
+    atomic rename, so an incomplete matrix is never exposed. (This reads the artifact rather than
+    trusting the in-memory rows, for the same reason the dataset tier re-reads: the file is what
+    gets published.)
     """
     design_ids = {a.arm_id for a in PROFILE_ARMS}
-    got = report.get("arms", {})
-    missing = sorted(design_ids - set(got))
-    unexpected = sorted(set(got) - design_ids)
+    seen: dict[str, set] = {}
+    with open(rows_path, encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            seen.setdefault(row["arm_id"], set()).add(row["rep"])
+
+    missing = sorted(design_ids - set(seen))
+    unexpected = sorted(set(seen) - design_ids)
     if missing or unexpected:
         raise DecisionProfileError(
             f"incomplete matrix: a published profile must cover all {len(design_ids)} design "
             f"arms; missing {missing}, unexpected {unexpected}"
         )
-    off = {aid: info["reps"] for aid, info in got.items() if info["reps"] != reps}
-    if off:
-        raise DecisionProfileError(
-            f"incomplete matrix: these arms are not at {reps} reps: {off}"
-        )
-    expected_rows = len(design_ids) * reps
-    if report.get("rows") != expected_rows:
-        raise DecisionProfileError(
-            f"incomplete matrix: {report.get('rows')} rows != {len(design_ids)} arms x {reps} reps"
-        )
+    expected = set(range(reps))
+    for arm_id in sorted(design_ids):
+        got = seen[arm_id]
+        if got != expected:
+            raise DecisionProfileError(
+                f"incomplete matrix: arm {arm_id!r} has reps {sorted(got)}, expected "
+                f"0..{reps - 1} (missing {sorted(expected - got)}, extra {sorted(got - expected)})"
+            )
 
 
 def _run_one_arm(decl, entry, session_provider, *, agent, format_id, config_id,

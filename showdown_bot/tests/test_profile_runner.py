@@ -139,13 +139,15 @@ def test_no_server_or_battle_apis_in_the_driver():
 
 
 def test_public_run_microprofile_exposes_no_provenance_injection():
-    """P1: the authorized entry must NOT let a caller substitute the session or the fixture
-    hashes -- otherwise a published profile could carry fabricated counters or a swapped fixture
-    identity. The injection seams live only on the private _run_microprofile."""
+    """P1: the authorized entry must NOT let a caller substitute the session/fixtures (which would
+    fabricate the measured counters) OR the agent/format/config_id (which would record a LABEL that
+    disagrees with the Champions Reg-MA heuristic fixtures actually measured). Its only inputs are
+    where to write and how many reps; every provenance input is locked on the private seam."""
     import inspect
 
     public = set(inspect.signature(profile_runner.run_microprofile).parameters)
-    for seam in ("session_provider", "fixture_hashes", "arms"):
+    assert public == {"out_dir", "reps", "log"}, public
+    for seam in ("session_provider", "fixture_hashes", "arms", "agent", "format_id", "config_id"):
         assert seam not in public, f"public run_microprofile must not expose {seam!r}"
     # and the entrypoint calls the PUBLIC, locked function -- never the private seam.
     entry = _ENTRYPOINT.read_text(encoding="utf-8")
@@ -213,6 +215,35 @@ def test_an_incomplete_matrix_is_refused_and_publishes_nothing(tmp_path):
         _run(tmp_path / "out", reps=2, arms=one)     # valid rows, but 1 of 15 arms
     assert not (tmp_path / "out").exists()
     assert not (tmp_path / "out.staging").exists()
+
+
+def _write_coords(path, coords):
+    """A minimal rows file carrying only the fields the completeness gate reads."""
+    lines = [json.dumps({"arm_id": aid, "rep": rep}) for aid, rep in coords]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_completeness_gate_rejects_a_count_preserving_rep_gap(tmp_path):
+    """P1: a rep GAP -- one arm with reps {0, 2} instead of {0, 1} -- has the correct row COUNT
+    (2 == reps) yet is not the full 0..reps-1 set. A count-only gate would pass it; the coordinate
+    gate must reject it."""
+    reps = 2
+    coords = []
+    for i, a in enumerate(PROFILE_ARMS):
+        reps_here = [0, 2] if i == 0 else [0, 1]     # first arm: right count, wrong indices
+        coords += [(a.arm_id, r) for r in reps_here]
+    rows = tmp_path / "rows.jsonl"
+    _write_coords(rows, coords)
+    with pytest.raises(DecisionProfileError, match="reps"):
+        profile_runner._require_complete_matrix(str(rows), reps)
+
+
+def test_completeness_gate_accepts_the_exact_full_matrix(tmp_path):
+    reps = 2
+    coords = [(a.arm_id, r) for a in PROFILE_ARMS for r in range(reps)]
+    rows = tmp_path / "rows.jsonl"
+    _write_coords(rows, coords)
+    profile_runner._require_complete_matrix(str(rows), reps)      # must not raise
 
 
 # --------------------------------------------------------------------------
