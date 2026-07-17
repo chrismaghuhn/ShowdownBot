@@ -280,7 +280,7 @@ class PersistentCalcBackend:
 
     def _run_once(self, payload: list) -> list:
         # I8-A: one PHYSICAL attempt. _run calls this up to twice per logical call
-        # (:242-243), so transport_attempts > *_batch_calls is the retry signature.
+        # (:271, :275), so transport_attempts > *_batch_calls is the retry signature.
         # Counted here rather than in _run so a retried call reports 2, not 1.
         self.transport_attempts += 1
         proc = self._ensure()
