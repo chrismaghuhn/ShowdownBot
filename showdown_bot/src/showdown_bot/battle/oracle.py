@@ -33,6 +33,18 @@ class DamageOracle:
         # error path too, which is the whole reason all three increment together.
         self.planned_damage_batches = 0
         self.implicit_damage_batches = 0
+        # I8-A addendum (§2.4, P-7): request-level accounting, counted at origin in
+        # `request` and cumulative since construction like the batch counters above.
+        # requests_total is every call; a call is then EITHER a cache hit (key already in
+        # `_cache`), a pending duplicate (key already enqueued this batch -- counted in
+        # neither of the two below), or a new unique key that reaches `_pending`. These are
+        # pure telemetry: they change no cache or decision semantics. The row contract names
+        # all three (they were the one gap that blocked a real session from reading its own
+        # counters), and the invariant `requests_unique <= requests_total` is enforced by
+        # the profile validator.
+        self.requests_total = 0
+        self.requests_unique = 0
+        self.cache_hits = 0
         # True only while `get` is resolving a pending key. It exists so `get` can keep
         # calling the PUBLIC `flush` while `flush` still attributes the batch correctly.
         # That is not a style choice: existing guards spy on prefetch misses by patching
@@ -51,8 +63,17 @@ class DamageOracle:
     def request(self, req: DamageRequest) -> str:
         """Enqueue a calc; returns its cache key. Identical calcs dedupe."""
         key = self._key(req)
-        if key not in self._cache and key not in self._pending:
+        # I8-A accounting, counted at origin. The `_pending` mutation below is byte-identical
+        # to the original `if key not in _cache and key not in _pending`: the assignment
+        # still fires only for a key that is in neither map, so dedup and resolution are
+        # unchanged -- only the three counters are added.
+        self.requests_total += 1
+        if key in self._cache:
+            self.cache_hits += 1
+        elif key not in self._pending:
+            self.requests_unique += 1
             self._pending[key] = req
+        # else: a key already pending -- a duplicate within this batch, counted in neither.
         return key
 
     def flush(self) -> None:
