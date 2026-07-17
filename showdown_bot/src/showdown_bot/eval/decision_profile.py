@@ -312,13 +312,85 @@ def backend_class_of(
     return "contaminated"
 
 
-def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
-    """Validate the manifest's arms **list** in full, then return an ``arm_id`` -> entry index.
+# --------------------------------------------------------------------------
+# The profile manifest's contract: ONE definition, here, beside the validator that
+# enforces it. eval/profile_manifest.py (the producer) imports these rather than keeping
+# its own copy -- a second, independently-written field list is exactly the drift the
+# design's §9 records over and over. The dependency runs producer -> here, so there is no
+# cycle.
+# --------------------------------------------------------------------------
 
-    Design §2.7 + Erratum 1. The order is the contract: **validate everything, then index.**
-    An implementation that indexed as it went would have to decide what a duplicate means
-    before anything had judged it -- and would already have dropped the first entry by the
-    time it noticed.
+PROFILE_MANIFEST_SCHEMA_VERSION = "profile-manifest-v1"
+
+# Design §2.7's run-level table, exactly. `arms` is a LIST (Erratum 1), and there is
+# deliberately NO run-level `warmup`: it is per-arm, and a second one here would be a
+# second truth about the same quantity.
+MANIFEST_RUN_FIELDS: tuple[str, ...] = (
+    "schema_version",
+    "git_sha",
+    "dirty",
+    "calc_pin_hash",
+    "format_id",
+    "format_config_hash",
+    "speciesdata_hash",
+    "itemdata_hash",
+    "movedata_hash",
+    "arms",
+)
+
+# Design §2.7's arm-entry table, exactly.
+MANIFEST_ARM_FIELDS: tuple[str, ...] = (
+    "arm_id",
+    "effective_config_hash",
+    "behavior_env",
+    "arm_params",
+    "scoring_params",
+    "fixture_input_hash",
+    "reps",
+    "warmup",
+    "lifecycle",
+)
+
+# Provenance that must actually pin something. `None` is what file_content_hash returns
+# when it cannot read a file, and what config_provenance_for_format returns for a missing
+# format yaml -- a manifest recording "I could not pin this" is not an anchor.
+_MANIFEST_PROVENANCE_FIELDS = (
+    "git_sha",
+    "calc_pin_hash",
+    "format_id",
+    "format_config_hash",
+    "speciesdata_hash",
+    "itemdata_hash",
+    "movedata_hash",
+)
+
+# learning.provenance.git_sha_and_dirty() returns ("unknown", False) when git is
+# unavailable -- a sentinel, never None -- so "unknown" is a perfectly good non-empty str
+# and passes every generic check above. The PROFILE contract is deliberately stricter than
+# that repo-wide helper: a manifest that cannot name the commit does not bind the code its
+# arms ran against, so its measurements are attributable to no version of anything. The
+# helper may keep returning the sentinel and other artifacts may keep accepting it; a
+# git-less environment may run tests. It may not produce I8 evidence.
+_UNKNOWN_GIT_SHA = "unknown"
+
+
+def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
+    """Validate the WHOLE manifest, then return an ``arm_id`` -> entry index.
+
+    Design §2.7 + Erratum 1. The design calls the manifest content **exact** and the
+    manifest itself the microprofile's **provenance anchor**, so this checks the complete
+    contract -- not just the arms. An earlier cut validated only ``arms``, which meant a
+    hand-written manifest with no ``git_sha``, no ``calc_pin_hash`` and no data hashes
+    validated rows and datasets happily. An anchor that pins nothing is not an anchor, and
+    B2/B3 reach a manifest through this function alone.
+
+    Order is the contract, twice over:
+
+      1. the top level first -- nothing below the anchor is worth judging without it;
+      2. then the arms list **in full**, and only then the index. An implementation that
+         indexed as it went would have to decide what a duplicate means before anything
+         had judged it, and would already have dropped the first entry by the time it
+         noticed.
 
     ``arms`` is a LIST with ``arm_id`` as a field of each entry, not a mapping keyed by it.
     That is not a style choice. A mapping **cannot represent** a duplicate ``arm_id``:
@@ -328,12 +400,43 @@ def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
     blindly trust the writer that made it.
     """
     _require(isinstance(manifest, dict), f"manifest must be a dict, got {type(manifest).__name__}")
-    # Erratum 1: warmup is per-arm. A run-level one alongside it would be a second truth
-    # about the same quantity, and nothing would say which reading wins.
+
+    # ---- the anchor itself ------------------------------------------------
+    missing = [f for f in MANIFEST_RUN_FIELDS if f not in manifest]
+    unknown = [f for f in manifest if f not in MANIFEST_RUN_FIELDS]
+    if missing or unknown:
+        # Erratum 1's run-level `warmup` lands here as an unknown field, which is the
+        # right answer: it is not part of the contract. The dedicated message below
+        # explains the *why* for a manifest that is otherwise well-formed.
+        raise DecisionProfileError(
+            f"profile manifest fields missing={sorted(missing)} unknown={sorted(unknown)}"
+            + (
+                " -- 'warmup' is a PER-ARM field (Erratum 1); a run-level one would be a "
+                "second truth about the same quantity"
+                if "warmup" in unknown
+                else ""
+            )
+        )
     _require(
-        "warmup" not in manifest,
-        "manifest carries a run-level 'warmup': it is a per-arm field (Erratum 1), and two "
-        "truths about the same quantity is the drift that erratum removes",
+        manifest["schema_version"] == PROFILE_MANIFEST_SCHEMA_VERSION,
+        f"schema_version must be {PROFILE_MANIFEST_SCHEMA_VERSION!r}, "
+        f"got {manifest['schema_version']!r}",
+    )
+    for name in _MANIFEST_PROVENANCE_FIELDS:
+        value = manifest[name]
+        _require(
+            isinstance(value, str) and value != "",
+            f"{name} must be a non-empty str to pin anything, got {value!r}",
+        )
+    _require(
+        manifest["git_sha"] != _UNKNOWN_GIT_SHA,
+        f"git_sha is {_UNKNOWN_GIT_SHA!r}: a manifest that cannot name the commit does not "
+        f"bind the code its arms ran against, so it is not a provenance anchor. A git-less "
+        f"environment may run tests; it may not produce I8 evidence",
+    )
+    _require(
+        isinstance(manifest["dirty"], bool),
+        f"dirty must be a bool, got {manifest['dirty']!r}",
     )
 
     arms = manifest.get("arms")
@@ -358,6 +461,14 @@ def validate_profile_manifest(manifest: dict) -> dict[str, dict]:
             arm_id not in index,
             f"{where}: duplicate arm_id {arm_id!r}; two arms cannot claim one identity",
         )
+
+        arm_missing = [f for f in MANIFEST_ARM_FIELDS if f not in arm]
+        arm_unknown = [f for f in arm if f not in MANIFEST_ARM_FIELDS]
+        if arm_missing or arm_unknown:
+            raise DecisionProfileError(
+                f"{where} ({arm_id!r}) fields "
+                f"missing={sorted(arm_missing)} unknown={sorted(arm_unknown)}"
+            )
 
         warmup = arm.get("warmup")
         _require(

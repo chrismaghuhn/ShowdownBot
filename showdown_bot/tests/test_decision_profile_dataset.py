@@ -28,6 +28,7 @@ import json
 import pytest
 
 from showdown_bot.eval.decision_profile import (
+    PROFILE_MANIFEST_SCHEMA_VERSION,
     SCHEMA_VERSION,
     DecisionProfileError,
     profile_manifest_hash,
@@ -42,9 +43,21 @@ CFG_HASH = "0123456789abcdef"
 def _manifest(*, calc_backend="per_arm", cache="per_arm", warmup=1, arms=(ARM,), fixture="fix-a"):
     """`arms` is a LIST with arm_id as a field (design §2.7 + Erratum 1)."""
     return {
+        "schema_version": PROFILE_MANIFEST_SCHEMA_VERSION,
+        "git_sha": "a1bb619f52c635013782de6f12f06f29b43a4fa6",
+        "dirty": False,
+        "calc_pin_hash": "79a4877538c8740f",
+        "format_id": "gen9championsvgc2026regma",
+        "format_config_hash": "fa8eb689e95c03c6",
+        "speciesdata_hash": "b6e121e58c592056",
+        "itemdata_hash": "c5b00bfb5f093e98",
+        "movedata_hash": "20b3c72e72480ee1",
         "arms": [
             {
                 "arm_id": a,
+                "behavior_env": {"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+                "arm_params": {},
+                "scoring_params": {},
                 "effective_config_hash": CFG_HASH,
                 "warmup": warmup,
                 "fixture_input_hash": fixture,

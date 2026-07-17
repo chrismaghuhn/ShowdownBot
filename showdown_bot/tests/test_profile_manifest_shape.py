@@ -24,6 +24,9 @@ from __future__ import annotations
 import pytest
 
 from showdown_bot.eval.decision_profile import (
+    MANIFEST_ARM_FIELDS,
+    MANIFEST_RUN_FIELDS,
+    PROFILE_MANIFEST_SCHEMA_VERSION,
     DecisionProfileError,
     arm_by_id,
     validate_profile_manifest,
@@ -38,6 +41,9 @@ def _arm(arm_id=ARM, *, calc_backend="per_rep", cache="per_rep", warmup=0, fixtu
     return {
         "arm_id": arm_id,
         "effective_config_hash": CFG_HASH,
+        "behavior_env": {"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+        "arm_params": {},
+        "scoring_params": {},
         "warmup": warmup,
         "fixture_input_hash": fixture,
         "reps": 3,
@@ -52,7 +58,155 @@ def _arm(arm_id=ARM, *, calc_backend="per_rep", cache="per_rep", warmup=0, fixtu
 
 
 def _manifest(*arms):
-    return {"arms": list(arms) or [_arm()]}
+    """A COMPLETE manifest: design §2.7 says the content is exact, and the manifest is the
+    provenance anchor. A hand-written one without git_sha or calc_pin_hash pins nothing,
+    and B2/B3 must not accept it as the thing a row's identity resolves against."""
+    return {
+        "schema_version": PROFILE_MANIFEST_SCHEMA_VERSION,
+        "git_sha": "a1bb619f52c635013782de6f12f06f29b43a4fa6",
+        "dirty": False,
+        "calc_pin_hash": "79a4877538c8740f",
+        "format_id": "gen9championsvgc2026regma",
+        "format_config_hash": "fa8eb689e95c03c6",
+        "speciesdata_hash": "b6e121e58c592056",
+        "itemdata_hash": "c5b00bfb5f093e98",
+        "movedata_hash": "20b3c72e72480ee1",
+        "arms": list(arms) or [_arm()],
+    }
+
+
+# ==========================================================================
+# the manifest is a PROVENANCE ANCHOR: the top level is exact, and enforced
+# by the CENTRAL validator -- the one B2/B3 actually call
+# ==========================================================================
+
+
+def test_the_complete_manifest_passes():
+    validate_profile_manifest(_manifest())
+
+
+def test_the_run_field_set_is_the_designs():
+    assert set(MANIFEST_RUN_FIELDS) == {
+        "schema_version", "git_sha", "dirty", "calc_pin_hash", "format_id",
+        "format_config_hash", "speciesdata_hash", "itemdata_hash", "movedata_hash", "arms",
+    }
+    # Erratum 1: warmup is per-arm and must not exist at run level.
+    assert "warmup" not in MANIFEST_RUN_FIELDS
+
+
+def test_the_arm_field_set_is_the_designs():
+    assert set(MANIFEST_ARM_FIELDS) == {
+        "arm_id", "effective_config_hash", "behavior_env", "arm_params",
+        "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle",
+    }
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["schema_version", "git_sha", "dirty", "calc_pin_hash", "format_id",
+     "format_config_hash", "speciesdata_hash", "itemdata_hash", "movedata_hash"],
+)
+def test_a_missing_run_field_is_rejected(field):
+    """Every one of these, via the CENTRAL validator -- the path B2/B3 take.
+
+    Before this, validate_profile_manifest checked only `arms`, so a hand-written manifest
+    with no git_sha, no calc_pin_hash and no data hashes validated rows and datasets
+    happily. The design calls the manifest content "exact" and the manifest itself the
+    provenance anchor; an anchor that pins nothing is not one.
+    """
+    m = _manifest()
+    del m[field]
+    with pytest.raises(DecisionProfileError, match="missing"):
+        validate_profile_manifest(m)
+
+
+def test_an_unknown_top_level_field_is_rejected():
+    m = _manifest()
+    m["surprise"] = "a field nothing validates"
+    with pytest.raises(DecisionProfileError, match=r"unknown=\['surprise'\]"):
+        validate_profile_manifest(m)
+
+
+def test_a_wrong_schema_version_is_rejected():
+    m = _manifest()
+    m["schema_version"] = "profile-manifest-v0"
+    with pytest.raises(DecisionProfileError, match="schema_version"):
+        validate_profile_manifest(m)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["git_sha", "calc_pin_hash", "format_id", "format_config_hash",
+     "speciesdata_hash", "itemdata_hash", "movedata_hash"],
+)
+@pytest.mark.parametrize("bad", [None, "", 7, [], {}])
+def test_an_unusable_provenance_value_is_rejected(field, bad):
+    # None is what file_content_hash returns when it cannot read a file, and what
+    # config_provenance_for_format returns for a missing format yaml. A manifest that
+    # records "I could not pin this" is not an anchor.
+    m = _manifest()
+    m[field] = bad
+    with pytest.raises(DecisionProfileError, match=field):
+        validate_profile_manifest(m)
+
+
+def test_an_unknown_git_sha_is_rejected():
+    """The profile contract is deliberately stricter than the repo-wide helper.
+
+    git_sha_and_dirty() returns the sentinel ("unknown", False) when git is unavailable --
+    never None -- so "unknown" is a non-empty str and passes every generic check. It is
+    still not an anchor: a manifest that cannot name the commit does not bind the code that
+    ran, and the arms' measurements cannot be attributed to any version of anything.
+
+    The general helper may keep returning the sentinel; other artifacts may keep accepting
+    it. A git-less environment may run tests. It may not produce I8 evidence.
+    """
+    m = _manifest()
+    m["git_sha"] = "unknown"
+    with pytest.raises(DecisionProfileError, match="unknown"):
+        validate_profile_manifest(m)
+
+
+def test_a_real_looking_git_sha_is_accepted():
+    # The rule is about the sentinel specifically, not about the shape of a sha.
+    m = _manifest()
+    m["git_sha"] = "a1bb619f52c635013782de6f12f06f29b43a4fa6"
+    validate_profile_manifest(m)
+
+
+def test_dirty_must_be_a_bool():
+    m = _manifest()
+    m["dirty"] = "no"
+    with pytest.raises(DecisionProfileError, match="dirty"):
+        validate_profile_manifest(m)
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["arm_id", "effective_config_hash", "behavior_env", "arm_params",
+     "scoring_params", "fixture_input_hash", "reps", "warmup", "lifecycle"],
+)
+def test_a_missing_arm_field_is_rejected(field):
+    arm = _arm()
+    del arm[field]
+    with pytest.raises(DecisionProfileError):
+        validate_profile_manifest(_manifest(arm))
+
+
+def test_an_unknown_arm_field_is_rejected():
+    arm = _arm()
+    arm["surprise"] = 1
+    with pytest.raises(DecisionProfileError, match=r"unknown=\['surprise'\]"):
+        validate_profile_manifest(_manifest(arm))
+
+
+def test_the_top_level_is_checked_before_the_arms():
+    """Order matters: a manifest with no provenance AND a duplicate arm is rejected for
+    its provenance, because nothing below the anchor is worth judging without it."""
+    m = _manifest(_arm(ARM), _arm(ARM))
+    del m["git_sha"]
+    with pytest.raises(DecisionProfileError, match="missing"):
+        validate_profile_manifest(m)
 
 
 # ==========================================================================
@@ -68,25 +222,29 @@ def test_a_valid_manifest_indexes_by_arm_id():
 
 def test_arms_must_be_a_list_not_a_mapping():
     # The mapping form is exactly what made a duplicate arm_id unrepresentable.
+    m = _manifest()
+    m["arms"] = {ARM: _arm(ARM)}
     with pytest.raises(DecisionProfileError, match="list"):
-        validate_profile_manifest({"arms": {ARM: _arm(ARM)}})
+        validate_profile_manifest(m)
 
 
 def test_a_manifest_with_no_arms_is_rejected():
+    m = _manifest()
+    m["arms"] = []
     with pytest.raises(DecisionProfileError, match="no arms"):
-        validate_profile_manifest({"arms": []})
+        validate_profile_manifest(m)
 
 
 def test_an_arm_without_an_arm_id_is_rejected():
     arm = _arm()
     del arm["arm_id"]
     with pytest.raises(DecisionProfileError, match="arm_id"):
-        validate_profile_manifest({"arms": [arm]})
+        validate_profile_manifest(_manifest(arm))
 
 
 def test_an_empty_arm_id_is_rejected():
     with pytest.raises(DecisionProfileError, match="arm_id"):
-        validate_profile_manifest({"arms": [_arm("")]})
+        validate_profile_manifest(_manifest(_arm("")))
 
 
 # ==========================================================================
@@ -174,7 +332,7 @@ def test_a_missing_warmup_is_rejected():
     arm = _arm()
     del arm["warmup"]
     with pytest.raises(DecisionProfileError, match="warmup"):
-        validate_profile_manifest({"arms": [arm]})
+        validate_profile_manifest(_manifest(arm))
 
 
 # ==========================================================================
@@ -188,14 +346,14 @@ def test_mixed_cache_lifecycles_are_rejected_at_load():
     arm = _arm(cache="per_arm", calc_backend="per_arm", warmup=1)
     arm["lifecycle"]["speed_oracle"] = "per_rep"
     with pytest.raises(DecisionProfileError, match="disagreeing cache lifecycles"):
-        validate_profile_manifest({"arms": [arm]})
+        validate_profile_manifest(_manifest(arm))
 
 
 def test_a_missing_lifecycle_is_rejected():
     arm = _arm()
     del arm["lifecycle"]
     with pytest.raises(DecisionProfileError):
-        validate_profile_manifest({"arms": [arm]})
+        validate_profile_manifest(_manifest(arm))
 
 
 # ==========================================================================

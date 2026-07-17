@@ -22,6 +22,7 @@ import re
 import pytest
 
 from showdown_bot.eval.decision_profile import (
+    PROFILE_MANIFEST_SCHEMA_VERSION,
     PROFILE_ROW_FIELDS,
     SCHEMA_VERSION,
     DecisionProfileError,
@@ -43,9 +44,22 @@ def _manifest() -> dict:
     hashed consistently. The row's profile_manifest_hash is computed FROM this (§2.7).
     """
     return {
+        "schema_version": PROFILE_MANIFEST_SCHEMA_VERSION,
+        "git_sha": "a1bb619f52c635013782de6f12f06f29b43a4fa6",
+        "dirty": False,
+        "calc_pin_hash": "79a4877538c8740f",
+        "format_id": "gen9championsvgc2026regma",
+        "format_config_hash": "fa8eb689e95c03c6",
+        "speciesdata_hash": "b6e121e58c592056",
+        "itemdata_hash": "c5b00bfb5f093e98",
+        "movedata_hash": "20b3c72e72480ee1",
         "arms": [
             {
                 "arm_id": ARM,
+                "behavior_env": {"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+                "arm_params": {},
+                "scoring_params": {},
+                "fixture_input_hash": "fix-a",
                 "effective_config_hash": CFG_HASH,
                 "warmup": 0,
                 "reps": 3,

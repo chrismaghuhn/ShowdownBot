@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from showdown_bot.eval.decision_profile import (
+    PROFILE_MANIFEST_SCHEMA_VERSION,
     SCHEMA_VERSION,
     DecisionProfileError,
     backend_class_of,
@@ -36,9 +37,22 @@ def _manifest(*, calc_backend="per_rep", cache="per_rep", warmup=0, config_hash=
     re-checked for it.
     """
     return {
+        "schema_version": PROFILE_MANIFEST_SCHEMA_VERSION,
+        "git_sha": "a1bb619f52c635013782de6f12f06f29b43a4fa6",
+        "dirty": False,
+        "calc_pin_hash": "79a4877538c8740f",
+        "format_id": "gen9championsvgc2026regma",
+        "format_config_hash": "fa8eb689e95c03c6",
+        "speciesdata_hash": "b6e121e58c592056",
+        "itemdata_hash": "c5b00bfb5f093e98",
+        "movedata_hash": "20b3c72e72480ee1",
         "arms": [
             {
                 "arm_id": ARM,
+                "behavior_env": {"SHOWDOWN_OPP_MEGA_CLICK_RATE": "0.35"},
+                "arm_params": {},
+                "scoring_params": {},
+                "fixture_input_hash": "fix-a",
                 "effective_config_hash": config_hash,
                 "warmup": warmup,
                 "reps": 3,
@@ -563,8 +577,11 @@ def test_the_manifest_hash_is_COMPUTED_not_read_from_the_manifest():
 
 
 def test_the_manifest_hash_is_stable_and_order_independent():
+    # Key order carries nothing in a mapping, so encode() key-sorts and the identity is
+    # insertion-order independent -- at BOTH levels, not just inside the arm entry.
     a = _manifest()
-    b = {"arms": [dict(reversed(list(a["arms"][0].items())))]}
+    b = {k: a[k] for k in reversed(list(a))}
+    b["arms"] = [{k: arm[k] for k in reversed(list(arm))} for arm in a["arms"]]
     assert profile_manifest_hash(a) == profile_manifest_hash(b)
 
 
