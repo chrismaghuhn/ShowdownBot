@@ -49,12 +49,28 @@ class SubprocessCalcBackend:
         self.node = node
         self.script = script
         self.timeout = timeout
+        # I8-A: cumulative since construction; the profile writer derives per-decision
+        # deltas by snapshotting before/after. Under oneshot every batch is its own
+        # Node process, so spawn_count tracks transport_attempts exactly.
+        self.spawn_count = 0
+        self.transport_attempts = 0
+        self.damage_batch_calls = 0
+        self.stats_batch_calls = 0
+        self.types_batch_calls = 0
 
     def calc_batch(self, requests: list[DamageRequest]) -> list[DamageResult]:
         if not requests:
             return []
+        self.damage_batch_calls += 1
         payload = json.dumps([r.to_payload() for r in requests])
         try:
+            # Counted BEFORE the call, deliberately: a subprocess that spawns and then
+            # times out is a real spawn that paid real latency and must count. The cost
+            # is that a FileNotFoundError (no node on PATH) over-counts by one -- but
+            # that is a broken environment in which every call fails and the run is void
+            # anyway, never a measurement scenario.
+            self.spawn_count += 1
+            self.transport_attempts += 1
             proc = subprocess.run(
                 [self.node, self.script],
                 input=payload,
@@ -84,7 +100,12 @@ class SubprocessCalcBackend:
         return [DamageResult.from_json(item) for item in data]
 
     def _run(self, payload: list[dict]) -> list[dict]:
+        # I8-A: the SECOND spawn site. calc_batch has its own subprocess.run above;
+        # this helper serves stats_batch and types_batch. Counting only the first
+        # would under-report exactly the spawn cost this backend is dominated by.
         try:
+            self.spawn_count += 1
+            self.transport_attempts += 1
             proc = subprocess.run(
                 [self.node, self.script],
                 input=json.dumps(payload),
@@ -113,6 +134,7 @@ class SubprocessCalcBackend:
         """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
         if not specs:
             return []
+        self.stats_batch_calls += 1
         payload = []
         for idx, spec in enumerate(specs):
             payload.append({"id": f"s{idx}", "kind": "stats", "gen": gen, "mon": spec.to_payload()})
@@ -123,6 +145,7 @@ class SubprocessCalcBackend:
         """Look up the (base) typing for a batch of species."""
         if not species:
             return []
+        self.types_batch_calls += 1
         payload = [
             {"id": f"t{idx}", "kind": "types", "gen": 9, "species": sp}
             for idx, sp in enumerate(species)
@@ -169,6 +192,13 @@ class PersistentCalcBackend:
         self._q: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
         self.spawn_count = 0  # benchmark: confirms persistence
+        # I8-A: cumulative since construction, same surface as SubprocessCalcBackend.
+        # transport_attempts counts PHYSICAL attempts, so _run's retry path makes one
+        # logical call cost two attempts; the *_batch_calls stay logical.
+        self.transport_attempts = 0
+        self.damage_batch_calls = 0
+        self.stats_batch_calls = 0
+        self.types_batch_calls = 0
         atexit.register(self.close)
 
     # --- lifecycle ---
@@ -249,6 +279,10 @@ class PersistentCalcBackend:
                     ) from e
 
     def _run_once(self, payload: list) -> list:
+        # I8-A: one PHYSICAL attempt. _run calls this up to twice per logical call
+        # (:242-243), so transport_attempts > *_batch_calls is the retry signature.
+        # Counted here rather than in _run so a retried call reports 2, not 1.
+        self.transport_attempts += 1
         proc = self._ensure()
         line = json.dumps(payload, separators=(",", ":")) + "\n"
         try:
@@ -277,6 +311,7 @@ class PersistentCalcBackend:
     def calc_batch(self, requests: list[DamageRequest]) -> list[DamageResult]:
         if not requests:
             return []
+        self.damage_batch_calls += 1
         data = self._run([r.to_payload() for r in requests])
         # Per-item {id,error} is SEMANTIC — returned as DamageResult with .error set,
         # same as SubprocessCalcBackend; CalcClient.damage_batch raises CalcError on .error.
@@ -286,6 +321,7 @@ class PersistentCalcBackend:
         """Compute final stats for a batch of CalcMon specs (no in-battle mods)."""
         if not specs:
             return []
+        self.stats_batch_calls += 1
         payload = [
             {"id": f"s{i}", "kind": "stats", "gen": gen, "mon": s.to_payload()}
             for i, s in enumerate(specs)
@@ -296,6 +332,7 @@ class PersistentCalcBackend:
         """Look up the (base) typing for a batch of species."""
         if not species:
             return []
+        self.types_batch_calls += 1
         payload = [
             {"id": f"t{i}", "kind": "types", "gen": 9, "species": sp}
             for i, sp in enumerate(species)
