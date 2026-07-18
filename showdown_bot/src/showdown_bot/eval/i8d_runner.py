@@ -212,7 +212,8 @@ def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES
 def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
                       config_hash: str, git_sha: str, calc_backend: str = "oneshot",
                       hero_agent: str = "heuristic", expected_battles: int = I8D_MAX_BATTLES,
-                      expected_panel_hash: str = I8D_EXPECTED_PANEL_HASH) -> dict:
+                      expected_panel_hash: str = I8D_EXPECTED_PANEL_HASH,
+                      teams_root: str = ".") -> dict:
     """Drive the schedule with whole-battle stop and render the verdict, verifying every execution
     boundary up front rather than trusting labels (code-review findings 1-3 + re-review blocker 1).
 
@@ -241,6 +242,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.eval.i8d_schedule import verify_i8d_schedule
     from showdown_bot.eval.result_jsonl import make_battle_id
     from showdown_bot.eval.seeding import derive_battle_seed
+    from showdown_bot.team.pack import load_packed_team
 
     # (finding 3) never trust the caller's schedule -- re-derive structure + recompute the hash.
     verify_i8d_schedule(schedule, expected_battles=expected_battles)
@@ -293,6 +295,29 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
             battle_id=battle_id, config_id=hero_agent, config_hash=config_hash,
             schedule_hash=schedule.schedule_hash, format_id=row.format_id,
             git_sha=git_sha, calc_backend=calc_backend)
+        # (team-path wiring fix) run_local_gauntlet loads team files relative to the process CWD,
+        # but the schedule's paths are relative to teams_root -- the CLI's execution root (e.g.
+        # showdown_bot), the same root verify_i8d_panel_and_teams hashes against. Resolve BOTH to
+        # absolute against teams_root right here and PROVE each loads a NON-EMPTY packed team before
+        # the battle. Without this, _resolve_side_teams silently degrades a missing file to an empty
+        # packed team, the server rejects the empty-team challenge, no battle is ever created, and
+        # the gauntlet only times out -- the (mis-diagnosed) attempt-1/-2 abort cause. The schedule's
+        # stored relative paths and schedule_hash are untouched; only what is PASSED here is absolute.
+        hero_team_abs = os.path.abspath(os.path.join(teams_root, row.hero_team_path))
+        opp_team_abs = os.path.abspath(os.path.join(teams_root, row.opp_team_path))
+        for label, rel, abs_path in (("hero", row.hero_team_path, hero_team_abs),
+                                     ("opponent", row.opp_team_path, opp_team_abs)):
+            try:
+                packed = load_packed_team(abs_path)
+            except FileNotFoundError as exc:
+                raise I8DRunError(
+                    f"{label} team {rel!r} not found under teams_root {teams_root!r} (resolved to "
+                    f"{abs_path!r}); refusing to challenge with an empty team"
+                ) from exc
+            if not packed:
+                raise I8DRunError(
+                    f"{label} team {rel!r} resolves to an EMPTY packed team at {abs_path!r}"
+                )
         # (finding 1) stage this battle in isolation; a distinct writer per battle so partial rows
         # never touch the accumulating dataset before the battle is proven complete.
         if os.path.exists(staging_battle):
@@ -300,7 +325,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         stage_writer = DecisionProfileWriter(staging_battle, manifest=None)
         stats = asyncio.run(run_local_gauntlet(
             games=1, hero_agent=hero_agent, villain_agent=row.opp_policy,
-            format_id=row.format_id, team_path=row.hero_team_path, opp_team_path=row.opp_team_path,
+            format_id=row.format_id, team_path=hero_team_abs, opp_team_path=opp_team_abs,
             decision_profile_writer=stage_writer, decision_profile_context=context))
         if stats.games != 1:
             # A timeout returns normally with games == 0 and partial rows staged. Discard them and
