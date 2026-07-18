@@ -229,6 +229,19 @@ _LIVE_DELTA_FIELDS = (
 )
 
 
+@dataclasses.dataclass
+class LiveProfileContext:
+    """Per-battle provenance a live decision-profile row needs, built once per battle by the
+    schedule runner (mirrors OppMegaTraceContext, plus calc_backend for backend_class)."""
+    battle_id: str
+    config_id: str
+    config_hash: str
+    schedule_hash: str
+    format_id: str
+    git_sha: str
+    calc_backend: str
+
+
 def snapshot_calc_counters(oracle, backend) -> dict:
     """The client-owned cumulative calc counters at one instant (I8-D live), mirroring the
     microprofile session's ``counters()`` exactly. Read-only: no counter is reset per decision,

@@ -216,6 +216,48 @@ def run_schedule(args) -> None:
         opp_mega_writer = OppMegaTraceWriter(opp_mega_trace_out)
         print(f"  opp-mega trace -> {opp_mega_trace_out}")
 
+    # I8-D: optional live decision-profile telemetry sidecar. Off by default
+    # (SHOWDOWN_DECISION_PROFILE_OUT unset -> decision_profile_writer stays None, byte-identical
+    # to every prior run_schedule call). Same env-only, NON_BEHAVIORAL IO-path contract as the
+    # opp-mega sidecar above (config_env classifies it an IO path -> never perturbs config_hash),
+    # and requires --result-out for the same two reasons: the live row's
+    # battle_id/config_id/config_hash are only computed on that path, and a profile with no
+    # result row to join against is unusable provenance.
+    decision_profile_out = os.environ.get("SHOWDOWN_DECISION_PROFILE_OUT", "")
+    decision_profile_writer = None
+    calc_backend_name = "oneshot"
+    if decision_profile_out:
+        if not result_out:
+            raise SystemExit("SHOWDOWN_DECISION_PROFILE_OUT requires --result-out")
+        # Same fail-closed rule as --result-out's own T2-CC-2 gate and the opp-mega sidecar:
+        # appending onto an existing run's rows would interleave two runs into one file that
+        # later reads as a single run.
+        if os.path.exists(decision_profile_out) and os.path.getsize(decision_profile_out) > 0:
+            raise SystemExit(
+                f"SHOWDOWN_DECISION_PROFILE_OUT {decision_profile_out} already has rows; "
+                f"must be non-existing or empty"
+            )
+        # The provenance label for the calc backend this run configures, normalised EXACTLY as
+        # make_calc_backend() selects it (engine/calc/client.py) and fail-closed on the same
+        # unknown values -- so the row records the backend the client actually builds, in the
+        # same process and env.
+        _raw_calc_backend = os.environ.get("SHOWDOWN_CALC_BACKEND", "oneshot")
+        if _raw_calc_backend in ("", "oneshot"):
+            calc_backend_name = "oneshot"
+        elif _raw_calc_backend == "persistent":
+            calc_backend_name = "persistent"
+        else:
+            raise SystemExit(
+                f"unknown SHOWDOWN_CALC_BACKEND={_raw_calc_backend!r} "
+                f"(expected 'oneshot' or 'persistent')"
+            )
+        from showdown_bot.eval.decision_profile import DecisionProfileWriter, LiveProfileContext
+
+        # ONE run-scoped writer for the whole schedule (live rows carry no manifest); the
+        # per-battle binding is the CONTEXT, built fresh per row below.
+        decision_profile_writer = DecisionProfileWriter(decision_profile_out, manifest=None)
+        print(f"  decision profile -> {decision_profile_out}")
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
@@ -223,6 +265,7 @@ def run_schedule(args) -> None:
             trace_context = None
             agg_context = None
             opp_mega_context = None
+            decision_profile_context = None
             if writer is not None:
                 # Seed/battle_id/config_id/config_hash computed ONCE per battle, BEFORE the
                 # battle runs (Task 4 needs battle_id up front to build trace_context) and
@@ -258,6 +301,15 @@ def run_schedule(args) -> None:
                         battle_id=battle_id, config_id=config_id, config_hash=config_hash,
                         schedule_hash=sched.schedule_hash, format_id=row_format_id,
                         git_sha=git_sha,
+                    )
+                if decision_profile_writer is not None:
+                    # I8-D: a FRESH context per row off the same real battle_id/config_hash
+                    # computed above -- independent of the seams above. Adds the calc_backend
+                    # label (drives the row's backend_class) the other contexts don't carry.
+                    decision_profile_context = LiveProfileContext(
+                        battle_id=battle_id, config_id=config_id, config_hash=config_hash,
+                        schedule_hash=sched.schedule_hash, format_id=row_format_id,
+                        git_sha=git_sha, calc_backend=calc_backend_name,
                     )
 
                 def on_br(record, _row=row, _battle_id=battle_id, _seed=seed,
@@ -316,6 +368,9 @@ def run_schedule(args) -> None:
                     # I7b-C Task 2 Step 6: None unless SHOWDOWN_OPP_MEGA_TRACE_OUT is set.
                     opp_mega_trace_writer=opp_mega_writer,
                     opp_mega_trace_context=opp_mega_context,
+                    # I8-D: None unless SHOWDOWN_DECISION_PROFILE_OUT is set.
+                    decision_profile_writer=decision_profile_writer,
+                    decision_profile_context=decision_profile_context,
                 )
             )
             totals["games"] += stats.games
@@ -525,6 +580,14 @@ def run_gauntlet(args) -> None:
         raise SystemExit(
             "SHOWDOWN_OPP_MEGA_TRACE_OUT is only supported on the --schedule + --result-out "
             "path (the plain gauntlet has no battle_id/config_hash to bind evidence to)"
+        )
+    # I8-D: same reasoning for the live decision-profile sidecar -- this path builds no
+    # battle_id/config_hash/schedule_hash, so it can never bind a live row. Silently ignoring
+    # the env would leave an empty file that reads as "the bot made no scored decisions".
+    if os.environ.get("SHOWDOWN_DECISION_PROFILE_OUT", ""):
+        raise SystemExit(
+            "SHOWDOWN_DECISION_PROFILE_OUT is only supported on the --schedule + --result-out "
+            "path (the plain gauntlet has no battle_id/config_hash to bind a live row to)"
         )
 
     # The gauntlet uses local guest auth, so it does not need SHOWDOWN_USERNAME;
