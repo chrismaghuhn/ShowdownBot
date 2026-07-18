@@ -115,9 +115,13 @@ class _RaiseAfter:
 
 
 def test_calcerror_in_shared_first_flush_propagates_through_choose_best():
-    oracle = DamageOracle(client=CalcClient(backend=_RaiseAfter(ok=0)))
+    backend = _RaiseAfter(ok=0)  # raises on the FIRST backend call
+    oracle = DamageOracle(client=CalcClient(backend=backend))
     with pytest.raises(CalcError):
         _run_mega(oracle=oracle, trace=None)
+    # Bind the raiser to the FOLD's damage backend, not the speed oracle's separate backend: the
+    # incoming/scoring first flush is the one and only damage-backend call before the error propagates.
+    assert backend.calls == 1
 
 
 def test_outgoing_is_cache_served_on_the_reference_board():
@@ -187,9 +191,12 @@ def test_mode_resolver_fires_once_and_returns_the_pre_fold_mode_across_two_world
         return m
     monkeypatch.setattr(decision, "resolve_classification", _spy)
 
-    # what the pre-fold eager classifier produces on this board (the mode that must be consumed)
+    # what the pre-fold eager classifier produces on this board (the mode that must be consumed).
+    # Use the SAME calc_profile the decision path derives (decision.py:_choose_best ->
+    # calc_profile_from_config(format_config) == CP), so this is a genuine input-identical
+    # comparison rather than one that passes only because CP and the default profile happen to agree.
     pre_fold_mode = gm.classify_game_mode(
-        _gating_state(), our_side="p1", calc=DamageOracle().client, book=BOOK)
+        _gating_state(), our_side="p1", calc=DamageOracle().client, book=BOOK, calc_profile=CP)
 
     trace = DecisionTrace()
     _run_mega(trace=trace)

@@ -114,3 +114,21 @@ def test_wrappers_bind_injected_calc():
     backend = RecordingBackend({("Moonblast", "Incineroar"): (260, 202)})
     gm.compute_game_mode(_state(), our_side="p1", calc=CalcClient(backend=backend), book=book)
     assert backend.seen_defenders  # the injected backend actually received the requests
+
+
+def test_degenerate_empty_side_resolves_neutral_without_any_calc():
+    """No living opponent -> enqueue returns a degenerate handle and resolve short-circuits to NEUTRAL,
+    mirroring compute_game_mode's ``not our_mons or not opp_mons`` guard, WITHOUT enqueuing or flushing
+    any damage request. Guards the new split against issuing a stray calc on a degenerate board."""
+    book = _book()
+    state = BattleState()
+    state.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=200, max_hp=200,
+                                          move_names={"Flare Blitz"})
+    # p2 has no mons at all -> the opponent side is empty
+    backend = RecordingBackend({})
+    oracle = DamageOracle(client=CalcClient(backend=backend))
+    handle = gm.enqueue_base_game_mode(state, our_side="p1", oracle=oracle, book=book)
+    assert handle.degenerate is True
+    oracle.flush()  # nothing was enqueued -> a no-op
+    assert gm.resolve_base_game_mode(handle, oracle=oracle) == gm.GameMode.NEUTRAL
+    assert backend.seen_defenders == []  # degenerate short-circuit issued NO damage calc
