@@ -29,6 +29,14 @@ I8D_FORMAT = "gen9championsvgc2026regma"
 I8D_HERO_TEAM = "teams/fixed_champions_v0.txt"
 I8D_MAX_BATTLES = 200
 
+# The canonical champions panel and its FROZEN content-derived panel_hash (re-review blocker 2).
+# ``panel_hash`` (eval/panel.py) covers each team's CONTENT hash, so locking it to this value binds
+# the exact team file contents -- which ``schedule_hash`` (paths/policies/indices only) does not.
+# The value is the P3-frozen champions panel_hash recorded in committed evidence
+# (data/eval/champions-panel-v0/smoke/report.json).
+I8D_PANEL_PATH = "config/eval/panels/panel_champions_v0.yaml"
+I8D_EXPECTED_PANEL_HASH = "aac1ea30446fde88"
+
 # The six matchups in their FIXED order (dev team_id, opponent policy). Dev-only: the two
 # held-out teams (rain_offense, disruption) are reserved for later independent work and never
 # appear here.
@@ -176,6 +184,49 @@ def verify_i8d_schedule(schedule: Schedule, *, expected_battles: int = I8D_MAX_B
             f"I8-D schedule_hash {schedule.schedule_hash!r} != recomputed {recomputed!r} "
             f"(rows tampered or hash forged)"
         )
+
+
+def verify_i8d_panel_and_teams(schedule, *, teams_root: str,
+                               expected_panel_hash: str = I8D_EXPECTED_PANEL_HASH) -> None:
+    """Bind the panel + team CONTENTS to the run identity (re-review blocker 2).
+
+    ``schedule_hash`` covers only team PATHS, policies and indices, so different team CONTENTS under
+    the same paths would share a verdict identity. This closes that hole two ways:
+
+      - the content-derived ``panel_hash`` (``eval/panel.py`` hashes each team's ``.txt`` + ``.packed``)
+        must equal the FROZEN champions value, so a swapped panel or any changed team content is
+        refused;
+      - every distinct team file is re-read NOW and re-hashed, proving the files on disk are exactly
+        the ones the schedule was built from and have not changed since (a TOCTOU guard before
+        battle 1).
+
+    Raises ``I8DScheduleError`` on any mismatch. Requires the team files to be present (the
+    authorizable CLI path calls this with the real ``teams_root`` before the first battle).
+    """
+    from showdown_bot.eval.panel import team_content_hash
+
+    if schedule.panel_hash != expected_panel_hash:
+        raise I8DScheduleError(
+            f"panel_hash {schedule.panel_hash!r} != expected champions panel {expected_panel_hash!r}: "
+            f"the panel or a team's content is not the approved one"
+        )
+    seen: dict[str, str] = {}
+    for row in schedule.rows:
+        for path, stored in ((row.hero_team_path, row.hero_team_hash),
+                             (row.opp_team_path, row.opp_team_hash)):
+            if stored is None:
+                raise I8DScheduleError(
+                    f"team {path!r} has no recorded content hash; its contents cannot be bound"
+                )
+            if seen.get(path) == stored:
+                continue
+            actual = team_content_hash(teams_root, path)
+            if actual != stored:
+                raise I8DScheduleError(
+                    f"team file {path!r} content hash {actual!r} != the schedule's recorded "
+                    f"{stored!r}: the team files changed since the schedule was built"
+                )
+            seen[path] = stored
 
 
 def write_i8d_schedule(schedule: Schedule, path: str) -> None:

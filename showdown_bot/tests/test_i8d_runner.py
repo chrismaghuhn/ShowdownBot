@@ -368,3 +368,28 @@ def test_run_rejects_a_non_canonical_schedule_at_the_execution_point(tmp_path, m
             schedule=_canon(24), out_dir=str(tmp_path / "out"),
             seed_log_path=str(tmp_path / "seed.log"), config_hash="c", git_sha="d")   # default 200
     assert not (tmp_path / "out").exists() and not (tmp_path / "out.staging").exists()
+
+
+# ---- blocker 2 (integration): the panel + team content identity is bound at the runner ---------
+
+def test_run_rejects_a_schedule_whose_panel_hash_is_not_the_approved_one(tmp_path, monkeypatch):
+    import dataclasses
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    # panel_hash is content-derived; a value != the frozen champions panel means the team CONTENTS
+    # are not the approved ones (schedule_hash alone would not catch it -- rows are unchanged).
+    bad = dataclasses.replace(_canon(6), panel_hash="not-the-champions-panel")
+    with pytest.raises(I8DRunError, match="panel_hash .* != expected champions panel"):
+        run_i8d_live_gate(
+            schedule=bad, out_dir=str(tmp_path / "out"), seed_log_path=str(tmp_path / "seed.log"),
+            config_hash="c", git_sha="d", expected_battles=6)
+    assert not (tmp_path / "out").exists()
+
+
+def test_verdict_records_the_panel_and_team_hashes(tmp_path, monkeypatch):
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    assert report["panel_hash"] == "aac1ea30446fde88"          # the content-bound panel identity
+    assert report["opp_team_hashes"] == ["hash_goodstuff", "hash_tailwind_offense", "hash_trick_room"]
+    assert "hero_team_hash" in report                          # recorded (None here: hero file absent)

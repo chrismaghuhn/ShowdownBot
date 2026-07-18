@@ -18,6 +18,7 @@ from showdown_bot.eval.decision_profile import (
 )
 from showdown_bot.eval.gates import load_latency_budget_ms
 from showdown_bot.eval.i8d_schedule import (
+    I8D_EXPECTED_PANEL_HASH,
     I8D_FORMAT,
     I8D_MAX_BATTLES,
     I8D_SEED_BASE,
@@ -210,7 +211,8 @@ def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES
 
 def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
                       config_hash: str, git_sha: str, calc_backend: str = "oneshot",
-                      hero_agent: str = "heuristic", expected_battles: int = I8D_MAX_BATTLES) -> dict:
+                      hero_agent: str = "heuristic", expected_battles: int = I8D_MAX_BATTLES,
+                      expected_panel_hash: str = I8D_EXPECTED_PANEL_HASH) -> dict:
     """Drive the schedule with whole-battle stop and render the verdict, verifying every execution
     boundary up front rather than trusting labels (code-review findings 1-3 + re-review blocker 1).
 
@@ -242,6 +244,16 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
 
     # (finding 3) never trust the caller's schedule -- re-derive structure + recompute the hash.
     verify_i8d_schedule(schedule, expected_battles=expected_battles)
+
+    # (re-review blocker 2) the panel + team CONTENTS are bound to the verdict identity: panel_hash
+    # is content-derived, so a swapped panel or changed team content is refused here. (The CLI path
+    # additionally re-reads the team files before battle 1 via verify_i8d_panel_and_teams; this is
+    # the runner's stored-value guard so no schedule with the wrong content-identity is ever run.)
+    if schedule.panel_hash != expected_panel_hash:
+        raise I8DRunError(
+            f"schedule panel_hash {schedule.panel_hash!r} != expected champions panel "
+            f"{expected_panel_hash!r}: the panel/team contents are not the approved ones"
+        )
 
     # (finding 2) the seed NAMESPACE is bound by explicit verification, not by schedule_hash.
     seed_base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "")
@@ -328,6 +340,12 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
                           active_measured_ms=_active_measured_ms(staging_profile), budget_ms=budget_ms)
     report = {
         "schedule_hash": schedule.schedule_hash,
+        # (blocker 2) the content-bound panel + team identity, recorded in the verdict so two runs
+        # over different team CONTENTS can never read as the same verdict identity.
+        "panel_hash": schedule.panel_hash,
+        "hero_team_hash": schedule.rows[0].hero_team_hash if schedule.rows else None,
+        "opp_team_hashes": sorted({r.opp_team_hash for r in schedule.rows
+                                   if r.opp_team_hash is not None}),
         "seed_base": seed_base,
         "seed_log_verified": True,
         "battles_played": battles_played,

@@ -671,11 +671,11 @@ def run_i8d_gate(args) -> None:
         resolve_i8d_provenance,
         run_i8d_live_gate,
     )
+    from showdown_bot.eval.i8d_schedule import I8D_PANEL_PATH, verify_i8d_panel_and_teams
 
-    panel = getattr(args, "panel", "")
     out_dir = getattr(args, "out_dir", "")
-    if not (panel and out_dir):
-        raise SystemExit("i8d-live-gate requires --panel and --out-dir")
+    if not out_dir:
+        raise SystemExit("i8d-live-gate requires --out-dir")
     seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG", "")
     if not seed_log:
         raise SystemExit(
@@ -685,9 +685,14 @@ def run_i8d_gate(args) -> None:
     teams_root = getattr(args, "teams_root", ".") or "."
 
     prov = resolve_i8d_provenance()   # fail-closed git_sha / config_hash / calc_backend
-    schedule = build_i8d_live_schedule(panel, n_battles=I8D_MAX_BATTLES, teams_root=teams_root)
-    print(f"i8d-live-gate: schedule_hash={schedule.schedule_hash} git_sha={prov['git_sha']} "
-          f"config_hash={prov['config_hash']} calc_backend={prov['calc_backend']}")
+    # (blocker 2) the panel path is LOCKED to the canonical champions panel (not caller-chosen), and
+    # the panel + team CONTENTS are re-verified from disk before battle 1: panel_hash against the
+    # frozen champions value + every team file re-hashed.
+    schedule = build_i8d_live_schedule(I8D_PANEL_PATH, n_battles=I8D_MAX_BATTLES, teams_root=teams_root)
+    verify_i8d_panel_and_teams(schedule, teams_root=teams_root)
+    print(f"i8d-live-gate: schedule_hash={schedule.schedule_hash} panel_hash={schedule.panel_hash} "
+          f"git_sha={prov['git_sha']} config_hash={prov['config_hash']} "
+          f"calc_backend={prov['calc_backend']}")
     report = run_i8d_live_gate(
         schedule=schedule, out_dir=out_dir, seed_log_path=seed_log,
         config_hash=prov["config_hash"], git_sha=prov["git_sha"], calc_backend=prov["calc_backend"],

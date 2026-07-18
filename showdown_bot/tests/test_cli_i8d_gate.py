@@ -69,17 +69,22 @@ def test_resolve_provenance_refuses_an_unknown_calc_backend(monkeypatch):
 
 class _Sched:
     schedule_hash = "sched-xyz"
+    panel_hash = "aac1ea30446fde88"
     rows = ()
 
 
 def _install_cli_stubs(monkeypatch, captured):
     import showdown_bot.eval.i8d_runner as r
+    import showdown_bot.eval.i8d_schedule as sch
 
     def _fake_build(panel, *, n_battles, teams_root):
         captured["panel"] = panel
         captured["n_battles"] = n_battles
         captured["teams_root"] = teams_root
         return _Sched()
+
+    def _fake_verify(schedule, *, teams_root, **kw):
+        captured["verified"] = (schedule, teams_root)
 
     def _fake_run(**kw):
         captured["run_kwargs"] = kw
@@ -91,17 +96,17 @@ def _install_cli_stubs(monkeypatch, captured):
                         lambda **kw: {"git_sha": "sha9", "config_hash": "cfg9",
                                       "calc_backend": "oneshot", "hero_agent": "heuristic"})
     monkeypatch.setattr(r, "build_i8d_live_schedule", _fake_build)
+    monkeypatch.setattr(sch, "verify_i8d_panel_and_teams", _fake_verify)
     monkeypatch.setattr(r, "run_i8d_live_gate", _fake_run)
 
 
-def test_command_derives_provenance_and_reaches_the_runner(tmp_path, monkeypatch):
+def test_command_locks_the_panel_derives_provenance_and_reaches_the_runner(tmp_path, monkeypatch):
     from showdown_bot import cli
+    from showdown_bot.eval.i8d_schedule import I8D_PANEL_PATH
     captured: dict = {}
     _install_cli_stubs(monkeypatch, captured)
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
-    cli.run_i8d_gate(argparse.Namespace(
-        panel="config/eval/panels/panel_champions_v0.yaml",
-        out_dir=str(tmp_path / "out"), teams_root="."))
+    cli.run_i8d_gate(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
     kw = captured["run_kwargs"]
     # DERIVED provenance, not caller labels
     assert (kw["git_sha"], kw["config_hash"], kw["calc_backend"], kw["hero_agent"]) == (
@@ -109,16 +114,18 @@ def test_command_derives_provenance_and_reaches_the_runner(tmp_path, monkeypatch
     assert kw["expected_battles"] == 200                        # locked to the D-2 cap, not caller-set
     assert kw["seed_log_path"] == str(tmp_path / "seed.log")    # from the server's env
     assert kw["out_dir"] == str(tmp_path / "out")              # the atomic-publish output directory
-    assert kw["schedule"].schedule_hash == "sched-xyz"          # BUILT from the panel, not passed in
-    assert captured["panel"] == "config/eval/panels/panel_champions_v0.yaml"
+    assert kw["schedule"].schedule_hash == "sched-xyz"          # BUILT from the LOCKED panel path
+    assert captured["panel"] == I8D_PANEL_PATH                  # the canonical champions panel, not caller-chosen
     assert captured["n_battles"] == 200
+    # (blocker 2) the panel + team contents were re-verified from disk before the runner ran
+    assert captured["verified"] == (kw["schedule"], ".")
 
 
-def test_command_requires_panel_and_out_dir(tmp_path, monkeypatch):
+def test_command_requires_out_dir(tmp_path, monkeypatch):
     from showdown_bot import cli
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
-    with pytest.raises(SystemExit, match="requires --panel and --out-dir"):
-        cli.run_i8d_gate(argparse.Namespace(panel="", out_dir="", teams_root="."))
+    with pytest.raises(SystemExit, match="requires --out-dir"):
+        cli.run_i8d_gate(argparse.Namespace(out_dir="", teams_root="."))
 
 
 def test_command_requires_the_server_seed_log(tmp_path, monkeypatch):
@@ -127,6 +134,5 @@ def test_command_requires_the_server_seed_log(tmp_path, monkeypatch):
     _install_cli_stubs(monkeypatch, captured)
     monkeypatch.delenv("SHOWDOWN_EVAL_SEED_LOG", raising=False)
     with pytest.raises(SystemExit, match="requires SHOWDOWN_EVAL_SEED_LOG"):
-        cli.run_i8d_gate(argparse.Namespace(
-            panel="p.yaml", out_dir=str(tmp_path / "out"), teams_root="."))
+        cli.run_i8d_gate(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
     assert "run_kwargs" not in captured   # fails before building or driving anything
