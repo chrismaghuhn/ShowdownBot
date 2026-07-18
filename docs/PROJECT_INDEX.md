@@ -119,7 +119,14 @@ Ordered front-track work as of **2026-07-18** (I8-A–C machinery merged PR #20 
 - **Latency gate (I8-D):** the measurement machinery is merged (I8-A–C PR #20 @ `32cdd4e`;
   microprofile driver PR #21 @ `0730a18`), the **offline 450-row microprofile ran clean & is
   frozen**, and the **I8-D live-latency harness is now merged (PR #23 @ `3b6070c`, code + tests
-  only)** — but the **LIVE latency gate has not RUN**, so no live-latency claim exists.
+  only)** — but the **LIVE latency gate has not RUN**, so no live-latency claim exists. **First live
+  attempt ABORTED (2026-07-18, no verdict/evidence):** on `DESKTOP-1V4BPFQ` / detached `8616901` /
+  server `f8ac140` / `oneshot` (config_hash `594295543f13a55d`), **Battle 0 exceeded the bound 180 s
+  harness timeout** → whole-battle fail-closed abort, `out/` never published; logs are scratch-only,
+  **not pooled**. The **separately-authorized restart is a NEW config stratum** — unchanged
+  `oneshot`, seed 0, pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`** (BEHAVIOR_AFFECTING →
+  **config_hash `06b2b96e76486563`**, outside the measured `agent_choose` window); no results merged
+  across strata; no code fix/tuning/backend switch.
   Context: I5 pre-fix worst p95 **3235 ms** vs
   the pinned **1000 ms** budget (that run also contained state-degradation; no causal link);
   I6/I7a-C/I7b-C safety smokes measured 331/588/672 ms, none a dedicated profile; the active
