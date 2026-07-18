@@ -1,18 +1,17 @@
 """Lever A, commit 2 (hardened): decision-equivalence GOLDEN (T2/T5).
 
-A production-faithful characterization pin of the CURRENT decision output for a non-mega (Reg-I)
-and a foe-Mega (Champions) board, BOTH with opponent moves so classification issues real incoming
-requests that the fold must fold. It pins the full contract the reviewer requires: the chosen
-action, the GameMode, the tie-break ORDER of the traced candidates, and each candidate's full
-aggregate score and score vector. Green now; its job is to STAY green through the fold.
+Pins the FULL ranked candidate list (before the trace's top-K truncation) EXACTLY against a
+committed golden file -- game_mode, and every candidate's id (tie-break order), aggregate score,
+and full score vector -- for a non-mega (Reg-I) and a foe-Mega (Champions) board, both with
+opponent moves so classification issues real incoming requests that the fold folds. Exact
+serialized comparison (no approx): the fold is behavior-neutral, so every value is bit-identical.
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
-
+import showdown_bot.battle.decision as decision
 from showdown_bot.battle.decision import _choose_best, heuristic_choose_for_request
 from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.battle.oracle import DamageOracle
@@ -29,13 +28,10 @@ from showdown_bot.models.request import BattleRequest
 FIX = Path(__file__).parent / "fixtures"
 
 
-def _assert_candidates(trace, expected):
-    """Bind GameMode, tie-break order (candidate ids), aggregate scores and full score vectors."""
-    got = [(c.candidate_id, c.rank) for c in trace.candidates]
-    assert got == [(cid, i) for i, (cid, _agg, _sv) in enumerate(expected)], got
-    for c, (cid, agg, sv) in zip(trace.candidates, expected):
-        assert c.aggregate_score == pytest.approx(agg, rel=1e-6, abs=1e-9), (cid, c.aggregate_score)
-        assert c.score_vector == pytest.approx(sv, rel=1e-6, abs=1e-9), (cid, c.score_vector)
+def _serialize(trace):
+    return {"game_mode": trace.game_mode,
+            "candidates": [[c.candidate_id, c.aggregate_score, list(c.score_vector)]
+                           for c in trace.candidates]}
 
 
 # ---------- non-mega (Reg-I): deterministic FakeCalc, production-faithful oracle ----------
@@ -59,20 +55,12 @@ class _FakeDex:
         return {"Flutter Mane": ["Ghost", "Fairy"], "Tornadus": ["Flying"]}.get(species, ["Normal"])
 
 
-def _regi_book():
-    return load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
-
-
-def _regi_req():
-    return BattleRequest.model_validate(json.loads((FIX / "request_doubles_moves.json").read_text()))
-
-
 def _regi_state():
     st = BattleState()
     st.sides["p1"]["a"] = PokemonState(species="Incineroar", hp=150, max_hp=150)
     st.sides["p1"]["b"] = PokemonState(species="Rillaboom", hp=155, max_hp=155)
     fm = PokemonState(species="Flutter Mane", hp=131, max_hp=131)
-    fm.move_names = {"Moonblast", "Shadow Ball"}          # opponent HAS moves -> real incoming fold
+    fm.move_names = {"Moonblast", "Shadow Ball"}
     tor = PokemonState(species="Tornadus", hp=140, max_hp=140)
     tor.move_names = {"Tailwind", "Bleakwind Storm"}
     st.sides["p2"]["a"] = fm
@@ -80,24 +68,23 @@ def _regi_state():
     return st
 
 
-def test_regi_non_mega_decision_golden():
+def test_regi_non_mega_decision_golden(monkeypatch):
+    monkeypatch.setattr(decision, "TOP_K_TRACE_CANDIDATES", 100000)  # full ranked list, no truncation
     fake = _FakeCalc()
     trace = DecisionTrace()
     out = heuristic_choose_for_request(
-        _regi_req(), state=_regi_state(), book=_regi_book(), our_side="p1",
-        calc=fake, oracle=DamageOracle(client=fake), speed_oracle=_FakeSpeed(), dex=_FakeDex(),
-        trace=trace,
+        _regi_req(), state=_regi_state(),
+        book=load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads")),
+        our_side="p1", calc=fake, oracle=DamageOracle(client=fake),
+        speed_oracle=_FakeSpeed(), dex=_FakeDex(), trace=trace,
     )
     assert out == "/choose move 3, move 3|2"
-    assert trace.game_mode == "NEUTRAL"
-    _assert_candidates(trace, [
-        ("(Protect, Protect)", 3.0528, [5.4, 5.4, 3.6, 1.8, 3.6]),
-        ("(Fake Out->2, Earth Power->2)", 2.7225919999999997, [2.62, 2.62, 2.9, 2.62, 2.9]),
-        ("(Fake Out->2, Solar Beam->2)", 2.7225919999999997, [2.62, 2.62, 2.9, 2.62, 2.9]),
-        ("(Fake Out->2, Heat Wave)", 2.4278699999999995, [2.69, 2.69, 1.635, 2.69, 2.97]),
-        ("(Fake Out->2, Earth Power->1)", 2.3328320000000002, [2.62, 2.62, 1.5, 2.62, 2.9]),
-        ("(Fake Out->2, Solar Beam->1)", 2.3328320000000002, [2.62, 2.62, 1.5, 2.62, 2.9]),
-    ])
+    golden = json.loads((FIX / "lever_a_golden_regi.json").read_text())
+    assert _serialize(trace) == golden
+
+
+def _regi_req():
+    return BattleRequest.model_validate(json.loads((FIX / "request_doubles_moves.json").read_text()))
 
 
 # ---------- foe-Mega (Champions): real calc, opponent WITH moves, production-faithful ----------
@@ -127,17 +114,18 @@ def _gating_state():
     b.move_names = {"Moonblast"}
     opp = PokemonState(species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
                        item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100)
-    opp.move_names = {"Rock Slide", "Earthquake"}        # opponent HAS moves -> real incoming fold
+    opp.move_names = {"Rock Slide", "Earthquake"}
     st.sides["p1"]["a"], st.sides["p1"]["b"], st.sides["p2"]["a"] = a, b, opp
     return st
 
 
-def test_foe_mega_decision_golden():
+def test_foe_mega_decision_golden(monkeypatch):
+    monkeypatch.setattr(decision, "TOP_K_TRACE_CANDIDATES", 100000)
     champions = load_format_config("gen9championsvgc2026regma")
     cp = calc_profile_from_config(champions)
     spreads = SpeciesSpreads(offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
                              defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}))
-    oracle = DamageOracle()  # oracle.client is the real calc used everywhere on this path
+    oracle = DamageOracle()
     trace = DecisionTrace()
     ja, score = _choose_best(
         _gating_req(), state=_gating_state(), book=SpreadBook(default=spreads), our_side="p1",
@@ -146,20 +134,6 @@ def test_foe_mega_decision_golden():
         dex=None, our_spreads={"aerodactyl": spreads, "whimsicott": spreads},
         format_config=champions, risk_lambda=0.0, trace=trace,
     )
-    assert ja.slot0.kind == "move" and ja.slot0.move_index == 1 and ja.slot0.target == 1
-    assert ja.slot0.mega_evolve is True and ja.slot0.terastallize is False
-    assert ja.slot1.kind == "move" and ja.slot1.move_index == 1 and ja.slot1.mega_evolve is False
-    assert score == pytest.approx(-4.657968164560821, rel=1e-9)
-    assert trace.game_mode == "NEUTRAL"
-    _mega = [-5.3305077591, -5.3305077591, -2.4, -5.5056507847, -5.5056507847, -5.5056507847, -5.5056507847]
-    _base = [-5.462751875, -5.462751875, -2.4, -5.6688503146, -5.6688503146]
-    _assert_candidates(trace, [
-        ("(Rock Slide->1 mega, Moonblast->1)", -4.657968164560821, _mega),
-        ("(Rock Slide->1 mega, Moonblast->2)", -4.657968164560821, _mega),
-        ("(Rock Slide->2 mega, Moonblast->1)", -4.657968164560821, _mega),
-        ("(Rock Slide->2 mega, Moonblast->2)", -4.657968164560821, _mega),
-        ("(Rock Slide->1, Moonblast->1)", -4.765951946333246, _base),
-        ("(Rock Slide->1, Moonblast->2)", -4.765951946333246, _base),
-        ("(Rock Slide->2, Moonblast->1)", -4.765951946333246, _base),
-        ("(Rock Slide->2, Moonblast->2)", -4.765951946333246, _base),
-    ])
+    assert ja.slot0.mega_evolve is True and ja.slot0.move_index == 1
+    golden = json.loads((FIX / "lever_a_golden_champions.json").read_text())
+    assert _serialize(trace) == golden
