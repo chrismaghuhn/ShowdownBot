@@ -120,20 +120,44 @@ def test_calcerror_in_shared_first_flush_propagates_through_choose_best():
         _run_mega(oracle=oracle, trace=None)
 
 
-def test_outgoing_flush_is_cache_served_at_the_decision_level():
-    """Through _choose_best the conditional outgoing makes NO second backend call (its requests are
-    served from the scoring cache), so a calc that raises AFTER the first flush never fires -- the
-    outgoing has no decision-level error surface, which is exactly why the outgoing fail-closed case
-    is a game_mode-unit test (below)."""
+def test_outgoing_is_cache_served_on_the_reference_board():
+    """On the REFERENCE board (all our moves are request-legal, so scoring already computed them) the
+    conditional outgoing is served from the scoring cache: a calc that raises AFTER the first flush
+    never fires and there is exactly one backend flush. This is board-specific dedup, NOT an
+    'always' — see the uncached-move counterproof below."""
     backend = _RaiseAfter(ok=1)  # would raise on any 2nd backend call
     oracle = DamageOracle(client=CalcClient(backend=backend))
-    _run_mega(oracle=oracle, trace=None)  # must NOT raise
-    assert backend.calls == 1  # exactly one backend flush; the outgoing was cache-served
+    _run_mega(oracle=oracle, trace=None)  # must NOT raise on this board
+    assert backend.calls == 1  # the outgoing was cache-served here
+
+
+def _state_with_uncached_own_move():
+    """Our Aerodactyl knows `Crunch` in state but it is NOT in the current request's moves, so scoring
+    (which scores only request-legal moves) never precomputes the classification's `Crunch` outgoing
+    calc -> the outgoing flush is genuinely uncached and hits the backend."""
+    st = _gating_state()
+    st.sides["p1"]["a"].move_names = {"Rock Slide", "Crunch"}
+    return st
+
+
+def test_calcerror_in_outgoing_flush_propagates_through_choose_best():
+    """Decision-integrated outgoing fail-closed: with an uncached own move the outgoing flush hits the
+    backend as a SECOND call, and its CalcError propagates through `_choose_best`."""
+    backend = _RaiseAfter(ok=1)  # first (shared) flush ok; second (outgoing) flush raises
+    oracle = DamageOracle(client=CalcClient(backend=backend))
+    with pytest.raises(CalcError):
+        _choose_best(
+            _gating_req(), state=_state_with_uncached_own_move(), book=BOOK, our_side="p1",
+            calc=oracle.client, oracle=oracle,
+            speed_oracle=SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=CP), dex=None,
+            our_spreads={"aerodactyl": SPREADS, "whimsicott": SPREADS},
+            format_config=CHAMPIONS, risk_lambda=0.0, trace=None,
+        )
+    assert backend.calls == 2  # first flush ok, the outgoing (second) flush raised
 
 
 def test_calcerror_in_conditional_outgoing_flush_propagates_fail_closed():
-    """game_mode unit: the outgoing flush is the ONLY place the outgoing calc is issued when its
-    requests are uncached. Incoming flush succeeds, threatened == 0, then the outgoing flush raises."""
+    """game_mode unit: incoming flush succeeds, threatened == 0, then the outgoing flush raises."""
     backend = _RaiseAfter(ok=1)
     oracle = DamageOracle(client=CalcClient(backend=backend))
     handle = gm.enqueue_base_game_mode(_gating_state(), our_side="p1", oracle=oracle, book=BOOK)
