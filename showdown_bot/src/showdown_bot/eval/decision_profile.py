@@ -994,6 +994,85 @@ def validate_decision_profile_dataset(path: str, manifest: dict) -> dict:
     return report
 
 
+def is_active_valid_live_row(row: dict) -> bool:
+    """The §4 verdict population, defined ONCE so the dataset validator, the runner and any
+    auditor never carry two copies that can drift.
+
+    A row enters the exposure floor and the p95 iff it is a live, ``agent_choose``-scoped, ``ok``
+    decision taken on a board where a foe Mega was actually active. Everything else -- a live
+    row at another outcome, or an ``ok`` decision on a non-Mega board -- is a perfectly valid
+    live row that simply is not evidence about opponent-Mega latency.
+    """
+    return (
+        row["source"] == "live"
+        and row["timer_scope"] == "agent_choose"
+        and row["outcome"] == "ok"
+        and row["foe_mega_active"] is True
+    )
+
+
+def validate_live_profile_dataset(path: str) -> dict:
+    """Design §3's LIVE dataset tier -- the mirror of ``validate_decision_profile_dataset`` for
+    a live sidecar. Runs ONCE over the frozen file **before any row is read as evidence**, and
+    FAILS THE RUN rather than annotating it.
+
+    A live dataset carries NO manifest (a live row has no arm/rep/manifest), so every row is
+    validated with ``manifest=None``. On top of that per-row contract this tier adds the two
+    invariants a single row cannot express:
+
+      - every row is ``source == "live"`` -- a microprofile row here would pool an end-to-end
+        agent_choose ms with a sub-call ms (the §2.5 boundary error the microprofile tier
+        rejects in the other direction);
+      - ``(battle_id, decision_index)`` is UNIQUE -- the live analogue of ``(arm_id, rep)``:
+        two rows sharing one decision's identity would double-count it in the exposure floor
+        and the p95.
+
+    The closed field schema (``validate_profile_row_fields``, checked FIRST so the boundary
+    check below can index ``source`` and so a stray winner/result/strength/local-path key fails
+    as an unknown field) is what keeps foreign fields out. Emptiness is NOT rejected here
+    (unlike the microprofile tier): a run that produced zero scored decisions is a real,
+    structurally-valid outcome that the exposure floor (§4) classifies INCONCLUSIVE --
+    conflating it with corruption would make that verdict unreachable.
+
+    Returns a report ``{"rows", "active_valid_rows", "distinct_active_battle_ids"}`` -- the
+    ACTIVE subset (``is_active_valid_live_row``) surfaced so the runner reads the verdict
+    population from one place, not a second re-derivation.
+    """
+    rows = _read_rows(path)
+    seen: set[tuple] = set()
+    active_valid = 0
+    active_battle_ids: set[str] = set()
+    for index, row in enumerate(rows):
+        # A file on disk is not a trusted writer: it may have been hand-edited, truncated or
+        # concatenated since its rows were validated on write.
+        try:
+            validate_profile_row_fields(row)
+            _require(
+                row["source"] == "live",
+                f"a live dataset may not contain a {row['source']!r} row; the two sources "
+                f"measure different boundaries (§2.5)",
+            )
+            validate_decision_profile_row(row, manifest=None)
+            key = (row["battle_id"], row["decision_index"])
+            _require(
+                key not in seen,
+                f"duplicate (battle_id, decision_index) {key!r}: one decision counted twice "
+                f"would double-count the exposure floor and the p95",
+            )
+            seen.add(key)
+        except DecisionProfileError as exc:
+            raise DecisionProfileError(f"{path} row {index}: {exc}") from exc
+        if is_active_valid_live_row(row):
+            active_valid += 1
+            active_battle_ids.add(row["battle_id"])
+
+    return {
+        "rows": len(rows),
+        "active_valid_rows": active_valid,
+        "distinct_active_battle_ids": len(active_battle_ids),
+    }
+
+
 def _read_rows(path: str) -> list[dict]:
     rows: list[dict] = []
     with open(path, encoding="utf-8") as fh:
