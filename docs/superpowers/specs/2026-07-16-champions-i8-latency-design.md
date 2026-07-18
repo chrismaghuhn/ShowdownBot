@@ -1533,6 +1533,22 @@ forbids only a **second timer**, not passive telemetry. Correct `fallback` class
 load-bearing: a timed-out heuristic fallback mislabelled `ok` would carry a non-decision-core
 `measured_ms` into the p95 — precisely what §2.6's `outcome == "ok"` predicate excludes.
 
+### 5.4c First live attempt — ABORTED, timeout re-bound (2026-07-18)
+
+The first authorized I8-D live run **aborted with no verdict and no evidence**: on `DESKTOP-1V4BPFQ`,
+detached `8616901`, patched server `f8ac140`, `SHOWDOWN_CALC_BACKEND=oneshot` (config_hash
+`594295543f13a55d`), **Battle 0 exceeded the bound 180 s harness timeout** (`gauntlet timed out` →
+`games=0`), so the whole-battle guard (§5.4a) discarded the partial battle and the gate failed
+closed **before** any `PASS`/`FAIL`/`INCONCLUSIVE` — `out/` was never published. Its logs are
+**scratch diagnostics only, never pooled**.
+
+The separately-authorized **restart is a distinct config stratum**: unchanged `oneshot`, restart at
+**seed 0**, with a pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`**. The 900 s battle budget is
+a harness ceiling **outside** the measured `agent_choose` window (§2.2), but it is classified
+`BEHAVIOR_AFFECTING` (`eval/config_env.py`), so it enters `config_hash`: the restart's **config_hash
+is `06b2b96e76486563`**, distinct from the aborted `594295543f13a55d`. Results across the two strata
+are **never merged**. No parameter tuning, no backend switch, no code fix.
+
 ### 5.5 Backend class — two clean predicates and a residual
 
 Never pooled. **Classification is derived from the backend's observed state, never from

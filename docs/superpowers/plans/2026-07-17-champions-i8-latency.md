@@ -757,6 +757,25 @@ timer**, not passive telemetry. Correct `fallback` classification is load-bearin
 timed out (≈4 s) and fell back, mislabelled `ok`, would carry a non-decision-core `measured_ms` into
 the p95 — exactly what §2.6's `outcome == "ok"` predicate exists to exclude.
 
+### 5.5 First live attempt — ABORTED, timeout re-bound to 900 s (2026-07-18)
+
+The first authorized live run **aborted with no verdict and no evidence**: host `DESKTOP-1V4BPFQ`,
+detached `8616901`, patched server `f8ac140`, `SHOWDOWN_CALC_BACKEND=oneshot` (config_hash
+`594295543f13a55d`). **Battle 0 exceeded the bound 180 s harness timeout** (`gauntlet timed out` →
+`games=0`), so the whole-battle guard (§5.4) discarded the partial battle and `run_i8d_live_gate`
+raised `I8DRunError` **before** any verdict — `out/` was never published (clean fail-closed, not a
+`PASS`/`FAIL`/`INCONCLUSIVE`). The aborted run's `gate.log`/`server.log` live outside the repo and
+are **scratch diagnostics only, never pooled**.
+
+The separately-authorized **restart is a new config stratum** (approver-set): **backend stays
+`oneshot`**, the run **restarts unchanged at seed 0**, with a pre-bound
+**`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`** (the repo's documented long-run value,
+`gauntlet.py::_effective_battle_timeout`). The 900 s battle budget is a harness ceiling **outside**
+the measured `agent_choose` window, but it is `BEHAVIOR_AFFECTING` (`eval/config_env.py`) and so
+enters `config_hash`: the restart's **config_hash is `06b2b96e76486563`**, distinct from the aborted
+`594295543f13a55d`. **Results across the two strata are never merged.** No code fix, no tuning, no
+backend switch; the fresh run uses a **fresh output path** and the aborted folder is preserved.
+
 ---
 
 ## 4.1 D-2 — the cap. **CLOSED 2026-07-17 — `MAX_BATTLES = 200` / `MAX_SCORED_DECISIONS = 2000`, now costed by D0 (see §7).**

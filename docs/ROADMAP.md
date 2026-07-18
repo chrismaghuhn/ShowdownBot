@@ -51,6 +51,18 @@ across **two blocking review rounds** (final review PASS; full suite **2777 pass
 executed**. The next step is the **I8-D live-gate RUN — a new run authorized separately**; Champions
 Strength remains **NO-GO**.
 
+**First I8-D live attempt — ABORTED (2026-07-18, no verdict, no evidence).** Host `DESKTOP-1V4BPFQ`,
+detached `8616901`, patched server `f8ac140`, `SHOWDOWN_CALC_BACKEND=oneshot`, config_hash
+`594295543f13a55d`: **Battle 0 exceeded the bound 180 s harness timeout** (`gauntlet timed out` →
+`games=0`), so the whole-battle guard discarded the partial battle and the gate aborted before any
+verdict — a clean fail-closed, **not** a `PASS`/`FAIL`/`INCONCLUSIVE`, and `out/` was never
+published. The aborted run's logs live OUTSIDE the repo and are **scratch diagnostics only, not
+pooled**. The **separately-authorized restart is a NEW config stratum**: unchanged `oneshot`,
+restart at **seed 0**, with a pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`** — the 900 s
+budget sits OUTSIDE the measured `agent_choose` window but is `BEHAVIOR_AFFECTING`, so the
+**config_hash changes to `06b2b96e76486563`** (distinct from the aborted `594295543f13a55d`). **No
+results are merged across strata.** No code fix, no tuning, no backend switch; Strength stays NO-GO.
+
 ## Status matrix
 
 | Vorhaben | Status | Evidenz | Nächste Entscheidung |
@@ -91,6 +103,8 @@ I8-D live-latency HARNESS merged (PR #23 @ 3b6070c) — telemetry + live-dataset
    → code + tests only (2 blocking review rounds resolved, final PASS, 2777 passed); NO server/battle/run/evidence
         ↓
 I8-D live-gate RUN (agent_choose scope, pinned 1000 ms budget):   ← next step, gated (authorize SEPARATELY)
+   → 1st attempt ABORTED (Battle 0 > bound 180 s timeout; no verdict/evidence, scratch-only, not pooled)
+   → restart = NEW config stratum, separately authorized: oneshot, seed 0, bound 900 s (config_hash 06b2b96e76486563 vs aborted 594295543f13a55d)
         ↓
 PASS → opponent-Mega coverage gate + independent Strength-holdout design
 FAIL → optimize the measured bottleneck, then rerun the unchanged profile
