@@ -1,0 +1,26 @@
+{
+  "active_valid_decisions": 60,
+  "battles_played": 75,
+  "budget_ms": 1000,
+  "distinct_active_battles": 45,
+  "exposure_floor_met": true,
+  "hero_team_hash": "1d3a4cf5a4042532",
+  "max_scored_decisions": 2000,
+  "min_active_decisions": 60,
+  "min_distinct_battles": 20,
+  "opp_team_hashes": [
+    "0054b6894af7215a",
+    "64ecc8fb2e6da7f1",
+    "ea99dd840d0adce2"
+  ],
+  "p95_is_gate_value": true,
+  "p95_ms": 1110.2130000072066,
+  "panel_hash": "aac1ea30446fde88",
+  "schedule_hash": "a1192d9dde4c65df",
+  "scored_decisions": 679,
+  "scored_overshoot": 0,
+  "seed_base": "champions-panel-v0-i8d-latency",
+  "seed_log_verified": true,
+  "stop_reason": "exposure_floor_met",
+  "verdict": "FAIL"
+}
