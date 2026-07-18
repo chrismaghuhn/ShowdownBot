@@ -372,7 +372,8 @@ def score_evaluated_variants(
     dex: SpeciesDex | None,
     priors=None,
     weights: EvalWeights,
-    mode: GameMode,
+    mode: GameMode | None = None,
+    resolve_mode=None,
     risk_lambda: float,
     rollout_horizon: int,
     our_spreads: dict | None,
@@ -659,6 +660,11 @@ def score_evaluated_variants(
 
         # --- Phase B: one shared flush for every enqueue in this world ---
         oracle.flush()
+        if resolve_mode is not None and world_idx == 0:
+            # Lever A: the game-mode incoming folded into THIS flush; resolve GameMode once,
+            # after the first world's flush, and reuse it for every world (memoized resolver).
+            # Direct callers pass a precomputed ``mode`` instead and skip this.
+            mode = resolve_mode()
 
         # --- Phase C: evaluate weighted samples with full evidence ---
         for slot, ctx in ctx_by_slot.items():
@@ -752,6 +758,11 @@ def score_evaluated_variants(
                                 required_classes=required_classes,
                                 retained_classes=retained_classes,
                             ), rec, len(rec.score_vector) - 1))
+
+    # Lever A fail-closed: GameMode must be set -- either a precomputed ``mode`` was passed, or
+    # ``resolve_mode`` resolved it on world 0 (there is always >= 1 world). A refactor that skipped
+    # the resolve would otherwise score with an unset mode.
+    assert mode is not None, "score_evaluated_variants needs mode= or resolve_mode()"
 
     if _search_depth() > 1 and world_samples() <= 1:
         # --- depth-2 wrap for the Mega grid (I7a-B Task 1 follow-up; mirrors

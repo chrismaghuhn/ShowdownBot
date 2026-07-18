@@ -8,8 +8,10 @@ separate, later, separately-authorized steps. Base: `main` @ `b655047`. Worktree
 `docs/superpowers/specs/2026-07-18-champions-i8-latency-reduction-design.md` — **Lever A only**.
 
 Lever A: fold the **initial** game-mode classification's **incoming** (`ko_threat`) damage into the
-single existing scoring flush, removing exactly one Node-process spawn per decision (~142 ms) while
-preserving the base `MUST_REACT` short-circuit. Lever B and the `opponent_range` cache are excluded.
+single existing scoring flush, removing **at least one** Node-process spawn per decision (~142 ms;
+observed **−2** on the reference board — the conditional outgoing dedups against the scoring cache, see
+the T1 erratum note) while preserving the base `MUST_REACT` short-circuit. Lever B and the
+`opponent_range` cache are excluded.
 
 All `file:line` anchors below are verified at `b655047`. The eventual unchanged live-gate rerun is a
 separate, later, separately-authorized step; this plan does not run it.
@@ -152,7 +154,7 @@ demonstrated locally and logged (§7). The suite is green at every commit bounda
 
 | # | RED (before) | GREEN (after) |
 |---|---|---|
-| T1 | a fixture foe-Mega decision issues the incoming `ko_threat` (and any outgoing) as its own direct `calc.damage_batch`; measured `spawn_calls` includes them and `spawn > damage_batch_calls+stats+types` | both incoming and (conditional) outgoing now go through `oracle`, so on the same fixture: **`spawn_calls` drops by exactly 1** (the incoming's separate spawn folds into the scoring flush); the telemetry **gap → 0** in both cases — base-`MUST_REACT` `1→0`, non-`MUST_REACT` `2→0` (the outgoing is now a *planned* oracle batch, not an untracked spawn); non-`MUST_REACT` `damage_batch_calls` rises `1→2`; and `transport_retried` is no longer spuriously `True` (the old accounting gap is closed). Counter assertions, offline, no timing |
+| T1 | a fixture foe-Mega decision (opponent WITH moves, so classification issues real incoming requests) runs classification damage on a private oracle: pre-fold `spawn_count = 3` while the shared `oracle.batch_calls = 1` | both incoming and (conditional) outgoing now route through the SHARED `oracle`, so **no damage spawn happens outside it**: `spawn_count == oracle.batch_calls`, `transport_attempts == damage_batch_calls` (no gap / spurious `transport_retried`). **Erratum:** the net saving is **≥ 1** spawn, not flat −1 — the incoming always folds; the conditional outgoing dedups against the scoring cache and is typically **cache-served** (its second `flush()` is transport-empty), so on the reference board both fold → **−2** and `damage_batch_calls` stays **1** (does NOT rise to 2). Counter assertions, offline, no timing |
 | T2 | — | **Decision equivalence** on a fixed corpus of foe-Mega boards + seeds: chosen action, full score vectors, tie-break order, and `GameMode` are identical before/after (golden captured from `b655047`) |
 | T3 | — | `GameMode` identical on base-`MUST_REACT` (`threatened>0`), `AHEAD`, `NEUTRAL`, and on extended-`MUST_REACT` (down-mons / speed-control) boards; on a base-`MUST_REACT` board **no outgoing request is built or sent** (assert via an oracle/calc spy) |
 | T4 | — | a calc failure in the shared flush raises `CalcError` and yields a non-ok row (fail-closed), exactly as the direct path did; the second (outgoing) flush's failure behaves identically |
@@ -246,8 +248,9 @@ the RED is proven locally before (3) rather than committed.
   passed / 1 skipped / 1 xfailed); calc/oracle, I7b mega-scoring (`tests/i7b/test_i7b_scoring.py`),
   `tests/test_baselines.py`, decision/search, and I8 profile/validator suites specifically green.
 - **Decision equivalence** (T2/T5) byte-identical on the captured corpus.
-- **Spawn reduction** demonstrated as a counter fact (T1): exactly −1 spawn/decision, offline, **no
-  latency benchmark and no timing claim**.
+- **Spawn reduction** demonstrated as a counter fact (T1): **≥ 1** spawn/decision removed (all
+  classification damage routes through the shared oracle; −2 on the reference board — see the T1
+  erratum), offline, **no latency benchmark and no timing claim**.
 - `config_hash` resolves to `594295543f13a55d` (T6); `eval/config_env.py` unchanged.
 - `battle/search.py` and the `mega_scoring.py` scoring math byte-identical (only the `mode`-resolution
   point moves); `git diff` limited to game_mode.py, decision.py, mega_scoring.py, and the new tests.

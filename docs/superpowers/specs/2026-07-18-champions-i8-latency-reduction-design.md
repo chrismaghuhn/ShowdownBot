@@ -149,18 +149,34 @@ treat the margins as approximate.
 | B (future slice) — stats+types coalesced into one heterogeneous round trip | 2.60 | 670.450 | 0/60 |
 | A+B (future) | 3.60 | 528.750 | 0/60 |
 
-**Lever A saves exactly one spawn per decision — not the full gap.** `compute_game_mode` must know the
-**incoming** (`ko_threat`) result before it can decide whether to compute **outgoing** (game_mode.py:
-170→195), so incoming and outgoing cannot share one flush without either breaking the short-circuit or
-computing outgoing unconditionally (which enlarges the error domain — see §7). The only behavior-
-neutral fold is: enqueue **incoming** with the scoring requests and resolve them in the **existing**
-scoring flush; the (conditional) **outgoing** keeps its short-circuit and, when reached, pays a second
-flush. Incoming is always present, so this removes exactly **1** spawn from **every** active decision
-→ every order statistic shifts down by one spawn-cost: p95 `1110.213 − 141.7 = 968.513`, with **2/60**
-still over budget. The rejected ordering (resolve incoming on its own, fold only outgoing) removes a
-spawn only on the `gap=2` rows and leaves a ~1109.795 ms row unmoved → still FAIL. So the projected
-model margin is thin (~31 ms). Lever B (a separate future slice, §6) would add robust headroom but is
-out of this slice.
+**Lever A saves at least one spawn per decision (see the Erratum below) — not the full gap.**
+`compute_game_mode` must know the **incoming** (`ko_threat`) result before it can decide whether to
+compute **outgoing** (game_mode.py:170→195), so incoming and outgoing cannot share one flush without
+either breaking the short-circuit or computing outgoing unconditionally (which enlarges the error
+domain — see §7). The behavior-neutral fold is: enqueue **incoming** with the scoring requests and
+resolve them in the **existing** scoring flush; the (conditional) **outgoing** keeps its short-circuit
+and, when reached, is resolved on the **same shared oracle** (a second `flush()` that dedups against
+the scoring cache). Incoming is always present, so this removes **at least 1** spawn from **every**
+active decision → in the constant-141.7-ms model every order statistic shifts down by one spawn-cost:
+projected p95 `1110.213 − 141.7 = 968.513`, **2/60** still over budget. The rejected ordering (resolve incoming on its own,
+fold only outgoing) removes a spawn only on the `gap=2` rows and leaves a ~1109.795 ms row unmoved →
+still FAIL. Lever B (a separate future slice, §6) would add robust headroom but is out of this slice.
+
+> **Erratum (2026-07-18, from implementation).** The measured effect on the reference Champions
+> foe-Mega board is **−2 spawns, not −1**, and `damage_batch_calls` stays **1** (not 1→2). When
+> reached, the conditional **outgoing** requests (OFFENSE-vs-DEFENSE calcs the scoring pass usually
+> already computed) dedup against the scoring cache and are typically **cache-served**, so the
+> outgoing's second `flush()` is transport-empty and folds too. The correct contract is therefore
+> **"≥ 1 spawn removed per active decision"** — the incoming always folds; the outgoing additionally
+> folds whenever its calcs are already cached (board-dependent) — and `damage_batch_calls` does **not**
+> necessarily rise to 2. The `968.513 ms` figure is a **conservative point projection in the constant-
+> 141.7-ms model** — but 141.7 ms is the observed **median** per-spawn cost, and per-spawn cost varies
+> **135–159 ms** (§3.4), so it is **not** an upper bound: removing ≥ one *variable-cost* spawn per
+> decision shifts each order statistic by a variable amount, and the real p95 may land **above or
+> below** 968.513. **Only the unchanged rerun decides the latency verdict.** Verified by counterproof:
+> pre-fold `spawn_count = 3`, post-fold `= 1` (a −2 on the reference board).
+> This does **not** change the fold's behavior-neutrality (the decision-equivalence golden is
+> unchanged); only the *cost* claim is corrected. Only the rerun decides the latency verdict.
 
 ---
 
@@ -259,15 +275,16 @@ Every anchor below was grepped/read against the current commit.
 
 **Recommended slice: Lever A — fold the *initial* game-mode classification's incoming (`ko_threat`)
 damage into the single existing scoring flush, so it stops paying its own spawn.** This removes
-exactly **one** spawn per decision (the incoming batch); the conditional outgoing batch keeps its
-short-circuit (§3.4).
+**at least one** spawn per decision (the incoming always folds; the conditional outgoing additionally
+folds when its calcs are cache-served — board-/cache-dependent, see the §3.4 Erratum), while preserving
+the outgoing's short-circuit (§3.4).
 
 Rationale: it targets the clearest defect (classification damage that should have used the batching
 seam), **reuses the existing `DamageOracle`** rather than building new infrastructure, and has the
 **strongest behavior-neutrality proof** (identical `DamageRequest` objects, resolved by the same
 dedup-and-flush, yield identical `DamageResult`s → identical `GameMode` → identical scores and action).
 
-**Viable order (preserves the short-circuit, removes exactly one spawn):**
+**Viable order (preserves the short-circuit, removes ≥ one spawn — see the §3.4 Erratum):**
 1. Build the game-mode **incoming** requests and enqueue them into the shared scoring oracle.
 2. Enqueue all scoring requests.
 3. **First flush** — incoming + scoring together (this is the fold; incoming no longer spawns alone).
@@ -383,7 +400,7 @@ Neutrality is proven **offline** by a decision-equivalence corpus (§10, §11), 
 
 | # | RED (fails before) | GREEN (passes after) | guards |
 |---|---|---|---|
-| T1 | the initial classification's **incoming** damage is a **separate** `calc.damage_batch`, so it adds one spawn to a fixture decision | incoming is enqueued into the shared scoring oracle; the decision's `spawn_calls` drops by **exactly 1** on the same fixture (gap 1→0 on `MUST_REACT`, 2→1 otherwise) | asserts the spawn reduction as a **counter** fact, offline, no latency timing |
+| T1 | the initial classification's damage is separate `calc.damage_batch` calls on a private oracle (pre-fold `spawn_count = 3` on the reference board) | all classification damage routes through the SHARED oracle: `spawn_count == oracle.batch_calls` and `spawn_calls` drops by **≥ 1** (incoming always folds; the conditional outgoing additionally folds when its calcs are cache-served — observed **−2**, `damage_batch_calls` unchanged; see §3.4 Erratum) | asserts the reduction as a **counter** fact, offline, no latency timing |
 | T2 | — | **Decision equivalence:** on a fixed corpus of foe-Mega boards + seeds, the chosen action, full score vectors, tie-break order, and `GameMode` are **identical** before/after | the behavior-neutrality contract (§7) |
 | T3 | — | `GameMode` classification identical on `MUST_REACT`, `AHEAD`, and `NEUTRAL` boards, and on a `MUST_REACT` board **no outgoing request is built or sent** (short-circuit preserved) | §6 order, §7 error domain |
 | T4 | — | a calc failure during the shared flush raises `CalcError` and produces a non-ok row (fail-closed), exactly as the direct path did | §8 error semantics |
