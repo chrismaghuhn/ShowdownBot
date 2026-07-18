@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 from showdown_bot.engine.belief.hypotheses import (
@@ -137,6 +138,94 @@ def guaranteed_ohko(
     return res.is_guaranteed_ohko
 
 
+@dataclass
+class GameModeHandle:
+    """Deferred base classification (Lever A). ``enqueue_base_game_mode`` puts the incoming
+    (opponent-attacks-us) ko-threat requests into a shared ``DamageOracle`` without flushing;
+    ``resolve_base_game_mode`` reads them after the shared flush. ``degenerate`` reproduces
+    ``compute_game_mode``'s ``not our_mons or not opp_mons`` short-circuit to NEUTRAL."""
+
+    degenerate: bool
+    keys: list[str]
+    owner: list[int]
+    our_mon_ids: list[int]
+    our_mons: list
+    opp_mons: list
+    field: dict
+    profile: CalcProfile
+    book: SpreadBook
+
+
+def enqueue_base_game_mode(
+    state: BattleState,
+    *,
+    our_side: str,
+    oracle,
+    book: SpreadBook,
+    calc_profile: CalcProfile | None = None,
+) -> GameModeHandle:
+    """Phase 1: enqueue the incoming ko-threat requests into ``oracle`` (no flush). The requests
+    and their per-owner grouping are byte-identical to ``ko_threat_counts``; only the transport
+    (``oracle.request`` instead of an immediate ``calc.damage_batch``) differs."""
+    opp_side = _opp_side(our_side)
+    field = _field_payload(state)
+    profile = calc_profile or DEFAULT_CALC_PROFILE
+    our_mons = _active_living(state, our_side)
+    opp_mons = _active_living(state, opp_side)
+    if not our_mons or not opp_mons:
+        return GameModeHandle(True, [], [], [], [], [], field, profile, book)
+    keys: list[str] = []
+    owner: list[int] = []
+    for ours in our_mons:
+        for opp in opp_mons:
+            for move in sorted(opp.move_names):
+                keys.append(oracle.request(_ko_request(opp, move, ours, book, field, profile)))
+                owner.append(id(ours))
+    return GameModeHandle(
+        False, keys, owner, [id(m) for m in our_mons], our_mons, opp_mons, field, profile, book
+    )
+
+
+def resolve_base_game_mode(handle: GameModeHandle, *, oracle) -> GameMode:
+    """Phase 2: read the incoming results from the flushed ``oracle``. On ``threatened > 0``
+    return MUST_REACT **without building any outgoing request** (the base short-circuit). Else
+    enqueue the outgoing requests, flush once more, and return AHEAD/NEUTRAL -- byte-identical to
+    ``compute_game_mode``'s tail (``we_get_ko`` = any is_guaranteed_ohko, order-independent)."""
+    if handle.degenerate:
+        return GameMode.NEUTRAL
+    by: dict[int, list] = {mid: [] for mid in handle.our_mon_ids}
+    for key, o in zip(handle.keys, handle.owner):
+        by[o].append(oracle.get(key))
+    threatened = 0
+    for mid in handle.our_mon_ids:
+        rs = by[mid]
+        if rs and any(r.is_guaranteed_ohko for r in rs):
+            threatened += 1
+    if threatened > 0:
+        return GameMode.MUST_REACT
+
+    outgoing_keys: list[str] = []
+    for ours in handle.our_mons:
+        for move in sorted(ours.move_names):
+            attacker = _our_attacker(ours, handle.book, move)
+            for opp in handle.opp_mons:
+                opp_hyp = hypothesis_from_state(opp, handle.book)
+                outgoing_keys.append(
+                    oracle.request(
+                        DamageRequest(
+                            attacker=attacker,
+                            defender=opp_hyp.as_defender(DEFENSE),
+                            move=move,
+                            field=handle.field,
+                            gen=handle.profile.generation,
+                        )
+                    )
+                )
+    oracle.flush()  # second (planned) flush -- only reached when NOT base MUST_REACT
+    we_get_ko = any(oracle.get(k).is_guaranteed_ohko for k in outgoing_keys)
+    return GameMode.AHEAD if we_get_ko else GameMode.NEUTRAL
+
+
 def compute_game_mode(
     state: BattleState,
     *,
@@ -156,78 +245,50 @@ def compute_game_mode(
       still guarantee a KO even when the opponent defends in ``defense_mode``
       (max bulk).
     * ``neutral``: otherwise.
-    """
-    opp_side = _opp_side(our_side)
-    field = _field_payload(state)
-    profile = calc_profile or DEFAULT_CALC_PROFILE
 
-    our_mons = _active_living(state, our_side)
-    opp_mons = _active_living(state, opp_side)
-    if not our_mons or not opp_mons:
-        return GameMode.NEUTRAL
+    Single source of truth: this is the two-phase ``enqueue -> flush -> resolve`` over a private
+    ``DamageOracle(client=calc)`` (Lever A). The oracle binds the injected ``calc`` so a pinned
+    backend / test spy / error stub is never dropped."""
+    from showdown_bot.battle.oracle import DamageOracle  # local: avoid engine->battle import cycle
 
-    # --- incoming threat: delegate to shared helper (same semantics) ---
-    threatened, _ = ko_threat_counts(
-        state, our_side, calc=calc, book=book, calc_profile=profile
+    oracle = DamageOracle(client=calc)
+    handle = enqueue_base_game_mode(
+        state, our_side=our_side, oracle=oracle, book=book, calc_profile=calc_profile
     )
-    if threatened > 0:
-        return GameMode.MUST_REACT
-
-    # --- our KO power: opponent defends in defense_mode (max bulk) ---
-    outgoing: list[DamageRequest] = []
-    for ours in our_mons:
-        for move in sorted(ours.move_names):
-            attacker = _our_attacker(ours, book, move)
-            for opp in opp_mons:
-                opp_hyp = hypothesis_from_state(opp, book)
-                outgoing.append(
-                    DamageRequest(
-                        attacker=attacker,
-                        defender=opp_hyp.as_defender(DEFENSE),
-                        move=move,
-                        field=field,
-                        gen=profile.generation,
-                    )
-                )
-
-    we_get_ko = False
-    if outgoing:
-        for res in calc.damage_batch(outgoing):
-            if res.is_guaranteed_ohko:
-                we_get_ko = True
-                break
-
-    if we_get_ko:
-        return GameMode.AHEAD
-    return GameMode.NEUTRAL
+    oracle.flush()
+    return resolve_base_game_mode(handle, oracle=oracle)
 
 
 def _faints(state: BattleState, side: str) -> int:
     return sum(1 for m in state.side(side).values() if m.fainted)
 
 
-def classify_game_mode(
+def enqueue_classification(
     state: BattleState,
     *,
     our_side: str,
-    calc: CalcClient,
+    oracle,
     book: SpreadBook,
-    low_hp_threshold: float = 0.35,
     calc_profile: CalcProfile | None = None,
-) -> GameMode:
-    """Extended classifier: the calc-based KO check (``compute_game_mode``) plus
-    mon-count and speed-control signals. Single source of truth -- this wraps
-    ``compute_game_mode`` rather than duplicating its damage logic.
-
-    must_react: opponent threatens a guaranteed KO, OR we are down mons, OR the
-                opponent has active speed control while we are not ahead.
-    ahead:      we guarantee a KO and survive, OR we are up mons, OR the opponent
-                has a low-HP target, OR we hold speed control and are not behind.
-    neutral:    otherwise.
-    """
-    base = compute_game_mode(
-        state, our_side=our_side, calc=calc, book=book, calc_profile=calc_profile
+) -> GameModeHandle:
+    """Phase 1 for the extended classifier. The extended mon-count / speed-control signals are
+    non-calc, so the enqueue is identical to the base."""
+    return enqueue_base_game_mode(
+        state, our_side=our_side, oracle=oracle, book=book, calc_profile=calc_profile
     )
+
+
+def resolve_classification(
+    handle: GameModeHandle,
+    *,
+    oracle,
+    state: BattleState,
+    our_side: str,
+    low_hp_threshold: float = 0.35,
+) -> GameMode:
+    """Phase 2 for the extended classifier: resolve the base mode from the flushed oracle, then
+    apply the SAME non-calc mon-count / speed-control adjustments as ``classify_game_mode``."""
+    base = resolve_base_game_mode(handle, oracle=oracle)
     opp_side = _opp_side(our_side)
     mon_diff = _faints(state, opp_side) - _faints(state, our_side)  # >0 => we are ahead
     opp_tailwind = bool(state.field.tailwind.get(opp_side, False))
@@ -255,3 +316,34 @@ def classify_game_mode(
         return GameMode.AHEAD
 
     return GameMode.NEUTRAL
+
+
+def classify_game_mode(
+    state: BattleState,
+    *,
+    our_side: str,
+    calc: CalcClient,
+    book: SpreadBook,
+    low_hp_threshold: float = 0.35,
+    calc_profile: CalcProfile | None = None,
+) -> GameMode:
+    """Extended classifier: the calc-based KO check (``compute_game_mode``) plus
+    mon-count and speed-control signals. Single source of truth -- the two-phase
+    ``enqueue -> flush -> resolve`` over a private ``DamageOracle(client=calc)`` (Lever A).
+
+    must_react: opponent threatens a guaranteed KO, OR we are down mons, OR the
+                opponent has active speed control while we are not ahead.
+    ahead:      we guarantee a KO and survive, OR we are up mons, OR the opponent
+                has a low-HP target, OR we hold speed control and are not behind.
+    neutral:    otherwise.
+    """
+    from showdown_bot.battle.oracle import DamageOracle  # local: avoid engine->battle import cycle
+
+    oracle = DamageOracle(client=calc)
+    handle = enqueue_classification(
+        state, our_side=our_side, oracle=oracle, book=book, calc_profile=calc_profile
+    )
+    oracle.flush()
+    return resolve_classification(
+        handle, oracle=oracle, state=state, our_side=our_side, low_hp_threshold=low_hp_threshold
+    )
