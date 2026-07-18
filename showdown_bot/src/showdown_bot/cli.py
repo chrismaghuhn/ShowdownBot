@@ -654,14 +654,60 @@ def run_generalisation_plan(args):
         justification=args.justification, overwrite=args.overwrite)
 
 
+def run_i8d_gate(args) -> None:
+    """The executable, provenance-locked I8-D live-latency gate (code-review findings 4, 5).
+
+    The ONLY authorizable command that drives the exposure-stop loop and renders the three-way
+    verdict. Everything is derived and verified here rather than trusted: provenance comes from the
+    real repo/env (``resolve_i8d_provenance``, fail-closed), the schedule is BUILT from the panel
+    and re-locked by the runner, the seed namespace + server seed log are proven, and no partial
+    battle is adopted. Starts a real server + battles when run -- gated by explicit authorization.
+    """
+    import os
+
+    from showdown_bot.eval.i8d_runner import (
+        I8D_MAX_BATTLES,
+        build_i8d_live_schedule,
+        resolve_i8d_provenance,
+        run_i8d_live_gate,
+    )
+
+    panel = getattr(args, "panel", "")
+    profile_out = getattr(args, "profile_out", "")
+    verdict_out = getattr(args, "verdict_out", "")
+    if not (panel and profile_out and verdict_out):
+        raise SystemExit("i8d-live-gate requires --panel, --profile-out and --verdict-out")
+    seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG", "")
+    if not seed_log:
+        raise SystemExit(
+            "i8d-live-gate requires SHOWDOWN_EVAL_SEED_LOG (the server's seed log) so the played "
+            "seeds can be proven -- the server must be started with it and SHOWDOWN_BATTLE_SEED_BASE"
+        )
+    teams_root = getattr(args, "teams_root", ".") or "."
+
+    prov = resolve_i8d_provenance()   # fail-closed git_sha / config_hash / calc_backend
+    schedule = build_i8d_live_schedule(panel, n_battles=I8D_MAX_BATTLES, teams_root=teams_root)
+    print(f"i8d-live-gate: schedule_hash={schedule.schedule_hash} git_sha={prov['git_sha']} "
+          f"config_hash={prov['config_hash']} calc_backend={prov['calc_backend']}")
+    report = run_i8d_live_gate(
+        schedule=schedule, profile_out=profile_out, verdict_out=verdict_out, seed_log_path=seed_log,
+        config_hash=prov["config_hash"], git_sha=prov["git_sha"], calc_backend=prov["calc_backend"],
+        hero_agent=prov["hero_agent"], expected_battles=I8D_MAX_BATTLES)
+    print(f"i8d-live-gate verdict: {report['verdict']} "
+          f"(active={report['active_valid_decisions']} from {report['distinct_active_battles']} "
+          f"battles, battles_played={report['battles_played']}, p95_ms={report['p95_ms']}, "
+          f"stop={report['stop_reason']}) -> {verdict_out}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
-                 "eval-report", "decision-diff", "generalisation-plan", "generalisation-analyze"],
+                 "eval-report", "decision-diff", "generalisation-plan", "generalisation-analyze",
+                 "i8d-live-gate"],
         help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
-        "decision-diff/generalisation-plan/generalisation-analyze",
+        "decision-diff/generalisation-plan/generalisation-analyze/i8d-live-gate",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -791,6 +837,20 @@ def main() -> None:
         default="",
         help="Path to the eval panel YAML (eval-report, required); team_path entries inside "
         "it resolve against --teams-root.",
+    )
+    parser.add_argument(
+        "--profile-out",
+        dest="profile_out",
+        default="",
+        help="Path for the frozen I8-D live decision-profile JSONL (i8d-live-gate, required). "
+        "Must be non-existing or empty -- a restart runs from seed 0, never merges.",
+    )
+    parser.add_argument(
+        "--verdict-out",
+        dest="verdict_out",
+        default="",
+        help="Path for the I8-D verdict JSON (i8d-live-gate, required). Staged atomically; must "
+        "be non-existing or empty.",
     )
     parser.add_argument(
         "--out",
@@ -958,6 +1018,10 @@ def main() -> None:
 
     if args.command == "decision-diff":
         run_decision_diff(args)
+        return
+
+    if args.command == "i8d-live-gate":
+        run_i8d_gate(args)
         return
 
     settings = Settings.from_env()

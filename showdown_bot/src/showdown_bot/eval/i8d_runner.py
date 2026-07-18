@@ -17,7 +17,12 @@ from showdown_bot.eval.decision_profile import (
     validate_live_profile_dataset,
 )
 from showdown_bot.eval.gates import load_latency_budget_ms
-from showdown_bot.eval.i8d_schedule import I8D_MAX_BATTLES, I8D_SEED_BASE, build_i8d_schedule
+from showdown_bot.eval.i8d_schedule import (
+    I8D_FORMAT,
+    I8D_MAX_BATTLES,
+    I8D_SEED_BASE,
+    build_i8d_schedule,
+)
 
 # --- CLOSED numbers -- not chosen here, referenced. D-1 floor (design §5.4), D-2 caps (§4.1). ---
 I8D_MIN_ACTIVE_DECISIONS = 60          # ≥ 60 valid active foe-Mega decisions
@@ -136,6 +141,51 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
                 f"seed-log/schedule misalignment: row seed_index {row.seed_index} != logged "
                 f"battle_index {rec['battle_index']}"
             )
+
+
+def resolve_i8d_provenance(*, hero_agent: str = "heuristic", format_id: str = I8D_FORMAT) -> dict:
+    """Derive the gate's provenance from the REAL environment and repo state, fail-closed
+    (code-review finding 5): none of ``git_sha`` / ``config_hash`` / ``calc_backend`` may be a
+    caller-supplied label.
+
+    - ``git_sha``: the current commit; refused if git is unavailable OR the tree is dirty (a
+      verdict's ``git_sha`` must identify exactly the code that produced it).
+    - ``config_hash``: recomputed from the effective config manifest -- the SAME assembly
+      ``cli.run_schedule`` uses, so a gate row's ``config_hash`` matches a result row's.
+    - ``calc_backend``: normalised from ``SHOWDOWN_CALC_BACKEND`` exactly as ``make_calc_backend``
+      selects it, fail-closed on unknown values.
+    """
+    from showdown_bot.eval.config_env import behavior_env, effective_config_manifest
+    from showdown_bot.eval.result_jsonl import make_config_hash
+    from showdown_bot.learning.provenance import git_sha_and_dirty
+
+    git_sha, dirty = git_sha_and_dirty()
+    if not git_sha or git_sha == "unknown":
+        raise I8DRunError(
+            "cannot resolve a git sha for the I8-D gate (not a git checkout?); the verdict's "
+            "provenance would be unverifiable"
+        )
+    if dirty:
+        raise I8DRunError(
+            "the working tree is dirty; commit or stash before an I8-D gate run so the verdict's "
+            "git_sha identifies exactly the code that produced it"
+        )
+    manifest = effective_config_manifest(
+        agent=hero_agent, format_id=format_id, env=behavior_env(),
+        model_hash=None, model_manifest_hash=None,
+    )
+    config_hash = make_config_hash(manifest)
+    raw_backend = os.environ.get("SHOWDOWN_CALC_BACKEND", "oneshot")
+    if raw_backend in ("", "oneshot"):
+        calc_backend = "oneshot"
+    elif raw_backend == "persistent":
+        calc_backend = "persistent"
+    else:
+        raise I8DRunError(
+            f"unknown SHOWDOWN_CALC_BACKEND={raw_backend!r} (expected 'oneshot' or 'persistent')"
+        )
+    return {"git_sha": git_sha, "config_hash": config_hash,
+            "calc_backend": calc_backend, "hero_agent": hero_agent}
 
 
 def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES,
