@@ -195,8 +195,7 @@ def _run(tmp_path, schedule, monkeypatch, *, rows_for, games=1):
     seed_log = str(tmp_path / "seed.log")
     _install_stub(monkeypatch, rows_for=rows_for, seed_log_path=seed_log, games=games)
     return run_i8d_live_gate(
-        schedule=schedule, profile_out=str(tmp_path / "profile.jsonl"),
-        verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+        schedule=schedule, out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
         config_hash="cfg01", git_sha="deadbeef", expected_battles=len(schedule.rows))
 
 
@@ -247,16 +246,17 @@ def test_driver_exhausts_the_schedule_when_neither_floor_nor_cap_binds(tmp_path,
     assert report["verdict"] == "INCONCLUSIVE — exposure floor not met"
 
 
-def test_verdict_report_is_atomic_lf_and_equals_the_return_value(tmp_path, monkeypatch):
+def test_output_dir_is_published_atomically_and_verdict_equals_return(tmp_path, monkeypatch):
     def rows_for(bid):
         return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
 
     report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
-    vpath = tmp_path / "verdict.json"
-    raw = vpath.read_bytes()
-    assert b"\r" not in raw and raw.endswith(b"\n")          # LF-stable
+    out = tmp_path / "out"
+    raw = (out / "verdict.json").read_bytes()
+    assert b"\r" not in raw and raw.endswith(b"\n")            # LF-stable
     assert json.loads(raw.decode("utf-8")) == report          # what we staged == what we returned
-    assert not (tmp_path / "verdict.json.tmp").exists()        # atomic replace left no temp behind
+    assert (out / "profile.jsonl").exists()                   # profile + verdict published together
+    assert not (tmp_path / "out.staging").exists()            # the staging dir was consumed by the rename
 
 
 def _gate(tmp_path, schedule, monkeypatch, *, seed_log=None, base=I8D_SEED_BASE):
@@ -267,22 +267,20 @@ def _gate(tmp_path, schedule, monkeypatch, *, seed_log=None, base=I8D_SEED_BASE)
     else:
         monkeypatch.delenv("SHOWDOWN_BATTLE_SEED_BASE", raising=False)
     return run_i8d_live_gate(
-        schedule=schedule, profile_out=str(tmp_path / "profile.jsonl"),
-        verdict_out=str(tmp_path / "verdict.json"),
+        schedule=schedule, out_dir=str(tmp_path / "out"),
         seed_log_path=str(tmp_path / "seed.log") if seed_log is None else seed_log,
         config_hash="c", git_sha="d", expected_battles=len(schedule.rows))
 
 
-def test_driver_refuses_to_merge_into_an_existing_profile(tmp_path, monkeypatch):
-    p = tmp_path / "profile.jsonl"
-    p.write_text('{"from":"an earlier partial run"}\n', encoding="utf-8")
-    with pytest.raises(I8DRunError, match="already has content"):
+def test_driver_refuses_to_merge_into_an_existing_output_dir(tmp_path, monkeypatch):
+    (tmp_path / "out").mkdir()
+    with pytest.raises(I8DRunError, match="already exists"):
         _gate(tmp_path, _canon(6), monkeypatch)
 
 
-def test_driver_refuses_to_overwrite_an_existing_verdict(tmp_path, monkeypatch):
-    (tmp_path / "verdict.json").write_text("{}\n", encoding="utf-8")
-    with pytest.raises(I8DRunError, match="already has content"):
+def test_driver_refuses_a_leftover_staging_dir(tmp_path, monkeypatch):
+    (tmp_path / "out.staging").mkdir()   # a crashed run's staging dir
+    with pytest.raises(I8DRunError, match="already exists"):
         _gate(tmp_path, _canon(6), monkeypatch)
 
 
@@ -307,15 +305,14 @@ def test_an_incomplete_battle_is_discarded_and_the_run_fails_closed(tmp_path, mo
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
     seed_log = str(tmp_path / "seed.log")
     _install_stub(monkeypatch, rows_for=rows_for, seed_log_path=seed_log, games=0)
-    profile = tmp_path / "profile.jsonl"
     with pytest.raises(I8DRunError, match="did not complete exactly one game"):
         run_i8d_live_gate(
-            schedule=_canon(6), profile_out=str(profile),
-            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+            schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
             config_hash="c", git_sha="d", expected_battles=6)
-    assert profile.read_text(encoding="utf-8").strip() == ""     # no partial rows adopted
-    assert not (tmp_path / "profile.jsonl.staging").exists()      # staging discarded
-    assert not (tmp_path / "verdict.json").exists()               # no verdict for a failed run
+    assert not (tmp_path / "out").exists()                        # never published
+    # the staging dir remains (crashed run) but holds NO adopted battle rows and no staged battle
+    assert (tmp_path / "out.staging" / "profile.jsonl").read_text(encoding="utf-8").strip() == ""
+    assert not (tmp_path / "out.staging" / "battle.jsonl").exists()
 
 
 # ---- finding 2: the seeds are PROVEN, not merely labelled -------------------------------------
@@ -355,10 +352,9 @@ def test_run_fails_closed_on_a_misaligned_seed_log(tmp_path, monkeypatch):
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
     with pytest.raises(I8DRunError, match="seed-log verification failed"):
         run_i8d_live_gate(
-            schedule=_canon(6), profile_out=str(tmp_path / "profile.jsonl"),
-            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+            schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
             config_hash="c", git_sha="d", expected_battles=6)
-    assert not (tmp_path / "verdict.json").exists()
+    assert not (tmp_path / "out").exists()   # seeds unproven -> no verdict, nothing published
 
 
 # ---- finding 3 (integration): the runner re-locks the schedule at the execution point ---------
@@ -369,7 +365,6 @@ def test_run_rejects_a_non_canonical_schedule_at_the_execution_point(tmp_path, m
     # any battle, and no output files are created.
     with pytest.raises(I8DScheduleError, match="exactly 200 rows"):
         run_i8d_live_gate(
-            schedule=_canon(24), profile_out=str(tmp_path / "profile.jsonl"),
-            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=str(tmp_path / "seed.log"),
-            config_hash="c", git_sha="d")   # default expected_battles = 200
-    assert not (tmp_path / "profile.jsonl").exists()
+            schedule=_canon(24), out_dir=str(tmp_path / "out"),
+            seed_log_path=str(tmp_path / "seed.log"), config_hash="c", git_sha="d")   # default 200
+    assert not (tmp_path / "out").exists() and not (tmp_path / "out.staging").exists()

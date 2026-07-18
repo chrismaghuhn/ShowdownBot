@@ -673,10 +673,9 @@ def run_i8d_gate(args) -> None:
     )
 
     panel = getattr(args, "panel", "")
-    profile_out = getattr(args, "profile_out", "")
-    verdict_out = getattr(args, "verdict_out", "")
-    if not (panel and profile_out and verdict_out):
-        raise SystemExit("i8d-live-gate requires --panel, --profile-out and --verdict-out")
+    out_dir = getattr(args, "out_dir", "")
+    if not (panel and out_dir):
+        raise SystemExit("i8d-live-gate requires --panel and --out-dir")
     seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG", "")
     if not seed_log:
         raise SystemExit(
@@ -690,13 +689,13 @@ def run_i8d_gate(args) -> None:
     print(f"i8d-live-gate: schedule_hash={schedule.schedule_hash} git_sha={prov['git_sha']} "
           f"config_hash={prov['config_hash']} calc_backend={prov['calc_backend']}")
     report = run_i8d_live_gate(
-        schedule=schedule, profile_out=profile_out, verdict_out=verdict_out, seed_log_path=seed_log,
+        schedule=schedule, out_dir=out_dir, seed_log_path=seed_log,
         config_hash=prov["config_hash"], git_sha=prov["git_sha"], calc_backend=prov["calc_backend"],
         hero_agent=prov["hero_agent"], expected_battles=I8D_MAX_BATTLES)
     print(f"i8d-live-gate verdict: {report['verdict']} "
           f"(active={report['active_valid_decisions']} from {report['distinct_active_battles']} "
           f"battles, battles_played={report['battles_played']}, p95_ms={report['p95_ms']}, "
-          f"stop={report['stop_reason']}) -> {verdict_out}")
+          f"stop={report['stop_reason']}) -> {out_dir}/")
 
 
 def main() -> None:
@@ -839,18 +838,12 @@ def main() -> None:
         "it resolve against --teams-root.",
     )
     parser.add_argument(
-        "--profile-out",
-        dest="profile_out",
+        "--out-dir",
+        dest="out_dir",
         default="",
-        help="Path for the frozen I8-D live decision-profile JSONL (i8d-live-gate, required). "
-        "Must be non-existing or empty -- a restart runs from seed 0, never merges.",
-    )
-    parser.add_argument(
-        "--verdict-out",
-        dest="verdict_out",
-        default="",
-        help="Path for the I8-D verdict JSON (i8d-live-gate, required). Staged atomically; must "
-        "be non-existing or empty.",
+        help="Output directory for the I8-D gate (i8d-live-gate, required): profile.jsonl + "
+        "verdict.json are published together via one atomic rename from a run-staging dir. Must "
+        "NOT already exist -- a restart runs from seed 0 into a fresh directory, never merges.",
     )
     parser.add_argument(
         "--out",

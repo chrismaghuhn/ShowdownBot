@@ -101,24 +101,24 @@ def test_command_derives_provenance_and_reaches_the_runner(tmp_path, monkeypatch
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
     cli.run_i8d_gate(argparse.Namespace(
         panel="config/eval/panels/panel_champions_v0.yaml",
-        profile_out=str(tmp_path / "p.jsonl"), verdict_out=str(tmp_path / "v.json"),
-        teams_root="."))
+        out_dir=str(tmp_path / "out"), teams_root="."))
     kw = captured["run_kwargs"]
     # DERIVED provenance, not caller labels
     assert (kw["git_sha"], kw["config_hash"], kw["calc_backend"], kw["hero_agent"]) == (
         "sha9", "cfg9", "oneshot", "heuristic")
     assert kw["expected_battles"] == 200                        # locked to the D-2 cap, not caller-set
     assert kw["seed_log_path"] == str(tmp_path / "seed.log")    # from the server's env
+    assert kw["out_dir"] == str(tmp_path / "out")              # the atomic-publish output directory
     assert kw["schedule"].schedule_hash == "sched-xyz"          # BUILT from the panel, not passed in
     assert captured["panel"] == "config/eval/panels/panel_champions_v0.yaml"
     assert captured["n_battles"] == 200
 
 
-def test_command_requires_panel_profile_and_verdict(tmp_path, monkeypatch):
+def test_command_requires_panel_and_out_dir(tmp_path, monkeypatch):
     from showdown_bot import cli
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
-    with pytest.raises(SystemExit, match="requires --panel, --profile-out and --verdict-out"):
-        cli.run_i8d_gate(argparse.Namespace(panel="", profile_out="", verdict_out="", teams_root="."))
+    with pytest.raises(SystemExit, match="requires --panel and --out-dir"):
+        cli.run_i8d_gate(argparse.Namespace(panel="", out_dir="", teams_root="."))
 
 
 def test_command_requires_the_server_seed_log(tmp_path, monkeypatch):
@@ -128,6 +128,5 @@ def test_command_requires_the_server_seed_log(tmp_path, monkeypatch):
     monkeypatch.delenv("SHOWDOWN_EVAL_SEED_LOG", raising=False)
     with pytest.raises(SystemExit, match="requires SHOWDOWN_EVAL_SEED_LOG"):
         cli.run_i8d_gate(argparse.Namespace(
-            panel="p.yaml", profile_out=str(tmp_path / "p.jsonl"),
-            verdict_out=str(tmp_path / "v.json"), teams_root="."))
+            panel="p.yaml", out_dir=str(tmp_path / "out"), teams_root="."))
     assert "run_kwargs" not in captured   # fails before building or driving anything

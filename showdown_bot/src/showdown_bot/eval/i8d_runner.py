@@ -111,15 +111,25 @@ def _write_json_atomic(path: str, obj: dict) -> None:
     os.replace(tmp, path)
 
 
-def _adopt_staged_rows(staging_path: str, final_path: str) -> None:
-    """Append a proven-complete battle's staged rows into the frozen dataset, LF-stable. Called
-    only after the battle returned exactly one completed game AND its staged rows validated."""
-    with open(staging_path, encoding="utf-8") as src, \
-            open(final_path, "a", encoding="utf-8", newline="") as dst:
-        for line in src:
-            line = line.strip()
-            if line:
-                dst.write(line + "\n")
+def _read_lines(path: str) -> list[str]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        return [line.strip() for line in fh if line.strip()]
+
+
+def _adopt_battle_atomic(dataset_path: str, battle_path: str) -> None:
+    """Merge a proven-complete battle's staged rows into the accumulating dataset **atomically**
+    (re-review blocker 1): write the new full dataset (existing + this battle) to a temp file, then
+    ``os.replace`` it into place. A process/file error mid-write leaves either the pre-battle or the
+    post-battle dataset -- never a half battle. LF-stable. Called only after the battle returned
+    exactly one completed game AND its staged rows validated."""
+    merged = _read_lines(dataset_path) + _read_lines(battle_path)
+    tmp = f"{dataset_path}.tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        for line in merged:
+            fh.write(line + "\n")
+    os.replace(tmp, dataset_path)
 
 
 def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
@@ -198,11 +208,11 @@ def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES
     return build_i8d_schedule(panel, n_battles=n_battles, teams_root=teams_root)
 
 
-def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_path: str,
+def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
                       config_hash: str, git_sha: str, calc_backend: str = "oneshot",
                       hero_agent: str = "heuristic", expected_battles: int = I8D_MAX_BATTLES) -> dict:
     """Drive the schedule with whole-battle stop and render the verdict, verifying every execution
-    boundary up front rather than trusting labels (code-review findings 1-3).
+    boundary up front rather than trusting labels (code-review findings 1-3 + re-review blocker 1).
 
     - **Schedule re-lock (finding 3):** ``verify_i8d_schedule`` re-derives the full structure and
       recomputes the hash before the first battle -- an arbitrary/truncated schedule is refused.
@@ -210,14 +220,18 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
       (Channel A); this asserts it is the approved ``I8D_SEED_BASE`` (the namespace ``schedule_hash``
       does not cover) and requires the server's ``seed_log_path``, then after the run proves the
       logged seeds are exactly ``derive_battle_seed(base, i)`` for the battles that ran.
-    - **Whole-battle adoption (finding 1):** each battle writes to a per-run STAGING file; nothing
-      enters the frozen dataset until ``run_local_gauntlet`` reports exactly ONE completed game and
-      the staged rows validate. A timeout returns ``games == 0`` with partial rows staged -- those
-      are discarded and the run fails closed (restart from seed 0, never a partial adoption).
+    - **Atomic run (finding 1 + re-review blocker 1):** the WHOLE run happens in a run-staging
+      directory ``{out_dir}.staging``; each battle stages in isolation and is adopted into the
+      accumulating dataset ONLY after ``run_local_gauntlet`` reports exactly one completed game and
+      the staged rows validate -- and that adoption is a temp-file + ``os.replace`` (never a
+      partial battle in the dataset). ``out_dir`` itself appears only via a single atomic
+      ``os.replace(staging_dir, out_dir)`` AFTER seed-log, dataset and verdict validation, so a
+      crash at any point leaves the un-published staging dir and never half a battle in the final
+      evidence. A timeout (``games == 0``) discards the staged battle and fails closed.
 
-    Restart-from-seed-0-no-merge: refuses a non-empty ``profile_out``/``verdict_out``/staging file.
-    The p95 is computed only after the run has stopped; the scored cap is a THRESHOLD the last
-    battle may overshoot by exactly its own rows (reported in ``scored_overshoot``, never truncated).
+    Restart-from-seed-0-no-merge: refuses an existing ``out_dir`` or staging dir. The p95 is
+    computed only after the run has stopped; the scored cap is a THRESHOLD the last battle may
+    overshoot by exactly its own rows (reported in ``scored_overshoot``, never truncated).
     """
     import asyncio
 
@@ -242,18 +256,19 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
             "be proven; without it the run's seeds are only labelled, not verified"
         )
 
-    staging = f"{profile_out}.staging"
-    for label, p in (("decision profile", profile_out), ("verdict", verdict_out),
-                     ("staging", staging)):
-        if os.path.exists(p) and os.path.getsize(p) > 0:
+    # (blocker 1) all work happens in a run-staging directory; out_dir appears only via one atomic
+    # rename after everything validates. A leftover staging dir is a crashed run -- fail closed.
+    staging_dir = f"{out_dir}.staging"
+    for label, p in (("output", out_dir), ("staging", staging_dir)):
+        if os.path.exists(p):
             raise I8DRunError(
-                f"{label} output {p} already has content; an I8-D restart runs from seed 0 into "
-                f"fresh files and never merges a partial run"
+                f"{label} directory {p} already exists; an I8-D restart runs from seed 0 into a "
+                f"fresh directory and never merges a partial run"
             )
-
-    # Materialise the (empty) frozen dataset up front so the per-battle recount reads a real file
-    # even for a battle that scored nothing -- an empty dataset is valid, not a missing-file error.
-    open(profile_out, "a", encoding="utf-8", newline="").close()
+    os.makedirs(staging_dir)
+    staging_profile = os.path.join(staging_dir, "profile.jsonl")
+    staging_battle = os.path.join(staging_dir, "battle.jsonl")
+    open(staging_profile, "a", encoding="utf-8", newline="").close()   # the empty dataset exists
     budget_ms = load_latency_budget_ms()   # the pinned 1000 ms from gates.yaml, not a local copy
 
     battles_played = 0
@@ -267,10 +282,10 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
             schedule_hash=schedule.schedule_hash, format_id=row.format_id,
             git_sha=git_sha, calc_backend=calc_backend)
         # (finding 1) stage this battle in isolation; a distinct writer per battle so partial rows
-        # never touch the frozen dataset before the battle is proven complete.
-        if os.path.exists(staging):
-            os.remove(staging)
-        stage_writer = DecisionProfileWriter(staging, manifest=None)
+        # never touch the accumulating dataset before the battle is proven complete.
+        if os.path.exists(staging_battle):
+            os.remove(staging_battle)
+        stage_writer = DecisionProfileWriter(staging_battle, manifest=None)
         stats = asyncio.run(run_local_gauntlet(
             games=1, hero_agent=hero_agent, villain_agent=row.opp_policy,
             format_id=row.format_id, team_path=row.hero_team_path, opp_team_path=row.opp_team_path,
@@ -279,20 +294,20 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
             # A timeout returns normally with games == 0 and partial rows staged. Discard them and
             # fail closed: a run restarted for an infrastructure fault restarts from seed 0 (§5.1),
             # never adopting a half-played battle's exposure or scored decisions.
-            if os.path.exists(staging):
-                os.remove(staging)
+            if os.path.exists(staging_battle):
+                os.remove(staging_battle)
             raise I8DRunError(
                 f"battle at seed_index {row.seed_index} did not complete exactly one game "
                 f"(games={stats.games}); its partial rows are discarded -- restart from seed 0"
             )
-        # §5.4.4: validate the battle's staged artifacts, adopt them atomically into the frozen
-        # dataset, THEN recount and evaluate the stop rule. (No staged file => 0 scored decisions.)
-        if os.path.exists(staging):
-            validate_live_profile_dataset(staging)
-            _adopt_staged_rows(staging, profile_out)
-            os.remove(staging)
+        # §5.4.4: validate the battle's staged artifacts, adopt them ATOMICALLY into the dataset,
+        # THEN recount and evaluate the stop rule. (No staged file => 0 scored decisions.)
+        if os.path.exists(staging_battle):
+            validate_live_profile_dataset(staging_battle)
+            _adopt_battle_atomic(staging_profile, staging_battle)
+            os.remove(staging_battle)
         battles_played += 1
-        counts = validate_live_profile_dataset(profile_out)
+        counts = validate_live_profile_dataset(staging_profile)
         scored_decisions = counts["rows"]
         active_valid = counts["active_valid_rows"]
         distinct_battles = counts["distinct_active_battle_ids"]
@@ -305,11 +320,12 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
         stop_reason = "schedule_exhausted"
 
     # (finding 2) prove the server played the approved seeds for the battles that ran, BEFORE any
-    # verdict is written: a run whose seeds cannot be proven yields no verdict.
+    # verdict is written: a run whose seeds cannot be proven yields no verdict (and no out_dir).
     _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
+    validate_live_profile_dataset(staging_profile)   # final dataset validation before publishing
 
     verdict = i8d_verdict(active_valid=active_valid, distinct_battles=distinct_battles,
-                          active_measured_ms=_active_measured_ms(profile_out), budget_ms=budget_ms)
+                          active_measured_ms=_active_measured_ms(staging_profile), budget_ms=budget_ms)
     report = {
         "schedule_hash": schedule.schedule_hash,
         "seed_base": seed_base,
@@ -323,5 +339,8 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_
         "stop_reason": stop_reason,
         **verdict,
     }
-    _write_json_atomic(verdict_out, report)
+    _write_json_atomic(os.path.join(staging_dir, "verdict.json"), report)
+    # (blocker 1) publish the COMPLETE output directory atomically -- profile + verdict together --
+    # in one rename, from a fully-validated staging dir into the not-yet-existing out_dir.
+    os.replace(staging_dir, out_dir)
     return report
