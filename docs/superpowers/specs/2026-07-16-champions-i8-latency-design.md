@@ -1501,6 +1501,38 @@ two battles would measure two boards, not the format.
 The microprofile is unaffected — its arm sizes are chosen, not sampled, so exposure is a design
 parameter there rather than an outcome. D-1 governs the **live** verdict only.
 
+### 5.4a I8-D schedule & stop semantics — CLOSED 2026-07-18 (approver-set)
+
+D-1/D-2 fixed the floor and the caps but not the concrete battle schedule; the harness
+implementation STOPPED and reported the gap, and these are now bound (see the plan §5.4 for the
+full statement). Summary, because the gate predicate depends on them:
+
+- **Dev-only 6-matchup matrix, fixed cyclic order** — `goodstuff`, `tailwind_offense`, `trick_room`
+  each × `heuristic` then `max_damage`; held-out `rain_offense`/`disruption` **excluded** from I8-D.
+- **`MAX_BATTLES = 200` ⇒ distribution `34, 34, 33, 33, 33, 33`** (cyclic round-robin; never
+  re-ordered by exposure or latency).
+- **Seed base `champions-panel-v0-i8d-latency`, `seed_index = 0..199`**, `seed_index=i` bound to
+  schedule row `i`, all materialised before the first battle. The `seed_index` values are frozen in
+  `schedule_hash`; the seed **namespace** is **not** in that hash (code-review finding 2), so the
+  runner binds it separately — it asserts `SHOWDOWN_BATTLE_SEED_BASE == champions-panel-v0-i8d-latency`
+  and verifies the server's Channel-A seed log (`derive_battle_seed`) before any verdict is written.
+- **Whole-battle stop semantics** — stop conditions are evaluated only after a fully-completed,
+  validated battle; a running battle is never aborted. `scored_decisions` may therefore exceed
+  `MAX_SCORED_DECISIONS` by **at most one completed battle's** scored decisions; this bounded
+  overshoot is reported and is **not** an error and is **not** corrected by truncation or mid-battle
+  abort. Once D-1 is met the run ends after that battle — no extra battles to move the p95.
+
+### 5.4b Live `outcome` derivation — harness finding (minimal erratum)
+
+The row `outcome` (§2.4/§2.6) is derived from **existing** signals: `crash` = the `agent_choose`
+exception handler; `degraded_state` = `state is None and not req.team_preview`; `fallback` vs `ok`
+= `choose_with_fallback`'s `selection_stage` (`"heuristic"` ⇒ `ok`; a fallback stage ⇒ `fallback`).
+Reading `selection_stage` requires the live profile to build/reuse a `DecisionTrace`; this is
+consistent with the live-latency baseline (I7b-C smoke, measured with the trace seam on), and §2.2
+forbids only a **second timer**, not passive telemetry. Correct `fallback` classification is
+load-bearing: a timed-out heuristic fallback mislabelled `ok` would carry a non-decision-core
+`measured_ms` into the p95 — precisely what §2.6's `outcome == "ok"` predicate excludes.
+
 ### 5.5 Backend class — two clean predicates and a residual
 
 Never pooled. **Classification is derived from the backend's observed state, never from

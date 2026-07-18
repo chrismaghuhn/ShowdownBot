@@ -712,6 +712,51 @@ turns D-1's next sizing from a 26×-wide CI into an estimate. The report states 
 rate with its interval, the cap that bound it, and what n would have been required. That is a
 measurement outcome, not a consolation.
 
+### 5.4 I8-D execution decisions — CLOSED 2026-07-18 (schedule + stop semantics)
+
+§5.1–5.3 fixed the stop rule and verdict but referenced *"the schedule"* abstractly; the harness
+implementation surfaced that the concrete schedule and the cap-within-battle behaviour were not
+bound. These four are now approver-set (they were **open**, not silently assumed — the harness
+implementation STOPPED and reported the gap before writing code):
+
+1. **Dev-only 6-matchup matrix.** The schedule uses **only the three dev panel teams**; the two
+   held-out teams (`rain_offense`, `disruption`) are **reserved** for later independent
+   coverage/outcome/Strength work and **must not appear** in I8-D. The six matchups, in this fixed
+   order, are: `goodstuff×heuristic`, `goodstuff×max_damage`, `tailwind_offense×heuristic`,
+   `tailwind_offense×max_damage`, `trick_room×heuristic`, `trick_room×max_damage`.
+2. **Fixed cyclic round-robin.** The schedule cycles the six matchups in exactly that order, never
+   re-ordered by exposure or latency. At `MAX_BATTLES = 200` the distribution is **`34, 34, 33, 33,
+   33, 33`** (200 = 6·33 + 2; the first two matchups take the remainder).
+3. **Seed namespace + `seed_index = 0..199`.** New binding seed base `champions-panel-v0-i8d-latency`;
+   `seed_index = i` belongs immutably to schedule row `i`. All 200 rows are materialised **before the
+   first battle** and bound via the schedule hash — which covers `seed_index` but **not** the seed
+   **namespace** (code-review finding 2); the runner binds the namespace by asserting
+   `SHOWDOWN_BATTLE_SEED_BASE` and verifying the server's Channel-A seed log before any verdict. No
+   refill, swap, or re-order after start.
+4. **Whole-battle stop semantics.** Stop conditions (D-1 floor, D-2 caps) are evaluated **only after
+   a fully-completed and validated battle** — validate the battle's artifacts, adopt the battle
+   atomically, recount, then evaluate the stop rule. A running battle is **never** aborted for D-1
+   or D-2. The decision cap is therefore a **stop threshold**: before the last battle
+   `scored_decisions < 2000`; after it `scored_decisions` may exceed 2000, by **at most the scored
+   decisions of exactly one completed battle**, which is **reported explicitly and is not an error**
+   — never "corrected" by truncating rows, discarding the last valid battle, or a mid-battle abort.
+   Likewise the exposure floor is checked only after complete battles; once D-1 is met the run ends
+   **after that battle**, with no extra battles played to improve the p95.
+
+**Live `outcome` classification (harness finding, minimal erratum).** The row's `outcome`
+(`ok`/`crash`/`fallback`/`degraded_state`, §2.4/§2.6) is derived from **existing authoritative
+signals**, not a new one: `crash` = the `agent_choose` exception handler (`gauntlet.py:637-648`);
+`degraded_state` = `state is None and not req.team_preview` (a real decision whose state build
+failed, dispatched via the request-only path); `fallback` vs `ok` = `choose_with_fallback`'s
+`selection_stage` (`decision.py:_mark_selection`) — `"heuristic"` ⇒ `ok`, a fallback stage
+(`"max_damage_fallback"`, `"deterministic_default_pair"`, …) ⇒ `fallback`. Reading
+`selection_stage` requires the live profile to build/reuse a `DecisionTrace`; this is
+spec-consistent because the established live-latency baseline (I7b-C smoke, worst p95 672 ms) was
+itself measured with the decision-trace seam active, and §2.2 forbids only a **second per-request
+timer**, not passive telemetry. Correct `fallback` classification is load-bearing: a heuristic that
+timed out (≈4 s) and fell back, mislabelled `ok`, would carry a non-decision-core `measured_ms` into
+the p95 — exactly what §2.6's `outcome == "ok"` predicate exists to exclude.
+
 ---
 
 ## 4.1 D-2 — the cap. **CLOSED 2026-07-17 — `MAX_BATTLES = 200` / `MAX_SCORED_DECISIONS = 2000`, now costed by D0 (see §7).**

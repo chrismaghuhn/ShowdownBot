@@ -182,6 +182,157 @@ _SOURCES = frozenset({"live", "microprofile"})
 _BACKENDS = frozenset({"oneshot", "persistent"})
 _OUTCOMES = frozenset({"ok", "crash", "fallback", "degraded_state"})
 
+# The AUTHORITATIVE live-outcome vocabulary (I8-D): exactly the selection stages
+# `choose_with_fallback` marks via `_mark_selection` (`battle/decision.py`), partitioned.
+# `"heuristic"` is the only completed-decision stage; the other three are its fallback layers.
+# `"team_preview"` never reaches this classifier (team preview emits no profile row). This is
+# NOT a second vocabulary — it references the existing stages verbatim.
+LIVE_OK_STAGE = "heuristic"
+LIVE_FALLBACK_STAGES = frozenset(
+    {"max_damage_fallback", "deterministic_default_pair", "server_default"}
+)
+
+
+def classify_live_outcome(*, crashed: bool, state_degraded: bool,
+                          selection_stage: str | None) -> str:
+    """Map a live decision to its `outcome`, from EXISTING signals only (I8-D, §2.6).
+
+    Order is load-bearing: `crash` (the `agent_choose` exception handler) and `degraded_state`
+    (`state is None and not team_preview`) are classified INDEPENDENTLY of the stage sink and
+    dominate it, so a crash or a degraded decision is never mislabelled `fallback`. Only for a
+    completed, non-degraded decision is the authoritative `selection_stage` consulted:
+    `"heuristic"` ⇒ `ok`, a fallback stage ⇒ `fallback`. `fallback_reason` is deliberately NOT
+    a parameter — the fallback verdict is the STAGE, never a reason that happens to be set. An
+    unknown or absent stage on a completed decision fails closed rather than guessing.
+    """
+    if crashed:
+        return "crash"
+    if state_degraded:
+        return "degraded_state"
+    if selection_stage == LIVE_OK_STAGE:
+        return "ok"
+    if selection_stage in LIVE_FALLBACK_STAGES:
+        return "fallback"
+    raise DecisionProfileError(
+        f"unclassifiable live decision: selection_stage={selection_stage!r} is neither "
+        f"{LIVE_OK_STAGE!r} nor a fallback stage {sorted(LIVE_FALLBACK_STAGES)} "
+        f"(crash/degraded are classified separately)"
+    )
+
+
+# The cumulative calc counters whose per-decision deltas a live row carries. Same set and
+# order the microprofile session snapshots, so live and microprofile deltas are one quantity.
+_LIVE_DELTA_FIELDS = (
+    "damage_batch_calls", "planned_damage_batches", "implicit_damage_batches",
+    "stats_batch_calls", "types_batch_calls", "requests_total", "requests_unique",
+    "cache_hits", "transport_attempts",
+)
+
+
+@dataclasses.dataclass
+class LiveProfileContext:
+    """Per-battle provenance a live decision-profile row needs, built once per battle by the
+    schedule runner (mirrors OppMegaTraceContext, plus calc_backend for backend_class)."""
+    battle_id: str
+    config_id: str
+    config_hash: str
+    schedule_hash: str
+    format_id: str
+    git_sha: str
+    calc_backend: str
+
+
+def snapshot_calc_counters(oracle, backend) -> dict:
+    """The client-owned cumulative calc counters at one instant (I8-D live), mirroring the
+    microprofile session's ``counters()`` exactly. Read-only: no counter is reset per decision,
+    so a per-decision figure is a before/after difference, never the raw total."""
+    return {
+        "damage_batch_calls": oracle.batch_calls,
+        "planned_damage_batches": oracle.planned_damage_batches,
+        "implicit_damage_batches": oracle.implicit_damage_batches,
+        "stats_batch_calls": backend.stats_batch_calls,
+        "types_batch_calls": backend.types_batch_calls,
+        "transport_attempts": backend.transport_attempts,
+        "spawn_count": backend.spawn_count,
+        "requests_total": oracle.requests_total,
+        "requests_unique": oracle.requests_unique,
+        "cache_hits": oracle.cache_hits,
+    }
+
+
+def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash: str,
+                           config_id: str, format_id: str, git_sha: str, config_hash: str,
+                           calc_backend: str, outcome: str, latency_ms: float,
+                           counters_before: dict, counters_after: dict, shape) -> dict:
+    """Assemble ONE live decision-profile row -- the single place a live row is built (§2.4/§2.6).
+
+    ``measured_ms`` is the ``agent_choose`` latency ONLY when ``outcome == "ok"``; otherwise it
+    is ``null`` (§2.6), while the real counter deltas are kept. Counters are after-minus-before
+    deltas of the client's cumulative calc counters. Live identity (battle_id/decision_index/
+    schedule_hash) is set; the microprofile identity (arm_id/rep/profile_manifest_hash) and every
+    cache field are ``null``. ``backend_class`` is COMPUTED from the deltas, never supplied.
+    ``shape`` is the ``MegaShapeCounts`` filled at origin during the decision, or ``None`` for a
+    decision that scored nothing (all shape fields 0, ``foe_mega_active`` False).
+    """
+    if outcome not in _OUTCOMES:
+        raise DecisionProfileError(f"unknown outcome {outcome!r}")
+    delta = {f: counters_after[f] - counters_before[f] for f in _LIVE_DELTA_FIELDS}
+    spawn_count_before = counters_before["spawn_count"]
+    spawn_calls = counters_after["spawn_count"] - counters_before["spawn_count"]
+    transport_calls = (
+        delta["damage_batch_calls"] + delta["stats_batch_calls"] + delta["types_batch_calls"]
+    )
+    transport_retried = delta["transport_attempts"] > transport_calls
+    row = {
+        "schema_version": SCHEMA_VERSION,
+        "source": "live",
+        "battle_id": battle_id,
+        "decision_index": decision_index,
+        "arm_id": None,
+        "rep": None,
+        "config_id": config_id,
+        "format_id": format_id,
+        "git_sha": git_sha,
+        "config_hash": config_hash,
+        "schedule_hash": schedule_hash,
+        "profile_manifest_hash": None,
+        "calc_backend": calc_backend,
+        "backend_class": backend_class_of(
+            calc_backend, spawn_count_before, spawn_calls, transport_retried
+        ),
+        "cache_class": None,
+        "damage_cache_size_at_rep_start": None,
+        "speed_cache_size_at_rep_start": None,
+        "dex_cache_size_at_rep_start": None,
+        "spawn_count_before": spawn_count_before,
+        "transport_retried": transport_retried,
+        "timer_scope": "agent_choose",
+        # §2.6: a non-ok wall clock is the crash handler / fallback layer, not decision work.
+        "measured_ms": float(latency_ms) if outcome == "ok" else None,
+        "damage_batch_calls": delta["damage_batch_calls"],
+        "planned_damage_batches": delta["planned_damage_batches"],
+        "implicit_damage_batches": delta["implicit_damage_batches"],
+        "stats_batch_calls": delta["stats_batch_calls"],
+        "types_batch_calls": delta["types_batch_calls"],
+        "transport_calls": transport_calls,
+        "transport_attempts": delta["transport_attempts"],
+        "spawn_calls": spawn_calls,
+        "requests_total": delta["requests_total"],
+        "requests_unique": delta["requests_unique"],
+        "cache_hits": delta["cache_hits"],
+        "n_candidates": shape.n_candidates if shape is not None else 0,
+        "n_responses": shape.n_responses if shape is not None else 0,
+        "n_mega_twins": shape.n_mega_twins if shape is not None else 0,
+        "n_branches": shape.n_branches if shape is not None else 0,
+        "n_worlds": shape.n_worlds if shape is not None else 0,
+        "depth2_frontier": shape.depth2_frontier if shape is not None else 0,
+        "foe_mega_active": bool(shape is not None and shape.n_mega_twins > 0),
+        "outcome": outcome,
+    }
+    validate_profile_row_fields(row)   # exact-closed field set, fail closed
+    return row
+
+
 # Provenance a row always carries, whatever its source.
 _ALWAYS_SET = ("config_id", "format_id", "git_sha", "config_hash")
 
@@ -841,6 +992,85 @@ def validate_decision_profile_dataset(path: str, manifest: dict) -> dict:
 
     _check_fixture_identity(by_arm, manifest)
     return report
+
+
+def is_active_valid_live_row(row: dict) -> bool:
+    """The §4 verdict population, defined ONCE so the dataset validator, the runner and any
+    auditor never carry two copies that can drift.
+
+    A row enters the exposure floor and the p95 iff it is a live, ``agent_choose``-scoped, ``ok``
+    decision taken on a board where a foe Mega was actually active. Everything else -- a live
+    row at another outcome, or an ``ok`` decision on a non-Mega board -- is a perfectly valid
+    live row that simply is not evidence about opponent-Mega latency.
+    """
+    return (
+        row["source"] == "live"
+        and row["timer_scope"] == "agent_choose"
+        and row["outcome"] == "ok"
+        and row["foe_mega_active"] is True
+    )
+
+
+def validate_live_profile_dataset(path: str) -> dict:
+    """Design §3's LIVE dataset tier -- the mirror of ``validate_decision_profile_dataset`` for
+    a live sidecar. Runs ONCE over the frozen file **before any row is read as evidence**, and
+    FAILS THE RUN rather than annotating it.
+
+    A live dataset carries NO manifest (a live row has no arm/rep/manifest), so every row is
+    validated with ``manifest=None``. On top of that per-row contract this tier adds the two
+    invariants a single row cannot express:
+
+      - every row is ``source == "live"`` -- a microprofile row here would pool an end-to-end
+        agent_choose ms with a sub-call ms (the §2.5 boundary error the microprofile tier
+        rejects in the other direction);
+      - ``(battle_id, decision_index)`` is UNIQUE -- the live analogue of ``(arm_id, rep)``:
+        two rows sharing one decision's identity would double-count it in the exposure floor
+        and the p95.
+
+    The closed field schema (``validate_profile_row_fields``, checked FIRST so the boundary
+    check below can index ``source`` and so a stray winner/result/strength/local-path key fails
+    as an unknown field) is what keeps foreign fields out. Emptiness is NOT rejected here
+    (unlike the microprofile tier): a run that produced zero scored decisions is a real,
+    structurally-valid outcome that the exposure floor (§4) classifies INCONCLUSIVE --
+    conflating it with corruption would make that verdict unreachable.
+
+    Returns a report ``{"rows", "active_valid_rows", "distinct_active_battle_ids"}`` -- the
+    ACTIVE subset (``is_active_valid_live_row``) surfaced so the runner reads the verdict
+    population from one place, not a second re-derivation.
+    """
+    rows = _read_rows(path)
+    seen: set[tuple] = set()
+    active_valid = 0
+    active_battle_ids: set[str] = set()
+    for index, row in enumerate(rows):
+        # A file on disk is not a trusted writer: it may have been hand-edited, truncated or
+        # concatenated since its rows were validated on write.
+        try:
+            validate_profile_row_fields(row)
+            _require(
+                row["source"] == "live",
+                f"a live dataset may not contain a {row['source']!r} row; the two sources "
+                f"measure different boundaries (§2.5)",
+            )
+            validate_decision_profile_row(row, manifest=None)
+            key = (row["battle_id"], row["decision_index"])
+            _require(
+                key not in seen,
+                f"duplicate (battle_id, decision_index) {key!r}: one decision counted twice "
+                f"would double-count the exposure floor and the p95",
+            )
+            seen.add(key)
+        except DecisionProfileError as exc:
+            raise DecisionProfileError(f"{path} row {index}: {exc}") from exc
+        if is_active_valid_live_row(row):
+            active_valid += 1
+            active_battle_ids.add(row["battle_id"])
+
+    return {
+        "rows": len(rows),
+        "active_valid_rows": active_valid,
+        "distinct_active_battle_ids": len(active_battle_ids),
+    }
 
 
 def _read_rows(path: str) -> list[dict]:

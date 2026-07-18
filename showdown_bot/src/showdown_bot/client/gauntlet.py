@@ -9,7 +9,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
+from showdown_bot.battle.decision import (
+    SelectionStageSink,
+    choose_for_request,
+    choose_with_fallback,
+)
+from showdown_bot.battle.mega_scoring import MegaShapeCounts
+from showdown_bot.eval.decision_profile import snapshot_calc_counters
 from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.battle.opponent import SpeciesDex
 from showdown_bot.battle.oracle import DamageOracle
@@ -69,6 +75,8 @@ def agent_choose(
     override=None,
     format_config=None,
     opp_mega_evidence_sink=None,
+    stage_sink=None,
+    shape_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -147,6 +155,7 @@ def agent_choose(
             # SAME sink. Omitting it here made every reranker decision invisible to the
             # sidecar.
             opp_mega_evidence_sink=opp_mega_evidence_sink,
+            stage_sink=stage_sink, shape_sink=shape_sink,
         )
         if override is None:
             return heuristic_choose
@@ -165,6 +174,7 @@ def agent_choose(
         # Rides through choose_with_fallback's existing **deps into
         # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
         opp_mega_evidence_sink=opp_mega_evidence_sink,
+            stage_sink=stage_sink, shape_sink=shape_sink,
     )
 
 
@@ -269,7 +279,8 @@ class _Client:
                  export_runtime=None, allow_own_export=True, is_mirror=True,
                  decision_trace_writer=None, decision_trace_context=None,
                  agg_trace_writer=None, agg_trace_context=None,
-                 opp_mega_trace_writer=None, opp_mega_trace_context=None):
+                 opp_mega_trace_writer=None, opp_mega_trace_context=None,
+                 decision_profile_writer=None, decision_profile_context=None):
         self.conn = conn
         self.name = name
         self.agent = agent
@@ -310,6 +321,14 @@ class _Client:
         # byte-identical to before this seam existed.
         self.opp_mega_trace_writer = opp_mega_trace_writer
         self.opp_mega_trace_context = opp_mega_trace_context
+        # Live decision-profile seam (I8-D) — off by default, a FOURTH writer/context
+        # independent of the three above. When a caller (cli.run_schedule, HERO client only)
+        # supplies a DecisionProfileWriter + a per-battle LiveProfileContext, handle_request
+        # snapshots the calc counters around agent_choose, drives the stage/shape sinks inside
+        # the existing timer, and writes one live row per scored decision. `None` (both, the
+        # default) is a NO-OP: no sink is allocated, no row is built, /choose is byte-identical.
+        self.decision_profile_writer = decision_profile_writer
+        self.decision_profile_context = decision_profile_context
         # [P1] Rows WRITTEN, not the decision index. The two differ whenever a decision
         # produces no row, which is why this must never be used to number one.
         self._opp_mega_rows_written = 0
@@ -622,6 +641,23 @@ class _Client:
             ) else None
         )
         opp_mega_agent_ok = True
+        # I8-D live profile (off by default): allocate the stage/shape sinks and snapshot the
+        # cumulative calc counters ONLY when the writer is on and this is a scored hero decision
+        # (team preview writes no profile row; a wait already returned above without an index).
+        # The sinks flow INTO agent_choose so the outcome/work-set are recorded inside the same
+        # window; the counter snapshots straddle it. No second timer, no serialisation here.
+        profile_on = (
+            self.decision_profile_writer is not None
+            and not req.team_preview
+            and self.agent in ("heuristic", "heuristic_reranker")
+        )
+        profile_stage_sink = SelectionStageSink() if profile_on else None
+        profile_shape_sink = MegaShapeCounts() if profile_on else None
+        profile_before = (
+            snapshot_calc_counters(oracle, calc.backend)
+            if (profile_on and calc is not None) else None
+        )
+        agent_crashed = False
         start = time.perf_counter()
         try:
             choose = agent_choose(
@@ -633,6 +669,8 @@ class _Client:
                 override=override,
                 format_config=self.format_config,
                 opp_mega_evidence_sink=opp_mega_evidence,
+                stage_sink=profile_stage_sink,
+                shape_sink=profile_shape_sink,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -646,10 +684,18 @@ class _Client:
             # (possibly empty, possibly half-filled) evidence would misattribute provenance to
             # a decision that never actually completed.
             opp_mega_agent_ok = False
+            # I8-D: the crash is classified from THIS flag, never from the (partial) stage sink.
+            agent_crashed = True
         # Existing decision-latency window (choice computed, not yet sent) — measured ONCE here
         # so the capture sidecar's decision_latency_ms and self.latencies derive from the exact
         # SAME perf_counter() call; the sidecar latency is never the WebSocket send time.
         decision_latency_ms = (time.perf_counter() - start) * 1000
+        # I8-D: snapshot the counters immediately after the window, before the send — the
+        # per-decision deltas are after-minus-before around exactly the measured call.
+        profile_after = (
+            snapshot_calc_counters(oracle, calc.backend)
+            if (profile_on and calc is not None) else None
+        )
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         await self.conn.send(f"{room}|{choose}")
@@ -729,6 +775,40 @@ class _Client:
                 logger.debug(
                     "[%s] opp-mega-trace write failed (decision dropped from sidecar): %s",
                     self.name, exc,
+                )
+        # I8-D live decision profile (off by default): build ONE row from the existing signals
+        # and write it best-effort AFTER the send, stamped with decision_seq -- the SAME shared
+        # index every other sidecar uses. Outcome comes from the authoritative sources only:
+        # the crash flag, state-is-None, and the stage sink (never a reconstruction). A dropped
+        # write is logged; the battle never stalls.
+        if profile_on and profile_before is not None and profile_after is not None:
+            from showdown_bot.eval.decision_profile import (
+                build_live_profile_row,
+                classify_live_outcome,
+            )
+            try:
+                ctx = self.decision_profile_context
+                outcome = classify_live_outcome(
+                    crashed=agent_crashed,
+                    state_degraded=(state is None),
+                    selection_stage=(
+                        profile_stage_sink.selection_stage
+                        if profile_stage_sink is not None else None
+                    ),
+                )
+                row = build_live_profile_row(
+                    battle_id=ctx.battle_id, decision_index=decision_seq,
+                    schedule_hash=ctx.schedule_hash, config_id=ctx.config_id,
+                    format_id=ctx.format_id, git_sha=ctx.git_sha, config_hash=ctx.config_hash,
+                    calc_backend=ctx.calc_backend, outcome=outcome,
+                    latency_ms=decision_latency_ms,
+                    counters_before=profile_before, counters_after=profile_after,
+                    shape=profile_shape_sink,
+                )
+                self.decision_profile_writer.write(row)
+            except Exception as exc:  # noqa: BLE001 - best-effort; never stall the battle
+                logger.debug(
+                    "[%s] decision-profile write failed (row dropped): %s", self.name, exc
                 )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
@@ -1111,6 +1191,8 @@ async def run_local_gauntlet(
     agg_trace_context=None,
     opp_mega_trace_writer=None,
     opp_mega_trace_context=None,
+    decision_profile_writer=None,
+    decision_profile_context=None,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -1168,6 +1250,14 @@ async def run_local_gauntlet(
     evidence comes from the scoring call's own ``opp_mega_evidence_sink``. Both ``None``
     (the default) is byte-identical: the hero client allocates no evidence list, passes an
     explicit ``None`` down the chain, and the dispatched ``/choose`` messages are unchanged.
+
+    ``decision_profile_writer``/``decision_profile_context`` (I8-D, off by default): a FOURTH,
+    INDEPENDENT optional sidecar -- one live decision-profile row per SCORED hero decision
+    (see ``eval/decision_profile.py``), stamped with the shared decision index and the
+    per-battle ``LiveProfileContext``. Same hero-only contract and the same pairing /
+    ``games == 1`` validation as the seams above. Both ``None`` (the default) is
+    byte-identical: the hero client builds no row, allocates no sinks, and the dispatched
+    ``/choose`` messages are unchanged.
     """
     if (decision_trace_writer is None) != (decision_trace_context is None):
         raise ValueError(
@@ -1185,6 +1275,12 @@ async def run_local_gauntlet(
         )
     if opp_mega_trace_context is not None and games != 1:
         raise ValueError("opp_mega_trace_context requires games == 1")
+    if (decision_profile_writer is None) != (decision_profile_context is None):
+        raise ValueError(
+            "decision_profile_writer and decision_profile_context must be given together"
+        )
+    if decision_profile_context is not None and games != 1:
+        raise ValueError("decision_profile_context requires games == 1")
     if agg_trace_context is not None and games != 1:
         raise ValueError("agg_trace_context requires games == 1")
     cfg, book, priors, opp_sets = _load_belief_deps(format_id)
@@ -1215,10 +1311,13 @@ async def run_local_gauntlet(
                    agg_trace_writer=agg_trace_writer,
                    agg_trace_context=agg_trace_context,
                    opp_mega_trace_writer=opp_mega_trace_writer,
-                   opp_mega_trace_context=opp_mega_trace_context)
-    # The villain deliberately receives NO opp-mega writer/context (same hero-only contract
-    # as export_runtime and both trace seams): its decisions are the opponent policy's, not
-    # the bot under test, so its foe-Mega hypotheses are not the evidence this smoke is about.
+                   opp_mega_trace_context=opp_mega_trace_context,
+                   decision_profile_writer=decision_profile_writer,
+                   decision_profile_context=decision_profile_context)
+    # The villain deliberately receives NO opp-mega or decision-profile writer/context (same
+    # hero-only contract as export_runtime and both trace seams): its decisions are the
+    # opponent policy's, not the bot under test, so neither its foe-Mega hypotheses nor its
+    # per-decision latency are the evidence these sidecars are about.
     villain = _Client(villain_conn, villain_name, villain_agent, book=book, priors=priors, format_id=format_id,
                        format_config=cfg, packed_team=villain_packed, opp_sets=opp_sets,
                        export_runtime=None, allow_own_export=False)
