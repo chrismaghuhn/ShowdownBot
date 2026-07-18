@@ -157,8 +157,8 @@ domain — see §7). The behavior-neutral fold is: enqueue **incoming** with the
 resolve them in the **existing** scoring flush; the (conditional) **outgoing** keeps its short-circuit
 and, when reached, is resolved on the **same shared oracle** (a second `flush()` that dedups against
 the scoring cache). Incoming is always present, so this removes **at least 1** spawn from **every**
-active decision → every order statistic shifts down by ≥ one spawn-cost: p95 `≤ 1110.213 − 141.7 =
-968.513`, with at most **2/60** still over budget. The rejected ordering (resolve incoming on its own,
+active decision → in the constant-141.7-ms model every order statistic shifts down by one spawn-cost:
+projected p95 `1110.213 − 141.7 = 968.513`, **2/60** still over budget. The rejected ordering (resolve incoming on its own,
 fold only outgoing) removes a spawn only on the `gap=2` rows and leaves a ~1109.795 ms row unmoved →
 still FAIL. Lever B (a separate future slice, §6) would add robust headroom but is out of this slice.
 
@@ -169,9 +169,12 @@ still FAIL. Lever B (a separate future slice, §6) would add robust headroom but
 > outgoing's second `flush()` is transport-empty and folds too. The correct contract is therefore
 > **"≥ 1 spawn removed per active decision"** — the incoming always folds; the outgoing additionally
 > folds whenever its calcs are already cached (board-dependent) — and `damage_batch_calls` does **not**
-> necessarily rise to 2. Consequently the `968.513 ms` figure (built on a flat −1) is a **conservative
-> upper bound** on the p95; the real saving is ≥ one spawn and often more, so the unchanged repeat gate
-> should land at or below it. Verified by counterproof: pre-fold `spawn_count = 3`, post-fold `= 1`.
+> necessarily rise to 2. The `968.513 ms` figure is a **conservative point projection in the constant-
+> 141.7-ms model** — but 141.7 ms is the observed **median** per-spawn cost, and per-spawn cost varies
+> **135–159 ms** (§3.4), so it is **not** an upper bound: removing ≥ one *variable-cost* spawn per
+> decision shifts each order statistic by a variable amount, and the real p95 may land **above or
+> below** 968.513. **Only the unchanged rerun decides the latency verdict.** Verified by counterproof:
+> pre-fold `spawn_count = 3`, post-fold `= 1` (a −2 on the reference board).
 > This does **not** change the fold's behavior-neutrality (the decision-equivalence golden is
 > unchanged); only the *cost* claim is corrected. Only the rerun decides the latency verdict.
 
@@ -272,8 +275,9 @@ Every anchor below was grepped/read against the current commit.
 
 **Recommended slice: Lever A — fold the *initial* game-mode classification's incoming (`ko_threat`)
 damage into the single existing scoring flush, so it stops paying its own spawn.** This removes
-exactly **one** spawn per decision (the incoming batch); the conditional outgoing batch keeps its
-short-circuit (§3.4).
+**at least one** spawn per decision (the incoming always folds; the conditional outgoing additionally
+folds when its calcs are cache-served — board-/cache-dependent, see the §3.4 Erratum), while preserving
+the outgoing's short-circuit (§3.4).
 
 Rationale: it targets the clearest defect (classification damage that should have used the batching
 seam), **reuses the existing `DamageOracle`** rather than building new infrastructure, and has the
