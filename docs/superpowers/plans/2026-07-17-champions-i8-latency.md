@@ -729,7 +729,10 @@ implementation STOPPED and reported the gap before writing code):
    33, 33`** (200 = 6·33 + 2; the first two matchups take the remainder).
 3. **Seed namespace + `seed_index = 0..199`.** New binding seed base `champions-panel-v0-i8d-latency`;
    `seed_index = i` belongs immutably to schedule row `i`. All 200 rows are materialised **before the
-   first battle** and bound via the schedule hash. No refill, swap, or re-order after start.
+   first battle** and bound via the schedule hash — which covers `seed_index` but **not** the seed
+   **namespace** (code-review finding 2); the runner binds the namespace by asserting
+   `SHOWDOWN_BATTLE_SEED_BASE` and verifying the server's Channel-A seed log before any verdict. No
+   refill, swap, or re-order after start.
 4. **Whole-battle stop semantics.** Stop conditions (D-1 floor, D-2 caps) are evaluated **only after
    a fully-completed and validated battle** — validate the battle's artifacts, adopt the battle
    atomically, recount, then evaluate the stop rule. A running battle is **never** aborted for D-1

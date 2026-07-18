@@ -23,7 +23,9 @@ import pytest
 
 from showdown_bot.battle.mega_scoring import MegaShapeCounts
 from showdown_bot.eval.decision_profile import build_live_profile_row
-from showdown_bot.eval.schedule import Schedule, ScheduleRow
+from showdown_bot.eval.panel import Panel, PanelTeam
+from showdown_bot.eval.seeding import derive_battle_seed
+from showdown_bot.eval.i8d_schedule import I8D_SEED_BASE, I8DScheduleError, build_i8d_schedule
 from showdown_bot.eval.i8d_runner import (
     I8D_MIN_ACTIVE_DECISIONS,
     I8D_MIN_DISTINCT_BATTLES,
@@ -143,41 +145,59 @@ def _mk(*, battle_id, decision_index, outcome="ok", twins=24, latency_ms=100.0):
         counters_before=dict(_BEFORE), counters_after=dict(_AFTER), shape=_shape(twins))
 
 
-def _sched(n):
-    rows = tuple(
-        ScheduleRow(
-            format_id="gen9championsvgc2026regma", hero_team_path="teams/hero.txt",
-            opp_policy="heuristic" if i % 2 == 0 else "max_damage",
-            opp_team_path="teams/opp.txt", seed_index=i)
-        for i in range(n)
-    )
-    return Schedule(version="1", rows=rows, schedule_hash="sched-i8d-test", panel_hash=None)
+def _panel() -> Panel:
+    def t(tid, arch):
+        return PanelTeam(team_id=tid, team_path=f"teams/panel_champions_v0/{tid}.txt",
+                         archetype=arch, team_hash=f"hash_{tid}")
+    return Panel(
+        version="champions_v0", policies=("heuristic", "max_damage"),
+        dev_teams=(t("goodstuff", "balance_goodstuff"),
+                   t("tailwind_offense", "tailwind_offense"),
+                   t("trick_room", "trick_room")),
+        heldout_teams=(t("rain_offense", "weather_rain"), t("disruption", "bulky_disruption")),
+        panel_hash="aac1ea30446fde88")
 
 
-def _install_stub(monkeypatch, *, rows_for):
-    """A battle-free run_local_gauntlet: it writes this battle's rows through the REAL writer
-    the driver passed (so they are per-row validated and land in the frozen dataset), stamping
-    each with the context's battle_id so distinct-battle accounting is exercised, then returns
-    stats. If the driver reused one context across battles, every row would share one battle_id
-    and the spread floor could never be met -- so this doubles as a distinct-context counterproof.
+def _canon(n):
+    """A CANONICAL I8-D schedule of n rows -- passes verify_i8d_schedule(expected_battles=n). The
+    runner re-locks the schedule, so a hand-built stand-in would now be rejected (finding 3)."""
+    return build_i8d_schedule(_panel(), n_battles=n, teams_root=".")
+
+
+def _install_stub(monkeypatch, *, rows_for, seed_log_path, games=1):
+    """A battle-free run_local_gauntlet that (a) writes this battle's rows through the STAGING
+    writer the driver passed, stamping each with the context's battle_id (so distinct-battle
+    accounting and per-battle staging are exercised), and (b) simulates the Channel-A server
+    appending a seed-log record for the created battle. ``games`` lets a test drive the
+    incomplete-battle (games != 1) discard path. Battles play in seed_index order, so the record's
+    battle_index is a simple counter.
     """
     import showdown_bot.client.gauntlet as g
+    counter = {"i": 0}
 
     async def _fake(**kw):
         writer = kw["decision_profile_writer"]
         ctx = kw["decision_profile_context"]
         for row in rows_for(ctx.battle_id):
             writer.write(row)
-        return g.GauntletStats(games=1, hero_wins=1)
+        i = counter["i"]
+        counter["i"] += 1
+        with open(seed_log_path, "a", encoding="utf-8", newline="") as fh:
+            fh.write(json.dumps({"battle_index": i, "seed_base": I8D_SEED_BASE,
+                                 "seed": derive_battle_seed(I8D_SEED_BASE, i)}) + "\n")
+        return g.GauntletStats(games=games, hero_wins=1 if games == 1 else 0)
 
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
 
 
-def _run(tmp_path, schedule, monkeypatch, *, rows_for):
-    _install_stub(monkeypatch, rows_for=rows_for)
+def _run(tmp_path, schedule, monkeypatch, *, rows_for, games=1):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)   # the server's approved namespace
+    seed_log = str(tmp_path / "seed.log")
+    _install_stub(monkeypatch, rows_for=rows_for, seed_log_path=seed_log, games=games)
     return run_i8d_live_gate(
         schedule=schedule, profile_out=str(tmp_path / "profile.jsonl"),
-        verdict_out=str(tmp_path / "verdict.json"), config_hash="cfg01", git_sha="deadbeef")
+        verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+        config_hash="cfg01", git_sha="deadbeef", expected_battles=len(schedule.rows))
 
 
 def test_driver_stops_on_the_exposure_floor_and_passes(tmp_path, monkeypatch):
@@ -187,7 +207,7 @@ def test_driver_stops_on_the_exposure_floor_and_passes(tmp_path, monkeypatch):
         return [_mk(battle_id=bid, decision_index=k, outcome="ok", twins=24, latency_ms=100.0)
                 for k in range(3)]
 
-    report = _run(tmp_path, _sched(24), monkeypatch, rows_for=rows_for)
+    report = _run(tmp_path, _canon(24), monkeypatch, rows_for=rows_for)
     assert report["stop_reason"] == "exposure_floor_met"
     assert report["battles_played"] == 20
     assert report["active_valid_decisions"] == 60
@@ -205,7 +225,7 @@ def test_driver_whole_battle_overshoot_is_bounded_and_reported(tmp_path, monkeyp
         return [_mk(battle_id=bid, decision_index=k, outcome="ok", twins=0, latency_ms=5.0)
                 for k in range(150)]
 
-    report = _run(tmp_path, _sched(20), monkeypatch, rows_for=rows_for)
+    report = _run(tmp_path, _canon(20), monkeypatch, rows_for=rows_for)
     assert report["stop_reason"] == "max_scored_decisions"
     assert report["battles_played"] == 14
     assert report["scored_decisions"] == 2100
@@ -220,7 +240,7 @@ def test_driver_exhausts_the_schedule_when_neither_floor_nor_cap_binds(tmp_path,
     def rows_for(bid):
         return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
 
-    report = _run(tmp_path, _sched(6), monkeypatch, rows_for=rows_for)
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
     assert report["stop_reason"] == "schedule_exhausted"
     assert report["battles_played"] == 6
     assert report["active_valid_decisions"] == 6
@@ -231,7 +251,7 @@ def test_verdict_report_is_atomic_lf_and_equals_the_return_value(tmp_path, monke
     def rows_for(bid):
         return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
 
-    report = _run(tmp_path, _sched(6), monkeypatch, rows_for=rows_for)
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
     vpath = tmp_path / "verdict.json"
     raw = vpath.read_bytes()
     assert b"\r" not in raw and raw.endswith(b"\n")          # LF-stable
@@ -239,36 +259,117 @@ def test_verdict_report_is_atomic_lf_and_equals_the_return_value(tmp_path, monke
     assert not (tmp_path / "verdict.json.tmp").exists()        # atomic replace left no temp behind
 
 
+def _gate(tmp_path, schedule, monkeypatch, *, seed_log=None, base=I8D_SEED_BASE):
+    """Call the runner with the env set but WITHOUT a stub -- for the fail-closed preflight gates
+    that must fire before any battle is dispatched."""
+    if base is not None:
+        monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", base)
+    else:
+        monkeypatch.delenv("SHOWDOWN_BATTLE_SEED_BASE", raising=False)
+    return run_i8d_live_gate(
+        schedule=schedule, profile_out=str(tmp_path / "profile.jsonl"),
+        verdict_out=str(tmp_path / "verdict.json"),
+        seed_log_path=str(tmp_path / "seed.log") if seed_log is None else seed_log,
+        config_hash="c", git_sha="d", expected_battles=len(schedule.rows))
+
+
 def test_driver_refuses_to_merge_into_an_existing_profile(tmp_path, monkeypatch):
     p = tmp_path / "profile.jsonl"
     p.write_text('{"from":"an earlier partial run"}\n', encoding="utf-8")
-    _install_stub(monkeypatch, rows_for=lambda bid: [])
     with pytest.raises(I8DRunError, match="already has content"):
-        run_i8d_live_gate(schedule=_sched(6), profile_out=str(p),
-                          verdict_out=str(tmp_path / "verdict.json"), config_hash="c", git_sha="d")
+        _gate(tmp_path, _canon(6), monkeypatch)
 
 
 def test_driver_refuses_to_overwrite_an_existing_verdict(tmp_path, monkeypatch):
-    v = tmp_path / "verdict.json"
-    v.write_text("{}\n", encoding="utf-8")
-    _install_stub(monkeypatch, rows_for=lambda bid: [])
+    (tmp_path / "verdict.json").write_text("{}\n", encoding="utf-8")
     with pytest.raises(I8DRunError, match="already has content"):
-        run_i8d_live_gate(schedule=_sched(6), profile_out=str(tmp_path / "profile.jsonl"),
-                          verdict_out=str(v), config_hash="c", git_sha="d")
+        _gate(tmp_path, _canon(6), monkeypatch)
 
 
 def test_driver_builds_a_distinct_battle_id_per_row(tmp_path, monkeypatch):
-    # Capture the battle_ids the driver actually stamps: they must all differ (seed_index varies),
-    # else the spread floor is unreachable no matter how many decisions are scored.
+    # The battle_ids the driver stamps must all differ (seed_index varies), else the spread floor
+    # is unreachable no matter how many decisions are scored. rows_for(bid) records them.
     seen: list = []
+    _run(tmp_path, _canon(6), monkeypatch, rows_for=lambda bid: seen.append(bid) or [])
+    assert len(seen) == 6 and len(set(seen)) == 6
 
+
+# ---- finding 1: a battle that does not complete one game is discarded, never adopted ----------
+
+def test_an_incomplete_battle_is_discarded_and_the_run_fails_closed(tmp_path, monkeypatch):
+    # The stub stages 5 rows THEN reports games == 0 (a timeout). Those partial rows must never
+    # reach the frozen dataset, the staging file must be gone, and no verdict is written -- a run
+    # restarted for an infrastructure fault restarts from seed 0 (§5.1), not from a half battle.
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=k, outcome="ok", twins=24, latency_ms=100.0)
+                for k in range(5)]
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _install_stub(monkeypatch, rows_for=rows_for, seed_log_path=seed_log, games=0)
+    profile = tmp_path / "profile.jsonl"
+    with pytest.raises(I8DRunError, match="did not complete exactly one game"):
+        run_i8d_live_gate(
+            schedule=_canon(6), profile_out=str(profile),
+            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+            config_hash="c", git_sha="d", expected_battles=6)
+    assert profile.read_text(encoding="utf-8").strip() == ""     # no partial rows adopted
+    assert not (tmp_path / "profile.jsonl.staging").exists()      # staging discarded
+    assert not (tmp_path / "verdict.json").exists()               # no verdict for a failed run
+
+
+# ---- finding 2: the seeds are PROVEN, not merely labelled -------------------------------------
+
+def test_run_refuses_a_missing_seed_base(tmp_path, monkeypatch):
+    with pytest.raises(I8DRunError, match="SHOWDOWN_BATTLE_SEED_BASE must be"):
+        _gate(tmp_path, _canon(6), monkeypatch, base=None)
+
+
+def test_run_refuses_a_wrong_seed_base(tmp_path, monkeypatch):
+    with pytest.raises(I8DRunError, match="SHOWDOWN_BATTLE_SEED_BASE must be"):
+        _gate(tmp_path, _canon(6), monkeypatch, base="some-other-namespace")
+
+
+def test_run_requires_a_seed_log(tmp_path, monkeypatch):
+    with pytest.raises(I8DRunError, match="requires the server's seed log"):
+        _gate(tmp_path, _canon(6), monkeypatch, seed_log="")
+
+
+def test_run_fails_closed_on_a_misaligned_seed_log(tmp_path, monkeypatch):
+    # The server logs a WRONG seed for each created battle (namespace intact): a run whose seeds
+    # cannot be proven against derive_battle_seed yields no verdict.
     import showdown_bot.client.gauntlet as g
+    seed_log = str(tmp_path / "seed.log")
+    counter = {"i": 0}
 
     async def _fake(**kw):
-        seen.append(kw["decision_profile_context"].battle_id)
+        for r in [_mk(battle_id=kw["decision_profile_context"].battle_id, decision_index=0)]:
+            kw["decision_profile_writer"].write(r)
+        i = counter["i"]
+        counter["i"] += 1
+        with open(seed_log, "a", encoding="utf-8", newline="") as fh:
+            fh.write(json.dumps({"battle_index": i, "seed_base": I8D_SEED_BASE, "seed": "WRONG"}) + "\n")
         return g.GauntletStats(games=1, hero_wins=1)
 
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
-    run_i8d_live_gate(schedule=_sched(6), profile_out=str(tmp_path / "profile.jsonl"),
-                      verdict_out=str(tmp_path / "verdict.json"), config_hash="c", git_sha="d")
-    assert len(seen) == 6 and len(set(seen)) == 6
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    with pytest.raises(I8DRunError, match="seed-log verification failed"):
+        run_i8d_live_gate(
+            schedule=_canon(6), profile_out=str(tmp_path / "profile.jsonl"),
+            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=seed_log,
+            config_hash="c", git_sha="d", expected_battles=6)
+    assert not (tmp_path / "verdict.json").exists()
+
+
+# ---- finding 3 (integration): the runner re-locks the schedule at the execution point ---------
+
+def test_run_rejects_a_non_canonical_schedule_at_the_execution_point(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    # a canonical 24-row schedule, but the gate is locked to 200: count mismatch is refused BEFORE
+    # any battle, and no output files are created.
+    with pytest.raises(I8DScheduleError, match="exactly 200 rows"):
+        run_i8d_live_gate(
+            schedule=_canon(24), profile_out=str(tmp_path / "profile.jsonl"),
+            verdict_out=str(tmp_path / "verdict.json"), seed_log_path=str(tmp_path / "seed.log"),
+            config_hash="c", git_sha="d")   # default expected_battles = 200
+    assert not (tmp_path / "profile.jsonl").exists()

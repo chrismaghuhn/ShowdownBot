@@ -106,6 +106,38 @@ def _write_json_atomic(path: str, obj: dict) -> None:
     os.replace(tmp, path)
 
 
+def _adopt_staged_rows(staging_path: str, final_path: str) -> None:
+    """Append a proven-complete battle's staged rows into the frozen dataset, LF-stable. Called
+    only after the battle returned exactly one completed game AND its staged rows validated."""
+    with open(staging_path, encoding="utf-8") as src, \
+            open(final_path, "a", encoding="utf-8", newline="") as dst:
+        for line in src:
+            line = line.strip()
+            if line:
+                dst.write(line + "\n")
+
+
+def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
+    """Prove the server actually played the approved seeds for the battles that ran (finding 2).
+
+    ``verify_seed_log`` requires EXACTLY ``battles_played`` Channel-A records, contiguous
+    ``battle_index`` 0..N-1, ``seed_base == seed_base``, and ``seed == derive_battle_seed(...)``;
+    a retried/extra battle or a Python↔server derivation mismatch fails it. Then the played rows'
+    ``seed_index`` is cross-checked against the logged ``battle_index``."""
+    from showdown_bot.eval.seeding import SeedLogError, verify_seed_log
+
+    try:
+        records = verify_seed_log(seed_log_path, seed_base, battles_played)
+    except SeedLogError as exc:
+        raise I8DRunError(f"seed-log verification failed: {exc}") from exc
+    for row, rec in zip(schedule.rows, records):
+        if row.seed_index != rec["battle_index"]:
+            raise I8DRunError(
+                f"seed-log/schedule misalignment: row seed_index {row.seed_index} != logged "
+                f"battle_index {rec['battle_index']}"
+            )
+
+
 def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES,
                             teams_root: str = "."):
     """Bind the fixed I8-D schedule (all seeds materialised, frozen in ``schedule_hash``) BEFORE
@@ -116,58 +148,100 @@ def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES
     return build_i8d_schedule(panel, n_battles=n_battles, teams_root=teams_root)
 
 
-def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, config_hash: str,
-                      git_sha: str, calc_backend: str = "oneshot", hero_agent: str = "heuristic",
-                      seed_base: str = I8D_SEED_BASE) -> dict:
-    """Drive the (already-bound) ``schedule`` with whole-battle stop and render the verdict.
+def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, seed_log_path: str,
+                      config_hash: str, git_sha: str, calc_backend: str = "oneshot",
+                      hero_agent: str = "heuristic", expected_battles: int = I8D_MAX_BATTLES) -> dict:
+    """Drive the schedule with whole-battle stop and render the verdict, verifying every execution
+    boundary up front rather than trusting labels (code-review findings 1-3).
 
-    Restart-from-seed-0-no-merge: refuses a non-empty ``profile_out`` or ``verdict_out``; a run
-    restarted for a fault starts fresh from seed 0 and its partial output is discarded, never
-    merged.
+    - **Schedule re-lock (finding 3):** ``verify_i8d_schedule`` re-derives the full structure and
+      recomputes the hash before the first battle -- an arbitrary/truncated schedule is refused.
+    - **Seed proof (finding 2):** the server reads ``SHOWDOWN_BATTLE_SEED_BASE`` at startup
+      (Channel A); this asserts it is the approved ``I8D_SEED_BASE`` (the namespace ``schedule_hash``
+      does not cover) and requires the server's ``seed_log_path``, then after the run proves the
+      logged seeds are exactly ``derive_battle_seed(base, i)`` for the battles that ran.
+    - **Whole-battle adoption (finding 1):** each battle writes to a per-run STAGING file; nothing
+      enters the frozen dataset until ``run_local_gauntlet`` reports exactly ONE completed game and
+      the staged rows validate. A timeout returns ``games == 0`` with partial rows staged -- those
+      are discarded and the run fails closed (restart from seed 0, never a partial adoption).
 
-    Per row, in ``seed_index`` order: build a DISTINCT per-battle ``LiveProfileContext`` (off the
-    row's own seed/``battle_id``), play exactly one battle via ``run_local_gauntlet``, then -- only
-    after the battle completes -- recount the FROZEN dataset (``validate_live_profile_dataset``,
-    which also re-checks integrity) and evaluate the stop rule. A running battle is never aborted,
-    so the scored cap is a THRESHOLD the last battle may overshoot by exactly its own rows
-    (reported in ``scored_overshoot``, never truncated). The p95 is computed only after the run
-    has stopped.
+    Restart-from-seed-0-no-merge: refuses a non-empty ``profile_out``/``verdict_out``/staging file.
+    The p95 is computed only after the run has stopped; the scored cap is a THRESHOLD the last
+    battle may overshoot by exactly its own rows (reported in ``scored_overshoot``, never truncated).
     """
     import asyncio
 
     from showdown_bot.client.gauntlet import run_local_gauntlet
+    from showdown_bot.eval.i8d_schedule import verify_i8d_schedule
     from showdown_bot.eval.result_jsonl import make_battle_id
     from showdown_bot.eval.seeding import derive_battle_seed
 
-    for label, p in (("decision profile", profile_out), ("verdict", verdict_out)):
+    # (finding 3) never trust the caller's schedule -- re-derive structure + recompute the hash.
+    verify_i8d_schedule(schedule, expected_battles=expected_battles)
+
+    # (finding 2) the seed NAMESPACE is bound by explicit verification, not by schedule_hash.
+    seed_base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "")
+    if seed_base != I8D_SEED_BASE:
+        raise I8DRunError(
+            f"SHOWDOWN_BATTLE_SEED_BASE must be {I8D_SEED_BASE!r} for I8-D (Channel A), got "
+            f"{seed_base!r}: the server must be started with the approved seed namespace"
+        )
+    if not seed_log_path:
+        raise I8DRunError(
+            "I8-D requires the server's seed log (SHOWDOWN_EVAL_SEED_LOG) so the played seeds can "
+            "be proven; without it the run's seeds are only labelled, not verified"
+        )
+
+    staging = f"{profile_out}.staging"
+    for label, p in (("decision profile", profile_out), ("verdict", verdict_out),
+                     ("staging", staging)):
         if os.path.exists(p) and os.path.getsize(p) > 0:
             raise I8DRunError(
                 f"{label} output {p} already has content; an I8-D restart runs from seed 0 into "
                 f"fresh files and never merges a partial run"
             )
 
-    writer = DecisionProfileWriter(profile_out, manifest=None)
-    # Materialise the (empty) dataset up front so the per-battle recount reads a real file even
-    # for a battle that scored nothing -- an empty dataset is valid, not a missing-file error.
+    # Materialise the (empty) frozen dataset up front so the per-battle recount reads a real file
+    # even for a battle that scored nothing -- an empty dataset is valid, not a missing-file error.
     open(profile_out, "a", encoding="utf-8", newline="").close()
     budget_ms = load_latency_budget_ms()   # the pinned 1000 ms from gates.yaml, not a local copy
 
     battles_played = 0
     scored_decisions = active_valid = distinct_battles = 0
     stop_reason: str | None = None
-    for row in schedule.rows:   # loader-sorted, contiguous seed_index from 0 (bound up front)
+    for row in schedule.rows:   # verified contiguous seed_index from 0 (bound up front)
         seed = derive_battle_seed(seed_base, row.seed_index)
         battle_id = make_battle_id(schedule.schedule_hash, row.seed_index, seed)
         context = LiveProfileContext(
             battle_id=battle_id, config_id=hero_agent, config_hash=config_hash,
             schedule_hash=schedule.schedule_hash, format_id=row.format_id,
             git_sha=git_sha, calc_backend=calc_backend)
-        asyncio.run(run_local_gauntlet(
+        # (finding 1) stage this battle in isolation; a distinct writer per battle so partial rows
+        # never touch the frozen dataset before the battle is proven complete.
+        if os.path.exists(staging):
+            os.remove(staging)
+        stage_writer = DecisionProfileWriter(staging, manifest=None)
+        stats = asyncio.run(run_local_gauntlet(
             games=1, hero_agent=hero_agent, villain_agent=row.opp_policy,
             format_id=row.format_id, team_path=row.hero_team_path, opp_team_path=row.opp_team_path,
-            decision_profile_writer=writer, decision_profile_context=context))
+            decision_profile_writer=stage_writer, decision_profile_context=context))
+        if stats.games != 1:
+            # A timeout returns normally with games == 0 and partial rows staged. Discard them and
+            # fail closed: a run restarted for an infrastructure fault restarts from seed 0 (§5.1),
+            # never adopting a half-played battle's exposure or scored decisions.
+            if os.path.exists(staging):
+                os.remove(staging)
+            raise I8DRunError(
+                f"battle at seed_index {row.seed_index} did not complete exactly one game "
+                f"(games={stats.games}); its partial rows are discarded -- restart from seed 0"
+            )
+        # §5.4.4: validate the battle's staged artifacts, adopt them atomically into the frozen
+        # dataset, THEN recount and evaluate the stop rule. (No staged file => 0 scored decisions.)
+        if os.path.exists(staging):
+            validate_live_profile_dataset(staging)
+            _adopt_staged_rows(staging, profile_out)
+            os.remove(staging)
         battles_played += 1
-        # §5.4.4: the battle is complete -> adopt it, recount the frozen dataset, THEN stop-check.
         counts = validate_live_profile_dataset(profile_out)
         scored_decisions = counts["rows"]
         active_valid = counts["active_valid_rows"]
@@ -180,10 +254,16 @@ def run_i8d_live_gate(*, schedule, profile_out: str, verdict_out: str, config_ha
     else:
         stop_reason = "schedule_exhausted"
 
+    # (finding 2) prove the server played the approved seeds for the battles that ran, BEFORE any
+    # verdict is written: a run whose seeds cannot be proven yields no verdict.
+    _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
+
     verdict = i8d_verdict(active_valid=active_valid, distinct_battles=distinct_battles,
                           active_measured_ms=_active_measured_ms(profile_out), budget_ms=budget_ms)
     report = {
         "schedule_hash": schedule.schedule_hash,
+        "seed_base": seed_base,
+        "seed_log_verified": True,
         "battles_played": battles_played,
         "scored_decisions": scored_decisions,
         "max_scored_decisions": I8D_MAX_SCORED_DECISIONS,

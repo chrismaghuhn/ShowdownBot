@@ -1512,7 +1512,10 @@ full statement). Summary, because the gate predicate depends on them:
 - **`MAX_BATTLES = 200` ⇒ distribution `34, 34, 33, 33, 33, 33`** (cyclic round-robin; never
   re-ordered by exposure or latency).
 - **Seed base `champions-panel-v0-i8d-latency`, `seed_index = 0..199`**, `seed_index=i` bound to
-  schedule row `i`, all materialised before the first battle and frozen in the schedule hash.
+  schedule row `i`, all materialised before the first battle. The `seed_index` values are frozen in
+  `schedule_hash`; the seed **namespace** is **not** in that hash (code-review finding 2), so the
+  runner binds it separately — it asserts `SHOWDOWN_BATTLE_SEED_BASE == champions-panel-v0-i8d-latency`
+  and verifies the server's Channel-A seed log (`derive_battle_seed`) before any verdict is written.
 - **Whole-battle stop semantics** — stop conditions are evaluated only after a fully-completed,
   validated battle; a running battle is never aborted. `scored_decisions` may therefore exceed
   `MAX_SCORED_DECISIONS` by **at most one completed battle's** scored decisions; this bounded

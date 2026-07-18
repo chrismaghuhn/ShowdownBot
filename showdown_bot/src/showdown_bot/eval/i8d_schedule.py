@@ -10,8 +10,12 @@ At ``MAX_BATTLES = 200`` this yields the distribution ``34, 34, 33, 33, 33, 33``
 matchups take the +2 remainder). Held-out teams are excluded by construction and rejected if a
 panel tries to supply one only from its held-out split. ``seed_index`` is ``0..n-1``,
 contiguous, and belongs immutably to schedule row ``i``; the seed itself is
-``derive_battle_seed(I8D_SEED_BASE, seed_index)`` (Channel A), so the whole seed set is fixed
-before the first battle and bound through ``schedule_hash``.
+``derive_battle_seed(I8D_SEED_BASE, seed_index)`` (Channel A). The ``seed_index`` values are
+bound through ``schedule_hash`` (``compute_schedule_hash`` covers them), but the seed
+**namespace** ``I8D_SEED_BASE`` is NOT in that hash -- it is bound instead by explicit
+verification at the execution point: ``i8d_runner`` asserts ``SHOWDOWN_BATTLE_SEED_BASE ==
+I8D_SEED_BASE`` and proves the server's Channel-A seed log matches ``derive_battle_seed`` before
+any verdict is written.
 """
 from __future__ import annotations
 
