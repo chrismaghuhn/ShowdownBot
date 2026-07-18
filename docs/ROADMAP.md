@@ -51,17 +51,22 @@ across **two blocking review rounds** (final review PASS; full suite **2777 pass
 executed**. The next step is the **I8-D live-gate RUN — a new run authorized separately**; Champions
 Strength remains **NO-GO**.
 
-**First I8-D live attempt — ABORTED (2026-07-18, no verdict, no evidence).** Host `DESKTOP-1V4BPFQ`,
-detached `8616901`, patched server `f8ac140`, `SHOWDOWN_CALC_BACKEND=oneshot`, config_hash
-`594295543f13a55d`: **Battle 0 exceeded the bound 180 s harness timeout** (`gauntlet timed out` →
-`games=0`), so the whole-battle guard discarded the partial battle and the gate aborted before any
-verdict — a clean fail-closed, **not** a `PASS`/`FAIL`/`INCONCLUSIVE`, and `out/` was never
-published. The aborted run's logs live OUTSIDE the repo and are **scratch diagnostics only, not
-pooled**. The **separately-authorized restart is a NEW config stratum**: unchanged `oneshot`,
-restart at **seed 0**, with a pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`** — the 900 s
-budget sits OUTSIDE the measured `agent_choose` window but is `BEHAVIOR_AFFECTING`, so the
-**config_hash changes to `06b2b96e76486563`** (distinct from the aborted `594295543f13a55d`). **No
-results are merged across strata.** No code fix, no tuning, no backend switch; Strength stays NO-GO.
+**Both I8-D live attempts — ABORTED before battle creation (2026-07-18); no verdict, no evidence, no
+latency statement.** On `DESKTOP-1V4BPFQ`, both attempts created **zero battles** (`seeds.jsonl`
+empty, `out/` never published). **Root cause = an I8-D team-path wiring bug:** `run_local_gauntlet`
+loads the battle team files relative to the process CWD, but the `i8d-live-gate` command runs from
+the repo root (so the repo-root-relative panel path resolves) while the team files live under
+`showdown_bot/teams/`. `--teams-root` was used only to HASH the teams, not to LOAD them at battle
+time, so the gauntlet got missing files, `_resolve_side_teams` silently degraded them to EMPTY packed
+teams, the server rejected the empty-team challenge, no battle was created, and the gate only timed
+out. **Neither timeout (180 s attempt 1, 900 s attempt 2) was ever the cause** — no battle ever
+started to be slow. The **900 s decision is RETRACTED**: it rested on a wrong "slow battle" diagnosis
+and was **never empirically exercised**; `config_hash 06b2b96e76486563` is void. The aborted runs'
+logs are **scratch diagnostics only, never pooled**. The fix threads `teams_root` into the I8-D
+runner (resolve team paths to absolute + prove non-empty before the battle; schedule identity and
+`run_schedule` untouched). The next real attempt reverts to the **original stratum**: `oneshot`,
+**standard 180 s / no `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`**, `config_hash` expected back to
+`594295543f13a55d`, restart at **seed 0** — separately authorized. Strength stays NO-GO.
 
 ## Status matrix
 
@@ -103,8 +108,8 @@ I8-D live-latency HARNESS merged (PR #23 @ 3b6070c) — telemetry + live-dataset
    → code + tests only (2 blocking review rounds resolved, final PASS, 2777 passed); NO server/battle/run/evidence
         ↓
 I8-D live-gate RUN (agent_choose scope, pinned 1000 ms budget):   ← next step, gated (authorize SEPARATELY)
-   → 1st attempt ABORTED (Battle 0 > bound 180 s timeout; no verdict/evidence, scratch-only, not pooled)
-   → restart = NEW config stratum, separately authorized: oneshot, seed 0, bound 900 s (config_hash 06b2b96e76486563 vs aborted 594295543f13a55d)
+   → BOTH attempts ABORTED before battle creation (team-path wiring: teams not loaded → empty teams → server rejects → 0 battles); 180 s/900 s never the cause; 900 s decision RETRACTED (unexercised)
+   → fix threads teams_root into the I8-D runner; next attempt = ORIGINAL stratum (oneshot, standard 180 s, config_hash 594295543f13a55d, seed 0) — separately authorized
         ↓
 PASS → opponent-Mega coverage gate + independent Strength-holdout design
 FAIL → optimize the measured bottleneck, then rerun the unchanged profile

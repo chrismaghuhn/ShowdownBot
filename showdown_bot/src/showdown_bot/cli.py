@@ -696,7 +696,11 @@ def run_i8d_gate(args) -> None:
     report = run_i8d_live_gate(
         schedule=schedule, out_dir=out_dir, seed_log_path=seed_log,
         config_hash=prov["config_hash"], git_sha=prov["git_sha"], calc_backend=prov["calc_backend"],
-        hero_agent=prov["hero_agent"], expected_battles=I8D_MAX_BATTLES)
+        hero_agent=prov["hero_agent"], expected_battles=I8D_MAX_BATTLES,
+        # (team-path wiring fix) the SAME execution root verify_i8d_panel_and_teams hashed against,
+        # now threaded into the battle team loading so the gauntlet finds the team files regardless
+        # of the process CWD (the panel path stays repo-root-relative; the teams live under it).
+        teams_root=teams_root)
     print(f"i8d-live-gate verdict: {report['verdict']} "
           f"(active={report['active_valid_decisions']} from {report['distinct_active_battles']} "
           f"battles, battles_played={report['battles_played']}, p95_ms={report['p95_ms']}, "

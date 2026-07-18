@@ -190,13 +190,29 @@ def _install_stub(monkeypatch, *, rows_for, seed_log_path, games=1):
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
 
 
+def _fixture_teams(tmp_path):
+    """Create the champions team files the canonical schedule references, under a teams_root, so the
+    runner's per-battle team resolution + non-empty-packed check pass. .packed is one non-empty line."""
+    from showdown_bot.eval.i8d_schedule import I8D_HERO_TEAM
+    root = tmp_path / "teamsroot"
+    for rel in (I8D_HERO_TEAM, "teams/panel_champions_v0/goodstuff.txt",
+                "teams/panel_champions_v0/tailwind_offense.txt",
+                "teams/panel_champions_v0/trick_room.txt"):
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("paste\n", encoding="utf-8")
+        p.with_suffix(".packed").write_text("stub-packed-team", encoding="utf-8")
+    return str(root)
+
+
 def _run(tmp_path, schedule, monkeypatch, *, rows_for, games=1):
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)   # the server's approved namespace
     seed_log = str(tmp_path / "seed.log")
     _install_stub(monkeypatch, rows_for=rows_for, seed_log_path=seed_log, games=games)
     return run_i8d_live_gate(
         schedule=schedule, out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
-        config_hash="cfg01", git_sha="deadbeef", expected_battles=len(schedule.rows))
+        config_hash="cfg01", git_sha="deadbeef", expected_battles=len(schedule.rows),
+        teams_root=_fixture_teams(tmp_path))
 
 
 def test_driver_stops_on_the_exposure_floor_and_passes(tmp_path, monkeypatch):
@@ -308,7 +324,7 @@ def test_an_incomplete_battle_is_discarded_and_the_run_fails_closed(tmp_path, mo
     with pytest.raises(I8DRunError, match="did not complete exactly one game"):
         run_i8d_live_gate(
             schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
-            config_hash="c", git_sha="d", expected_battles=6)
+            config_hash="c", git_sha="d", expected_battles=6, teams_root=_fixture_teams(tmp_path))
     assert not (tmp_path / "out").exists()                        # never published
     # the staging dir remains (crashed run) but holds NO adopted battle rows and no staged battle
     assert (tmp_path / "out.staging" / "profile.jsonl").read_text(encoding="utf-8").strip() == ""
@@ -353,7 +369,7 @@ def test_run_fails_closed_on_a_misaligned_seed_log(tmp_path, monkeypatch):
     with pytest.raises(I8DRunError, match="seed-log verification failed"):
         run_i8d_live_gate(
             schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
-            config_hash="c", git_sha="d", expected_battles=6)
+            config_hash="c", git_sha="d", expected_battles=6, teams_root=_fixture_teams(tmp_path))
     assert not (tmp_path / "out").exists()   # seeds unproven -> no verdict, nothing published
 
 

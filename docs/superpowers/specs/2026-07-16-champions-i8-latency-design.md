@@ -1533,21 +1533,30 @@ forbids only a **second timer**, not passive telemetry. Correct `fallback` class
 load-bearing: a timed-out heuristic fallback mislabelled `ok` would carry a non-decision-core
 `measured_ms` into the p95 — precisely what §2.6's `outcome == "ok"` predicate excludes.
 
-### 5.4c First live attempt — ABORTED, timeout re-bound (2026-07-18)
+### 5.4c First live attempts — ABORTED before battle creation; team-path wiring fix (2026-07-18)
 
-The first authorized I8-D live run **aborted with no verdict and no evidence**: on `DESKTOP-1V4BPFQ`,
-detached `8616901`, patched server `f8ac140`, `SHOWDOWN_CALC_BACKEND=oneshot` (config_hash
-`594295543f13a55d`), **Battle 0 exceeded the bound 180 s harness timeout** (`gauntlet timed out` →
-`games=0`), so the whole-battle guard (§5.4a) discarded the partial battle and the gate failed
-closed **before** any `PASS`/`FAIL`/`INCONCLUSIVE` — `out/` was never published. Its logs are
+**Both** authorized I8-D live attempts **aborted with no verdict, no evidence, and no latency
+statement** — and crucially **before any battle was ever created** (`seeds.jsonl` empty, `out/` never
+published). Root cause: an **I8-D team-path wiring bug**. `run_local_gauntlet` loads the battle team
+files relative to the process CWD, but the `i8d-live-gate` command runs from the repo root (so the
+repo-root-relative panel path resolves) while the team files live under `showdown_bot/teams/`.
+`--teams-root` was only used to HASH the teams (`verify_i8d_panel_and_teams`), not to LOAD them at
+battle time, so the gauntlet got missing files, `_resolve_side_teams` silently degraded them to
+EMPTY packed teams, the server rejected the empty-team challenge, no battle was created, and the gate
+only timed out. **Neither timeout (180 s attempt 1, 900 s attempt 2) was ever the cause** — no battle
+ever started to be slow.
+
+**The 900 s decision is RETRACTED.** It rested on a wrong "slow battle" diagnosis, was **never
+empirically exercised**, and its `config_hash 06b2b96e76486563` is void. Both aborted runs' logs are
 **scratch diagnostics only, never pooled**.
 
-The separately-authorized **restart is a distinct config stratum**: unchanged `oneshot`, restart at
-**seed 0**, with a pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`**. The 900 s battle budget is
-a harness ceiling **outside** the measured `agent_choose` window (§2.2), but it is classified
-`BEHAVIOR_AFFECTING` (`eval/config_env.py`), so it enters `config_hash`: the restart's **config_hash
-is `06b2b96e76486563`**, distinct from the aborted `594295543f13a55d`. Results across the two strata
-are **never merged**. No parameter tuning, no backend switch, no code fix.
+**Fix:** `run_i8d_live_gate` takes `teams_root` and, immediately before `run_local_gauntlet`,
+resolves the hero/opponent paths to ABSOLUTE against that root and proves each loads a NON-EMPTY
+packed team — failing closed before any server/battle otherwise. The schedule's stored relative
+paths and `schedule_hash` are untouched, and `run_local_gauntlet` (and `run_schedule`) is not
+changed. The next real attempt reverts to the **original stratum**: `oneshot`, **standard 180 s / no
+`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`**, `config_hash` expected back to `594295543f13a55d`, restart at
+**seed 0**, separately authorized.
 
 ### 5.5 Backend class — two clean predicates and a residual
 

@@ -119,14 +119,19 @@ Ordered front-track work as of **2026-07-18** (I8-A–C machinery merged PR #20 
 - **Latency gate (I8-D):** the measurement machinery is merged (I8-A–C PR #20 @ `32cdd4e`;
   microprofile driver PR #21 @ `0730a18`), the **offline 450-row microprofile ran clean & is
   frozen**, and the **I8-D live-latency harness is now merged (PR #23 @ `3b6070c`, code + tests
-  only)** — but the **LIVE latency gate has not RUN**, so no live-latency claim exists. **First live
-  attempt ABORTED (2026-07-18, no verdict/evidence):** on `DESKTOP-1V4BPFQ` / detached `8616901` /
-  server `f8ac140` / `oneshot` (config_hash `594295543f13a55d`), **Battle 0 exceeded the bound 180 s
-  harness timeout** → whole-battle fail-closed abort, `out/` never published; logs are scratch-only,
-  **not pooled**. The **separately-authorized restart is a NEW config stratum** — unchanged
-  `oneshot`, seed 0, pre-bound **`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S=900`** (BEHAVIOR_AFFECTING →
-  **config_hash `06b2b96e76486563`**, outside the measured `agent_choose` window); no results merged
-  across strata; no code fix/tuning/backend switch.
+  only)** — but the **LIVE latency gate has not RUN**, so no live-latency claim exists. **Both live
+  attempts ABORTED before battle creation (2026-07-18, no verdict/evidence/latency statement):** on
+  `DESKTOP-1V4BPFQ` both created **zero battles** (`seeds.jsonl` empty, `out/` never published).
+  **Root cause = an I8-D team-path wiring bug** — `run_local_gauntlet` loads teams CWD-relative, the
+  gate runs from the repo root, the teams live under `showdown_bot/teams/`, and `--teams-root` only
+  hashed the teams (didn't LOAD them), so `_resolve_side_teams` silently degraded missing files to
+  EMPTY teams → server rejected → 0 battles → timeout. **Neither the 180 s nor the 900 s timeout was
+  ever the cause.** The **900 s decision is RETRACTED** (wrong "slow battle" diagnosis, never
+  exercised; `config_hash 06b2b96e76486563` void). Logs are scratch-only, **not pooled**. The fix
+  threads `teams_root` into the I8-D runner (absolute team paths + non-empty proof before the battle;
+  `run_schedule` untouched); the next real attempt reverts to the **original stratum** (`oneshot`,
+  **standard 180 s / no `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`**, `config_hash` expected `594295543f13a55d`,
+  seed 0), separately authorized.
   Context: I5 pre-fix worst p95 **3235 ms** vs
   the pinned **1000 ms** budget (that run also contained state-degradation; no causal link);
   I6/I7a-C/I7b-C safety smokes measured 331/588/672 ms, none a dedicated profile; the active
