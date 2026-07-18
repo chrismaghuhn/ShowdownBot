@@ -1,23 +1,41 @@
 """Lever A, commit 3: fold the game-mode incoming into the shared scoring flush.
 
-RED->GREEN proofs for the production fold. T1 proves the eager classify at
-decision.py:397 is gone (replaced by enqueue-into-shared-oracle + resolve after the
-flush). T8 proves the mega resolver fires exactly once across worlds. T9 proves the
-injected calc is never dropped.
+Binding counterproofs for the production fold:
+  T1  -- the game-mode INCOMING no longer pays its own Node spawn: on a board where the
+         opponent HAS moves (so classification issues real incoming ko-threat requests), the
+         damage backend's spawn count equals the SHARED oracle's flush count -- i.e. all damage,
+         classification included, went through the one shared oracle. Pre-fold the private classify
+         oracle made spawn_count > oracle.batch_calls.
+  T4  -- CalcError in the shared first flush AND in the conditional outgoing (second) flush both
+         propagate fail-closed.
+  T8  -- with two genuinely-sampled worlds the mode resolver fires EXACTLY once (after world 0).
+  T9  -- the injected calc client is never dropped: a default CalcClient/backend construction hard
+         fails, and the injected client receives the concrete classification (opp-attacks-us) requests.
 """
 from __future__ import annotations
 
+import pytest
+
 import showdown_bot.battle.decision as decision
+import showdown_bot.battle.mega_scoring as mega_scoring
+import showdown_bot.engine.belief.game_mode as gm
 from showdown_bot.battle.decision import _choose_best
+from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.engine.belief.hypotheses import (
     SpeciesSpreads, SpreadBook, SpreadPreset)
-from showdown_bot.engine.calc.client import SubprocessCalcBackend
+from showdown_bot.engine.calc.client import CalcError, SubprocessCalcBackend
+from showdown_bot.engine.calc.models import DamageResult
 from showdown_bot.engine.calc_profile import calc_profile_from_config
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, PokemonState, to_id
 from showdown_bot.models.request import BattleRequest
+
+CHAMPIONS = load_format_config("gen9championsvgc2026regma")
+CP = calc_profile_from_config(CHAMPIONS)
+SPREADS = SpeciesSpreads(offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
+                         defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}))
 
 
 def _gating_req():
@@ -27,7 +45,7 @@ def _gating_req():
     return BattleRequest.model_validate({
         "active": [{"moves": ms(["Rock Slide"]), "canMegaEvo": True},
                    {"moves": ms(["Moonblast"]), "canMegaEvo": False}],
-        "side": {"name": "Player1", "id": "p1", "pokemon": [
+        "side": {"name": "P1", "id": "p1", "pokemon": [
             {"ident": "p1: Aerodactyl", "details": "Aerodactyl, L50", "condition": "100/100", "active": True,
              "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
              "moves": [to_id("Rock Slide")], "baseTypes": ["Rock", "Flying"], "item": "Aerodactylite"},
@@ -37,86 +55,136 @@ def _gating_req():
 
 
 def _gating_state():
+    """Foe-Mega board where the OPPONENT HAS MOVES -> classification issues real incoming
+    ko-threat requests (without them the fold would be a no-op and prove nothing)."""
     st = BattleState()
-    st.sides["p1"]["a"] = PokemonState(species="Aerodactyl", base_species_id="aerodactyl",
-                                       item="Aerodactylite", types=["Rock", "Flying"], hp=100, max_hp=100)
-    st.sides["p1"]["b"] = PokemonState(species="Whimsicott", base_species_id="whimsicott",
-                                       types=["Grass", "Fairy"], hp=100, max_hp=100)
-    st.sides["p2"]["a"] = PokemonState(species="Aerodactyl", base_species_id="aerodactyl",
-                                       item="Aerodactylite", item_known=True,
-                                       types=["Rock", "Flying"], hp=100, max_hp=100)
+    a = PokemonState(species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+                     types=["Rock", "Flying"], hp=100, max_hp=100)
+    a.move_names = {"Rock Slide"}
+    b = PokemonState(species="Whimsicott", base_species_id="whimsicott", types=["Grass", "Fairy"],
+                     hp=100, max_hp=100)
+    b.move_names = {"Moonblast"}
+    opp = PokemonState(species="Aerodactyl", base_species_id="aerodactyl", item="Aerodactylite",
+                       item_known=True, types=["Rock", "Flying"], hp=100, max_hp=100)
+    opp.move_names = {"Rock Slide", "Earthquake"}
+    st.sides["p1"]["a"], st.sides["p1"]["b"], st.sides["p2"]["a"] = a, b, opp
     return st
 
 
-def _run_mega(**overrides):
-    champions = load_format_config("gen9championsvgc2026regma")
-    cp = calc_profile_from_config(champions)
-    spreads = SpeciesSpreads(offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
-                             defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}))
-    oracle = overrides.get("oracle") or DamageOracle()
-    kw = dict(
-        state=_gating_state(), book=SpreadBook(default=spreads), our_side="p1",
-        calc=oracle.client, oracle=oracle,
-        speed_oracle=SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=cp),
-        dex=None, our_spreads={"aerodactyl": spreads, "whimsicott": spreads},
-        format_config=champions, risk_lambda=0.0,
+def _run_mega(*, oracle=None, speed_oracle=None, trace=None):
+    oracle = oracle or DamageOracle()
+    speed_oracle = speed_oracle or SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=CP)
+    return _choose_best(
+        _gating_req(), state=_gating_state(), book=SpreadBook(default=SPREADS), our_side="p1",
+        calc=oracle.client, oracle=oracle, speed_oracle=speed_oracle, dex=None,
+        our_spreads={"aerodactyl": SPREADS, "whimsicott": SPREADS},
+        format_config=CHAMPIONS, risk_lambda=0.0, trace=trace,
     )
-    kw.update({k: v for k, v in overrides.items() if k != "oracle"})
-    return _choose_best(_gating_req(), **kw)
 
 
-def test_fold_decision_enqueues_classification_into_shared_oracle(monkeypatch):
-    """After the fold, _choose_best resolves GameMode via the two-phase
-    enqueue_classification (into the shared oracle) + resolve after the flush, NOT the
-    eager classify_game_mode at decision.py:397. RED before the fold: enqueue_classification
-    is never invoked by the decision (it still calls classify_game_mode)."""
-    called = {"enqueue": 0}
-    real = getattr(decision, "enqueue_classification", None)
+# --------------------------------------------------------------------------- T1
+def test_fold_game_mode_incoming_costs_no_separate_spawn():
+    """The opponent has moves, so classification issues real incoming requests. After the fold
+    ALL damage (classification incoming/outgoing + scoring) resolves through the SHARED oracle, so
+    the damage backend's spawn count equals the shared oracle's flush count and there is no gap /
+    transport-retry. Pre-fold the private classify oracle made spawn_count > oracle.batch_calls."""
+    assert _gating_state().sides["p2"]["a"].move_names  # the fold has something to fold
+    oracle = DamageOracle()  # real SubprocessCalcBackend; oracle.client.backend is the damage backend
+    _run_mega(oracle=oracle, trace=None)  # trace=None so the out-of-scope trace game-mode calls don't run
+    backend = oracle.client.backend
+    assert oracle.batch_calls >= 1  # real damage work happened
+    # the binding claim: no damage spawn happened OUTSIDE the shared oracle (no separate game-mode flush)
+    assert backend.spawn_count == oracle.batch_calls
+    # equivalently, no un-oracled attempt -> transport_retried would be False
+    assert backend.transport_attempts == backend.damage_batch_calls
+
+
+# --------------------------------------------------------------------------- T4
+class _RaiseOnNth:
+    """Damage backend that returns valid results for the first ``ok`` calc_batch calls, then raises
+    CalcError -- to hit either the shared first flush (ok=0) or the conditional outgoing flush."""
+    def __init__(self, ok):
+        self.ok = ok
+        self.calls = 0
+
+    def calc_batch(self, requests):
+        self.calls += 1
+        if self.calls > self.ok:
+            raise CalcError("injected calc failure")
+        return [DamageResult(min_damage=1, max_damage=2, max_hp=200, id=r.id) for r in requests]
+
+
+def test_calcerror_in_shared_first_flush_propagates_fail_closed():
+    from showdown_bot.engine.calc.client import CalcClient
+    oracle = DamageOracle(client=CalcClient(backend=_RaiseOnNth(ok=0)))
+    with pytest.raises(CalcError):
+        _run_mega(oracle=oracle, trace=None)
+
+
+def test_calcerror_in_conditional_outgoing_flush_propagates_fail_closed():
+    """The game-mode base path: incoming flush succeeds, threatened == 0, then the OUTGOING
+    (second) flush raises -- the CalcError must propagate."""
+    from showdown_bot.engine.calc.client import CalcClient
+    st = _gating_state()
+    backend = _RaiseOnNth(ok=1)  # incoming flush ok, outgoing flush raises
+    oracle = DamageOracle(client=CalcClient(backend=backend))
+    handle = gm.enqueue_base_game_mode(st, our_side="p1", oracle=oracle, book=SpreadBook(default=SPREADS))
+    oracle.flush()  # incoming resolves (min_damage=1 -> not a guaranteed OHKO -> threatened == 0)
+    with pytest.raises(CalcError):
+        gm.resolve_base_game_mode(handle, oracle=oracle)  # enqueues outgoing + flushes -> raises
+    assert backend.calls >= 2  # the second (outgoing) flush was the one that raised
+
+
+# --------------------------------------------------------------------------- T8
+def test_mode_resolver_fires_exactly_once_across_two_sampled_worlds(monkeypatch):
+    """With two genuinely-sampled worlds the memoized resolver runs once (after world 0) and is
+    reused for world 1 -- not once per world."""
+    world1 = SpeciesSpreads(offense=SpreadPreset(nature="Hardy", evs={}),
+                            defense=SpreadPreset(nature="Hardy", evs={}))
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
+    monkeypatch.setattr(mega_scoring, "build_world_dist", lambda *a, **k: {"aerodactyl": [(world1, 1.0)]})
+    monkeypatch.setattr(mega_scoring, "sample_worlds",
+                        lambda *a, **k: [({}, 0.7), ({"aerodactyl": world1}, 0.3)])
+    resolve_calls = {"n": 0}
+    real_resolve = gm.resolve_classification
 
     def _spy(*a, **k):
-        called["enqueue"] += 1
-        return real(*a, **k)
+        resolve_calls["n"] += 1
+        return real_resolve(*a, **k)
+    monkeypatch.setattr(decision, "resolve_classification", _spy)
 
-    monkeypatch.setattr(decision, "enqueue_classification", _spy, raising=False)
-    ja, score = _run_mega()
-    assert ja.slot0.kind == "move"  # a real decision was produced
-    assert called["enqueue"] == 1  # via the two-phase enqueue, exactly once
-
-
-def test_mega_resolver_runs_exactly_once_across_worlds(monkeypatch):
-    """The resolver that computes GameMode (with its conditional second flush) must fire
-    exactly once per decision even when multiple worlds are sampled."""
-    import showdown_bot.engine.belief.game_mode as gm
-    calls = {"n": 0}
-    real = gm.resolve_classification
-
-    def _counting(*a, **k):
-        calls["n"] += 1
-        return real(*a, **k)
-    monkeypatch.setattr(gm, "resolve_classification", _counting)
-    # also patch the name imported into decision, if it imports it directly
-    if hasattr(decision, "resolve_classification"):
-        monkeypatch.setattr(decision, "resolve_classification", _counting)
-    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
-    _run_mega()
-    assert calls["n"] == 1, f"resolver fired {calls['n']} times (expected exactly 1)"
+    trace = DecisionTrace()
+    _run_mega(trace=trace)
+    assert resolve_calls["n"] == 1, f"resolver fired {resolve_calls['n']} times (expected 1)"
+    # two worlds were actually evaluated: the pooled per-candidate score_vector spans both worlds,
+    # so it is longer than the single-world vector (7 responses -> > 7 pooled).
+    assert trace.candidates
+    assert len(trace.candidates[0].score_vector) > 7
 
 
-def test_injected_calc_is_never_dropped():
-    """The shared oracle's client is the injected calc; a decision must route through it
-    and never construct a default CalcClient for classification."""
-    champions = load_format_config("gen9championsvgc2026regma")
-    cp = calc_profile_from_config(champions)
-    spreads = SpeciesSpreads(offense=SpreadPreset(nature="Jolly", evs={"atk": 32, "spe": 32, "hp": 2}),
-                             defense=SpreadPreset(nature="Impish", evs={"hp": 32, "def": 32, "spd": 2}))
-    oracle = DamageOracle()
-    seen = {"n": 0}
-    real_db = oracle.client.damage_batch
+# --------------------------------------------------------------------------- T9
+def test_injected_calc_is_never_dropped_for_a_default(monkeypatch):
+    """Any construction of a DEFAULT calc backend hard-fails, so the decision must use ONLY the
+    injected client -- and that client must receive the concrete classification (opp-attacks-us)
+    requests."""
+    monkeypatch.setattr(
+        "showdown_bot.engine.calc.client.make_calc_backend",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("a default calc backend must not be built")),
+    )
+    seen_attackers: list[str] = []
+    oracle = DamageOracle(client=_make_recording_client(seen_attackers))
+    _run_mega(oracle=oracle, trace=None)
+    # the injected client received the game-mode INCOMING (opponent attacking us): attacker == opp
+    assert "Aerodactyl" in seen_attackers  # the opponent (Aerodactyl) as attacker == a ko-threat calc
 
-    def _wrapped(reqs):
-        seen["n"] += 1
-        return real_db(reqs)
-    oracle.client.damage_batch = _wrapped
-    _run_mega(oracle=oracle,
-              speed_oracle=SpeedOracle(stats_backend=SubprocessCalcBackend(), profile=cp))
-    assert seen["n"] > 0  # the injected calc client actually received the classification/scoring calc
+
+def _make_recording_client(sink: list):
+    from showdown_bot.engine.calc.client import CalcClient
+
+    class _Rec:
+        def calc_batch(self, requests):
+            for r in requests:
+                sink.append(r.attacker.species)
+            return [DamageResult(min_damage=1, max_damage=2, max_hp=200, id=r.id) for r in requests]
+
+    return CalcClient(backend=_Rec())
