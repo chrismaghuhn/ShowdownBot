@@ -104,6 +104,76 @@ def build_i8d_schedule(panel, *, n_battles: int = I8D_MAX_BATTLES, teams_root: s
     )
 
 
+def verify_i8d_schedule(schedule: Schedule, *, expected_battles: int = I8D_MAX_BATTLES) -> None:
+    """Re-lock the fixed I8-D schedule at the EXECUTION point (code-review finding 3).
+
+    The runner must never trust a caller's ``Schedule`` or its self-reported ``schedule_hash``: a
+    truncated or replaced schedule would run different battles under the approved identity. This
+    re-derives every structural invariant AND recomputes the hash. Raises ``I8DScheduleError`` on
+    the first deviation:
+
+      - exactly ``expected_battles`` rows (default the D-2 cap, 200), ``seed_index`` contiguous
+        ``0..N-1``;
+      - every row: ``format_id == I8D_FORMAT``, ``hero_team_path == I8D_HERO_TEAM``,
+        ``panel_split == "dev"`` (held-out teams can never enter);
+      - ``opp_policy`` follows ``I8D_MATCHUPS`` in the fixed cyclic order, and each matchup
+        position keeps ONE opponent team across cycles, with the two policies of a matchup team
+        naming the SAME team (binds the three dev teams without needing the panel here);
+      - ``compute_schedule_hash(version, rows) == schedule.schedule_hash`` (recomputed, not
+        trusted).
+    """
+    rows = schedule.rows
+    if len(rows) != expected_battles:
+        raise I8DScheduleError(
+            f"I8-D schedule must have exactly {expected_battles} rows, got {len(rows)}"
+        )
+    team_for_pos: dict[int, str] = {}
+    for i, row in enumerate(rows):
+        pos = i % len(I8D_MATCHUPS)
+        _expected_team_id, expected_policy = I8D_MATCHUPS[pos]
+        if row.seed_index != i:
+            raise I8DScheduleError(
+                f"I8-D row {i} seed_index {row.seed_index} != {i} (must be contiguous 0..N-1)"
+            )
+        if row.format_id != I8D_FORMAT:
+            raise I8DScheduleError(f"I8-D row {i} format_id {row.format_id!r} != {I8D_FORMAT!r}")
+        if row.hero_team_path != I8D_HERO_TEAM:
+            raise I8DScheduleError(
+                f"I8-D row {i} hero_team_path {row.hero_team_path!r} != {I8D_HERO_TEAM!r}"
+            )
+        if row.panel_split != "dev":
+            raise I8DScheduleError(
+                f"I8-D row {i} panel_split {row.panel_split!r} != 'dev' (held-out teams excluded)"
+            )
+        if row.opp_policy != expected_policy:
+            raise I8DScheduleError(
+                f"I8-D row {i} opp_policy {row.opp_policy!r} != {expected_policy!r} "
+                f"(matchup order changed)"
+            )
+        if pos in team_for_pos:
+            if row.opp_team_path != team_for_pos[pos]:
+                raise I8DScheduleError(
+                    f"I8-D row {i} opp_team_path {row.opp_team_path!r} != {team_for_pos[pos]!r} "
+                    f"(the matchup's opponent team was swapped mid-schedule)"
+                )
+        else:
+            team_for_pos[pos] = row.opp_team_path
+    # Each dev team fields two policies: positions (0,1)=goodstuff, (2,3)=tailwind, (4,5)=trick_room
+    # must each name ONE team, or the six matchups do not cover exactly three dev teams.
+    for a, b in ((0, 1), (2, 3), (4, 5)):
+        if a in team_for_pos and b in team_for_pos and team_for_pos[a] != team_for_pos[b]:
+            raise I8DScheduleError(
+                f"I8-D matchup positions {a},{b} must share one dev team, got "
+                f"{team_for_pos[a]!r} vs {team_for_pos[b]!r}"
+            )
+    recomputed = compute_schedule_hash(schedule.version, rows)
+    if recomputed != schedule.schedule_hash:
+        raise I8DScheduleError(
+            f"I8-D schedule_hash {schedule.schedule_hash!r} != recomputed {recomputed!r} "
+            f"(rows tampered or hash forged)"
+        )
+
+
 def write_i8d_schedule(schedule: Schedule, path: str) -> None:
     """Emit the schedule as a YAML the runner's ``load_schedule`` round-trips (LF-only,
     byte-deterministic for identical inputs)."""
