@@ -59,9 +59,9 @@ a **load-bearing latency FAIL** — the 1000 ms budget is **not** moved. The nex
 1000 ms budget value, D-1 ≥60-from-≥20 and D-2 caps 200/2000 unchanged); Champions Strength remains
 **NO-GO**.
 
-**Both I8-D live attempts — ABORTED before battle creation (2026-07-18); no verdict, no evidence, no
-latency statement.** On `DESKTOP-1V4BPFQ`, both attempts created **zero battles** (`seeds.jsonl`
-empty, `out/` never published). **Root cause = an I8-D team-path wiring bug:** `run_local_gauntlet`
+**The first two I8-D live attempts — ABORTED before battle creation (2026-07-18); no verdict, no evidence, no
+latency statement.** On the fixed Windows host, both attempts created **zero battles** (`seeds.jsonl`
+absent, `out/` never published). **Root cause = an I8-D team-path wiring bug:** `run_local_gauntlet`
 loads the battle team files relative to the process CWD, but the `i8d-live-gate` command runs from
 the repo root (so the repo-root-relative panel path resolves) while the team files live under
 `showdown_bot/teams/`. `--teams-root` was used only to HASH the teams, not to LOAD them at battle

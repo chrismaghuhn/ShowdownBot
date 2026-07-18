@@ -126,7 +126,7 @@ Ordered front-track work as of **2026-07-18** (I8-A–C machinery merged PR #20 
   frozen**, and the **I8-D live-latency harness is now merged (PR #23 @ `3b6070c`, code + tests
   only)** and, after a team-path wiring fix, the **LIVE latency gate has now RUN once → FAIL**
   (below). **The first two live attempts ABORTED before battle creation (2026-07-18, no verdict/evidence/latency statement):** on
-  `DESKTOP-1V4BPFQ` both created **zero battles** (`seeds.jsonl` empty, `out/` never published).
+  the fixed Windows host both created **zero battles** (`seeds.jsonl` absent, `out/` never published).
   **Root cause = an I8-D team-path wiring bug** — `run_local_gauntlet` loads teams CWD-relative, the
   gate runs from the repo root, the teams live under `showdown_bot/teams/`, and `--teams-root` only
   hashed the teams (didn't LOAD them), so `_resolve_side_teams` silently degraded missing files to

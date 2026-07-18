@@ -23,7 +23,7 @@ Frozen evidence (this directory / `data/eval/champions-panel-v0/i8d-live/`):
 Stored byte-exact under `.gitattributes: data/eval/champions-panel-v0/** -text`; the git-stored
 blob is byte-identical to the working file (verified: `git cat-file blob | sha256sum` equals the
 table above). All three are LF-only (0 CRLF). The bytes above are a copy of the run output at
-`C:/Users/chris/i8d-live-run-9fc0f36/{out/profile.jsonl, out/verdict.json, seeds.jsonl}`, whose
+`<external-run-root>/{out/profile.jsonl, out/verdict.json, seeds.jsonl}`, whose
 source sha256 equals the frozen sha256 for each file.
 
 ## Verdict
@@ -81,10 +81,10 @@ exactly (re-checked independently below).
 
 | field | value |
 |---|---|
-| host | `DESKTOP-1V4BPFQ`, Windows 11 |
+| host | fixed Windows host (Windows 11) |
 | server | patched `pokemon-showdown` pinned at `f8ac140` + `pokemon-showdown-seeded-battle.patch`, `--no-security` on port 8000 |
 | gate command | `python -m showdown_bot.cli i8d-live-gate --out-dir …/out --teams-root showdown_bot` (PYTHONPATH `showdown_bot/src`, `SHOWDOWN_CALC_BACKEND=oneshot`, no timeout env) |
-| run output | `C:/Users/chris/i8d-live-run-9fc0f36/` (seedlog + `out/`), outside the repo |
+| run output | `<external-run-root>` (seedlog + `out/`), outside the repo |
 | policy | ran **once**; fail-closed; **no automatic retry**; server + worker stopped and port 8000 freed after the process ended |
 
 ## Independent re-verification — from the frozen bytes, all gates PASS
