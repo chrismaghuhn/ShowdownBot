@@ -15,7 +15,10 @@ from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
 from showdown_bot.battle.resolve import PlannedAction
 from showdown_bot.battle.search import depth2_value
 from showdown_bot.battle.team_preview import pick_team_preview_default
-from showdown_bot.engine.belief.game_mode import classify_game_mode
+from showdown_bot.engine.belief.game_mode import (
+    enqueue_classification,
+    resolve_classification,
+)
 from showdown_bot.engine.belief.hypotheses import SpreadBook
 from showdown_bot.engine.belief.world_sampler import (
     build_world_dist, sample_worlds, world_samples, world_seed,
@@ -394,9 +397,21 @@ def _choose_best(
     if not my_actions:
         raise ValueError("no legal joint actions")
 
-    mode = classify_game_mode(
-        state, our_side=our_side, calc=calc, book=book, calc_profile=calc_profile
+    # Lever A: enqueue the game-mode INCOMING ko-threat requests into the SHARED oracle now,
+    # so they fold into the decision's single scoring flush instead of paying their own Node
+    # spawn. GameMode is resolved AFTER that flush (it is only consumed downstream), memoized so
+    # the conditional outgoing second flush happens at most once per decision.
+    cls_handle = enqueue_classification(
+        state, our_side=our_side, oracle=oracle, book=book, calc_profile=calc_profile
     )
+    _mode_cache: list = []
+
+    def _resolve_mode():
+        if not _mode_cache:
+            _mode_cache.append(
+                resolve_classification(cls_handle, oracle=oracle, state=state, our_side=our_side)
+            )
+        return _mode_cache[0]
 
     if format_config is not None and format_config.mega:
         # Mega-enabled branch (I7a-B Task 4): own-Mega variants are ranked as
@@ -414,7 +429,7 @@ def _choose_best(
             report=report, our_spreads=our_spreads, opp_sets=opp_sets,
             trace=trace, format_config=format_config, calc_profile=calc_profile,
             accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
-            endgame=endgame, fast_board=fast_board, mode=mode, my_actions=my_actions,
+            endgame=endgame, fast_board=fast_board, resolve_mode=_resolve_mode, my_actions=my_actions,
             opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
         )
 
@@ -458,6 +473,7 @@ def _choose_best(
             model_k.enqueue(list(plans.values()) + [r.actions for r in resps_k])
             world_ctx.append((world_w, resps_k, model_k))
         shared_oracle.flush()
+        mode = _resolve_mode()  # Lever A: incoming folded into the flush above; resolve now
         # _maybe_tera + report/trace below reference a single opp_resps/model; bind them
         # to the most-likely world (world_ctx[0], always present). Full K-world Tera/trace
         # is a follow-up refinement (this machinery slice is off-by-default, no winrate claim).
@@ -501,6 +517,7 @@ def _choose_best(
         )
         groups = list(plans.values()) + [r.actions for r in opp_resps]
         model.prefetch(groups)
+        mode = _resolve_mode()  # Lever A: incoming folded into the prefetch flush above; resolve now
 
         def score_plan(my_plan: list[PlannedAction]) -> list[float]:
             if opp_resps:
@@ -700,7 +717,7 @@ def _choose_best_mega(
     accuracy_branch_cap: int,
     endgame: bool,
     fast_board: bool,
-    mode,
+    resolve_mode,
     my_actions: list[JointAction],
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
@@ -752,13 +769,16 @@ def _choose_best_mega(
     records = score_evaluated_variants(
         evaluated, contexts, req=req, state=state, book=book, our_side=our_side,
         opp_side=opp_side, calc=calc, oracle=oracle, speed_oracle=speed_oracle,
-        dex=dex, priors=priors, weights=weights, mode=mode, risk_lambda=risk_lambda,
+        dex=dex, priors=priors, weights=weights, resolve_mode=resolve_mode, risk_lambda=risk_lambda,
         rollout_horizon=rollout_horizon, our_spreads=our_spreads, opp_sets=opp_sets,
         calc_profile=calc_profile, accuracy_mode=accuracy_mode,
         accuracy_branch_cap=accuracy_branch_cap, endgame=endgame, fast_board=fast_board,
         foe_mega_eligibility=_foe_eligibility, species_meta=species_meta_table(),
         opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
     )
+    # Lever A: GameMode is resolved inside score_evaluated_variants after the first world's
+    # flush; retrieve the memoized value for this function's downstream trace/tera/report uses.
+    mode = resolve_mode()
     if not records:
         raise ValueError("no evaluated Mega variants")
 
