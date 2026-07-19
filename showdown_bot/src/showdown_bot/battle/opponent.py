@@ -49,6 +49,14 @@ class SpeciesDex:
             self._cache[species] = self.backend.types_batch([species])[0]
         return self._cache[species]
 
+    def seed_results(self, results) -> None:
+        """Inject pre-computed ``(species, types)`` pairs into the type cache with NO transport.
+        The decision-start pre-pass computes board-species typings in the shared ``mixed_batch``
+        and seeds them here so a later ``types()`` for a seeded species is a pure cache hit;
+        behaviour-neutral because a seeded typing equals what ``types_batch`` returns for it."""
+        for species, types in results:
+            self._cache[species] = list(types)
+
     def to_id(self, species: str) -> str:
         """Normalize a species name to its id form -- the same Showdown "toID"
         transform as ``engine.moves.to_id`` / ``engine.state.to_id`` /
