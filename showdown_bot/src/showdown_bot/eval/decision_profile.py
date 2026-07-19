@@ -983,8 +983,10 @@ def _require_single_schema_version(path: str, rows: list) -> None:
     versions = {row.get("schema_version") for row in rows}
     _require(
         len(versions) <= 1,
+        # key=repr: JSON may carry a non-str version (e.g. the integer 1), and sorting mixed types
+        # would raise a raw TypeError instead of the intended DecisionProfileError. repr is total.
         f"{path} mixes decision-profile schema versions "
-        f"{sorted(v for v in versions if v is not None)}: a run emits exactly one",
+        f"{sorted((v for v in versions if v is not None), key=repr)}: a run emits exactly one",
     )
 
 

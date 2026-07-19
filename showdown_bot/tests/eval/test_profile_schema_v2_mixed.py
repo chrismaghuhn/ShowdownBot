@@ -154,3 +154,27 @@ def test_microprofile_dataset_mixed_versions_rejected(tmp_path):
     p.write_text(json.dumps(v1) + "\n" + json.dumps(v2) + "\n", encoding="utf-8")
     with pytest.raises(DecisionProfileError, match="schema versions"):
         validate_decision_profile_dataset(str(p), manifest)
+
+
+def test_live_dataset_mixed_version_types_rejected(tmp_path):
+    """A str and a non-str (int) schema_version in one file must fail as a DecisionProfileError
+    (the version-uniqueness rule), never a raw TypeError from sorting mixed JSON types."""
+    v1, other = _live_v1_rows()
+    bad = dict(other)
+    bad["schema_version"] = 1  # a non-str JSON version alongside the string v1
+    p = tmp_path / "mixed_types.jsonl"
+    p.write_text(json.dumps(v1) + "\n" + json.dumps(bad) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionProfileError, match="schema versions"):
+        validate_live_profile_dataset(str(p))
+
+
+def test_microprofile_dataset_mixed_version_types_rejected(tmp_path):
+    manifest = json.loads((_DATA / "i8-microprofile" / "profile_manifest.json").read_text("utf-8"))
+    lines = (_DATA / "i8-microprofile" / "profile.jsonl").read_text("utf-8").splitlines()
+    v1 = json.loads(lines[0])
+    bad = json.loads(lines[1])
+    bad["schema_version"] = 1
+    p = tmp_path / "mixed_types_micro.jsonl"
+    p.write_text(json.dumps(v1) + "\n" + json.dumps(bad) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionProfileError, match="schema versions"):
+        validate_decision_profile_dataset(str(p), manifest)
