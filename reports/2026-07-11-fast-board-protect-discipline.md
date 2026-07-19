@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-11
 **Branch:** `feat/slice-fast-board-protect`
-**Spec/plan:** `docs/superpowers/specs/2026-07-11-fast-board-protect-discipline-design.md`,
-`docs/superpowers/plans/2026-07-11-fast-board-protect-discipline.md`
+**Spec/plan:** `docs/projects/core-bot/specs/2026-07-11-fast-board-protect-discipline-design.md`,
+`docs/projects/core-bot/plans/2026-07-11-fast-board-protect-discipline.md`
 
 ## Verdict: NOT a lever — DEPTH-BOUND (env code merged OFF-by-default)
 

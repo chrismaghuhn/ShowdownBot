@@ -1,6 +1,6 @@
 """Profile-manifest producer (I8-C, C1): the microprofile run's provenance anchor.
 
-Design: docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md (Rev. 11) §2.7 +
+Design: docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md (Rev. 11) §2.7 +
 Erratum 1.
 
 A microprofile run emits ONE manifest, and every row of that run carries its canonical hash

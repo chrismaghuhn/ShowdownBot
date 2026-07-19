@@ -160,7 +160,7 @@ Start with:
 | `config/eval/` | Frozen panels, schedules, baselines and held-out controls |
 | `data/eval/` | Committed evaluation evidence |
 | `reports/` | Audits, safety verdicts and experiment reports |
-| `docs/superpowers/` | Approved designs and implementation plans |
+| [`docs/`](docs/README.md) | Project-organized designs, plans, audits, reviews, guides, roadmap, and index |
 | `showdownbot_studio/` | Separate replay/decision-trace desktop-tool project |
 
 ## Engineering rules

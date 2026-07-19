@@ -3,7 +3,7 @@
 Mines COMPLETED, already-normalized battle-log frames (the T4c ``room_dump.normalize_battle_log``
 output -- a list of ``|``-delimited protocol lines) for a small, deterministic, fail-closed set of
 recurring tactical mistakes. NO live-path hook, NO new battles -- this is post-hoc analysis over
-logs already produced. Spec: ``docs/superpowers/specs/2026-07-11-diagnostics-v0-design.md``.
+logs already produced. Spec: ``docs/projects/evaluation/specs/2026-07-11-diagnostics-v0-design.md``.
 
 v0 covers three buckets (the framework is extensible for the rest of the Deep-Research doc's
 taxonomy, ``TestBOtpläne/12-diagnostic-buckets.md``, later):

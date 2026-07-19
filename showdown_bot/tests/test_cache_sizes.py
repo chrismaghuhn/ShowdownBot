@@ -1,6 +1,6 @@
 """I8-A Task A3 — semantic cache sizes, readable at rep start.
 
-Design `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.8:
+Design `docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.8:
 `cache_class` is derived from the arm's declared lifecycle and then FALSIFIED by three
 observed cache sizes sampled at rep start. Only one direction is sound and it rests
 entirely on the fact pinned here:

@@ -55,7 +55,7 @@ Raw gauntlet log archived locally at
 ## Hermetic evidence
 
 Implementation commits `ff3772f`…`3bcd4b3` (5 commits). Audit:
-`docs/superpowers/specs/2026-07-14-champions-live-damage-gen0-i6-audit.md`.
+`docs/projects/champions/audits/2026-07-14-champions-live-damage-gen0-i6-audit.md`.
 
 ## Reproduction
 

@@ -4,8 +4,8 @@
 **NOT shipped.** The 2b-4 machinery goal — determinism gate → paired eval → certified verdict,
 end to end — **is** achieved, and it correctly refused an unproven strength claim rather than
 rounding a favorable-looking raw winrate up to a claim. Plan:
-`docs/superpowers/plans/2026-07-11-2b4-gated-override.md`. Spec:
-`docs/superpowers/specs/2026-07-11-2b4-gated-override-design.md`. Branch
+`docs/projects/learning/plans/2026-07-11-2b4-gated-override.md`. Spec:
+`docs/projects/learning/specs/2026-07-11-2b4-gated-override-design.md`. Branch
 `feat/slice-2b4-gated-override`, evidence git_sha `13795ab9df4f4204d90d1d295ccd3ae2e7c05019`
 (clean, `dirty=False` in every manifest below).
 
@@ -166,7 +166,7 @@ strict-xfail). No source changes in this slice; evidence + report + `.gitattribu
 
 - `reports/2026-07-11-2b2b-feature-ablation.md` — the offline LOCO/SCO ablation whose
   `move_desc`/`species_id` `inconclusive` verdicts this NO-GO is consistent with.
-- `docs/superpowers/specs/2026-07-11-2b4-gated-override-design.md` — fail-safe contract, gate
+- `docs/projects/learning/specs/2026-07-11-2b4-gated-override-design.md` — fail-safe contract, gate
   ordering, held-out deferral.
 - `reports/2026-07-10-2b35-T6-heldout-baseline.md` — the held-out gate/ledger machinery this
   slice deliberately did not spend against.

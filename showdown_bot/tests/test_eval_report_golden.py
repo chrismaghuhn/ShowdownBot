@@ -1,6 +1,6 @@
 """T5 Task 6: golden report against the committed T4-rerun fixture.
 
-Spec: docs/superpowers/specs/2026-07-10-t5-report-generator-design.md R5 (determinism) + R7
+Spec: docs/projects/evaluation/specs/2026-07-10-t5-report-generator-design.md R5 (determinism) + R7
 (golden fixture as drift guard). ``data/eval/t4/rerun/golden-report.md`` and
 ``golden-report.json`` were generated once via the ``eval-report`` CLI (T5 Task 5) against the
 committed run-1 bundle in ``data/eval/t4/rerun/`` and inspected by hand (verdict

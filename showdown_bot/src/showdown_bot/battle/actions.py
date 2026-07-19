@@ -108,7 +108,7 @@ def enumerate_my_actions(
     - Double-switches dropped by default on VOLUNTARY turns (rarely the one-ply
       optimum, expensive). Force phases (T4b) are exempt: forced replacements
       enumerate the maximal-switch joint assignments per the force-phase
-      contract (`docs/superpowers/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md`) --
+      contract (`docs/projects/evaluation/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md`) --
       every slot with ``force_switch[i]`` true must switch if the bench allows it.
     - Same-target double-switch is always illegal and skipped.
     - Dead Fake Out / First Impression dropped per slot when ``moved_since_switch``

@@ -4,7 +4,7 @@ Mines the rollout-teacher-labelled dataset (``learning.dataset.load_rows`` outpu
 ``{"features": {...}, "label": {...}, "metadata": {...}}``) for WHERE the current heuristic's
 chosen action disagrees with the rollout teacher's best candidate, and how large the value gap
 is. Aimed measurement, not a gate -- see the design spec
-``docs/superpowers/specs/2026-07-11-teacher-disagreement-atlas-design.md``.
+``docs/projects/learning/specs/2026-07-11-teacher-disagreement-atlas-design.md``.
 
 Ported (with adaptations -- ``learning.dataset.load_rows`` row shape, own exception type, own
 loader/grouping) from the user's external Decision-Error-Atlas prototype's LIVE, refined module

@@ -4,7 +4,7 @@ The thresholds are CODE, not prose (review §3): the exact binomial test cannot 
 p < 0.05 below 6 discordant pairs (a 6/6 split gives p = 2/64 = 0.03125), and no claim
 may appear in a verdict line below 10. A cell whose Wilson upper bound is below 0.5 is
 a "losing cell" and must surface in the verdict. Tie shares above 2% get flagged
-(degeneracy suspicion). Rationale: docs/superpowers/reviews/2026-07-01-fable-t5-t6-
+(degeneracy suspicion). Rationale: docs/projects/evaluation/reviews/2026-07-01-fable-t5-t6-
 eval-architecture-review.md §3-4.
 """
 from __future__ import annotations

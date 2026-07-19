@@ -1,6 +1,6 @@
 # 2b-2b Feature Ablation — LOCO/SCO Report
 
-Slice 2b-2b. Leave-one-class-out (LOCO) and single-class-only (SCO) retraining over the committed 2b-2.5a dataset, ATTACK-strict gate throughout -- same split (seed=42, by-game), same LightGBM params, same code paths as `reranker_train.main` (see docs/superpowers/specs/2026-07-11-2b2b-feature-ablation-design.md). This ranks which feature classes actually drive the gate metric (regret-vs-teacher), which LightGBM's own gain/split importance does not measure.
+Slice 2b-2b. Leave-one-class-out (LOCO) and single-class-only (SCO) retraining over the committed 2b-2.5a dataset, ATTACK-strict gate throughout -- same split (seed=42, by-game), same LightGBM params, same code paths as `reranker_train.main` (see docs/projects/learning/specs/2026-07-11-2b2b-feature-ablation-design.md). This ranks which feature classes actually drive the gate metric (regret-vs-teacher), which LightGBM's own gain/split importance does not measure.
 
 Dataset: `data/datasets/phase3-slice2b25a/dataset.jsonl.gz` (sha256 `3303351176733fd373eed251a29d7f2bde0f3aa50b4a8fd407eff448f39542d6`)
 Live features: 66  |  dropped constant: 7

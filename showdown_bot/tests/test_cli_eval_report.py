@@ -1,6 +1,6 @@
 """Tests for the `eval-report` CLI subcommand (T5 Task 5).
 
-Spec: docs/superpowers/specs/2026-07-10-t5-report-generator-design.md §1.4 — CLI shape,
+Spec: docs/projects/evaluation/specs/2026-07-10-t5-report-generator-design.md §1.4 — CLI shape,
 manifest-sidecar convention, exit codes (0 for SAFETY-PASS/GO/NO-GO/UNDERPOWERED, 1 iff
 SAFETY-FAIL). There is no existing subprocess-based CLI test in this repo (checked: no test
 imports `showdown_bot.cli` and drives it via subprocess); the project's convention (see

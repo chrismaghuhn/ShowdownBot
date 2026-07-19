@@ -1,6 +1,6 @@
 """I8-A Task A2 — planned vs implicit damage batches, counted AT ORIGIN.
 
-Design `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.4:
+Design `docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.4:
 a damage batch has exactly two origins, and telling them apart is the one genuinely new
 counter the design needs (P-7):
 

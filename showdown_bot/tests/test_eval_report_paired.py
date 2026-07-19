@@ -1,8 +1,8 @@
 """Tests for eval/report.py part 2 — paired McNemar mode + positive-evidence verdicts (T5 Task 4).
 
-Spec: docs/superpowers/specs/2026-07-10-t5-report-generator-design.md §1.2/§1.3 (verdict
+Spec: docs/projects/evaluation/specs/2026-07-10-t5-report-generator-design.md §1.2/§1.3 (verdict
 vocabulary + order, verbatim texts, paired section between Aggregates and Warnings).
-Decision-tree semantics: docs/superpowers/reviews/2026-07-01-fable-t5-t6-eval-architecture-
+Decision-tree semantics: docs/projects/evaluation/reviews/2026-07-01-fable-t5-t6-eval-architecture-
 review.md §3 (power floor / underpowered), §9 (block-even-when-aggregate-looks-fine: cell
 flip, weak-policy-only), §10 (zero-discordant ambiguity, no unpaired side-by-side CIs).
 

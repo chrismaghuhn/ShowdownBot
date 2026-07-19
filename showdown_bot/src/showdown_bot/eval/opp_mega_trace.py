@@ -23,7 +23,7 @@ A class absent from scored evidence cannot prove the cap retained it, so a
 "reserved_classes" field would be invalid and deliberately does not exist.
 
 Schema is deliberately separate from decision-trace-v3 (see
-docs/superpowers/specs/2026-07-16-champions-opponent-mega-i7b-audit.md Sec.5):
+docs/projects/champions/audits/2026-07-16-champions-opponent-mega-i7b-audit.md Sec.5):
 response-level opponent data has no analogue in the v3 candidate schema and must
 not silently overload it. Mirrors research/aggregation_trace.py's shape
 (context/row-builder/validator/writer split, SHOWDOWN_*_OUT env gate,

@@ -28,7 +28,7 @@ from showdown_bot.eval.room_raw_replay import ExtractedDecision, RequestKind
 @dataclass(frozen=True)
 class AcceptanceSummary:
     """Spec Sec.4's acceptance rule has 3 parts: no exceptions, no NaNs, no invalid actions
-    (docs/superpowers/specs/2026-07-13-accuracy-offline-gate-design.md:453). ``no_exceptions``
+    (docs/projects/accuracy/specs/2026-07-13-accuracy-offline-gate-design.md:453). ``no_exceptions``
     and ``no_nans`` are both implemented and swept over every replayed MOVE decision (not just
     diverging ones -- see ``run_gate_b``'s ``_trace_has_nan_score`` call). The third part,
     "invalid actions", is a KNOWN, EXPLICITLY-FLAGGED GAP as of Task 10's code review: a

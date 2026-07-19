@@ -1,7 +1,7 @@
 """T4c Task 2: eval-report re-derives outcomes from room logs (fail-closed).
 
-Spec: docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md R2. Plan:
-docs/superpowers/plans/2026-07-11-t4c-provenance-hardening.md Task 2.
+Spec: docs/projects/evaluation/specs/2026-07-11-t4c-provenance-hardening-design.md R2. Plan:
+docs/projects/evaluation/plans/2026-07-11-t4c-provenance-hardening.md Task 2.
 
 ``RunBundle.load(..., room_raw_dir=...)`` is the seam under test: when given, EVERY row is
 re-derived from its room log (winner/turns/end_reason/end_hp_diff via
