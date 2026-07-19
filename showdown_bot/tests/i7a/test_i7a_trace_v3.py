@@ -2,7 +2,7 @@
 
 The non-Mega decision path is migrated to key-v2/trace-v3 bookkeeping, and the
 v3 validators are exercised directly against literal/constructed rows. See
-``docs/superpowers/specs/2026-07-14-champions-mega-i7-design.md`` Sec.13 for
+``docs/projects/champions/specs/2026-07-14-champions-mega-i7-design.md`` Sec.13 for
 the authoritative schema.
 
 I7a-B Task 4 adds real Mega-branch trace population tests (T50, plus the

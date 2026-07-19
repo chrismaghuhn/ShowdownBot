@@ -1,7 +1,7 @@
 """Decision-profile sidecar (I8-B): the per-decision cost record behind the foe-Mega
 latency verdict -- never read to make a decision, off by default.
 
-Design: docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md (Rev. 11) §2.4.
+Design: docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md (Rev. 11) §2.4.
 
 What a row is, and is not
 -------------------------

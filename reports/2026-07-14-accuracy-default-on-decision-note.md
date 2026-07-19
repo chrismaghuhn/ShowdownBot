@@ -156,14 +156,14 @@ measured accuracy-off vs cap 6 difference: 20/944 chosen-action changes on the r
 - No change to `data/eval/accuracy-gate/gate-b-report.json`.
 - No commit of local `AGENTS.md`, `CLAUDE.md`, `_gate-b-rerun-2026-07-14.log`, or the local
   `_pre-rerun-2026-07-14-candidate-identity/` archive.
-- No new file under `docs/superpowers/specs/`.
+- No new file under `docs/projects/accuracy/specs/`.
 
 ## Implementation (2026-07-14)
 
 | Item | Detail |
 |------|--------|
 | Code commit | `8c54843` — `feat(accuracy): default-on mode and branch cap 6` |
-| Spec | `docs/superpowers/specs/2026-07-14-accuracy-default-on-design.md` |
+| Spec | `docs/projects/accuracy/specs/2026-07-14-accuracy-default-on-design.md` |
 | Parser | unset → accuracy on, branch cap 6; `"0"` / `"false"` / `""` → off |
 | Tests | focused spec run 109 passed; full suite 1788 passed (1 skipped, 1 xfailed) |
 | Strength claim | **none** — checklist item 6 (dev/strength panel) remains open |

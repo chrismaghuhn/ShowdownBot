@@ -1,6 +1,6 @@
 """I8-B Task B1 — the decision-profile sidecar: bytes, field set, off by default.
 
-Design `docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.4.
+Design `docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md` (Rev. 11) §2.4.
 B1 owns the WRITER and the exact-closed field set. The semantic rules on top of it are
 B2's `validate_decision_profile_row`.
 
@@ -156,7 +156,7 @@ def _design_field_table() -> list[str]:
     """The field names of design §2.4's table, read from the design itself."""
     spec = (
         pathlib.Path(__file__).resolve().parents[2]
-        / "docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md"
+        / "docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md"
     )
     lines = spec.read_text(encoding="utf-8").split("\n")
     start = next(i for i, l in enumerate(lines) if "Field set (exact, closed)" in l)

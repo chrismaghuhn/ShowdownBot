@@ -9,7 +9,7 @@ by-game) and LightGBM params as `reranker_train.main`. The FULL-feature
 variant therefore reproduces the committed 2b-2.5a offline-eval numbers
 exactly (see test_reranker_ablation.py).
 
-See docs/superpowers/specs/2026-07-11-2b2b-feature-ablation-design.md.
+See docs/projects/learning/specs/2026-07-11-2b2b-feature-ablation-design.md.
 """
 from __future__ import annotations
 
@@ -397,7 +397,7 @@ def format_ablation_report(result: AblationResult, dropped: list[str]) -> str:
         "the committed 2b-2.5a dataset, ATTACK-strict gate throughout -- same split (seed="
         f"{result.split_seed}, by-game), same LightGBM params, same code paths as "
         "`reranker_train.main` (see "
-        "docs/superpowers/specs/2026-07-11-2b2b-feature-ablation-design.md). This ranks which "
+        "docs/projects/learning/specs/2026-07-11-2b2b-feature-ablation-design.md). This ranks which "
         "feature classes actually drive the gate metric (regret-vs-teacher), which LightGBM's "
         "own gain/split importance does not measure.",
         "",

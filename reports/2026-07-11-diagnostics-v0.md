@@ -1,8 +1,8 @@
 # Diagnostics v0 — log-based tactical-failure detectors + a first candidate-vs-baseline delta
 
 Date: 2026-07-11. Slice: `feat/slice-diagnostics-v0`. Spec/plan:
-`docs/superpowers/specs/2026-07-11-diagnostics-v0-design.md`,
-`docs/superpowers/plans/2026-07-11-diagnostics-v0.md`. Taxonomy source:
+`docs/projects/evaluation/specs/2026-07-11-diagnostics-v0-design.md`,
+`docs/projects/evaluation/plans/2026-07-11-diagnostics-v0.md`. Taxonomy source:
 `TestBOtpläne/12-diagnostic-buckets.md` (banked Deep-Research doc).
 
 ## What this adds

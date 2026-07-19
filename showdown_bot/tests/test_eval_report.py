@@ -1,7 +1,7 @@
 """Tests for eval/report.py part 1 — RunBundle audit, safety gates, single-run report (T5 Task 3).
 
-Spec: docs/superpowers/specs/2026-07-10-t5-report-generator-design.md §1.3 / §2 / §3
-(R3, R5, R6, R7). Rationale: docs/superpowers/reviews/2026-07-01-fable-t5-t6-eval-
+Spec: docs/projects/evaluation/specs/2026-07-10-t5-report-generator-design.md §1.3 / §2 / §3
+(R3, R5, R6, R7). Rationale: docs/projects/evaluation/reviews/2026-07-01-fable-t5-t6-eval-
 architecture-review.md §5/§8.
 
 R6 documented deviation (see ``test_winner_flip_is_undetectable_documents_deviation``):
@@ -13,7 +13,7 @@ per-row ``seed`` derivation as a hard audit, and exercises the "edited result ro
 case via a SEED edit (which IS detectable). The controller should amend the spec's winner-flip
 wording; see the report-back.
 
-UPDATE (T4c R3, ``docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md``): the
+UPDATE (T4c R3, ``docs/projects/evaluation/specs/2026-07-11-t4c-provenance-hardening-design.md``): the
 deviation above holds only on the no-logs path. ``test_winner_flip_is_detected_with_room_raw_logs``
 is the inverted twin — same flip, but with ``room_raw_dir`` supplied — and IS caught via
 ``LogIntegrityError``. See also ``test_eval_report_log_integrity.py`` (T4c Task 2).
@@ -268,7 +268,7 @@ def test_winner_flip_is_detected_with_room_raw_logs(tmp_path):
     now that it exists (T4c Task 2: ``RunBundle.load(..., room_raw_dir=...)``), the no-logs
     limitation documented above is scoped precisely to the absence of ``--room-raw``.
 
-    See docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md R3 and
+    See docs/projects/evaluation/specs/2026-07-11-t4c-provenance-hardening-design.md R3 and
     test_eval_report_log_integrity.py::test_log_integrity_tampered_winner_raises (the Task 2
     preview of this same check)."""
     results, seedlog = _copy_bundle(tmp_path)

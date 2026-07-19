@@ -2,7 +2,7 @@
 
 T4c Task 4 additions: the informational ``environment`` block (``collect_environment`` /
 ``collect_node_version``) and the config_hash-unchanged pin
-(``docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md`` R4).
+(``docs/projects/evaluation/specs/2026-07-11-t4c-provenance-hardening-design.md`` R4).
 """
 from __future__ import annotations
 

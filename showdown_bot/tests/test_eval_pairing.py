@@ -1,8 +1,8 @@
 """Tests for eval/pairing.py — the pairing validator (T5 Task 2).
 
 Fail-fast: every violation gets its own exception subclass of PairingError, never a
-warn-and-continue path. Spec: docs/superpowers/specs/2026-07-10-t5-report-generator-design.md
-§1.2. Rationale: docs/superpowers/reviews/2026-07-01-fable-t5-t6-eval-architecture-review.md §2.
+warn-and-continue path. Spec: docs/projects/evaluation/specs/2026-07-10-t5-report-generator-design.md
+§1.2. Rationale: docs/projects/evaluation/reviews/2026-07-01-fable-t5-t6-eval-architecture-review.md §2.
 """
 from __future__ import annotations
 

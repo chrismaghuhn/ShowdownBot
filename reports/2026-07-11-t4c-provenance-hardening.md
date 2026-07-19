@@ -2,7 +2,7 @@
 
 Mini-slice binding result rows to their room logs, fail-closed re-derivation in `eval-report`,
 and an informational environment block in run manifests. Spec:
-`docs/superpowers/specs/2026-07-11-t4c-provenance-hardening-design.md`. Branch
+`docs/projects/evaluation/specs/2026-07-11-t4c-provenance-hardening-design.md`. Branch
 `feat/slice-t4c-provenance-hardening`, `git HEAD` `0004dd9`. All-fixture, no battles run for
 this slice (hard constraint).
 

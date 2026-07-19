@@ -1,6 +1,6 @@
 """T4 smoke-schedule matrix (2b-3.5 T4): the pinned 51-game weighted dev matrix.
 
-Weights per the accepted design (docs/superpowers/reviews/2026-07-02-fable-t4-smoke-schedule-
+Weights per the accepted design (docs/projects/evaluation/reviews/2026-07-02-fable-t4-smoke-schedule-
 design.md §2-3): heuristic and max_damage are the only informative opponents (5 seeds/cell);
 the three weak policies are calibration rungs (3/2/2). Rows 0-9 form a stratified reproduction
 prefix (all 5 policies + all 3 dev teams), so a fresh-server re-run of just the prefix schedule

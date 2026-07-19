@@ -38,3 +38,11 @@ Do not duplicate volatile phase status, commit hashes, or measurements in this f
   explicit approval.
 - Keep raw logs, caches, temporary diagnostics, and large external datasets out of commits unless
   an approved plan explicitly freezes them as evidence.
+
+## Documentation placement
+
+Store new documentation by subject under `docs/projects/<project>/`: designs and
+contracts in `specs/`, implementation plans in `plans/`, audits in `audits/`, and
+reviews in `reviews/`. Put user-facing material in `docs/guides/<topic>/` and
+cross-project architecture in `docs/architecture/`. Do not recreate
+`docs/superpowers/`; see `docs/README.md` and `docs/PATH_MIGRATION.md`.

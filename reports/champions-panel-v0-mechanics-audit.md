@@ -4,7 +4,7 @@
 **Verdict:** **PASS**  
 **Format:** `gen9championsvgc2026regma` — `[Gen 9 Champions] VGC 2026 Reg M-A`  
 **Pinned Showdown:** `f8ac140` (`~/.cache/showdownbot/pokemon-showdown`)  
-**Spec:** `docs/superpowers/specs/2026-07-14-champions-panel-v0-design.md` §4  
+**Spec:** `docs/projects/champions/specs/2026-07-14-champions-panel-v0-design.md` §4\
 **P0:** `reports/champions-panel-v0-format-discovery.md` (PASS)
 
 ## Summary

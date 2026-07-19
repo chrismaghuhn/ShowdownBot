@@ -3,7 +3,7 @@
 **Date:** 2026-07-14  
 **Verdict:** **SAFETY-PASS** · Strength **UNDERPOWERED** · **directional warning** (no strength claim)  
 **Commit:** `a956b6b` · **seed_base:** `accuracy-default-on-v001`  
-**Spec:** `docs/superpowers/specs/2026-07-14-accuracy-default-on-strength-measurement.md`  
+**Spec:** `docs/projects/accuracy/audits/2026-07-14-accuracy-default-on-strength-measurement.md`\
 **Artifacts:** `data/eval/accuracy-default-on/devstrength-ab/` (results, seedlogs, manifests, paired report)
 
 ## Safety readout

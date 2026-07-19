@@ -96,7 +96,7 @@ def test_equal_damage_tie_is_deterministic():
 
 
 def test_default_fallback_routes_through_pick_default_pair(monkeypatch):
-    # T4b (docs/superpowers/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md):
+    # T4b (docs/projects/evaluation/plans/2026-07-10-2b35-T4b-forced-replacement-determinism.md):
     # fallback=None (live default) now routes the no-actions path through the
     # DETERMINISTIC pick_default_pair, not pick_random_pair -- superseding the T3c
     # "byte-for-byte" note this test previously pinned.

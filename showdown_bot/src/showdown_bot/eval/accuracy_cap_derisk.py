@@ -1,5 +1,5 @@
 """Accuracy branch-cap / ambiguous-candidate de-risk study (spec:
-docs/superpowers/specs/2026-07-13-accuracy-cap-derisk-design.md). Pure, unit-tested logic only --
+docs/projects/accuracy/specs/2026-07-13-accuracy-cap-derisk-design.md). Pure, unit-tested logic only --
 real corpus runs live in showdown_bot/scripts/. The cap=4 gate verdict
 (data/eval/accuracy-gate/gate-b-report.json) is never recomputed here; this module only supports
 the auxiliary action-capture / cross-cap comparison / ambiguous-candidate diagnostic described in

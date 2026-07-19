@@ -1,6 +1,6 @@
 """Fast-board Protect discipline (2026-07-11 plan Task 1): fast_board context +
 env-gated ``fast_board_protect`` penalty, mirroring the existing ``endgame``
-mechanism end-to-end (see docs/superpowers/specs/2026-07-11-fast-board-protect-
+mechanism end-to-end (see docs/projects/core-bot/specs/2026-07-11-fast-board-protect-
 discipline-design.md).
 """
 from __future__ import annotations

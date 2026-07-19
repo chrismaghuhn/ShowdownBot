@@ -1,7 +1,7 @@
 """I8-A Task A1 — transport/spawn counters on both calc backends.
 
 These counters are the raw facts the I8 profile row is built from (design
-`docs/superpowers/specs/2026-07-16-champions-i8-latency-design.md`, Rev. 11, §2.4/§5.5):
+`docs/projects/champions/specs/2026-07-16-champions-i8-latency-design.md`, Rev. 11, §2.4/§5.5):
 `backend_class` is a *predicate* over `(spawn_count_before, spawn_calls, transport_retried)`,
 and the validator requires `calc_backend == "oneshot" => spawn_calls == transport_attempts`.
 
