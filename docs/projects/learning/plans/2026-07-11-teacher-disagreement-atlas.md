@@ -12,8 +12,8 @@ committed dataset via `learning.dataset.load_rows`. Spec:
 `docs/projects/learning/specs/2026-07-11-teacher-disagreement-atlas-design.md`. Porting SOURCE (read but
 adapt — it's on an old base + old loader): the clone
 `C:\Users\chris\Documents\Showdown-Bot-Analysis-Clone\tools\analysis\` (`rollout_metrics.py` /
-`atlas_metrics.py::analyze_rollout_decisions`) and the plan
-`.../docs/projects/learning/plans/2026-07-10-decision-error-atlas.md` (Task 5 has the full function).
+`atlas_metrics.py::analyze_rollout_decisions`) and its historical plan
+`2026-07-10-decision-error-atlas.md` in that external analysis repository (Task 5 has the full function).
 
 **Tech stack:** existing repo (pytest). **Constraint:** no battles; run only touched test files
 per task; full suite once at closeout (1 strict-xfail known).

@@ -1,7 +1,6 @@
 # Operations
 
-Repository and agent-operation documentation
-.
+Repository and agent-operation documentation.
 
 ## Documents
 

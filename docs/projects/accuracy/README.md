@@ -1,7 +1,6 @@
 # Accuracy
 
-Hit probability and accuracy gates
-.
+Hit probability and accuracy gates.
 
 ## Documents
 

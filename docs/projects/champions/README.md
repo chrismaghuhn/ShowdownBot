@@ -1,7 +1,6 @@
 # Champions
 
-Champions format, panel, Mega, and latency work
-.
+Champions format, panel, Mega, and latency work.
 
 ## Documents
 

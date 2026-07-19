@@ -1,7 +1,6 @@
 # Evaluation
 
-Harnesses, schedules, reports, heldout gates, and provenance
-.
+Harnesses, schedules, reports, heldout gates, and provenance.
 
 ## Documents
 

@@ -1,7 +1,6 @@
 # Core Bot
 
-Client, engine, heuristic, opponent knowledge, speed, and calc
-.
+Client, engine, heuristic, opponent knowledge, speed, and calc.
 
 ## Documents
 

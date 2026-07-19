@@ -108,6 +108,33 @@ These two hard-break normalizations are the only non-path changes to existing re
 
 ---
 
+## Execution erratum (2026-07-19, #4, review-fix): external paths, a dropped project segment, and the README generator
+
+A Codex re-review of the atomic migration commit found three defects, corrected in a
+separate review-fix commit (no amend of the migration commit):
+
+1. **External analysis-repository paths must not be migrated like internal repo paths.**
+   `docs/projects/learning/plans/2026-07-11-teacher-disagreement-atlas.md` cited a plan
+   `.../docs/superpowers/plans/2026-07-10-decision-error-atlas.md` that lives in the external
+   clone named two lines above (`Showdown-Bot-Analysis-Clone`), not in this repository. The
+   prefix-based Task 3 rewrite wrongly rewrote it to a non-existent internal path. The fix
+   removes that internal replacement rule and, before the generic prefix rewrite, rewrites the
+   external reference to the path-neutral form (`2026-07-10-decision-error-atlas.md` in that
+   external analysis repository). External repository paths are never migrated as internal.
+
+2. **A dropped project segment.** `reports/2026-07-14-accuracy-default-on-decision-note.md`
+   mentioned the retired-layout directory `docs/superpowers/specs/`, which the generic prefix
+   rule rewrote without a project segment (the project root immediately followed by `specs/`).
+   A targeted pre-rewrite restores the missing segment to `docs/projects/accuracy/specs/`.
+   Project and document kind are never combined without a project name between them.
+
+3. **The six project READMEs contained a standalone period.** The generator used `$scope + '.'`;
+   because PowerShell multiple assignment made `$scope` an array, the period was appended as a
+   separate array element on its own line. The generator now uses `"$scope."`, so each
+   description and its period sit on one line.
+
+---
+
 ## Files and ownership
 
 **Create during implementation:**
@@ -444,13 +471,24 @@ $candidates = $candidates | Where-Object { $pinnedReports -notcontains $_ }
 foreach ($file in $candidates) {
     $text = [IO.File]::ReadAllText($file)
     $updated = $text
+    # Targeted pre-rewrites, applied BEFORE $moves and $fragments: references that must NOT
+    # be migrated by the generic prefix rule. (1) An external analysis-repository path stays
+    # path-neutral -- it is never rewritten to an internal repo path. (2) A project-less
+    # `specs/` directory mention gets its missing project segment restored. See erratum #4.
+    $targeted = [ordered]@{
+        '`atlas_metrics.py::analyze_rollout_decisions`) and the plan' = '`atlas_metrics.py::analyze_rollout_decisions`) and its historical plan'
+        '`.../docs/superpowers/plans/2026-07-10-decision-error-atlas.md`' = '`2026-07-10-decision-error-atlas.md` in that external analysis repository'
+        'No new file under `docs/superpowers/specs/`.' = 'No new file under `docs/projects/accuracy/specs/`.'
+    }
+    foreach ($t in $targeted.Keys) {
+        $updated = $updated.Replace($t, $targeted[$t])
+    }
     foreach ($move in $moves | Sort-Object { $_.Old.Length } -Descending) {
         $updated = $updated.Replace($move.Old, $move.New)
     }
     $fragments = [ordered]@{
         'docs/superpowers/reviews/' = 'docs/projects/evaluation/reviews/'
         'docs/superpowers/plans/2026-07-15-champions-mega-i7a' = 'docs/projects/champions/plans/2026-07-15-champions-mega-i7a'
-        'docs/superpowers/plans/2026-07-10-decision-error-atlas.md' = 'docs/projects/learning/plans/2026-07-10-decision-error-atlas.md'
         'docs/superpowers/plans/2026-06-29-phase' = 'docs/projects/core-bot/plans/2026-06-29-phase'
         'docs/superpowers/specs/2026-07-11-fast-board-protect-' = 'docs/projects/core-bot/specs/2026-07-11-fast-board-protect-'
         '| `docs/superpowers/` | Approved designs and implementation plans |' = '| [`docs/`](docs/README.md) | Project-organized designs, plans, audits, reviews, guides, roadmap, and index |'
@@ -580,7 +618,7 @@ $projects = [ordered]@{
 foreach ($slug in $projects.Keys) {
     $title, $scope = $projects[$slug]
     $dir = "docs/projects/$slug"
-    $lines = @("# $title", '', $scope + '.', '', '## Documents', '')
+    $lines = @("# $title", '', "$scope.", '', '## Documents', '')
     foreach ($kind in @('specs', 'plans', 'audits', 'reviews')) {
         if (Test-Path "$dir/$kind") {
             $label = (Get-Culture).TextInfo.ToTitleCase($kind)

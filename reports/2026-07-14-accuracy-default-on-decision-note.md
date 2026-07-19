@@ -156,7 +156,7 @@ measured accuracy-off vs cap 6 difference: 20/944 chosen-action changes on the r
 - No change to `data/eval/accuracy-gate/gate-b-report.json`.
 - No commit of local `AGENTS.md`, `CLAUDE.md`, `_gate-b-rerun-2026-07-14.log`, or the local
   `_pre-rerun-2026-07-14-candidate-identity/` archive.
-- No new file under `docs/projects/specs/`.
+- No new file under `docs/projects/accuracy/specs/`.
 
 ## Implementation (2026-07-14)
 

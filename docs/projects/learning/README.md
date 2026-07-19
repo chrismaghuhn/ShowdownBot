@@ -1,7 +1,6 @@
 # Learning
 
-Reranker, datagen, sampling, teacher, and calibration work
-.
+Reranker, datagen, sampling, teacher, and calibration work.
 
 ## Documents
 
