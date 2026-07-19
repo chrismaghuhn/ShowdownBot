@@ -13,6 +13,8 @@ proves the pre-pass fires inside the reordered decision.
 """
 from __future__ import annotations
 
+import pytest
+
 from showdown_bot.battle.decision import _choose_best, _decision_start_prepass
 from showdown_bot.battle.opponent import SpeciesDex, _opponent_speed
 from showdown_bot.battle.oracle import DamageOracle
@@ -81,6 +83,13 @@ class _MixedRaises(_FakeBackend):
         raise CalcError("injected mixed transport failure")
 
 
+class _MixedAttrError(_FakeBackend):
+    """mixed_batch raises a PROGRAMMING error (not a transport error), which must NOT be masked."""
+
+    def mixed_batch(self, specs, species, *, gen=9):
+        raise AttributeError("a bug in mixed_batch must not be swallowed as a cache miss")
+
+
 def _shared(backend=None):
     b = backend or _FakeBackend()
     return CalcClient(backend=b), SpeedOracle(stats_backend=b, profile=CP), SpeciesDex(b)
@@ -104,7 +113,7 @@ def _board():
 def _prepass(calc, speed_oracle, dex, st, *, opp_sets=None):
     _decision_start_prepass(
         st, our_side="p1", opp_side="p2", calc=calc, speed_oracle=speed_oracle, dex=dex,
-        book=BOOK, opp_sets=opp_sets, field=st.field, calc_profile=CP,
+        book=BOOK, opp_sets=opp_sets, calc_profile=CP,
     )
 
 
@@ -187,6 +196,34 @@ def test_prepass_disabled_on_generation_mismatch():
     assert dex._cache == {} and speed_oracle._spe_cache == {}
 
 
+def test_prepass_passes_the_profile_generation_to_mixed_batch():
+    """P1: the pre-pass must compute stats at the profile's generation, not the gen-9 default --
+    else a stat computed as gen 9 would be cached (via _spec_key) under a gen-N key, a wrong hit.
+    Types stay gen 9 internally, matching types_batch."""
+    import dataclasses
+
+    class _GenRec(_FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.mixed_gen = None
+
+        def mixed_batch(self, specs, species, *, gen=9):
+            self.mixed_gen = gen
+            return super().mixed_batch(specs, species, gen=gen)
+
+    backend = _GenRec()
+    gen8 = dataclasses.replace(CP, generation=8)       # matches the calc_profile passed below
+    calc = CalcClient(backend=backend)
+    speed_oracle = SpeedOracle(stats_backend=backend, profile=gen8)
+    dex = SpeciesDex(backend)
+    _decision_start_prepass(
+        _board(), our_side="p1", opp_side="p2", calc=calc, speed_oracle=speed_oracle,
+        dex=dex, book=BOOK, opp_sets=None, calc_profile=gen8,
+    )
+    assert backend.mixed_batch_calls == 1
+    assert backend.mixed_gen == 8                       # stats computed at the profile's generation
+
+
 # ---- K-world: types warmed, speed left lazy ------------------------------------------------
 
 def test_prepass_speed_disabled_in_k_world(monkeypatch):
@@ -204,12 +241,32 @@ def test_prepass_speed_disabled_in_k_world(monkeypatch):
 # ---- likely-speed mon: single spec, no range prefetch --------------------------------------
 
 def test_prepass_no_range_prefetch_for_likely_speed_mon():
+    from showdown_bot.battle.opponent import opp_speed_branch
+
     _, speed_oracle, _ = _shared()
     opp = _board().sides["p2"]["a"]
-    specs = speed_oracle.opp_speed_specs(
-        opp, BattleState().field, "p2", book=BOOK, opp_sets={"landorustherian": SPREADS}
-    )
+    branch = opp_speed_branch(opp, {"landorustherian": SPREADS})
+    assert branch.use_likely is True
+    specs = speed_oracle.specs_for_branch(opp, BOOK, branch)
     assert len(specs) == 1                           # likely_speed path: one spec, no range prefetch
+
+
+# ---- P1.1: a warm dex/speed cache (reused across the battle) adds no transport --------------
+
+def test_prepass_skips_transport_when_caches_are_warm():
+    calc, speed_oracle, dex = _shared()
+    _prepass(calc, speed_oracle, dex, _board())
+    assert calc.backend.mixed_batch_calls == 1       # first decision warms the board
+    _prepass(calc, speed_oracle, dex, _board())      # second decision, SAME oracles/caches
+    assert calc.backend.mixed_batch_calls == 1       # +0: everything was already warm, no re-send
+
+
+# ---- P1.3: only CalcError is best-effort; a programming error must surface ------------------
+
+def test_prepass_does_not_swallow_programming_errors():
+    calc, speed_oracle, dex = _shared(_MixedAttrError())
+    with pytest.raises(AttributeError):
+        _prepass(calc, speed_oracle, dex, _board())
 
 
 # ---- end-to-end: the reordered real-Node decision issues exactly one mixed_batch ------------

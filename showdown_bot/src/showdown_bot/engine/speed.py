@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import os
 from dataclasses import dataclass
 
 from showdown_bot.engine.belief.hypotheses import OFFENSE, SpreadBook, hypothesis_from_state
@@ -190,28 +189,22 @@ class SpeedOracle:
         spe_max = effective_speed(base_max, **{**mods, "scarf": True})
         return SpeedRange(min=spe_min, likely=spe_likely, max=spe_max)
 
-    def opp_speed_specs(
-        self, mon: PokemonState, field: FieldState, side: str, *, book, opp_sets
-    ) -> list[CalcMon]:
-        """The base-stat specs the lazy ``_opponent_speed`` (battle/opponent.py) will need for
-        this opponent mon, matching its branch EXACTLY so the pre-pass can warm them and the lazy
-        path becomes a pure cache hit:
-
-          - a curated set is found AND ``SHOWDOWN_OPP_SPEED != 0`` -> the single defense-preset
-            spec (the ``likely_speed`` path); NO range prefetch;
-          - otherwise -> the three ``opponent_range`` specs.
-
-        Returns the SAME CalcMon objects those paths build (via ``_base_spec`` / ``_range_specs``),
-        so seeding is behaviour-neutral. ``field``/``side`` mirror ``_opponent_speed``'s inputs but
-        do not change the base-stat specs (in-battle mods are applied after the base stat)."""
-        preset_spreads = lookup_opp_set(opp_sets, mon) if opp_sets else None
-        use_likely = (
-            os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0" and preset_spreads is not None
-        )
-        if use_likely:
-            preset = preset_spreads.defense
-            return [self._base_spec(mon.species, preset.nature, preset.evs)]
+    def specs_for_branch(self, mon: PokemonState, book, branch) -> list[CalcMon]:
+        """The base-stat specs for an opponent mon under a given ``OppSpeedBranch`` (decided once
+        in ``battle.opponent.opp_speed_branch``), so the pre-pass warms EXACTLY what the lazy path
+        (``likely_speed`` / ``opponent_range``) will read. Consumes the SHARED branch; it does not
+        re-derive it -- a likely-set mon yields the single defense-preset spec (no range prefetch),
+        everything else the three range specs. Returns the SAME CalcMon objects those paths build,
+        so seeding is behaviour-neutral."""
+        if branch.use_likely:
+            return [self._base_spec(mon.species, branch.preset.nature, branch.preset.evs)]
         return self._range_specs(mon, book)
+
+    def missing_specs(self, specs: list[CalcMon]) -> list[CalcMon]:
+        """The specs not yet in the speed cache -- a transport-free filter so the pre-pass warms
+        only cold specs. A SpeedOracle reused across a battle's decisions is warm after turn one,
+        so this keeps the pre-pass from re-sending specs the lazy path would already hit."""
+        return [s for s in specs if self._spec_key(s) not in self._spe_cache]
 
     def speed_for_species(
         self,

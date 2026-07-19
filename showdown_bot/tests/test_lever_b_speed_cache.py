@@ -1,9 +1,10 @@
-"""Lever B, T3: SpeedOracle exact cache-first opponent_range + seed_results + opp_speed_specs.
+"""Lever B, T3: SpeedOracle exact cache-first opponent_range + seed_results + specs_for_branch.
 
 opponent_range must check the exact (gen + full CalcMon payload) cache first and batch only the
 cold misses into ONE stats_batch (never one-per-spec, never split), stay byte-identical in its
-SpeedRange, and be seedable with zero transport via seed_results. opp_speed_specs returns exactly
-the specs the lazy path would build (here the three range specs when no curated set applies).
+SpeedRange, and be seedable with zero transport via seed_results. specs_for_branch returns exactly
+the specs the lazy path would build for a given opponent-speed branch (here the three range specs
+when no curated set applies); the branch itself is decided once in battle.opponent.opp_speed_branch.
 """
 from __future__ import annotations
 
@@ -95,10 +96,14 @@ def test_seed_results_no_io():
     assert o.backend.n_batches == 0            # every spec was a hit
 
 
-def test_opp_speed_specs_range_branch_matches_range_specs():
+def test_specs_for_branch_range_matches_range_specs():
+    from showdown_bot.battle.opponent import opp_speed_branch
+
     o = _oracle()
-    # No curated set -> _opponent_speed takes the opponent_range branch, so the collector must
-    # return exactly the three range specs (the likely-set branch is proven in T5).
-    specs = o.opp_speed_specs(_MON, FieldState(), "p2", book=_book(), opp_sets=None)
+    # No curated set -> the shared branch is the opponent_range path, so specs_for_branch returns
+    # exactly the three range specs (the likely-set branch is proven in test_lever_b_prepass).
+    branch = opp_speed_branch(_MON, None)
+    assert branch.use_likely is False
+    specs = o.specs_for_branch(_MON, _book(), branch)
     expected = o._range_specs(_MON, _book())
     assert [s.to_payload() for s in specs] == [s.to_payload() for s in expected]
