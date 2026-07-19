@@ -202,7 +202,9 @@ The migration is complete only when all of the following pass:
 5. No stale `docs/superpowers` or `docs/heuristic_bot` reference remains in a
    mutable file.
 6. Frozen evidence hashes are byte-identical to `main`.
-7. All relative Markdown links resolve.
+7. The migration introduces no new broken Markdown links. The four pre-existing
+   links from the VGC bot index to never-created phase-2 through phase-5 plans
+   remain explicitly allowlisted; no stub documents are invented for them.
 8. Tests that read documentation paths pass.
 9. The full repository suite and CI pass.
 10. `git diff --check` is clean and committed blobs are LF-stable.
