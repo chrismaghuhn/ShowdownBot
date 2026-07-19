@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** PROPOSED
+**Status:** APPROVED
 
 **Goal:** Replace the flat workflow-oriented documentation layout with a project-centered layout while preserving every document, updating every live reference, and leaving frozen evidence byte-identical.
 
