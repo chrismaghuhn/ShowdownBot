@@ -1,6 +1,6 @@
 # Documentation Project Organization Design
 
-**Status:** PROPOSED
+**Status:** APPROVED
 
 **Date:** 2026-07-19
 
