@@ -14,6 +14,7 @@ documentation is stored in three flat workflow-oriented directories:
 - `docs/superpowers/specs/` — 53 files
 - `docs/superpowers/plans/` — 59 files
 - `docs/superpowers/reviews/` — 2 files
+- `docs/superpowers/2026-06-30-1d-rollout-export-probe-report.md` — 1 root-level report
 
 This makes a project's design, implementation plan, audit, and review difficult
 to discover together. The workflow name (`superpowers`) is also not a useful
@@ -73,7 +74,8 @@ docs/
     │   └── audits/
     ├── core-bot/
     │   ├── specs/
-    │   └── plans/
+    │   ├── plans/
+    │   └── audits/
     └── operations/
         ├── specs/
         └── plans/
@@ -115,6 +117,8 @@ The initial VGC bot/client/engine phases, heuristic move and condition support,
 opponent sets and speed, own-team speed truth, simulator/decision adapter/hloop,
 opponent belief, export integration, persistent calc, and core decision-policy
 mechanics such as fast-board Protect discipline.
+
+The root-level rollout/export probe report belongs to `core-bot/audits/`.
 
 ### 5.6 Operations
 
