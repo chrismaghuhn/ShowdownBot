@@ -42,7 +42,10 @@ class DecisionProfileError(ValueError):
     pass
 
 
-# The exact, closed field set of design §2.4 -- 41 fields, in the design's own order.
+# The exact, closed field set of design §2.4's 41 fields + Lever B's mixed_batch_calls = 42,
+# in the design's own order (mixed_batch_calls beside the other transport-delta counters). This
+# is the decision-profile-v2 row; PROFILE_ROW_FIELDS_V1 below drops mixed_batch_calls for the
+# frozen v1 evidence.
 #
 # ORDER AND MEMBERSHIP ARE THE CONTRACT, so this list is kept flat and literal rather than
 # assembled from fragments: it is meant to be diffable against the design's table by eye.
@@ -87,6 +90,7 @@ PROFILE_ROW_FIELDS: tuple[str, ...] = (
     "implicit_damage_batches",
     "stats_batch_calls",
     "types_batch_calls",
+    "mixed_batch_calls",
     "transport_calls",
     "transport_attempts",
     "spawn_calls",
@@ -105,6 +109,14 @@ PROFILE_ROW_FIELDS: tuple[str, ...] = (
 )
 
 _FIELD_SET = frozenset(PROFILE_ROW_FIELDS)
+
+# v1 back-compat: the frozen decision-profile-v1 evidence predates mixed_batch_calls, so its
+# closed field set is exactly PROFILE_ROW_FIELDS minus that one field. Derived by subtraction
+# rather than a second literal list so the two can never drift on the 41 they share.
+PROFILE_ROW_FIELDS_V1: tuple[str, ...] = tuple(
+    f for f in PROFILE_ROW_FIELDS if f != "mixed_batch_calls"
+)
+_FIELD_SET_V1 = frozenset(PROFILE_ROW_FIELDS_V1)
 
 # Classified NON_BEHAVIORAL in eval/config_env.py, and that REGISTRATION is what makes the
 # claim true -- not this comment. config_env.is_excluded fails closed toward INCLUSION, so
@@ -127,9 +139,16 @@ def validate_profile_row_fields(row: dict) -> None:
     Exact-closed rather than merely "required": an unknown key means the writer and the
     reader disagree about the schema, which is how a sidecar silently grows a field that
     nothing validates and every consumer guesses at.
+
+    The set is version-specific: a decision-profile-v1 row is checked against the 41-field v1
+    schema (no mixed_batch_calls), everything else against the 42-field v2 schema. A row whose
+    schema_version is neither is checked against v2 and then rejected by the semantic
+    validator's dedicated version message -- so a v1 row can never smuggle in a v2 field, nor a
+    v2 row omit one.
     """
-    missing = _FIELD_SET - set(row)
-    unknown = set(row) - _FIELD_SET
+    expected = _FIELD_SET_V1 if row.get("schema_version") == SCHEMA_VERSION_V1 else _FIELD_SET
+    missing = expected - set(row)
+    unknown = set(row) - expected
     if missing or unknown:
         raise DecisionProfileError(
             f"decision-profile row fields missing={sorted(missing)} unknown={sorted(unknown)}"
@@ -177,7 +196,14 @@ _MICRO_SCOPES = frozenset({"contexts_and_score", "score_evaluated_variants"})
 # and a check that can never fire is a check that misleads the next reader into thinking
 # something is guarded. (An enum was written, and mutation testing showed no test could
 # distinguish its presence from its absence -- which is the definition of dead.)
-SCHEMA_VERSION = "decision-profile-v1"
+SCHEMA_VERSION_V1 = "decision-profile-v1"
+SCHEMA_VERSION = "decision-profile-v2"
+# The validators accept BOTH. v2 is what the writer emits now: it carries the mixed_batch_calls
+# counter (Lever B) folded into transport_calls. v1 is the frozen I8-D live + microprofile
+# evidence that predates it. The two differ ONLY by mixed_batch_calls (and hence by the
+# transport_calls identity that folds it in); every other field and rule is shared, so the
+# same recomputing validator serves both by branching on the row's own schema_version.
+_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION_V1, SCHEMA_VERSION})
 _SOURCES = frozenset({"live", "microprofile"})
 _BACKENDS = frozenset({"oneshot", "persistent"})
 _OUTCOMES = frozenset({"ok", "crash", "fallback", "degraded_state"})
@@ -224,8 +250,8 @@ def classify_live_outcome(*, crashed: bool, state_degraded: bool,
 # order the microprofile session snapshots, so live and microprofile deltas are one quantity.
 _LIVE_DELTA_FIELDS = (
     "damage_batch_calls", "planned_damage_batches", "implicit_damage_batches",
-    "stats_batch_calls", "types_batch_calls", "requests_total", "requests_unique",
-    "cache_hits", "transport_attempts",
+    "stats_batch_calls", "types_batch_calls", "mixed_batch_calls",
+    "requests_total", "requests_unique", "cache_hits", "transport_attempts",
 )
 
 
@@ -252,6 +278,7 @@ def snapshot_calc_counters(oracle, backend) -> dict:
         "implicit_damage_batches": oracle.implicit_damage_batches,
         "stats_batch_calls": backend.stats_batch_calls,
         "types_batch_calls": backend.types_batch_calls,
+        "mixed_batch_calls": backend.mixed_batch_calls,
         "transport_attempts": backend.transport_attempts,
         "spawn_count": backend.spawn_count,
         "requests_total": oracle.requests_total,
@@ -280,7 +307,8 @@ def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash
     spawn_count_before = counters_before["spawn_count"]
     spawn_calls = counters_after["spawn_count"] - counters_before["spawn_count"]
     transport_calls = (
-        delta["damage_batch_calls"] + delta["stats_batch_calls"] + delta["types_batch_calls"]
+        delta["damage_batch_calls"] + delta["stats_batch_calls"]
+        + delta["types_batch_calls"] + delta["mixed_batch_calls"]
     )
     transport_retried = delta["transport_attempts"] > transport_calls
     row = {
@@ -314,6 +342,7 @@ def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash
         "implicit_damage_batches": delta["implicit_damage_batches"],
         "stats_batch_calls": delta["stats_batch_calls"],
         "types_batch_calls": delta["types_batch_calls"],
+        "mixed_batch_calls": delta["mixed_batch_calls"],
         "transport_calls": transport_calls,
         "transport_attempts": delta["transport_attempts"],
         "spawn_calls": spawn_calls,
@@ -764,8 +793,8 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
     # Structural completeness is not validity: every field below was present and the row
     # was still nonsense. An unenumerated string field is an unvalidated one.
     _require(
-        row["schema_version"] == SCHEMA_VERSION,
-        f"schema_version must be {SCHEMA_VERSION!r}, got {row['schema_version']!r}",
+        row["schema_version"] in _SCHEMA_VERSIONS,
+        f"schema_version must be one of {sorted(_SCHEMA_VERSIONS)}, got {row['schema_version']!r}",
     )
     source = row["source"]
     _require(source in _SOURCES, f"unknown source {source!r}")
@@ -796,6 +825,14 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
             isinstance(value, int) and not isinstance(value, bool) and value >= 0,
             f"{name} must be a non-negative int, got {value!r}",
         )
+    # mixed_batch_calls is v2-only; a v1 row legitimately lacks it. (Membership is already
+    # fixed exactly per version by validate_profile_row_fields, so presence == v2 here.)
+    if "mixed_batch_calls" in row:
+        mixed = row["mixed_batch_calls"]
+        _require(
+            isinstance(mixed, int) and not isinstance(mixed, bool) and mixed >= 0,
+            f"mixed_batch_calls must be a non-negative int, got {mixed!r}",
+        )
 
     _require(
         row["damage_batch_calls"]
@@ -804,8 +841,9 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
     )
     _require(
         row["transport_calls"]
-        == row["damage_batch_calls"] + row["stats_batch_calls"] + row["types_batch_calls"],
-        "transport_calls != damage + stats + types",
+        == row["damage_batch_calls"] + row["stats_batch_calls"]
+        + row["types_batch_calls"] + row.get("mixed_batch_calls", 0),
+        "transport_calls != damage + stats + types + mixed",
     )
     # A retry adds attempts, never calls.
     _require(

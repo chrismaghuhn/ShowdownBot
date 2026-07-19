@@ -123,10 +123,12 @@ def test_verdict_inconclusive_when_floor_unmet_even_if_fast(active, distinct):
 # ---- the driver ------------------------------------------------------------
 
 _BEFORE = {"damage_batch_calls": 0, "planned_damage_batches": 0, "implicit_damage_batches": 0,
-           "stats_batch_calls": 0, "types_batch_calls": 0, "transport_attempts": 0,
+           "stats_batch_calls": 0, "types_batch_calls": 0, "mixed_batch_calls": 0,
+           "transport_attempts": 0,
            "spawn_count": 0, "requests_total": 0, "requests_unique": 0, "cache_hits": 0}
 _AFTER = {"damage_batch_calls": 1, "planned_damage_batches": 1, "implicit_damage_batches": 0,
-          "stats_batch_calls": 16, "types_batch_calls": 2, "transport_attempts": 19,
+          "stats_batch_calls": 16, "types_batch_calls": 2, "mixed_batch_calls": 0,
+          "transport_attempts": 19,
           "spawn_count": 1, "requests_total": 140, "requests_unique": 9, "cache_hits": 80}
 
 

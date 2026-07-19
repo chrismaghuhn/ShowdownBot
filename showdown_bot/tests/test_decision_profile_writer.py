@@ -24,6 +24,7 @@ import pytest
 from showdown_bot.eval.decision_profile import (
     PROFILE_MANIFEST_SCHEMA_VERSION,
     PROFILE_ROW_FIELDS,
+    PROFILE_ROW_FIELDS_V1,
     SCHEMA_VERSION,
     DecisionProfileError,
     DecisionProfileWriter,
@@ -111,6 +112,7 @@ def _row(**over) -> dict:
         "implicit_damage_batches": 0,
         "stats_batch_calls": 0,
         "types_batch_calls": 0,
+        "mixed_batch_calls": 0,
         "transport_calls": 1,
         "transport_attempts": 1,
         "spawn_calls": 1,
@@ -135,14 +137,19 @@ def _row(**over) -> dict:
 # --------------------------------------------------------------------------
 
 
-def test_the_field_set_is_exactly_the_designs_41_fields():
-    # 41. Two earlier counts were wrong for the same reason a level apart: the design
+def test_the_field_set_is_the_designs_41_v1_fields_plus_mixed():
+    # 41 for v1. Two earlier counts were wrong for the same reason a level apart: the design
     # declares config_id, format_id and git_sha on ONE table row, and a parse that took
     # the first backticked name per row silently dropped two mandatory provenance fields
     # -- in the module AND in the test that was meant to catch it.
-    assert len(PROFILE_ROW_FIELDS) == 41
+    #
+    # v2 (decision-profile-v2) is exactly those 41 plus Lever B's mixed_batch_calls = 42.
+    assert len(PROFILE_ROW_FIELDS_V1) == 41
+    assert len(PROFILE_ROW_FIELDS) == 42
     for f in ("config_id", "format_id", "git_sha"):
         assert f in PROFILE_ROW_FIELDS
+    assert "mixed_batch_calls" in PROFILE_ROW_FIELDS
+    assert "mixed_batch_calls" not in PROFILE_ROW_FIELDS_V1
 
 
 def _design_field_table() -> list[str]:
@@ -176,7 +183,14 @@ def test_the_field_set_matches_the_design_table_exactly():
     row is -- which is a defect in one of them, never a reason to loosen the test.
     """
     design = _design_field_table()
-    assert list(PROFILE_ROW_FIELDS) == design
+    # The v1 field set IS the design's §2.4 table, membership and order (derived, not
+    # transcribed). v2 inserts Lever B's mixed_batch_calls beside the other transport-delta
+    # counters (after types_batch_calls), per the Lever B design; the frozen v1 design doc is
+    # deliberately left untouched.
+    assert list(PROFILE_ROW_FIELDS_V1) == design
+    expected_v2 = list(design)
+    expected_v2.insert(design.index("types_batch_calls") + 1, "mixed_batch_calls")
+    assert list(PROFILE_ROW_FIELDS) == expected_v2
 
 
 def test_a_structurally_complete_row_round_trips():

@@ -225,6 +225,7 @@ class ProfileSession:
             "implicit_damage_batches": self.oracle.implicit_damage_batches,
             "stats_batch_calls": b.stats_batch_calls,
             "types_batch_calls": b.types_batch_calls,
+            "mixed_batch_calls": b.mixed_batch_calls,
             "transport_attempts": b.transport_attempts,
             "spawn_count": b.spawn_count,
             "requests_total": self.oracle.requests_total,

@@ -82,6 +82,7 @@ class _FakeRep:
         self.implicit = 0
         self.stats = 0
         self.types = 0
+        self.mixed = 0
         self.attempts = 0
         self.spawn_count = 0
         self.caches = {"damage": 0, "speed": 0, "dex": 0}
@@ -100,6 +101,7 @@ class _FakeRep:
             "implicit_damage_batches": self.implicit,
             "stats_batch_calls": self.stats,
             "types_batch_calls": self.types,
+            "mixed_batch_calls": self.mixed,
             "transport_attempts": self.attempts,
             "spawn_count": self.spawn_count,
             "requests_total": 0,
@@ -232,7 +234,8 @@ def test_the_row_arithmetic_holds_on_every_rep():
     for r in rows:
         assert r["damage_batch_calls"] == r["planned_damage_batches"] + r["implicit_damage_batches"]
         assert r["transport_calls"] == (
-            r["damage_batch_calls"] + r["stats_batch_calls"] + r["types_batch_calls"]
+            r["damage_batch_calls"] + r["stats_batch_calls"]
+            + r["types_batch_calls"] + r["mixed_batch_calls"]
         )
         assert r["transport_attempts"] >= r["transport_calls"]
 

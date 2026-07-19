@@ -20,6 +20,7 @@ class _FakeBackend:
     def __init__(self, **kw):
         self.stats_batch_calls = kw.get("stats", 0)
         self.types_batch_calls = kw.get("types", 0)
+        self.mixed_batch_calls = kw.get("mixed", 0)
         self.transport_attempts = kw.get("attempts", 0)
         self.spawn_count = kw.get("spawn", 0)
 
@@ -42,11 +43,13 @@ def _row(**over):
         calc_backend="persistent", outcome="ok", latency_ms=12.5,
         counters_before={"damage_batch_calls": 0, "planned_damage_batches": 0,
                          "implicit_damage_batches": 0, "stats_batch_calls": 0,
-                         "types_batch_calls": 0, "transport_attempts": 0, "spawn_count": 0,
+                         "types_batch_calls": 0, "mixed_batch_calls": 0,
+                         "transport_attempts": 0, "spawn_count": 0,
                          "requests_total": 0, "requests_unique": 0, "cache_hits": 0},
         counters_after={"damage_batch_calls": 1, "planned_damage_batches": 1,
                         "implicit_damage_batches": 0, "stats_batch_calls": 16,
-                        "types_batch_calls": 2, "transport_attempts": 19, "spawn_count": 1,
+                        "types_batch_calls": 2, "mixed_batch_calls": 0,
+                        "transport_attempts": 19, "spawn_count": 1,
                         "requests_total": 140, "requests_unique": 9, "cache_hits": 80},
         shape=_shape(twins=24),
     )
@@ -71,6 +74,7 @@ def test_snapshot_reads_the_client_owned_calc_counters():
     snap = snapshot_calc_counters(o, b)
     assert snap == {"damage_batch_calls": 1, "planned_damage_batches": 1,
                     "implicit_damage_batches": 0, "stats_batch_calls": 5, "types_batch_calls": 1,
+                    "mixed_batch_calls": 0,
                     "transport_attempts": 6, "spawn_count": 1, "requests_total": 72,
                     "requests_unique": 3, "cache_hits": 48}
 
