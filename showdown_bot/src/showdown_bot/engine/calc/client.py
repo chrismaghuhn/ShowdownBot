@@ -57,6 +57,7 @@ class SubprocessCalcBackend:
         self.damage_batch_calls = 0
         self.stats_batch_calls = 0
         self.types_batch_calls = 0
+        self.mixed_batch_calls = 0
 
     def calc_batch(self, requests: list[DamageRequest]) -> list[DamageResult]:
         if not requests:
@@ -153,6 +154,37 @@ class SubprocessCalcBackend:
         data = self._run(payload)
         return [item.get("types", []) for item in data]
 
+    def mixed_batch(
+        self, specs: list, species: list[str], *, gen: int = 9
+    ) -> tuple[list[dict], list[list[str]]]:
+        """One transport for a batch of stats specs + a batch of types species.
+
+        Behaviour-neutral coalescing of ``stats_batch`` + ``types_batch``: stats use
+        ``gen`` (matching ``stats_batch``), types use gen 9 (matching ``types_batch``).
+        The Node dispatch is already per-item heterogeneous (``s{i}``/``t{j}`` id
+        prefixes), so one payload answers both in input order. Per-kind error domains
+        are preserved exactly: a stats-item error raises (``item["stats"]`` KeyError,
+        like ``stats_batch``), a types-item error degrades to ``[]`` (like
+        ``types_batch``). Counts as ONE mixed transport, incremented before the spawn
+        like the other ``*_batch`` methods; an empty request makes no transport.
+        """
+        if not specs and not species:
+            return [], []
+        self.mixed_batch_calls += 1
+        payload = [
+            {"id": f"s{i}", "kind": "stats", "gen": gen, "mon": s.to_payload()}
+            for i, s in enumerate(specs)
+        ]
+        payload += [
+            {"id": f"t{j}", "kind": "types", "gen": 9, "species": sp}
+            for j, sp in enumerate(species)
+        ]
+        data = self._run(payload)
+        n = len(specs)
+        stats = [item["stats"] for item in data[:n]]
+        types = [item.get("types", []) for item in data[n:]]
+        return stats, types
+
     def close(self) -> None:
         """No process/handle to release — one-shot ``subprocess.run`` per call.
         No-op, for symmetry with ``PersistentCalcBackend.close`` so callers can
@@ -199,6 +231,7 @@ class PersistentCalcBackend:
         self.damage_batch_calls = 0
         self.stats_batch_calls = 0
         self.types_batch_calls = 0
+        self.mixed_batch_calls = 0
         atexit.register(self.close)
 
     # --- lifecycle ---
@@ -339,6 +372,30 @@ class PersistentCalcBackend:
         ]
         return [item.get("types", []) for item in self._run(payload)]
 
+    def mixed_batch(
+        self, specs: list, species: list[str], *, gen: int = 9
+    ) -> tuple[list[dict], list[list[str]]]:
+        """One transport for stats specs + types species (same surface/semantics as
+        :meth:`SubprocessCalcBackend.mixed_batch`). ``_run`` may retry once on a
+        transport failure, so a retried mixed call reports two ``transport_attempts``
+        for one ``mixed_batch_calls`` — the persistent retry signature."""
+        if not specs and not species:
+            return [], []
+        self.mixed_batch_calls += 1
+        payload = [
+            {"id": f"s{i}", "kind": "stats", "gen": gen, "mon": s.to_payload()}
+            for i, s in enumerate(specs)
+        ]
+        payload += [
+            {"id": f"t{j}", "kind": "types", "gen": 9, "species": sp}
+            for j, sp in enumerate(species)
+        ]
+        data = self._run(payload)
+        n = len(specs)
+        stats = [item["stats"] for item in data[:n]]
+        types = [item.get("types", []) for item in data[n:]]
+        return stats, types
+
 
 def make_calc_backend() -> SubprocessCalcBackend | PersistentCalcBackend:
     """Select a calc backend via ``SHOWDOWN_CALC_BACKEND`` env var.
@@ -392,3 +449,13 @@ class CalcClient:
         if errors:
             raise CalcError("; ".join(str(e.error) for e in errors))
         return ordered
+
+    def mixed_batch(
+        self, specs: list, species: list[str], *, gen: int = 9
+    ) -> tuple[list[dict], list[list[str]]]:
+        """Passthrough to the backend's one-shot mixed stats+types transport.
+
+        The backend owns the per-kind error domains and the ``mixed_batch_calls``
+        counter; the profile writer snapshots the backend, so this is
+        counter-transparent."""
+        return self.backend.mixed_batch(specs, species, gen=gen)
