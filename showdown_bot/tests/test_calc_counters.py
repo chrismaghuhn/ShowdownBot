@@ -170,6 +170,7 @@ def test_persistent_empty_list_touches_no_counter():
         "damage_batch_calls",
         "stats_batch_calls",
         "types_batch_calls",
+        "mixed_batch_calls",
     ],
 )
 @pytest.mark.parametrize("make", [SubprocessCalcBackend, PersistentCalcBackend])

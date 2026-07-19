@@ -106,6 +106,7 @@ def _row(manifest, *, arm=ARM, rep=0, **over) -> dict:
         "implicit_damage_batches": 0,
         "stats_batch_calls": 0,
         "types_batch_calls": 0,
+        "mixed_batch_calls": 0,
         "transport_calls": 1,
         "transport_attempts": 1,
         "spawn_calls": 0,

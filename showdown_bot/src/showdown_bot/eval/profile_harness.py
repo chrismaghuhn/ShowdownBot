@@ -91,6 +91,7 @@ _DELTA_FIELDS = (
     "implicit_damage_batches",
     "stats_batch_calls",
     "types_batch_calls",
+    "mixed_batch_calls",
     "requests_total",
     "requests_unique",
     "cache_hits",
@@ -317,7 +318,8 @@ def _run_rep(decl, session, arm_entry, rep, *, format_id, config_id, git_sha,
     spawn_calls = after["spawn_count"] - base["spawn_count"]
 
     transport_calls = (
-        delta["damage_batch_calls"] + delta["stats_batch_calls"] + delta["types_batch_calls"]
+        delta["damage_batch_calls"] + delta["stats_batch_calls"]
+        + delta["types_batch_calls"] + delta["mixed_batch_calls"]
     )
     transport_retried = delta["transport_attempts"] > transport_calls
 
@@ -355,6 +357,7 @@ def _run_rep(decl, session, arm_entry, rep, *, format_id, config_id, git_sha,
         "implicit_damage_batches": delta["implicit_damage_batches"],
         "stats_batch_calls": delta["stats_batch_calls"],
         "types_batch_calls": delta["types_batch_calls"],
+        "mixed_batch_calls": delta["mixed_batch_calls"],
         "transport_calls": transport_calls,
         "transport_attempts": delta["transport_attempts"],
         "spawn_calls": spawn_calls,

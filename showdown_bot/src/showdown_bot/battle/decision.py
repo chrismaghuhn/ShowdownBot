@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
-from showdown_bot.battle.opponent import SpeciesDex, predict_responses
+from showdown_bot.battle.opponent import SpeciesDex, opp_speed_branch, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import _risk_lambda, aggregate_scores, pick_best, tera_decision
 from showdown_bot.battle.random_agent import pick_default_pair, pick_random_pair
@@ -23,7 +23,7 @@ from showdown_bot.engine.belief.hypotheses import SpreadBook
 from showdown_bot.engine.belief.world_sampler import (
     build_world_dist, sample_worlds, world_samples, world_seed,
 )
-from showdown_bot.engine.calc.client import CalcClient
+from showdown_bot.engine.calc.client import CalcClient, CalcError
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.engine.speed import SpeedOracle
 from showdown_bot.engine.state import BattleState, to_id
@@ -281,6 +281,84 @@ def _label_ja(req: BattleRequest, ja: JointAction) -> str:
     return "(" + ", ".join(labels) + ")"
 
 
+def _decision_start_prepass(
+    state, *, our_side, opp_side, calc, speed_oracle, dex, book, opp_sets, calc_profile
+):
+    """Lever B: coalesce the early, world-invariant board stats+types into ONE shared mixed
+    transport at decision start, then seed the speed + dex caches so the lazy path
+    (type-enrichment, opponent modeling, ``_opponent_speed``) is a pure cache hit.
+
+    Gated + best-effort, so it is strictly an optimization that never changes the decision:
+
+      - runs only when the speed oracle, dex and calc share ONE backend and generation -- else the
+        seeds could not match the lazy path's exact keys, so the pre-pass is skipped entirely;
+      - disables its SPEED half in K-world (``world_samples() > 1``): the per-world ``merged_sets``
+        vary, so base-set specs would not match the lazy per-world lookups. TYPES stay
+        world-invariant (board species do not change per world) and are still warmed;
+      - on ANY mixed transport failure injects NOTHING and returns, leaving the UNCHANGED lazy path
+        -- and its per-caller error handling (types swallowed, stats propagated) -- to run. The
+        failed attempt is still counted (``mixed_batch_calls``), like any transport.
+
+    Late Mega-form speeds (``speed_for_species``) and per-world/K-world speeds stay lazy by design.
+    """
+    backend = getattr(calc, "backend", None)
+    if (
+        speed_oracle is None
+        or dex is None
+        or backend is None
+        or getattr(speed_oracle, "backend", None) is not backend
+        or getattr(dex, "backend", None) is not backend
+        or getattr(speed_oracle, "profile", None) is None
+        or speed_oracle.profile.generation != calc_profile.generation
+    ):
+        return
+
+    def _active(side):
+        return [
+            mon
+            for slot, mon in state.side(side).items()
+            if slot in ("a", "b") and mon is not None and getattr(mon, "species", None)
+        ]
+
+    # types: board mons whose typing the lazy path would look up (mon.types not set), narrowed to
+    # those still COLD in the dex cache -- a dex reused across the battle is warm after turn one,
+    # so a warm board adds no transport instead of re-sending what the lazy types() would hit.
+    types_candidates: list = []
+    seen: set = set()
+    for mon in _active(our_side) + _active(opp_side):
+        if not getattr(mon, "types", None) and mon.species not in seen:
+            seen.add(mon.species)
+            types_candidates.append(mon.species)
+    types_species = dex.missing_species(types_candidates)
+
+    # speed: the opponent-range / likely specs (branch decided once, shared with _opponent_speed),
+    # single-world only, narrowed to the cold specs -- a warm speed cache adds no transport.
+    speed_candidates: list = []
+    if world_samples() <= 1:
+        for mon in _active(opp_side):
+            speed_candidates.extend(
+                speed_oracle.specs_for_branch(mon, book, opp_speed_branch(mon, opp_sets))
+            )
+    speed_specs = speed_oracle.missing_specs(speed_candidates)
+
+    if not speed_specs and not types_species:
+        return
+    try:
+        # Stats MUST be computed at the profile's generation -- the lazy path (_speeds_for_specs)
+        # and the cache key (_spec_key) both use it, and the guard above proved it matches the
+        # speed oracle's. Without this the gen=9 default would cache a gen-9 stat under a gen-N key.
+        # (types stay gen 9 internally, matching types_batch.)
+        stats, types = calc.mixed_batch(speed_specs, types_species, gen=calc_profile.generation)
+    except CalcError:
+        # best-effort: a mixed TRANSPORT failure warms nothing; the unchanged lazy path (with its
+        # per-caller error handling -- types swallowed, stats propagated) runs. A per-item stats
+        # error and any programming error are NOT swallowed here -- they surface as they would
+        # on the lazy path / in a test, never silently masked as a cache miss.
+        return
+    speed_oracle.seed_results(zip(speed_specs, stats))
+    dex.seed_results(zip(types_species, types))
+
+
 def _choose_best(
     req: BattleRequest,
     *,
@@ -348,16 +426,8 @@ def _choose_best(
         except Exception:
             dex = None
 
-    # Enrich our active mons' typing so the resolver can apply Grass / powder
-    # immunity (e.g. our Grass-type ignoring an opponent's Rage Powder). Cached
-    # per species in the dex, so this is effectively free after the first turn.
-    if dex is not None:
-        for slot, mon in state.side(our_side).items():
-            if slot in ("a", "b") and mon is not None and not mon.types and mon.species:
-                try:
-                    mon.types = list(dex.types(mon.species))
-                except Exception:
-                    pass
+    # (Type-enrichment of our active mons' typing is deferred to just after enumerate_my_actions
+    # below, so the Lever B decision-start pre-pass can warm the dex cache first.)
 
     # Drop dead Fake Out / First Impression: a mon that already acted since
     # switching in can't use them (they auto-fail and waste the turn). Active
@@ -396,6 +466,25 @@ def _choose_best(
     my_actions = enumerate_my_actions(req, moved_since_switch=moved_since_switch)
     if not my_actions:
         raise ValueError("no legal joint actions")
+
+    # Lever B: one shared mixed stats+types pre-warm, now that we know this is a scored decision
+    # (past team preview, at least one legal action). Gated + best-effort -- seeds the speed + dex
+    # caches so the type-enrichment below and opponent modeling hit them instead of spawning.
+    _decision_start_prepass(
+        state, our_side=our_side, opp_side=opp_side, calc=calc, speed_oracle=speed_oracle,
+        dex=dex, book=book, opp_sets=opp_sets, calc_profile=calc_profile,
+    )
+
+    # Enrich our active mons' typing so the resolver can apply Grass / powder immunity (e.g. our
+    # Grass-type ignoring an opponent's Rage Powder). Cached per species in the dex (warmed by the
+    # pre-pass above), so this is effectively free.
+    if dex is not None:
+        for slot, mon in state.side(our_side).items():
+            if slot in ("a", "b") and mon is not None and not mon.types and mon.species:
+                try:
+                    mon.types = list(dex.types(mon.species))
+                except Exception:
+                    pass
 
     # Lever A: enqueue the game-mode INCOMING ko-threat requests into the SHARED oracle now,
     # so they fold into the decision's single scoring flush instead of paying their own Node

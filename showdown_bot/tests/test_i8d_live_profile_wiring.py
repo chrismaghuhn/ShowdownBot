@@ -26,6 +26,7 @@ class _RecordingConn:
 class _FakeBackend:
     stats_batch_calls = 16
     types_batch_calls = 2
+    mixed_batch_calls = 0
     transport_attempts = 19
     spawn_count = 1
 

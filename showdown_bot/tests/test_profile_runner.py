@@ -48,7 +48,7 @@ class _StubSession:
         self._log = log
         self._fail_prepare = fail_prepare
         self._bad_cache = bad_cache
-        self.stats = self.types = self.attempts = self.spawn = 0
+        self.stats = self.types = self.mixed = self.attempts = self.spawn = 0
         self.dmg = self.planned = self.implicit = 0
         self.closed = False
         log.setdefault("built", []).append(self)
@@ -56,7 +56,8 @@ class _StubSession:
     def counters(self):
         return {"damage_batch_calls": self.dmg, "planned_damage_batches": self.planned,
                 "implicit_damage_batches": self.implicit, "stats_batch_calls": self.stats,
-                "types_batch_calls": self.types, "transport_attempts": self.attempts,
+                "types_batch_calls": self.types, "mixed_batch_calls": self.mixed,
+                "transport_attempts": self.attempts,
                 "spawn_count": self.spawn, "requests_total": 0, "requests_unique": 0,
                 "cache_hits": 0}
 

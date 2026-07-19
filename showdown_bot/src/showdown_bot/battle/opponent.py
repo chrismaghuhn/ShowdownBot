@@ -49,6 +49,20 @@ class SpeciesDex:
             self._cache[species] = self.backend.types_batch([species])[0]
         return self._cache[species]
 
+    def seed_results(self, results) -> None:
+        """Inject pre-computed ``(species, types)`` pairs into the type cache with NO transport.
+        The decision-start pre-pass computes board-species typings in the shared ``mixed_batch``
+        and seeds them here so a later ``types()`` for a seeded species is a pure cache hit;
+        behaviour-neutral because a seeded typing equals what ``types_batch`` returns for it."""
+        for species, types in results:
+            self._cache[species] = list(types)
+
+    def missing_species(self, species) -> list[str]:
+        """The species not yet in the type cache -- a transport-free filter so the pre-pass warms
+        only cold species. A dex reused across a battle's decisions is warm after turn one, so this
+        keeps the pre-pass from re-sending species the lazy ``types()`` would already hit."""
+        return [s for s in species if s not in self._cache]
+
     def to_id(self, species: str) -> str:
         """Normalize a species name to its id form -- the same Showdown "toID"
         transform as ``engine.moves.to_id`` / ``engine.state.to_id`` /
@@ -234,24 +248,39 @@ def _item_for_speed(mon, curated_items):
     return curated_items[0] if curated_items else None
 
 
-def _opponent_speed(mon, field, opp_side, *, speed_oracle, book, opp_sets):
-    """Resolver speed for an opponent mon: the realistic likely-set point for a
-    curated species (Scarf-aware), else the pessimistic opponent_range.max.
+@dataclass(frozen=True)
+class OppSpeedBranch:
+    """The single opponent-speed branch decision, consumed by BOTH ``_opponent_speed`` (to compute
+    the speed) and the decision-start pre-pass (to collect the specs to warm), so the two can never
+    drift. ``use_likely`` True carries the curated ``defense`` preset (the ``likely_speed`` path);
+    False carries ``preset=None`` (the ``opponent_range`` path)."""
 
-    Looks up the curated preset via ``lookup_opp_set`` (base-species-id aware),
-    not a raw ``to_id(mon.species)`` key, so an already-observed Mega evolution
-    (``mon.species`` = post-Mega display name, ``mon.base_species_id`` = the
-    pre-Mega base id that ``opp_sets`` is actually keyed by) still resolves to
-    its curated set instead of silently falling back to the pessimistic max."""
+    use_likely: bool
+    preset: object | None
+
+
+def opp_speed_branch(mon, opp_sets) -> OppSpeedBranch:
+    """The ONE place the opponent-speed branch is decided: ``SHOWDOWN_OPP_SPEED`` on AND a curated
+    set found -> the likely-set defense preset, else the pessimistic ``opponent_range``. Both
+    ``_opponent_speed`` and the pre-pass consume this; neither re-derives the choice."""
     preset_spreads = lookup_opp_set(opp_sets, mon) if opp_sets else None
-    use_likely = (
-        os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0"
-        and preset_spreads is not None
-    )
-    if use_likely:
-        preset = preset_spreads.defense
+    use_likely = os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0" and preset_spreads is not None
+    return OppSpeedBranch(use_likely, preset_spreads.defense if use_likely else None)
+
+
+def _opponent_speed(mon, field, opp_side, *, speed_oracle, book, opp_sets):
+    """Resolver speed for an opponent mon: the realistic likely-set point for a curated species
+    (Scarf-aware), else the pessimistic ``opponent_range.max``. The branch is decided ONCE in
+    :func:`opp_speed_branch` (shared with the decision-start pre-pass).
+
+    Looks up the curated preset via ``lookup_opp_set`` (base-species-id aware), not a raw
+    ``to_id(mon.species)`` key, so an already-observed Mega evolution (``mon.species`` = post-Mega
+    display name, ``mon.base_species_id`` = the pre-Mega base id that ``opp_sets`` is actually
+    keyed by) still resolves to its curated set instead of silently falling back to the max."""
+    branch = opp_speed_branch(mon, opp_sets)
+    if branch.use_likely:
         return speed_oracle.likely_speed(
-            mon, field, opp_side, preset, _item_for_speed(mon, preset.items)
+            mon, field, opp_side, branch.preset, _item_for_speed(mon, branch.preset.items)
         )
     return speed_oracle.opponent_range(mon, field, opp_side, book=book).max
 
