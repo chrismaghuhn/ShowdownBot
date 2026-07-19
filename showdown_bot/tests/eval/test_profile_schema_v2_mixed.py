@@ -13,7 +13,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from showdown_bot.eval.decision_profile import (
+    DecisionProfileError,
     build_live_profile_row,
     validate_decision_profile_dataset,
     validate_decision_profile_row,
@@ -110,3 +113,44 @@ def test_v1_microprofile_frozen_still_validates():
         str(_DATA / "i8-microprofile" / "profile.jsonl"), manifest
     )
     assert report["rows"] == 450
+
+
+# ---- one schema version per dataset (no v1/v2 pooling) --------------------------------------
+
+def _to_v2(row: dict) -> dict:
+    r = dict(row)
+    r["schema_version"] = "decision-profile-v2"
+    r["mixed_batch_calls"] = 0  # keeps transport_calls consistent (adds nothing)
+    return r
+
+
+def _live_v1_rows() -> list[dict]:
+    text = (_DATA / "i8d-live-post-lever-a" / "profile.jsonl").read_text("utf-8")
+    return [json.loads(line) for line in text.splitlines()[:2]]
+
+
+def test_live_dataset_v2_only_validates(tmp_path):
+    p = tmp_path / "v2.jsonl"
+    p.write_text(json.dumps(_to_v2(_live_v1_rows()[0])) + "\n", encoding="utf-8")
+    report = validate_live_profile_dataset(str(p))
+    assert report["rows"] == 1
+
+
+def test_live_dataset_mixed_versions_rejected(tmp_path):
+    v1, other = _live_v1_rows()
+    v2 = _to_v2(other)  # a DIFFERENT frozen row (distinct battle/decision), upgraded to v2
+    p = tmp_path / "mixed.jsonl"
+    p.write_text(json.dumps(v1) + "\n" + json.dumps(v2) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionProfileError, match="schema versions"):
+        validate_live_profile_dataset(str(p))
+
+
+def test_microprofile_dataset_mixed_versions_rejected(tmp_path):
+    manifest = json.loads((_DATA / "i8-microprofile" / "profile_manifest.json").read_text("utf-8"))
+    lines = (_DATA / "i8-microprofile" / "profile.jsonl").read_text("utf-8").splitlines()
+    v1 = json.loads(lines[0])
+    v2 = _to_v2(json.loads(lines[1]))  # distinct (arm, rep), upgraded to v2
+    p = tmp_path / "mixed_micro.jsonl"
+    p.write_text(json.dumps(v1) + "\n" + json.dumps(v2) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionProfileError, match="schema versions"):
+        validate_decision_profile_dataset(str(p), manifest)

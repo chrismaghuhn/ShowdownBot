@@ -975,6 +975,19 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         )
 
 
+def _require_single_schema_version(path: str, rows: list) -> None:
+    """A dataset is ONE run, and a run emits exactly one decision-profile schema version. A file
+    that concatenates v1 and v2 rows would pool telemetry the migration deliberately separates
+    (``mixed_batch_calls`` present on some rows, absent on others, folded into ``transport_calls``
+    on only some), so reject it even though each row validates on its own."""
+    versions = {row.get("schema_version") for row in rows}
+    _require(
+        len(versions) <= 1,
+        f"{path} mixes decision-profile schema versions "
+        f"{sorted(v for v in versions if v is not None)}: a run emits exactly one",
+    )
+
+
 def validate_decision_profile_dataset(path: str, manifest: dict) -> dict:
     """Design §2.4's dataset tier. Runs ONCE over a finished sidecar, **before any row is
     read as evidence**, and FAILS THE RUN rather than annotating it.
@@ -991,6 +1004,7 @@ def validate_decision_profile_dataset(path: str, manifest: dict) -> dict:
     """
     rows = _read_rows(path)
     _require(rows, f"{path} has no rows: a run that produced no evidence is not a clean run")
+    _require_single_schema_version(path, rows)
 
     by_arm: dict[str, dict[int, dict]] = {}
     for index, row in enumerate(rows):
@@ -1077,6 +1091,7 @@ def validate_live_profile_dataset(path: str) -> dict:
     population from one place, not a second re-derivation.
     """
     rows = _read_rows(path)
+    _require_single_schema_version(path, rows)
     seen: set[tuple] = set()
     active_valid = 0
     active_battle_ids: set[str] = set()
