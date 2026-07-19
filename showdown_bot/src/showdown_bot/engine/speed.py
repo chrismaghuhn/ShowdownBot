@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 
 from showdown_bot.engine.belief.hypotheses import OFFENSE, SpreadBook, hypothesis_from_state
@@ -105,21 +106,51 @@ class SpeedOracle:
     def our_speed(self, base_speed: int, mon: PokemonState, field: FieldState, side: str) -> int:
         return effective_speed_from_state(base_speed, mon, field, side)
 
-    def _base_speed(self, species: str, nature: str, evs: dict) -> int:
-        """Final Speed stat (no in-battle mods) for a spread, cached. VGC level
-        50, IVs 31 for any stat the set doesn't specify."""
-        key = (
+    def _spec_key(self, spec: CalcMon):
+        """Exact identity of a base-stat query: generation + the full canonical CalcMon payload
+        (species, level, nature, evs, ivs). Two specs share a key iff they yield the same stat,
+        so a cache hit is never a wrong stat and a miss is at worst a redundant spawn."""
+        return (
             self.profile.generation,
-            species,
-            nature,
-            tuple(sorted(evs.items())),
+            spec.species,
+            spec.level,
+            spec.nature,
+            tuple(sorted((spec.evs or {}).items())),
+            tuple(sorted((spec.ivs or {}).items())),
         )
-        cached = self._spe_cache.get(key)
-        if cached is None:
-            spec = CalcMon(species=species, level=50, nature=nature, evs=dict(evs), ivs={"spe": 31})
-            cached = self.backend.stats_batch([spec], gen=self.profile.generation)[0]["spe"]
-            self._spe_cache[key] = cached
-        return cached
+
+    def _speeds_for_specs(self, specs: list[CalcMon]) -> list[int]:
+        """Cache-first final Speed stat for each spec: check every exact key, compute only the
+        cold misses in ONE ``stats_batch`` (deduped, never one-per-spec, never split), populate
+        the cache, and return in spec order. The one warmable opponent-speed path (Lever B)."""
+        keys = [self._spec_key(s) for s in specs]
+        missing: dict = {}
+        for key, spec in zip(keys, specs):
+            if key not in self._spe_cache and key not in missing:
+                missing[key] = spec
+        if missing:
+            stats = self.backend.stats_batch(list(missing.values()), gen=self.profile.generation)
+            for key, st in zip(missing, stats):
+                self._spe_cache[key] = st["spe"]
+        return [self._spe_cache[k] for k in keys]
+
+    def seed_results(self, results) -> None:
+        """Inject pre-computed ``(CalcMon, stats)`` pairs into the speed cache under their exact
+        keys -- a pure cache write with NO transport. The decision-start pre-pass computes these
+        in the shared ``mixed_batch`` and seeds them here so the lazy speed path is a pure hit;
+        behaviour-neutral because a seeded stat equals what ``stats_batch`` returns for the spec."""
+        for spec, stats in results:
+            self._spe_cache[self._spec_key(spec)] = stats["spe"]
+
+    def _base_spec(self, species: str, nature: str, evs: dict) -> CalcMon:
+        """The canonical single base-Speed spec (VGC level 50, spe-IV 31) for a species/spread --
+        exactly what ``_base_speed`` queries and what the pre-pass seeds for a likely-set mon."""
+        return CalcMon(species=species, level=50, nature=nature, evs=dict(evs), ivs={"spe": 31})
+
+    def _base_speed(self, species: str, nature: str, evs: dict) -> int:
+        """Final Speed stat (no in-battle mods) for a spread, cached. VGC level 50, IVs 31 for
+        any stat the set doesn't specify."""
+        return self._speeds_for_specs([self._base_spec(species, nature, evs)])[0]
 
     def likely_speed(self, mon, field, side, preset, item_for_speed) -> int:
         """Realistic point Speed from a curated set. ONLY Choice Scarf is read
@@ -130,31 +161,57 @@ class SpeedOracle:
         mods["scarf"] = item_for_speed in ("Choice Scarf", "choicescarf")
         return effective_speed(base, **mods)
 
-    def opponent_range(
-        self, mon: PokemonState, field: FieldState, side: str, *, book: SpreadBook
-    ) -> SpeedRange:
+    def _range_specs(self, mon: PokemonState, book: SpreadBook) -> list[CalcMon]:
+        """The three opponent_range base-stat specs (min / likely / max) for an opponent mon, in
+        that order. Extracted so ``opponent_range`` and the pre-pass collector build IDENTICAL
+        specs -- seeding one then guarantees the other is a cache hit."""
         hyp = hypothesis_from_state(mon, book)
         offense_preset = hyp.spreads.offense if hyp.spreads else None
         likely_nature = offense_preset.nature if offense_preset else "Hardy"
         likely_evs = dict(offense_preset.evs) if offense_preset else {}
-
         max_spe = self.profile.max_spe_investment
-        specs = [
+        return [
             CalcMon(species=mon.species, level=mon.level, nature="Brave",
                     evs={"spe": 0}, ivs={"spe": 0}),
             CalcMon(species=mon.species, level=mon.level, nature=likely_nature, evs=likely_evs),
             CalcMon(species=mon.species, level=mon.level, nature="Jolly",
                     evs={"spe": max_spe}, ivs={"spe": 31}),
         ]
-        spe_stats = [s["spe"] for s in self.backend.stats_batch(specs, gen=self.profile.generation)]
-        base_min, base_likely, base_max = spe_stats
 
+    def opponent_range(
+        self, mon: PokemonState, field: FieldState, side: str, *, book: SpreadBook
+    ) -> SpeedRange:
+        specs = self._range_specs(mon, book)
+        base_min, base_likely, base_max = self._speeds_for_specs(specs)
         mods = speed_modifiers_from_state(mon, field, side)
         # min: no scarf (slowest plausible); max: assume scarf (fastest plausible).
         spe_min = effective_speed(base_min, **{**mods, "scarf": False})
         spe_likely = effective_speed(base_likely, **mods)
         spe_max = effective_speed(base_max, **{**mods, "scarf": True})
         return SpeedRange(min=spe_min, likely=spe_likely, max=spe_max)
+
+    def opp_speed_specs(
+        self, mon: PokemonState, field: FieldState, side: str, *, book, opp_sets
+    ) -> list[CalcMon]:
+        """The base-stat specs the lazy ``_opponent_speed`` (battle/opponent.py) will need for
+        this opponent mon, matching its branch EXACTLY so the pre-pass can warm them and the lazy
+        path becomes a pure cache hit:
+
+          - a curated set is found AND ``SHOWDOWN_OPP_SPEED != 0`` -> the single defense-preset
+            spec (the ``likely_speed`` path); NO range prefetch;
+          - otherwise -> the three ``opponent_range`` specs.
+
+        Returns the SAME CalcMon objects those paths build (via ``_base_spec`` / ``_range_specs``),
+        so seeding is behaviour-neutral. ``field``/``side`` mirror ``_opponent_speed``'s inputs but
+        do not change the base-stat specs (in-battle mods are applied after the base stat)."""
+        preset_spreads = lookup_opp_set(opp_sets, mon) if opp_sets else None
+        use_likely = (
+            os.environ.get("SHOWDOWN_OPP_SPEED", "1") != "0" and preset_spreads is not None
+        )
+        if use_likely:
+            preset = preset_spreads.defense
+            return [self._base_spec(mon.species, preset.nature, preset.evs)]
+        return self._range_specs(mon, book)
 
     def speed_for_species(
         self,
