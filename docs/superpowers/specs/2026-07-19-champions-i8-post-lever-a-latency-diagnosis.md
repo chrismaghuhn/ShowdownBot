@@ -4,6 +4,8 @@
 
 *(Rev. 3 — Rev. 2 corrections (live decision-neutrality not provable from the sidecar; equal net spawn count ≠ equal transport path; `requests_unique ≥ 1` does not prove an incoming request; `transport_retried` was a spurious accounting flag; the tail moved non-uniformly; persistent is a hypothesis, not a proven path to PASS) plus the Rev. 3 review corrections: the median speed-up is stated as the post-Lever-A run's with cause unattributed; the active-valid 1-spawn heavy span is `254.42–320.62 ms`; the "only git_sha differs" claim is scoped to bound single-valued provenance fields.)*
 
+*(Erratum 2026-07-19 — the shorthand "via the fold pattern Lever A proved safe" (§7 candidate 1, §8) is imprecise: stats/types have **no collecting oracle** and `SpeedOracle.opponent_range` bypasses its cache (`speed.py:133`), so Lever B is a **decision-level collection design that requires a `SpeedOracle` cache-first refactor** for any cross-kind win — NOT a drop-in Lever-A fold. See the Lever B design spec `docs/superpowers/specs/2026-07-19-champions-i8-lever-b-stats-types-design.md` §1/§5. The Lever-A design/plan remain the historical implemented contract, unchanged.)*
+
 ## 0. Purpose
 
 Explain, from the two frozen I8-D live-gate datasets alone, (a) whether the runs are comparable, (b) whether the Lever A fold reduced the mechanical calc-spawn count **live**, (c) what the bytes do and do **not** say about why the post-Lever-A gate p95 was still a FAIL, and (d) which next latency slice is technically justified. Everything below is derived from the committed evidence bytes; where the bytes are insufficient it is stated as such.
