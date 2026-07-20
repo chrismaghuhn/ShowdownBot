@@ -32,7 +32,12 @@ def _bench_switch_targets(req: BattleRequest, slot_index: int) -> list[SlotActio
             continue
         ident_suffix = mon.ident.split(": ", 1)[-1]
         actions.append(SlotAction(kind="switch", target_ident=ident_suffix))
-    if not actions and req.force_switch and req.force_switch[slot_index]:
+    if (
+        not actions
+        and req.force_switch
+        and slot_index < len(req.force_switch)
+        and req.force_switch[slot_index]
+    ):
         actions.append(SlotAction(kind="pass"))
     return actions
 
