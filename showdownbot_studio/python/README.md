@@ -1,7 +1,18 @@
-# Python Adapters and Exporters
+# showdownbot-studio-exporter
 
-Reserved for deterministic viewer-bundle export, artifact normalization, and later protocol/domain
-adapters.
+Deterministic Viewer v0 bundle exporter for ShowdownBot Studio.
 
-This directory must not become a second bot implementation. Python code added here requires an
-approved phase plan and explicit dependency boundaries.
+## Install
+
+```bash
+cd showdownbot_studio/python
+python -m pip install -e ".[dev]"
+```
+
+## Test
+
+From `showdownbot_studio/`:
+
+```bash
+python -m pytest tests/python -q
+```
