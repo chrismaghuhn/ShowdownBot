@@ -86,7 +86,7 @@ _BOARDS = {
 }
 
 _REQ = BattleRequest.model_validate(
-    json.loads((_FIXTURE_DIR / "request_doubles_moves.json").read_text())
+    json.loads((_FIXTURE_DIR / "request_doubles_moves.json").read_text(encoding="utf-8"))
 )
 _BOOK = load_spread_book(load_format_config("gen9vgc2025regi").meta_path("default_spreads"))
 _CALC = CalcClient()
