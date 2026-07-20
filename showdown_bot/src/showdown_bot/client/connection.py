@@ -97,10 +97,13 @@ async def authenticate_local(conn: ShowdownConnection, username: str) -> str:
             if msg.prefix == "nametaken":
                 raise AuthError(f"username taken: {username}")
             if msg.prefix == "updateuser":
-                user = msg.args[0] if msg.args else ""
-                if user.strip().lower().startswith(username.lower()[:1]):
-                    return user.strip()
-                return user.strip()
+                user = (msg.args[0] if msg.args else "").strip()
+                # Fail closed: only accept the updateuser that matches the /trn we sent.
+                # The previous startswith(username[:1]) check was a no-op (both branches
+                # returned the same value) and would have accepted any first character.
+                if to_showdown_id(user) != to_showdown_id(username):
+                    continue
+                return user
         raise AuthError("connection closed before updateuser")
 
     return await asyncio.wait_for(_wait_updateuser(), timeout=30.0)
