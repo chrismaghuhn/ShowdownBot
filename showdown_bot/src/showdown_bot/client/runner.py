@@ -91,7 +91,8 @@ def _log_battle_line(room: str, raw: str) -> None:
     if room not in _battle_logs:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         _battle_logs[room] = LOG_DIR / f"{room}_{ts}.log"
-    _battle_logs[room].open("a", encoding="utf-8").write(raw + "\n")
+    with _battle_logs[room].open("a", encoding="utf-8") as fh:
+        fh.write(raw + "\n")
 
 
 async def handle_battle_message(conn: ShowdownConnection, room: str, payload: str) -> None:
