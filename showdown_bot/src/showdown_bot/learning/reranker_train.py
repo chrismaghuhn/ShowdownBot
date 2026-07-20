@@ -58,7 +58,8 @@ def train_lambdarank(matrix: FeatureMatrix, *, config: dict, val_matrix: Feature
 def sha256_of_file(path: str) -> str:
     import gzip
     p = Path(path)
-    data = gzip.open(p, "rb").read() if p.suffix == ".gz" else p.open("rb").read()
+    raw = p.read_bytes()
+    data = gzip.decompress(raw) if p.suffix == ".gz" else raw
     return hashlib.sha256(data).hexdigest()
 
 
