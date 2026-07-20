@@ -26,8 +26,38 @@ This report and its frozen evidence are **entirely separate** from every I8-D li
 and report (`i8d-live`, `i8d-live-post-lever-a`, `i8d-live-post-lever-b`,
 `i8d-live-post-coverage-harness`) — different gate, different schedule/panel/manifest, different
 hash space, never pooled. The I8-D latency **PASS for candidate `bd590c1`** (active foe-Mega p95
-864.94 ms <= 1000 ms) is unaffected and stands on its own. **This coverage-gate FAIL is what
-currently blocks Champions Strength**, independently of the latency result.
+864.94 ms <= 1000 ms) is unaffected and stands on its own **as evidence for that candidate**; it
+does **not** establish a latency PASS for this run's candidate `cbaa4b9` (see the candidate-identity
+gap below). **This coverage-gate FAIL is, on its own, sufficient to block Champions Strength**,
+independently of the latency result and of the identity gap.
+
+## Candidate-identity gap — the I8-D latency PASS does not transfer to this candidate
+
+The I8-D latency PASS ran on candidate `bd590c1` (`candidate_identity b3c2e0521505932d`, computed
+as sha1[:16] of `{hero_agent, git_sha, config_hash}`). This coverage-gate run ran on candidate
+`cbaa4b9` (`candidate_identity 93cd419222683f75`) — the merge SHA produced by PR #39, which merged
+that very latency evidence into `main`. **These are two different candidate identities**: `git_sha`
+differs (`bd590c1` vs `cbaa4b9`) even though `config_hash` (`594295543f13a55d`) and `hero_agent`
+(`heuristic`) are identical between them.
+
+Per the APPROVED coverage/Strength-holdout design spec
+(`docs/projects/champions/specs/2026-07-20-champions-coverage-strength-holdout-design.md`), Sec.5
+("Shared candidate identity & verdict coupling", P1): *"The gates must pin and verify one and the
+same candidate identity ... Coverage and strength must run on the identical candidate identity"*
+and *"The latency PASS must correspond to the same candidate identity that runs coverage and
+strength ... a prior latency PASS on a decision-equivalent-but-different candidate does not satisfy
+this gate."* The spec is explicit that a decision-equivalent merge — exactly this situation, PR #39
+changed only evidence/docs, no decision-affecting code — still does **not** carry the PASS over, by
+the identical logic the spec already applies to the `3db4ac7` PASS: *"stands as evidence for its
+candidate only; it does not transfer."*
+
+**The latency precondition for candidate `cbaa4b9` — the candidate this coverage run actually
+tested — is therefore NOT satisfied.** This is a gap independent of, and in addition to, the
+`both_foe_slots` coverage FAIL documented below: even had every cell cleared its floor, Strength
+would still not be authorized for `cbaa4b9` without its own latency PASS. The `bd590c1` PASS remains
+fully valid as historical evidence for its own candidate. A future fix must re-run the latency gate
+and the coverage gate on the **same** final merge SHA, before any subsequent evidence-merge changes
+that SHA again (so this gap does not recur).
 
 ## First attempt — technical abort, explicitly not a verdict
 
@@ -79,8 +109,9 @@ copy and again after the commit.
 The verdict population is defined once, in production, as `is_active_valid_live_row` joined to the
 per-row `foe_mega_slots` / `foe_mega_order_tie` fields (`coverage_cell_counts`,
 `decision-profile-v3`-only fields). `both_foe_slots <=> {0,1} subset-of foe_mega_slots`: across all
-25 battles scheduled against the `both_foe_slots`-target matchup, this condition was never true on
-any scored decision.
+50 battles scheduled against the `both_foe_slots`-target cell (2 matchups — `heuristic` and
+`max_damage` opponent policies, both against `cov_foe_both` — x 25 battles each), this condition
+was never true on any scored decision.
 
 ## Provenance
 
@@ -156,9 +187,14 @@ cell scored zero decisions against its floor, while every other cell passed comf
 - any claim about **I8-D latency** — the PASS for candidate `bd590c1` (p95 864.94 ms <= 1000 ms)
   is untouched and kept in its own, separate evidence line;
 - any **Strength** result — Champions Strength remains **`NO-GO`**. The latency precondition for
-  `bd590c1` is closed, but this coverage-gate FAIL is now the load-bearing blocker in its place;
+  `bd590c1` is closed **for that candidate only**; per the candidate-identity gap above, the
+  latency precondition for **this run's candidate `cbaa4b9` is NOT established**, independent of
+  and in addition to this coverage-gate FAIL;
 - validity for any **other** candidate commit, schedule, or manifest — this FAIL is scoped to
   `cbaa4b9` and the frozen `schedule_hash`/`panel_hash`/`manifest_hash` above exactly.
 
-**The coverage gate FAILs for candidate `cbaa4b9` on `both_foe_slots` zero-exposure; Strength stays
-NO-GO.** Diagnosing the zero-exposure and any resulting fix are separate, not authorized here.
+**The coverage gate FAILs for candidate `cbaa4b9` on `both_foe_slots` zero-exposure; separately,
+the latency precondition for `cbaa4b9` itself is unestablished (candidate-identity gap above);
+Strength stays NO-GO on both grounds.** Diagnosing the zero-exposure, closing the identity gap by
+re-running latency and coverage on the same final merge SHA, and any resulting fix are separate,
+not authorized here.
