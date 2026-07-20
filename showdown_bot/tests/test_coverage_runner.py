@@ -167,6 +167,23 @@ def test_output_dir_is_published_atomically_and_verdict_equals_return(tmp_path, 
     assert report["safety_violations"] == 0
 
 
+def test_reaching_the_battle_cap_at_the_schedules_natural_end_is_FAIL_not_INCONCLUSIVE(tmp_path, monkeypatch):
+    # In production, COVERAGE_MAX_BATTLES (200) always equals the schedule's own row count (the CLI
+    # locks expected_battles=COVERAGE_MAX_BATTLES) -- so hitting the max_battles cap on the LAST row
+    # is the schedule's natural end, not a truncation. A for/else that only sets
+    # stop_reason="schedule_exhausted" when the loop was never `break`-ed misses this: the cap always
+    # fires (and breaks) first, so a genuinely-exhausted schedule with an unmet floor was reported
+    # INCONCLUSIVE/max_battles instead of FAIL/schedule_exhausted. Mirror that coincidence at n=8 by
+    # patching the cap down to the schedule's own length.
+    import showdown_bot.eval.coverage_verdict as cv
+    monkeypatch.setattr(cv, "COVERAGE_MAX_BATTLES", 8)
+    report = _run(tmp_path, monkeypatch, n=8,
+                  rows_for=lambda b, i: [_row(b, 0, twins=0, slots=())])  # never meets the floor
+    assert report["battles_played"] == 8
+    assert report["verdict"] == "FAIL"
+    assert report["stop_reason"] == "schedule_exhausted"
+
+
 def test_the_runner_invokes_run_local_gauntlet_with_games_1(tmp_path, monkeypatch):
     seen = []
     _run(tmp_path, monkeypatch, rows_for=lambda b, i: [_row(b, 0, slots=(0, 1))], capture=seen)

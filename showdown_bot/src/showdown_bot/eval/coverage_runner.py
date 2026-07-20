@@ -247,15 +247,21 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str, calc_backen
             cell_counts=cell_counts, safety_violations=safety_violations)
         if stop:
             break
-    else:
-        stop_reason = "schedule_exhausted"
+
+    # battles_played reaching the schedule's own row count IS "schedule exhausted" -- regardless of
+    # which stop_reason fired. In production COVERAGE_MAX_BATTLES always equals len(schedule.rows)
+    # (the CLI locks expected_battles=COVERAGE_MAX_BATTLES), so the max_battles cap can only ever
+    # fire on the LAST row: relying on the for/else's `else` clause instead (which Python skips
+    # whenever the loop `break`s, even on its final iteration) misreported a fully-exhausted
+    # schedule with an unmet floor as INCONCLUSIVE/max_battles rather than FAIL/schedule_exhausted.
+    schedule_complete = battles_played >= len(schedule.rows)
 
     _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
     validate_live_profile_dataset(staging_profile)   # final dataset validation before publishing
 
     verdict = coverage_verdict(
         cell_counts=cell_counts, safety_violations=safety_violations,
-        schedule_complete=(stop_reason == "schedule_exhausted"), stop_reason=stop_reason or "schedule_exhausted")
+        schedule_complete=schedule_complete, stop_reason=stop_reason or "schedule_exhausted")
     report = {
         "schedule_hash": schedule.schedule_hash,
         "panel_hash": schedule.panel_hash,
