@@ -29,7 +29,8 @@ DECISION_WIDE_METADATA = frozenset({
 
 def dataset_sha256(path) -> str:
     p = Path(path)
-    data = gzip.open(p, "rb").read() if p.suffix == ".gz" else p.read_bytes()
+    raw = p.read_bytes()
+    data = gzip.decompress(raw) if p.suffix == ".gz" else raw
     return hashlib.sha256(data).hexdigest()
 
 
