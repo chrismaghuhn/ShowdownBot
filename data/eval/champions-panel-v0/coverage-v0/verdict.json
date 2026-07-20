@@ -1,0 +1,61 @@
+{
+  "battles_played": 200,
+  "calc_backend": "oneshot",
+  "candidate_identity": "93cd419222683f75",
+  "cell_counts": {
+    "both_foe_slots": {
+      "decisions": 0,
+      "distinct_battles": 0
+    },
+    "order_tie": {
+      "decisions": 100,
+      "distinct_battles": 100
+    },
+    "slot0": {
+      "decisions": 82,
+      "distinct_battles": 50
+    },
+    "slot1": {
+      "decisions": 298,
+      "distinct_battles": 173
+    }
+  },
+  "cell_floors": {
+    "both_foe_slots": [
+      15,
+      6
+    ],
+    "order_tie": [
+      15,
+      6
+    ],
+    "slot0": [
+      30,
+      10
+    ],
+    "slot1": [
+      30,
+      10
+    ]
+  },
+  "config_hash": "594295543f13a55d",
+  "git_sha": "cbaa4b99f77d682bf51d06309e7cb4032a5a8145",
+  "hero_agent": "heuristic",
+  "hero_team_hash": "1d3a4cf5a4042532",
+  "max_scored_decisions": 2000,
+  "opp_team_hashes": [
+    "0b6930668a9f6e72",
+    "5bd94d4b1558ba28",
+    "8b68400f463fe581",
+    "b7077a81e579aa72"
+  ],
+  "panel_hash": "11d63978cb64a961",
+  "safety_violations": 0,
+  "schedule_complete": true,
+  "schedule_hash": "4775d9304836cf3e",
+  "scored_decisions": 1956,
+  "seed_base": "champions-coverage-v0",
+  "seed_log_verified": true,
+  "stop_reason": "schedule_exhausted",
+  "verdict": "FAIL"
+}
