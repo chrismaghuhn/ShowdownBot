@@ -1,0 +1,18 @@
+# Champions opponent-Mega COVERAGE panel v0 (Task 4). A NEW, standalone coverage panel: one hero
+# (not in panel) + four foe teams, one per coverage cell. gauntlet-relative team_path from the
+# showdown_bot/ working dir. Hero (not in panel): teams/fixed_champions_v0.txt.
+# The dev/heldout split is a load_panel formality (both must be non-empty); coverage has NO
+# train/test split -- the gate reads teams from the coverage manifest's target_cells, never this
+# split. cov_foe_slot0/slot1 started as byte-copies of the validated panel_champions_v0
+# rain_offense/goodstuff, then had their Mega holder's moveset (and, for slot1, team-sheet order)
+# edited so the REAL deterministic team-preview picker actually brings + leads that Mega holder
+# into the matchup's target_cell slot (review finding F1) -- their content hashes no longer
+# coincide with rain_offense/goodstuff. cov_foe_both/tie are new legal teams.
+version: champions-coverage-v0
+policies: [heuristic, max_damage]
+dev_teams:
+  - {team_id: cov_foe_slot0, team_path: teams/panel_champions_coverage_v0/cov_foe_slot0.txt, archetype: foe_mega_slot0}
+  - {team_id: cov_foe_slot1, team_path: teams/panel_champions_coverage_v0/cov_foe_slot1.txt, archetype: foe_mega_slot1}
+heldout_teams:
+  - {team_id: cov_foe_both, team_path: teams/panel_champions_coverage_v0/cov_foe_both.txt, archetype: foe_mega_both_foe_slots}
+  - {team_id: cov_foe_tie, team_path: teams/panel_champions_coverage_v0/cov_foe_tie.txt, archetype: foe_mega_order_tie}

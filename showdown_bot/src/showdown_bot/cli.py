@@ -707,15 +707,60 @@ def run_i8d_gate(args) -> None:
           f"stop={report['stop_reason']}) -> {out_dir}/")
 
 
+def run_coverage_gate_cli(args) -> None:
+    """The executable, provenance-locked opponent-Mega coverage gate (Task 7).
+
+    Mirrors ``run_i8d_gate``: the coverage panel + manifest are LOCKED (not caller-chosen),
+    provenance is DERIVED inside ``run_coverage_gate`` (fail-closed, never caller-supplied), the
+    panel + team CONTENTS are re-verified from disk before battle 1, and the hardened coverage runner
+    drives the fixed schedule. Built and authorizable; starts a real server + battles ONLY when
+    explicitly run under separate authorization.
+    """
+    import os
+
+    from showdown_bot.eval.coverage_runner import build_coverage_live_schedule, run_coverage_gate
+    from showdown_bot.eval.coverage_schedule import (
+        COVERAGE_MANIFEST_PATH,
+        COVERAGE_MAX_BATTLES,
+        COVERAGE_PANEL_PATH,
+        verify_coverage_panel_and_teams,
+    )
+
+    out_dir = getattr(args, "out_dir", "")
+    if not out_dir:
+        raise SystemExit("champions-coverage-gate requires --out-dir")
+    seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG", "")
+    if not seed_log:
+        raise SystemExit(
+            "champions-coverage-gate requires SHOWDOWN_EVAL_SEED_LOG (the server's seed log) so the "
+            "played seeds can be proven -- the server must be started with it and SHOWDOWN_BATTLE_SEED_BASE"
+        )
+    teams_root = getattr(args, "teams_root", ".") or "."
+
+    # the panel + manifest are LOCKED to the coverage ones (not caller-chosen); the panel + team
+    # CONTENTS are re-verified from disk before battle 1 (panel_hash + every team file re-hashed).
+    schedule = build_coverage_live_schedule(
+        COVERAGE_PANEL_PATH, COVERAGE_MANIFEST_PATH, n_battles=COVERAGE_MAX_BATTLES, teams_root=teams_root)
+    verify_coverage_panel_and_teams(schedule, teams_root=teams_root)
+    print(f"champions-coverage-gate: schedule_hash={schedule.schedule_hash} "
+          f"panel_hash={schedule.panel_hash}")
+    report = run_coverage_gate(
+        schedule=schedule, out_dir=out_dir, seed_log_path=seed_log,
+        expected_battles=COVERAGE_MAX_BATTLES, teams_root=teams_root)
+    print(f"champions-coverage-gate verdict: {report['verdict']} "
+          f"(stop={report['stop_reason']}, safety_violations={report['safety_violations']}, "
+          f"candidate_identity={report['candidate_identity']}) -> {out_dir}/")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
                  "eval-report", "decision-diff", "generalisation-plan", "generalisation-analyze",
-                 "i8d-live-gate"],
+                 "i8d-live-gate", "champions-coverage-gate"],
         help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
-        "decision-diff/generalisation-plan/generalisation-analyze/i8d-live-gate",
+        "decision-diff/generalisation-plan/generalisation-analyze/i8d-live-gate/champions-coverage-gate",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -1024,6 +1069,10 @@ def main() -> None:
 
     if args.command == "i8d-live-gate":
         run_i8d_gate(args)
+        return
+
+    if args.command == "champions-coverage-gate":
+        run_coverage_gate_cli(args)
         return
 
     settings = Settings.from_env()

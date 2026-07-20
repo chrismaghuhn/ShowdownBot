@@ -29,6 +29,9 @@ _GOLDEN = {
     "mega_decision_no_own_mega_fixture": "8c6523c2e124aff3",
     "mega_decision_dual_unequal_fixture": "e2737e76dbddff05",
     "mega_decision_dual_unequal_tr_fixture": "aee3b1b127e75a37",
+    # Task 2: the coverage both_foe_slots board, added ADDITIVELY (the six C3-proof hashes above
+    # are byte-for-byte unchanged). Its hash is pinned by the same canonical recipe.
+    "mega_decision_both_foe_slots_fixture": "3d246b21910204ec",
 }
 
 _GROUP_A_KEYS = {
@@ -36,9 +39,23 @@ _GROUP_A_KEYS = {
     "opp_sets", "calc_profile",
 }
 
+# Task 2: the coverage both_foe_slots board's pinned fixture_input_hash (filled in GREEN once the
+# board is registered and its hash is computed by the shared canonical recipe).
+_BOTH_FOE_SLOTS_HASH = "3d246b21910204ec"
 
-def test_the_six_boards_are_registered():
+
+def test_the_seven_boards_are_registered():
     assert set(pf.BOARDS) == set(_GOLDEN)
+
+
+def test_the_both_foe_slots_board_is_byte_stable():
+    # Task 2: the coverage both_foe_slots fixture (two foe-Mega holders, one per slot). Its
+    # fixture_input_hash is pinned here via the same canonical recipe as the other boards.
+    name = "mega_decision_both_foe_slots_fixture"
+    dto = pf.fixture_dto(name)                        # KeyError before GREEN (board not registered)
+    assert set(dto) == _GROUP_A_KEYS, name
+    assert pf.FIXTURE_HASHES[name] == fixture_input_hash(dto)
+    assert pf.FIXTURE_HASHES[name] == _BOTH_FOE_SLOTS_HASH
 
 
 def test_fixture_hashes_are_byte_identical_to_the_c3_proof():

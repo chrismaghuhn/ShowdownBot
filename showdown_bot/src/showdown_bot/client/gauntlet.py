@@ -228,6 +228,9 @@ class GauntletStats:
     invalid_choices: int = 0
     crashes: int = 0
     latencies: list[float] = field(default_factory=list)
+    # Task 6 (coverage safety): the hero seat's OWN invalid-choice decision indices for this battle
+    # (a -1 marks an unattributable |error|). In-memory only -- NEVER on the closed T2 result row.
+    hero_invalid_decision_indices: tuple[int, ...] = ()
 
     @property
     def winrate(self) -> float:
@@ -364,6 +367,10 @@ class _Client:
         self._decision_dex = None
         self.room_raw: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
+        # Task 6: the decision_index of the choice last SENT per room (recorded at send time), and
+        # this seat's own invalid-choice decision indices (a -1 = unattributable |error|).
+        self._last_choice_decision_index: dict[str, int] = {}
+        self._invalid_decision_indices: list[int] = []
         self.last_request: dict[str, str] = {}
         self.latencies: list[float] = []
         self.invalid = 0
@@ -555,6 +562,15 @@ class _Client:
     async def set_team(self) -> None:
         await self.conn.send(f"|/utm {self.packed_team}" if self.packed_team else "|/utm null")
 
+    def _note_invalid_choice(self, room: str) -> None:
+        """Record ONE real invalid choice for this seat (Task 6): bump the counter AND append the
+        SENT choice's decision_index for ``room`` -- recorded at send time, so it is the REJECTED
+        decision, never the since-advanced counter. A room with no recorded send-time index (an
+        unattributable |error|, which the protocol should never produce) appends the fail-closed
+        sentinel -1 instead of being silently dropped, so the runner's join aborts."""
+        self.invalid += 1
+        self._invalid_decision_indices.append(self._last_choice_decision_index.get(room, -1))
+
     async def handle_request(self, room: str, payload: str) -> None:
         req = BattleRequest.model_validate(json.loads(payload))
         if req.wait:
@@ -698,6 +714,7 @@ class _Client:
         )
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
+        self._last_choice_decision_index[room] = decision_seq  # Task 6: bind the SENT choice's index
         await self.conn.send(f"{room}|{choose}")
         # [P1] The request has been answered, so it has consumed its slot -- advance the
         # shared sequence here, BEFORE the sidecar writes below (which already captured
@@ -922,7 +939,7 @@ async def _run_client(
                         if "/challenge" in joined and accept_from.lower() in sender:
                             await client.conn.send(f"|/accept {accept_from}")
                     if parsed.prefix == "pm" and parsed.args and _is_real_invalid(parsed.args[-1]):
-                        client.invalid += 1
+                        client._note_invalid_choice(parsed.room)
                     if parsed.room.startswith("battle-"):
                         if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
                             await client.conn.send(f"|/join {parsed.room}")
@@ -933,7 +950,7 @@ async def _run_client(
                         if parsed.prefix == "error":
                             err_text = parsed.args[0] if parsed.args else ""
                             if _is_real_invalid(err_text):
-                                client.invalid += 1
+                                client._note_invalid_choice(parsed.room)
                                 logger.warning(
                                     "[%s] INVALID CHOICE in %s: server=%r | sent=%r | request=%s",
                                     client.name, parsed.room, err_text,
@@ -1422,5 +1439,8 @@ async def run_local_gauntlet(
 
     stats.latencies = hero.latencies
     stats.invalid_choices = hero.invalid + villain.invalid
+    # Task 6: the HERO seat's own invalid-choice decision indices (never the villain's) -- the
+    # per-seat, foe-Mega-bindable safety signal, in-memory only (off the closed T2 row).
+    stats.hero_invalid_decision_indices = tuple(hero._invalid_decision_indices)
     stats.crashes = hero.crashes + villain.crashes
     return stats

@@ -81,9 +81,11 @@ def test_snapshot_reads_the_client_owned_calc_counters():
 
 def test_a_live_row_has_the_exact_field_set_and_validates():
     row = _row()
-    validate_profile_row_fields(row)                    # exact-closed 41 fields
+    validate_profile_row_fields(row)                    # exact-closed field set
     validate_decision_profile_row(row, manifest=None)   # live rows validate with no manifest
-    assert set(row) == set(PROFILE_ROW_FIELDS)
+    # Task 1: the live builder now stamps decision-profile-v3 -- the v2 field set PLUS the two
+    # foe-Mega coverage fields. Still exact-closed, just the v3 set.
+    assert set(row) == set(PROFILE_ROW_FIELDS) | {"foe_mega_slots", "foe_mega_order_tie"}
 
 
 def test_live_identity_is_set_and_microprofile_identity_is_null():

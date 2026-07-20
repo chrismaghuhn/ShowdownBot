@@ -155,7 +155,18 @@ def _board_dual_unequal_tr():
     return req, st, opp
 
 
-# fixture NAME -> builder. The names match profile_arms.py's fixture ids.
+def _board_both_foe_slots():
+    # Task 2: TWO foe-Mega holders, one per slot (Meganium@Meganiumite in slot a=0, Aerodactyl@
+    # Aerodactylite in slot b=1) with the own Mega present, so the bot scores a foe-Mega branch for
+    # BOTH slots -> foe_mega_slots == (0, 1). (Item Clause = 1 permits two DIFFERENT stones.)
+    st = BattleState(); _own_side(st, own_item="Aerodactylite")
+    st.sides["p2"]["a"] = _meganium_holder()
+    st.sides["p2"]["b"] = _aerodactyl_holder()
+    return _req(own_can_mega=True, own_item="Aerodactylite"), st, {"meganium": _MEGANIUM_SET}
+
+
+# fixture NAME -> builder. The names match profile_arms.py's fixture ids (plus the Task 2 coverage
+# both_foe_slots board, which is a coverage proof fixture, not an arm).
 BOARDS = {
     "mega_decision_fixture": _board_no_foe,
     "mega_decision_tie_fixture": _board_tie,
@@ -163,6 +174,7 @@ BOARDS = {
     "mega_decision_no_own_mega_fixture": _board_no_own_mega,
     "mega_decision_dual_unequal_fixture": _board_dual_unequal,
     "mega_decision_dual_unequal_tr_fixture": _board_dual_unequal_tr,
+    "mega_decision_both_foe_slots_fixture": _board_both_foe_slots,
 }
 
 
