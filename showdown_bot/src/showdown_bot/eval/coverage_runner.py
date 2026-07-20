@@ -39,6 +39,17 @@ from showdown_bot.eval.decision_profile import (
     validate_live_profile_dataset,
 )
 from showdown_bot.eval.i8d_runner import _adopt_battle_atomic, _write_json_atomic
+from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_SEED_BASE
+
+# (review round 5, P1) the exact field set a genuine I8-D verdict.json always carries -- a
+# hand-crafted JSON with only candidate_identity+verdict must be refused, not just one lacking
+# those two specifically. Keeps the check general (any missing field trips it), not hardcoded to
+# the two fields this guard happens to read values from.
+_I8D_VERDICT_REQUIRED_FIELDS = frozenset({
+    "candidate_identity", "git_sha", "config_hash", "calc_backend", "hero_agent",
+    "verdict", "panel_hash", "schedule_hash", "seed_base", "seed_log_verified",
+    "p95_is_gate_value",
+})
 
 
 class CoverageRunError(ValueError):
@@ -170,20 +181,63 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             i8d_verdict_data = json.load(fh)
     except (OSError, ValueError) as exc:
         raise CoverageRunError(f"cannot read the I8-D verdict at {i8d_verdict_path!r}: {exc}") from exc
-    i8d_identity = i8d_verdict_data.get("candidate_identity")
-    if i8d_identity is None:
+    # (review round 5, P2) json.load succeeds on any valid JSON, not just objects -- "[]"/"null"/a
+    # bare string all parse cleanly to a non-dict, and .get() on those raises AttributeError, not
+    # CoverageRunError. Must fail closed here, before any field access.
+    if not isinstance(i8d_verdict_data, dict):
         raise CoverageRunError(
-            f"the I8-D verdict at {i8d_verdict_path!r} has no candidate_identity field"
+            f"the I8-D verdict at {i8d_verdict_path!r} is not a JSON object "
+            f"(got {type(i8d_verdict_data).__name__}): not a genuine I8-D gate artifact"
         )
+    # (review round 5, P1) bind the artifact to the REAL I8-D contract -- a hand-crafted JSON
+    # carrying only candidate_identity+verdict must not pass. Require the full field set a genuine
+    # I8-D verdict.json always carries, then cross-check the ones with a known-canonical value
+    # (panel_hash, seed_base, seed_log_verified) so a forger would also have to reproduce those
+    # correctly, not just guess two field names.
+    missing = _I8D_VERDICT_REQUIRED_FIELDS - set(i8d_verdict_data)
+    if missing:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} is missing required field(s) "
+            f"{sorted(missing)}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["panel_hash"] != I8D_EXPECTED_PANEL_HASH:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has panel_hash "
+            f"{i8d_verdict_data['panel_hash']!r} != the pinned I8-D panel "
+            f"{I8D_EXPECTED_PANEL_HASH!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["seed_base"] != I8D_SEED_BASE:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has seed_base "
+            f"{i8d_verdict_data['seed_base']!r} != the pinned I8-D seed namespace "
+            f"{I8D_SEED_BASE!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["seed_log_verified"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} does not have seed_log_verified=True: "
+            f"not a genuine I8-D gate artifact"
+        )
+    i8d_identity = i8d_verdict_data["candidate_identity"]
     if i8d_identity != candidate_identity:
         raise CoverageRunError(
             f"I8-D candidate_identity {i8d_identity!r} != this run's freshly-derived "
             f"candidate_identity {candidate_identity!r}: coverage must run on the SAME candidate "
             f"I8-D verified"
         )
-    if i8d_verdict_data.get("verdict") != "PASS":
+    # (review round 5, P1) candidate_identity does NOT capture calc_backend by design -- it hashes
+    # only hero_agent/git_sha/config_hash. Confirmed empirically: switching SHOWDOWN_CALC_BACKEND
+    # between oneshot/persistent leaves config_hash and candidate_identity byte-identical (both
+    # "594295543f13a55d" / "a68acfef984b91f1" in the reproduction). I8-D's PASS is fundamentally a
+    # LATENCY claim, and latency is backend-dependent, so this must be its own explicit check.
+    i8d_calc_backend = i8d_verdict_data["calc_backend"]
+    if i8d_calc_backend != calc_backend:
         raise CoverageRunError(
-            f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data.get('verdict')!r}, not "
+            f"I8-D calc_backend {i8d_calc_backend!r} != this run's calc_backend {calc_backend!r}: "
+            f"candidate_identity does not capture calc_backend, so it is checked separately"
+        )
+    if i8d_verdict_data["verdict"] != "PASS":
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data['verdict']!r}, not "
             f"'PASS': coverage may only run after I8-D PASSes on the same candidate"
         )
 
