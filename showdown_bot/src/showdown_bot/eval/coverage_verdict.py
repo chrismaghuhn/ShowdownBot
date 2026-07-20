@@ -56,7 +56,8 @@ def coverage_verdict(*, cell_counts: dict, safety_violations: int, schedule_comp
       - floor unmet, a cap truncated it     -> INCONCLUSIVE, the cap's ``stop_reason``
     """
     base = {
-        "cell_floors": dict(COVERAGE_CELL_FLOORS),
+        # JSON-native (lists, not tuples) so a written verdict.json round-trips to the returned dict.
+        "cell_floors": {cell: list(floor) for cell, floor in COVERAGE_CELL_FLOORS.items()},
         "cell_counts": {cell: cell_counts.get(cell, {}) for cell in COVERAGE_CELLS},
         "safety_violations": safety_violations,
         "schedule_complete": schedule_complete,
