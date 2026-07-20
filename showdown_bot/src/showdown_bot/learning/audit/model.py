@@ -146,11 +146,15 @@ def softmax(scores: list[float], temperature: float) -> list[float]:
 def decision_nll(item, temperature: float) -> float:
     probs = softmax(item["scores"], temperature)
     best = [i for i, flag in enumerate(item["teacher_best"]) if flag]
+    if not best:
+        raise AuditError("decision_nll requires at least one teacher_best candidate")
     target = 1.0 / len(best)
     return -sum(target * math.log(max(probs[i], 1e-15)) for i in best)
 
 
 def fit_temperature(validation_items, observer=None) -> float:
+    if not validation_items:
+        raise AuditError("fit_temperature requires validation decisions")
     left, right = -5.0, 5.0
     phi = (1 + math.sqrt(5)) / 2
     objective = lambda log_t: sum(decision_nll(item, math.exp(log_t))
@@ -174,6 +178,8 @@ def calibration_metrics(items, temperature: float) -> dict:
     for item in items:
         probs = softmax(item["scores"], temperature)
         best = [i for i, flag in enumerate(item["teacher_best"]) if flag]
+        if not best:
+            raise AuditError("calibration_metrics requires at least one teacher_best candidate")
         target = [1.0 / len(best) if i in best else 0.0 for i in range(len(probs))]
         prediction = max(range(len(probs)), key=lambda i: (probs[i], -i))
         correct = float(prediction in best)
