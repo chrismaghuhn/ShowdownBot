@@ -50,7 +50,8 @@ def _after(mixed: int = 2) -> dict:
 
 def _build_live(mixed: int = 2) -> dict:
     shape = SimpleNamespace(
-        n_candidates=12, n_responses=3, n_mega_twins=2, n_branches=2, n_worlds=1, depth2_frontier=0
+        n_candidates=12, n_responses=3, n_mega_twins=2, n_branches=2, n_worlds=1, depth2_frontier=0,
+        foe_mega_slots=(0,), foe_mega_order_tie=False,  # Task 1: stand-in mirrors MegaShapeCounts
     )
     return build_live_profile_row(
         battle_id="b0", decision_index=4, schedule_hash="aabbccdd11223344",
@@ -65,7 +66,9 @@ def _build_live(mixed: int = 2) -> dict:
 def test_v2_live_row_validates():
     row = _build_live()
     validate_decision_profile_row(row, manifest=None)
-    assert row["schema_version"] == "decision-profile-v2"
+    # Task 1: the live builder now stamps decision-profile-v3; mixed_batch_calls + the transport
+    # relation (Lever B, v2) carry into v3 unchanged, which is what this test still guards.
+    assert row["schema_version"] == "decision-profile-v3"
     assert row.get("mixed_batch_calls") == 2
     assert row["transport_calls"] == (
         row["damage_batch_calls"] + row["stats_batch_calls"]
@@ -178,3 +181,21 @@ def test_microprofile_dataset_mixed_version_types_rejected(tmp_path):
     p.write_text(json.dumps(v1) + "\n" + json.dumps(bad) + "\n", encoding="utf-8")
     with pytest.raises(DecisionProfileError, match="schema versions"):
         validate_decision_profile_dataset(str(p), manifest)
+
+
+# ---- v2 <-> v3 pooling is rejected (Task 1: live-only v3 migration) -------------------------
+
+def _to_v3(row: dict) -> dict:
+    r = _to_v2(row)
+    r["schema_version"] = "decision-profile-v3"
+    r["foe_mega_slots"] = []       # empty slots + no tie -> the v3 invariants are vacuous (always valid)
+    r["foe_mega_order_tie"] = False
+    return r
+
+
+def test_a_dataset_mixing_v2_and_v3_is_rejected(tmp_path):
+    a, b = _live_v1_rows()
+    p = tmp_path / "mixed_v2_v3.jsonl"
+    p.write_text(json.dumps(_to_v2(a)) + "\n" + json.dumps(_to_v3(b)) + "\n", encoding="utf-8")
+    with pytest.raises(DecisionProfileError, match="schema versions"):
+        validate_live_profile_dataset(str(p))

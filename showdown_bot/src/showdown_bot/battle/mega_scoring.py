@@ -58,6 +58,11 @@ class MegaShapeCounts:
     n_branches: int = 0
     n_worlds: int = 0
     depth2_frontier: int = 0
+    # v3 coverage telemetry (Task 1/2): the foe-Mega slot set actually scored ({0,1} subset) and
+    # whether a full activation-order tie was scored. Filled at origin (Task 2); defaulted here so
+    # a sink that predates the fill, or a non-foe-Mega decision, stays empty/False.
+    foe_mega_slots: tuple[int, ...] = ()
+    foe_mega_order_tie: bool = False
 
 
 @dataclass

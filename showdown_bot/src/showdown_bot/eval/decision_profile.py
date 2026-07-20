@@ -118,6 +118,12 @@ PROFILE_ROW_FIELDS_V1: tuple[str, ...] = tuple(
 )
 _FIELD_SET_V1 = frozenset(PROFILE_ROW_FIELDS_V1)
 
+# v3 live-only (Task 1): the v2 field set PLUS the two foe-Mega coverage fields. Derived by union
+# so it can never drift from the shared v2 fields; only the live builder emits this set.
+_V3_ONLY_FIELDS = ("foe_mega_slots", "foe_mega_order_tie")
+PROFILE_ROW_FIELDS_LIVE: tuple[str, ...] = PROFILE_ROW_FIELDS + _V3_ONLY_FIELDS
+_FIELD_SET_LIVE = _FIELD_SET | frozenset(_V3_ONLY_FIELDS)
+
 # Classified NON_BEHAVIORAL in eval/config_env.py, and that REGISTRATION is what makes the
 # claim true -- not this comment. config_env.is_excluded fails closed toward INCLUSION, so
 # an unclassified SHOWDOWN_* var lands in behavior_env and therefore in config_hash: an
@@ -146,7 +152,13 @@ def validate_profile_row_fields(row: dict) -> None:
     validator's dedicated version message -- so a v1 row can never smuggle in a v2 field, nor a
     v2 row omit one.
     """
-    expected = _FIELD_SET_V1 if row.get("schema_version") == SCHEMA_VERSION_V1 else _FIELD_SET
+    sv = row.get("schema_version")
+    if sv == SCHEMA_VERSION_V1:
+        expected = _FIELD_SET_V1
+    elif sv == SCHEMA_VERSION_LIVE:
+        expected = _FIELD_SET_LIVE
+    else:
+        expected = _FIELD_SET
     missing = expected - set(row)
     unknown = set(row) - expected
     if missing or unknown:
@@ -197,13 +209,17 @@ _MICRO_SCOPES = frozenset({"contexts_and_score", "score_evaluated_variants"})
 # something is guarded. (An enum was written, and mutation testing showed no test could
 # distinguish its presence from its absence -- which is the definition of dead.)
 SCHEMA_VERSION_V1 = "decision-profile-v1"
-SCHEMA_VERSION = "decision-profile-v2"
+SCHEMA_VERSION_V2 = "decision-profile-v2"
+SCHEMA_VERSION = SCHEMA_VERSION_V2  # the microprofile / default stamp -- stays v2 (Task 1)
+# Live-only v3 (Task 1): the v2 field set PLUS foe_mega_slots + foe_mega_order_tie, stamped ONLY
+# by build_live_profile_row. The microprofile writer (profile_harness) never emits it.
+SCHEMA_VERSION_LIVE = "decision-profile-v3"
 # The validators accept BOTH. v2 is what the writer emits now: it carries the mixed_batch_calls
 # counter (Lever B) folded into transport_calls. v1 is the frozen I8-D live + microprofile
 # evidence that predates it. The two differ ONLY by mixed_batch_calls (and hence by the
 # transport_calls identity that folds it in); every other field and rule is shared, so the
 # same recomputing validator serves both by branching on the row's own schema_version.
-_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION_V1, SCHEMA_VERSION})
+_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_LIVE})
 _SOURCES = frozenset({"live", "microprofile"})
 _BACKENDS = frozenset({"oneshot", "persistent"})
 _OUTCOMES = frozenset({"ok", "crash", "fallback", "degraded_state"})
@@ -312,7 +328,7 @@ def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash
     )
     transport_retried = delta["transport_attempts"] > transport_calls
     row = {
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION_LIVE,
         "source": "live",
         "battle_id": battle_id,
         "decision_index": decision_index,
@@ -357,6 +373,10 @@ def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash
         "depth2_frontier": shape.depth2_frontier if shape is not None else 0,
         "foe_mega_active": bool(shape is not None and shape.n_mega_twins > 0),
         "outcome": outcome,
+        # v3 live-only coverage telemetry (Task 1): the foe-Mega slot set scored + order-tie flag,
+        # filled at origin (Task 2). Defaults keep a no-shape / non-foe-Mega decision empty/False.
+        "foe_mega_slots": sorted(shape.foe_mega_slots) if shape is not None else [],
+        "foe_mega_order_tie": bool(shape.foe_mega_order_tie) if shape is not None else False,
     }
     validate_profile_row_fields(row)   # exact-closed field set, fail closed
     return row
@@ -855,6 +875,31 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         not (row["n_mega_twins"] > 0 and not row["foe_mega_active"]),
         "n_mega_twins > 0 but foe_mega_active is false",
     )
+
+    # ---- v3 live-only foe-Mega coverage telemetry (Task 1) --------------
+    # These fields exist ONLY on a decision-profile-v3 row (validate_profile_row_fields keeps them
+    # off v1/v2), so the rules are scoped to v3.
+    if row.get("schema_version") == SCHEMA_VERSION_LIVE:
+        slots = row["foe_mega_slots"]
+        _require(
+            isinstance(slots, list)
+            and all(isinstance(s, int) and not isinstance(s, bool) for s in slots)
+            and set(slots) <= {0, 1}
+            and slots == sorted(set(slots)),
+            f"foe_mega_slots must be a sorted-unique int subset of {{0, 1}}, got {slots!r}",
+        )
+        _require(
+            isinstance(row["foe_mega_order_tie"], bool),
+            f"foe_mega_order_tie must be a bool, got {row['foe_mega_order_tie']!r}",
+        )
+        _require(
+            not (slots and row["n_mega_twins"] == 0),
+            "foe_mega_slots recorded but n_mega_twins == 0",
+        )
+        _require(
+            not (row["foe_mega_order_tie"] and (row["n_mega_twins"] == 0 or not slots)),
+            "foe_mega_order_tie True requires n_mega_twins > 0 and a recorded foe_mega_slot",
+        )
 
     # ---- outcome <-> measured_ms (§2.6) ---------------------------------
     # A crashed decision's wall clock is the crash handler, not decision work; recording
