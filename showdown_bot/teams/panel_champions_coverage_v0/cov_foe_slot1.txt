@@ -3,10 +3,20 @@ Ability: Intimidate
 Level: 50
 EVs: 32 HP / 32 Atk / 2 SpD
 Adamant Nature
-- Fake Out
 - Flare Blitz
 - Darkest Lariat
 - Parting Shot
+- Crunch
+
+Delphox @ Delphoxite
+Ability: Blaze
+Level: 50
+EVs: 32 HP / 32 SpA / 2 Spe
+Timid Nature
+- Heat Wave
+- Psyshock
+- Encore
+- Protect
 
 Garchomp @ Haban Berry
 Ability: Rough Skin
@@ -33,8 +43,8 @@ Ability: Unburden
 Level: 50
 EVs: 32 Atk / 32 Spe / 2 HP
 Jolly Nature
-- Fake Out
 - Close Combat
+- Poison Jab
 - Dire Claw
 - Protect
 
@@ -46,14 +56,4 @@ Modest Nature
 - Hydro Pump
 - Thunderbolt
 - Will-O-Wisp
-- Protect
-
-Delphox @ Delphoxite
-Ability: Blaze
-Level: 50
-EVs: 32 HP / 32 SpA / 2 Spe
-Timid Nature
-- Heat Wave
-- Psyshock
-- Encore
 - Protect

@@ -3,8 +3,11 @@
 # showdown_bot/ working dir. Hero (not in panel): teams/fixed_champions_v0.txt.
 # The dev/heldout split is a load_panel formality (both must be non-empty); coverage has NO
 # train/test split -- the gate reads teams from the coverage manifest's target_cells, never this
-# split. cov_foe_slot0/slot1 are byte-copies of the validated panel_champions_v0 rain_offense/
-# goodstuff (their content hashes deliberately coincide); cov_foe_both/tie are new legal teams.
+# split. cov_foe_slot0/slot1 started as byte-copies of the validated panel_champions_v0
+# rain_offense/goodstuff, then had their Mega holder's moveset (and, for slot1, team-sheet order)
+# edited so the REAL deterministic team-preview picker actually brings + leads that Mega holder
+# into the matchup's target_cell slot (review finding F1) -- their content hashes no longer
+# coincide with rain_offense/goodstuff. cov_foe_both/tie are new legal teams.
 version: champions-coverage-v0
 policies: [heuristic, max_damage]
 dev_teams:

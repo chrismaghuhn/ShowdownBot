@@ -36,7 +36,7 @@ Modest Nature
 - Weather Ball
 - Hurricane
 - Wide Guard
-- Tailwind
+- Roost
 
 Archaludon @ Leftovers
 Ability: Stamina
@@ -54,6 +54,6 @@ Level: 50
 EVs: 32 Atk / 32 Spe / 2 HP
 Jolly Nature
 - Close Combat
-- Fake Out
+- Poison Jab
 - Dire Claw
 - Protect
