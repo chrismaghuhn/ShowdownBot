@@ -249,8 +249,13 @@ def _plan_my_actions(
             continue
 
         move_name = None
-        if i < len(req.active) and sa.move_index and sa.move_index - 1 < len(req.active[i].moves):
-            move_name = req.active[i].moves[sa.move_index - 1].move
+        active = req.active[i] if i < len(req.active) else None
+        if (
+            active is not None
+            and sa.move_index
+            and sa.move_index - 1 < len(active.moves)
+        ):
+            move_name = active.moves[sa.move_index - 1].move
         meta = get_move_meta(move_name) if move_name else None
         kind = "protect" if (meta and meta.id in ("protect", "detect", "wideguard")) else "move"
         target = _map_target(sa, meta, our_side, opp_side, slot) if kind == "move" else None
@@ -1455,7 +1460,8 @@ def _maybe_tera(
     for i, sa in enumerate((best_ja.slot0, best_ja.slot1)):
         if sa.kind != "move":
             continue
-        if i >= len(req.active) or not req.active[i].can_terastallize:
+        active = req.active[i] if i < len(req.active) else None
+        if active is None or not active.can_terastallize:
             continue
         tera_ja = best_ja.with_tera(i)
         plan = _plan_my_actions(
