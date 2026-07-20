@@ -38,8 +38,8 @@ from showdown_bot.eval.decision_profile import (
     _read_rows,
     validate_live_profile_dataset,
 )
-from showdown_bot.eval.i8d_runner import _adopt_battle_atomic, _write_json_atomic
-from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_SEED_BASE
+from showdown_bot.eval.i8d_runner import _adopt_battle_atomic, _write_json_atomic, build_i8d_live_schedule
+from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_PANEL_PATH, I8D_SEED_BASE
 
 # (review round 5, P1) the exact field set a genuine I8-D verdict.json always carries -- a
 # hand-crafted JSON with only candidate_identity+verdict must be refused, not just one lacking
@@ -110,6 +110,16 @@ def build_coverage_live_schedule(panel_path: str = COVERAGE_PANEL_PATH,
     panel = load_panel(panel_path, teams_root=teams_root)
     manifest = load_coverage_manifest(manifest_path)
     return build_coverage_schedule(panel, manifest, n_battles=n_battles, teams_root=teams_root)
+
+
+def build_i8d_canonical_schedule(teams_root: str = "."):
+    """Rebuild the FIXED I8-D schedule fresh from the pinned I8-D panel (review round 6, P1), so the
+    I8-D verdict guard below can bind an artifact's ``schedule_hash`` to the REAL canonical I8-D
+    schedule instead of trusting the artifact's own claim -- mirroring how ``build_coverage_live_
+    schedule`` above lets this run's OWN schedule be re-derived and compared, never trusted as-is.
+    Thin wrapper over ``i8d_runner.build_i8d_live_schedule``, locked to the I8-D panel path -- never
+    a caller path."""
+    return build_i8d_live_schedule(I8D_PANEL_PATH, teams_root=teams_root)
 
 
 _CANONICAL_DATA_EVAL = os.path.normcase(os.path.realpath(str(_REPO_ROOT / "data" / "eval")))
@@ -217,6 +227,27 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"the I8-D verdict at {i8d_verdict_path!r} does not have seed_log_verified=True: "
             f"not a genuine I8-D gate artifact"
         )
+    # (review round 6, P1) candidate_identity is a PUBLIC, locally-computable hash -- nothing secret
+    # in the formula (sha1 of {hero_agent, git_sha, config_hash}) or its inputs, so a hand-crafted
+    # artifact can carry the CORRECT candidate_identity (trivially reproducible by anyone who can
+    # write this file) alongside a COMPLETELY UNRELATED git_sha/config_hash/hero_agent. Comparing
+    # only the opaque candidate_identity token (as the prior round did, below) never catches that:
+    # bind each raw field directly to this run's own freshly-derived provenance too.
+    if i8d_verdict_data["git_sha"] != git_sha:
+        raise CoverageRunError(
+            f"I8-D git_sha {i8d_verdict_data['git_sha']!r} != this run's git_sha {git_sha!r}: "
+            f"coverage must run on the SAME commit I8-D verified"
+        )
+    if i8d_verdict_data["config_hash"] != config_hash:
+        raise CoverageRunError(
+            f"I8-D config_hash {i8d_verdict_data['config_hash']!r} != this run's config_hash "
+            f"{config_hash!r}: coverage must run on the SAME config I8-D verified"
+        )
+    if i8d_verdict_data["hero_agent"] != hero_agent:
+        raise CoverageRunError(
+            f"I8-D hero_agent {i8d_verdict_data['hero_agent']!r} != this run's hero_agent "
+            f"{hero_agent!r}: coverage must run on the SAME hero agent I8-D verified"
+        )
     i8d_identity = i8d_verdict_data["candidate_identity"]
     if i8d_identity != candidate_identity:
         raise CoverageRunError(
@@ -235,10 +266,33 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"I8-D calc_backend {i8d_calc_backend!r} != this run's calc_backend {calc_backend!r}: "
             f"candidate_identity does not capture calc_backend, so it is checked separately"
         )
+    # (review round 6, P1) schedule_hash was required PRESENT but never checked against anything --
+    # a forged artifact could name an arbitrary (or never-run) I8-D schedule and still pass. Bind it
+    # to the REAL fixed I8-D schedule, freshly rebuilt from the pinned I8-D panel -- never trust the
+    # artifact's own claim, mirroring how this run's OWN schedule is re-derived and compared below
+    # rather than trusting the caller's Schedule. Checked after the cheap field-equality checks
+    # above (fail fast before the heavier rebuild).
+    i8d_canonical = build_i8d_canonical_schedule(teams_root=teams_root)
+    if i8d_verdict_data["schedule_hash"] != i8d_canonical.schedule_hash:
+        raise CoverageRunError(
+            f"I8-D schedule_hash {i8d_verdict_data['schedule_hash']!r} != the canonical I8-D "
+            f"schedule_hash freshly rebuilt from the pinned I8-D panel "
+            f"({i8d_canonical.schedule_hash!r}): not a genuine I8-D gate artifact"
+        )
     if i8d_verdict_data["verdict"] != "PASS":
         raise CoverageRunError(
             f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data['verdict']!r}, not "
             f"'PASS': coverage may only run after I8-D PASSes on the same candidate"
+        )
+    # (review round 6, P1) the real i8d_verdict() can never produce verdict="PASS" together with
+    # p95_is_gate_value=False (its PASS/FAIL branch always pairs with True; only the untested
+    # INCONCLUSIVE branch sets it False) -- but a hand-crafted JSON is not bound by that invariant
+    # unless it is checked explicitly here.
+    if i8d_verdict_data["p95_is_gate_value"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
+            f"p95_is_gate_value is not True: not a genuine I8-D gate artifact (a real PASS always "
+            f"has p95_is_gate_value=True)"
         )
 
     verify_coverage_schedule(schedule, expected_battles=expected_battles)
