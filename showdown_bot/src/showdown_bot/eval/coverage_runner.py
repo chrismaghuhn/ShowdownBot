@@ -139,7 +139,7 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
 
 def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
                       hero_agent: str = "heuristic", expected_battles: int = COVERAGE_MAX_BATTLES,
-                      teams_root: str = ".") -> dict:
+                      teams_root: str = ".", i8d_verdict_path: str = "") -> dict:
     """Drive the coverage schedule with whole-battle stop and render the three-way verdict, deriving
     provenance internally and verifying every execution boundary. A technical abort (Guard 2 partial
     battle, Guard 3 unjoinable index, seed-log failure) leaves the un-published staging dir, never an
@@ -148,6 +148,44 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.eval.result_jsonl import make_battle_id
     from showdown_bot.eval.seeding import derive_battle_seed
     from showdown_bot.team.pack import load_packed_team
+
+    prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
+    git_sha, config_hash = prov["git_sha"], prov["config_hash"]
+    calc_backend = prov["calc_backend"]
+    candidate_identity = prov["candidate_identity"]
+
+    # (T3, section 5 hardening) fail closed on the SAME, PASSing I8-D candidate before anything
+    # else -- before the canonical schedule is even built -- so coverage can never execute against
+    # a candidate I8-D never verified. Checked HERE, inside the runner, not only by the CLI wrapper,
+    # for the same "any direct caller gets the same protection" reason as the TOCTOU team-hash
+    # guard below.
+    if not i8d_verdict_path:
+        raise CoverageRunError(
+            "coverage requires --i8d-verdict-path (the I8-D gate's verdict.json for this SAME "
+            "candidate, which must have PASSed) so a coverage run can never execute against a "
+            "candidate the I8-D latency gate never verified"
+        )
+    try:
+        with open(i8d_verdict_path, encoding="utf-8") as fh:
+            i8d_verdict_data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise CoverageRunError(f"cannot read the I8-D verdict at {i8d_verdict_path!r}: {exc}") from exc
+    i8d_identity = i8d_verdict_data.get("candidate_identity")
+    if i8d_identity is None:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has no candidate_identity field"
+        )
+    if i8d_identity != candidate_identity:
+        raise CoverageRunError(
+            f"I8-D candidate_identity {i8d_identity!r} != this run's freshly-derived "
+            f"candidate_identity {candidate_identity!r}: coverage must run on the SAME candidate "
+            f"I8-D verified"
+        )
+    if i8d_verdict_data.get("verdict") != "PASS":
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data.get('verdict')!r}, not "
+            f"'PASS': coverage may only run after I8-D PASSes on the same candidate"
+        )
 
     verify_coverage_schedule(schedule, expected_battles=expected_battles)
     # panel_hash covers team CONTENT; schedule_hash covers matchup ORDER/assignment. Neither is
@@ -174,11 +212,6 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"out_dir {out_dir!r} is under data/eval/; the runner writes only to a scratch/run tree. "
             f"Freezing a run's output into data/eval/ is a separate, separately-authorized commit."
         )
-
-    prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
-    git_sha, config_hash = prov["git_sha"], prov["config_hash"]
-    calc_backend = prov["calc_backend"]
-    candidate_identity = prov["candidate_identity"]
 
     seed_base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "")
     if seed_base != COVERAGE_SEED_BASE:
