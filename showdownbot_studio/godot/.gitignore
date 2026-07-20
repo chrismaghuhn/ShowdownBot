@@ -1,0 +1,10 @@
+# Local engine binaries and caches (never commit)
+/Godot_*.exe
+/Godot_*.exe.zip
+/tools/engine/
+/tools/engine_cache/
+/.godot/
+/test-reports/
+*.translation
+export.cfg
+export_presets.cfg

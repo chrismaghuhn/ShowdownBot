@@ -1,0 +1,6 @@
+# Pinned Godot 4.5.2-stable Windows x64 artifacts (Plan B §0.1).
+# Source: godotengine/godot-builds tag 4.5.2-stable
+# Verified locally 2026-07-21: ZIP digest matches; EXE digests from Expand-Archive of that ZIP.
+3766090865330ab2a0ed33594520394b711c620b1378f9223904faeef60f2f14  Godot_v4.5.2-stable_win64.exe.zip
+a2a2eb7eae9ce159042f6dc3aca89f6d0e4cccb92d3a4892cc8128c958b1d466  Godot_v4.5.2-stable_win64.exe
+446e08f71624052572f96de9031850ba96382ce6752adde38bb955b0a49bed01  Godot_v4.5.2-stable_win64_console.exe
