@@ -87,6 +87,23 @@ def test_valid_live_dataset_passes_and_reports_active_population(tmp_path):
     assert report == {"rows": 4, "active_valid_rows": 2, "distinct_active_battle_ids": 2}
 
 
+def test_the_live_dataset_validator_accepts_a_v3_dataset(tmp_path):
+    # Task 3: build_live_profile_row now stamps decision-profile-v3; a dataset of v3 rows (carrying
+    # the two foe-Mega coverage fields) validates and reports its active population.
+    s = _shape(24)
+    s.foe_mega_slots = (0, 1)
+    s.foe_mega_order_tie = True
+    row = build_live_profile_row(
+        battle_id="bx", decision_index=0, schedule_hash="sched01", config_id="heuristic",
+        format_id="gen9championsvgc2026regma", git_sha="deadbeef", config_hash="cfg01",
+        calc_backend="persistent", outcome="ok", latency_ms=12.5,
+        counters_before=dict(_BEFORE), counters_after=dict(_AFTER), shape=s)
+    assert row["schema_version"] == "decision-profile-v3"
+    assert row["foe_mega_slots"] == [0, 1] and row["foe_mega_order_tie"] is True
+    report = validate_live_profile_dataset(_write(tmp_path, [row]))
+    assert report == {"rows": 1, "active_valid_rows": 1, "distinct_active_battle_ids": 1}
+
+
 def test_distinct_active_battle_ids_dedups_within_a_battle(tmp_path):
     path = _write(tmp_path, [
         _row(battle_id="b1", decision_index=0, outcome="ok", twins=24),
