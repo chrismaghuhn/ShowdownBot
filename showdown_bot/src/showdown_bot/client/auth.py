@@ -54,7 +54,7 @@ def _open_auth_request(request: urllib.request.Request) -> str:
     request.add_header("User-Agent", USER_AGENT)
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
-            return response.read().decode()
+            return response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         raise AuthError(f"auth HTTP {exc.code}") from exc
 
