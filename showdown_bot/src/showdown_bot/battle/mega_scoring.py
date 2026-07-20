@@ -362,6 +362,18 @@ def _world_seed_board_key(state: BattleState, opp_side: str) -> str:
     return "|".join(parts) + "#" + str(field_state)
 
 
+def _is_scored_order_tie(orderings: set) -> bool:
+    """Task 2: True iff a foe-Mega interaction's SCORED branches are exactly the two
+    mutually-reversed 0.5-weighted activation orderings (a full tie pair). A lone 0.5 branch, or a
+    1.0 (strict-inequality) branch, is NOT a tie. ``orderings`` is a set of (branch_weight,
+    activation_order) actually scored for that (own_slot, foe_mega_slot) interaction."""
+    halves = [order for (weight, order) in orderings if weight == 0.5]
+    if len(halves) != 2:
+        return False
+    a, b = halves
+    return a == tuple(reversed(b))
+
+
 def score_evaluated_variants(
     evaluated_variants: list[ScoredMegaVariant],
     contexts: list[MegaEvaluationContext],
@@ -467,6 +479,12 @@ def score_evaluated_variants(
         # V and K, set once at origin. The remaining counts accumulate as the work is done.
         shape_sink.n_candidates = len(records)
         shape_sink.n_worlds = len(worlds)
+    # Task 2 coverage telemetry: decision-level accumulators. The scored foe-Mega slots, and per
+    # (own_slot, foe_mega_slot) interaction the set of (branch_weight, activation_order) actually
+    # scored. Written onto shape_sink ONLY at successful completion, so a mid-scoring abort leaves
+    # foe_mega_slots/foe_mega_order_tie at their defaults.
+    _cov_scored_slots: set[int] = set()
+    _cov_tie_orderings: dict[tuple, set] = {}
 
     from showdown_bot.battle.candidate_identity import joint_action_key_v2
     from showdown_bot.battle.opponent import OpponentResponseCapError, opp_mega_click_rate
@@ -746,6 +764,12 @@ def score_evaluated_variants(
                         if shape_sink is not None:
                             shape_sink.n_responses += 1    # a scored response line...
                             shape_sink.n_mega_twins += 1   # ...on the foe-Mega branch path
+                            # Task 2: this foe slot was positively scored; record it and this
+                            # branch's (weight, activation_order) for the interaction's tie test.
+                            _cov_scored_slots.add(foe_mega_slot)
+                            _cov_tie_orderings.setdefault((slot, foe_mega_slot), set()).add(
+                                (branch.weight, branch.activation_order)
+                            )
                         raw_w = original.weight
                         rec.score_vector.append(detail.score)
                         rec.score_weights.append(world_w * raw_w * branch.weight)
@@ -860,6 +884,14 @@ def score_evaluated_variants(
     for rec in records:
         rec.aggregate_score = aggregate_scores(
             rec.score_vector, mode, risk_lambda=risk_lambda, weights=rec.score_weights,
+        )
+
+    # Task 2: finalize the coverage cell fields onto the sink -- reached ONLY on successful
+    # completion, so a decision that aborted mid-scoring keeps them at their defaults.
+    if shape_sink is not None:
+        shape_sink.foe_mega_slots = tuple(sorted(_cov_scored_slots))
+        shape_sink.foe_mega_order_tie = any(
+            _is_scored_order_tie(orders) for orders in _cov_tie_orderings.values()
         )
 
     return records
