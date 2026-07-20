@@ -1,0 +1,2 @@
+{"amount":1,"protocol_index":8,"type":"turn"}
+{"hp":{"current":35,"fainted":false,"maximum":35,"status":null},"pokemon":{"side":"p1","slot":"a","species":"Pikachu"},"protocol_index":9,"type":"switch"}
