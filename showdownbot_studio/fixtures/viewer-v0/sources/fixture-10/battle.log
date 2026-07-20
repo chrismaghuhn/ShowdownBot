@@ -1,0 +1,10 @@
+|c|p1|LeakPlayerOne|Hello leak chat
+|pm| LeakPlayerTwo|LeakPlayerOne|/msg LeakPlayerTwo|secret pm
+|j|☆LeakPlayerOne
+|player|p1|LeakPlayerOne|999|
+|request|{"active":[{}],"side":{"name":"LeakPlayerOne","id":"p1","pokemon":[{"ident":"p1: NickLeak","details":"Pikachu, L50","condition":"35/35","active":true,"moves":["tackle"],"baseTypes":["Electric"]}]},"rqid":1}
+|title|LeakPlayerOne vs LeakPlayerTwo
+Replay: http://replay.example/leak
+Saved to C:\Users\fixture\leak.log
+|turn|1
+|switch|p1a: NickLeak|Pikachu, L50|35/35

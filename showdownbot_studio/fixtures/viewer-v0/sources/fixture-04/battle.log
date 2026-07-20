@@ -1,0 +1,10 @@
+>battle-gen9test
+|init|battle
+|player|p1|SyntheticP1|1|
+|request|{"teamPreview":true,"side":{"name":"p1","id":"p1","pokemon":[]},"rqid":1}
+|turn|1
+|switch|p1a: Pikachu|Pikachu, L50|35/35
+|request|{"forceSwitch":[true,false],"side":{"name":"p1","id":"p1","pokemon":[]},"rqid":2,"wait":false}
+|turn|2
+|move|p1a: Pikachu|Tackle|p2a: Bulbasaur
+|request|{"active":[{"moves":[{"move":"Tackle","id":"tackle","pp":35,"maxpp":35,"target":"normal","disabled":false}]},{}],"side":{"name":"p1","id":"p1","pokemon":[]},"rqid":3}
