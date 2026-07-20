@@ -10,8 +10,13 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 
 ## Status
 
-- Product north star: design approved; written master spec pending user review.
-- Viewer v0: design approved; implementation plan not started.
+- Product north star: design approved; written master spec is non-binding context for Phase 0
+  (separate review later / before later phases).
+- Viewer v0: design + bundle contract approved (incl. §14.1 Amendment A). Implementation **index**
+  APPROVED; **Plan A** APPROVED 2026-07-21 (Rev. 6) as docs only.
+  ([`docs/plans/`](docs/plans/)). Plans B–F remain DRAFT. **Plan A code** still requires a separate
+  implementation go-ahead.
+- Next: Plan A implementation authorization, or Plan B review.
 - Godot application: not created.
 - Python bundle exporter: not implemented.
 - Live client, plugins, mods, and external bots: future phases only.
@@ -19,11 +24,12 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 
 ## Start here
 
-1. [`docs/MASTER_SPEC.md`](docs/MASTER_SPEC.md) — complete product boundary and phased roadmap.
-2. [`docs/research/2026-07-showdown-client-user-research.md`](docs/research/2026-07-showdown-client-user-research.md) — current client pain-point research.
-3. [`docs/specs/viewer-v0-design.md`](docs/specs/viewer-v0-design.md) — first bounded product slice.
+1. [`docs/plans/README.md`](docs/plans/README.md) — Viewer v0 plan order and approval status (A–F).
+2. [`docs/specs/viewer-v0-design.md`](docs/specs/viewer-v0-design.md) — first bounded product slice.
+3. [`docs/specs/viewer-v0-bundle-contract-design.md`](docs/specs/viewer-v0-bundle-contract-design.md) — binding bundle/exporter contract.
 4. [`docs/architecture/PROJECT_BOUNDARIES.md`](docs/architecture/PROJECT_BOUNDARIES.md) — ownership and dependency rules.
 5. [`docs/design/viewer-v0-mockups/`](docs/design/viewer-v0-mockups/) — accepted visual direction and its binding review corrections.
+6. [`docs/MASTER_SPEC.md`](docs/MASTER_SPEC.md) — product-family context (not binding for Phase 0).
 
 ## Repository layout
 

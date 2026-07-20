@@ -1,6 +1,8 @@
 # ShowdownBot Studio Viewer v0 — Bundle and Exporter Contract
 
-**Status:** APPROVED — implementation planning allowed; implementation not started
+**Status:** APPROVED — implementation planning allowed; implementation not started.
+**Amendment A (2026-07-21):** §14.1 synthetic-coherent fixture exception, including `git_sha:
+"unknown"` → bundle `dirty: null` (§8.4 honesty). Schema 1.0 bytes contract otherwise unchanged.
 **Date:** 2026-07-16
 **Applies to:** viewer bundle schema 1.0 and the Python exporter that produces it
 **Slice spec:** [`viewer-v0-design.md`](viewer-v0-design.md)
@@ -1260,13 +1262,52 @@ The exporter, not Godot, decides recoverability
 ## 14. Fixture catalogue
 
 Fixtures are **not created by this spec**. This is the catalogue a later implementation plan must
-build. Each is small, provenance-clean, and derived from committed evidence — preferably from
+build. Each is small and provenance-clean. The default rule is derivation from committed producer
+evidence — preferably from
 `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl`, which already exercises all
 three decision phases and candidate counts from 0 to 104.
 
+### 14.1 Synthetic-coherent fixture exception (Amendment A — 2026-07-21)
+
+**Problem.** A replay+trace fixture requires a battle log whose `|request|` payloads hash to the
+trace rows’ `request_hash` values **and** results/manifests that agree on provenance. As of
+2026-07-21, no committed Champions smoke (or surveyed `data/eval` corpus) ships a non-null
+`room_raw_path` beside a `decision_trace.jsonl`. Inventing a log that merely “joins” an unrelated
+real smoke trace/results pair is forbidden: it would misrepresent a producer run.
+
+**Exception.** A catalogue fixture MAY be a Studio-authored **synthetic-coherent** set when all of
+the following hold:
+
+1. **Label.** `SOURCES.md` (or equivalent fixture index) records
+   `source_kind: synthetic-coherent-v1` for that fixture. The label is mandatory and must not be
+   omitted.
+2. **Internal coherence.** Every exported decision’s `request_hash` matches a surviving `|request|`
+   line in the companion battle log (after the exporter’s skip rules); all provenance fields that
+   the bundle carries agree across the synthetic inputs.
+3. **No false producer claim.** The fixture must not present itself as an export of a real
+   committed eval run. It must not reuse a real `battle_id` / `run_id` / `config_hash` /
+   `schedule_hash` (or other run-identity field) from anywhere under `data/eval/` as if the
+   synthetic log were that run’s missing room dump. Synthetic provenance uses **documented
+   sentinel values** listed in `SOURCES.md` for that fixture.
+4. **`git_sha` / `dirty` honesty (§8.4).** Synthetic sources must set `git_sha` to the literal
+   `"unknown"`. They must **not** invent a 40-hex SHA. A synthetic source row/manifest may still
+   carry legacy boolean `dirty: false` (producer fail-open shape). The exporter **must** then emit
+   `source_provenance.dirty: null` in the bundle — never `dirty: false` — because §8.4 requires
+   `null` whenever `git_sha == "unknown"`. Emitting `dirty: false` with a non-commit SHA (or with
+   `"unknown"`) is a false cleanliness claim and is forbidden.
+5. **Privacy.** Portable-bundle privacy rules (§12) still apply; synthetic inputs used for privacy
+   counterexamples may contain deliberate leak substrings, which the exporter must strip.
+6. **Separation.** Gates that require real producer row shape (for example chosen-key integrity on
+   committed Mega candidate sets) continue to use read-only committed evidence in a **separate**
+   suite that does not claim a joined synthetic replay.
+
+This exception authorizes Fixture 1 (normal analysis) to be synthetic-coherent when no committed
+pair exists. It does **not** authorize mixing synthetic battle logs with real smoke
+results/manifests/traces.
+
 | # | Fixture | Must prove |
 |---|---|---|
-| 1 | normal analysis | replay + trace; all phases; chosen key resolves to exactly one candidate; two exports byte-identical |
+| 1 | normal analysis | replay + trace; all phases; chosen key resolves to exactly one candidate; two exports byte-identical; may be `synthetic-coherent-v1` under §14.1 |
 | 2 | close decision | `top1_top2_margin` small and correct; no threshold implied; margin `null` when fewer than two candidates |
 | 3 | fallback / degradation | `fallback_reason` non-null; `fallback_used: true`; `aggregation.mode: null` with its degradation warning visible without opening raw JSON |
 | 4 | replay-only | `decision_trace` absent and declared; no candidate claims; persistent degraded banner |
