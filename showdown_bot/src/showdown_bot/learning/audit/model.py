@@ -136,6 +136,8 @@ def audit_model_artifacts(corpus, model, manifest, config: AuditConfig, manifest
 def softmax(scores: list[float], temperature: float) -> list[float]:
     if temperature <= 0 or not math.isfinite(temperature):
         raise AuditError("temperature must be finite and positive")
+    if not scores:
+        raise AuditError("softmax requires at least one score")
     scaled = [score / temperature for score in scores]
     maximum = max(scaled)
     exp = [math.exp(value - maximum) for value in scaled]
