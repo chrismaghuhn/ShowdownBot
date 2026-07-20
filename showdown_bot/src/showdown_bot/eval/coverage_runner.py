@@ -38,17 +38,31 @@ from showdown_bot.eval.decision_profile import (
     _read_rows,
     validate_live_profile_dataset,
 )
-from showdown_bot.eval.i8d_runner import _adopt_battle_atomic, _write_json_atomic, build_i8d_live_schedule
+from showdown_bot.eval.gates import load_latency_budget_ms
+from showdown_bot.eval.i8d_runner import (
+    I8D_MAX_SCORED_DECISIONS,
+    I8D_MIN_ACTIVE_DECISIONS,
+    I8D_MIN_DISTINCT_BATTLES,
+    _adopt_battle_atomic,
+    _write_json_atomic,
+    build_i8d_live_schedule,
+)
 from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_PANEL_PATH, I8D_SEED_BASE
 
-# (review round 5, P1) the exact field set a genuine I8-D verdict.json always carries -- a
-# hand-crafted JSON with only candidate_identity+verdict must be refused, not just one lacking
-# those two specifically. Keeps the check general (any missing field trips it), not hardcoded to
-# the two fields this guard happens to read values from.
+# (review round 7, P1) the EXACT field set a genuine I8-D verdict.json always carries -- the full
+# report dict i8d_runner.run_i8d_live_gate writes, including the run-specific counters this guard
+# cannot independently verify. Round 5's set only required the 11 fields this guard happened to
+# read values from, so a hand-crafted artifact carrying just those 11 (and none of the other 14 a
+# real run always produces) was accepted as "complete". Presence is required for ALL of them; the
+# ones with a knowable canonical value are also checked below.
 _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     "candidate_identity", "git_sha", "config_hash", "calc_backend", "hero_agent",
     "verdict", "panel_hash", "schedule_hash", "seed_base", "seed_log_verified",
-    "p95_is_gate_value",
+    "p95_is_gate_value", "hero_team_hash", "opp_team_hashes", "battles_played",
+    "scored_decisions", "max_scored_decisions", "scored_overshoot",
+    "active_valid_decisions", "distinct_active_battles", "stop_reason",
+    "exposure_floor_met", "min_active_decisions", "min_distinct_battles",
+    "budget_ms", "p95_ms",
 })
 
 
@@ -227,6 +241,34 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"the I8-D verdict at {i8d_verdict_path!r} does not have seed_log_verified=True: "
             f"not a genuine I8-D gate artifact"
         )
+    # (review round 7, P1) min_active_decisions/min_distinct_battles/max_scored_decisions/budget_ms
+    # were required PRESENT but never checked against the pinned values I8-D itself uses -- a forged
+    # artifact could claim a LOWERED floor or an INFLATED budget and still look complete.
+    if i8d_verdict_data["min_active_decisions"] != I8D_MIN_ACTIVE_DECISIONS:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has min_active_decisions "
+            f"{i8d_verdict_data['min_active_decisions']!r} != the pinned floor "
+            f"{I8D_MIN_ACTIVE_DECISIONS!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["min_distinct_battles"] != I8D_MIN_DISTINCT_BATTLES:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has min_distinct_battles "
+            f"{i8d_verdict_data['min_distinct_battles']!r} != the pinned floor "
+            f"{I8D_MIN_DISTINCT_BATTLES!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["max_scored_decisions"] != I8D_MAX_SCORED_DECISIONS:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has max_scored_decisions "
+            f"{i8d_verdict_data['max_scored_decisions']!r} != the pinned cap "
+            f"{I8D_MAX_SCORED_DECISIONS!r}: not a genuine I8-D gate artifact"
+        )
+    budget_ms = load_latency_budget_ms()
+    if i8d_verdict_data["budget_ms"] != budget_ms:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has budget_ms "
+            f"{i8d_verdict_data['budget_ms']!r} != the pinned latency budget {budget_ms!r}: "
+            f"not a genuine I8-D gate artifact"
+        )
     # (review round 6, P1) candidate_identity is a PUBLIC, locally-computable hash -- nothing secret
     # in the formula (sha1 of {hero_agent, git_sha, config_hash}) or its inputs, so a hand-crafted
     # artifact can carry the CORRECT candidate_identity (trivially reproducible by anyone who can
@@ -279,6 +321,24 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"schedule_hash freshly rebuilt from the pinned I8-D panel "
             f"({i8d_canonical.schedule_hash!r}): not a genuine I8-D gate artifact"
         )
+    # (review round 7, P1) hero_team_hash/opp_team_hashes were required PRESENT but never checked --
+    # both are free given the canonical schedule just rebuilt above (the SAME two fields
+    # i8d_runner.run_i8d_live_gate itself derives from its own schedule object).
+    i8d_canonical_hero_hash = i8d_canonical.rows[0].hero_team_hash if i8d_canonical.rows else None
+    if i8d_verdict_data["hero_team_hash"] != i8d_canonical_hero_hash:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has hero_team_hash "
+            f"{i8d_verdict_data['hero_team_hash']!r} != the canonical I8-D hero_team_hash "
+            f"{i8d_canonical_hero_hash!r}: not a genuine I8-D gate artifact"
+        )
+    i8d_canonical_opp_hashes = sorted({r.opp_team_hash for r in i8d_canonical.rows
+                                       if r.opp_team_hash is not None})
+    if i8d_verdict_data["opp_team_hashes"] != i8d_canonical_opp_hashes:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has opp_team_hashes "
+            f"{i8d_verdict_data['opp_team_hashes']!r} != the canonical I8-D opp_team_hashes "
+            f"{i8d_canonical_opp_hashes!r}: not a genuine I8-D gate artifact"
+        )
     if i8d_verdict_data["verdict"] != "PASS":
         raise CoverageRunError(
             f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data['verdict']!r}, not "
@@ -293,6 +353,35 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
             f"p95_is_gate_value is not True: not a genuine I8-D gate artifact (a real PASS always "
             f"has p95_is_gate_value=True)"
+        )
+    # (review round 7, P1) exposure_floor_met/stop_reason/p95_ms were required PRESENT but not
+    # checked. By construction (i8d_runner.should_stop checks the floor FIRST, before max_battles/
+    # max_scored_decisions, and i8d_verdict()'s PASS/FAIL branch requires that SAME floor met) a
+    # genuine verdict="PASS" can only ever pair with exposure_floor_met=True and
+    # stop_reason="exposure_floor_met" -- a hand-crafted JSON is not bound by that invariant unless
+    # checked explicitly.
+    if i8d_verdict_data["exposure_floor_met"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
+            f"exposure_floor_met is not True: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["stop_reason"] != "exposure_floor_met":
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but stop_reason is "
+            f"{i8d_verdict_data['stop_reason']!r}, not 'exposure_floor_met': not a genuine I8-D "
+            f"gate artifact"
+        )
+    # p95_is_gate_value=True (above) does not by itself prove p95_ms is a sane number -- a
+    # hand-crafted JSON could pair verdict="PASS" with any p95_ms. isinstance guards against a
+    # non-numeric value (e.g. None, the INCONCLUSIVE branch's real value) crashing the "<="
+    # comparison with an unhandled TypeError instead of failing closed with CoverageRunError
+    # (generalises review round 5 P2's non-object-JSON lesson).
+    i8d_p95_ms = i8d_verdict_data["p95_ms"]
+    if isinstance(i8d_p95_ms, bool) or not isinstance(i8d_p95_ms, (int, float)) or i8d_p95_ms > budget_ms:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but p95_ms "
+            f"{i8d_p95_ms!r} is not a real number <= the {budget_ms} ms budget: not a genuine "
+            f"I8-D gate artifact"
         )
 
     verify_coverage_schedule(schedule, expected_battles=expected_battles)

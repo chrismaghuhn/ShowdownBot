@@ -34,6 +34,12 @@ from showdown_bot.eval.coverage_runner import (
     run_coverage_gate,
 )
 from showdown_bot.eval.coverage_schedule import COVERAGE_MAX_BATTLES
+from showdown_bot.eval.gates import load_latency_budget_ms
+from showdown_bot.eval.i8d_runner import (
+    I8D_MAX_SCORED_DECISIONS,
+    I8D_MIN_ACTIVE_DECISIONS,
+    I8D_MIN_DISTINCT_BATTLES,
+)
 from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_SEED_BASE
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -50,30 +56,45 @@ _PROV = {"git_sha": "deadbeef", "config_hash": "cfg01", "calc_backend": "oneshot
          "hero_agent": "heuristic", "candidate_identity": "cand0123456789ab"}
 
 
-_I8D_SCHED_HASH_TEST = "i8d-sched-test"   # matches the build_i8d_canonical_schedule stub in _install()
+_I8D_SCHED_HASH_TEST = "i8d-sched-test"     # matches the build_i8d_canonical_schedule stub below
+_I8D_HERO_HASH_TEST = "i8d-hero-test-hash"  # matches the SAME stub's fake row
+_I8D_OPP_HASH_TEST = "i8d-opp-test-hash"    # matches the SAME stub's fake row
 
 
-def _write_i8d_verdict(tmp_path, *, candidate_identity=_PROV["candidate_identity"],
-                       verdict="PASS", calc_backend=_PROV["calc_backend"],
-                       git_sha=_PROV["git_sha"], config_hash=_PROV["config_hash"],
-                       hero_agent=_PROV["hero_agent"], panel_hash=I8D_EXPECTED_PANEL_HASH,
-                       schedule_hash=_I8D_SCHED_HASH_TEST, seed_base=I8D_SEED_BASE,
-                       seed_log_verified=True, p95_is_gate_value=True, omit_fields=(),
-                       name="i8d_verdict.json"):
-    """A fully-shaped I8-D verdict artifact for the T3 identity+PASS+contract guard (review round
-    5: a hand-crafted two-field JSON must NOT pass -- the guard now requires the full field set a
-    genuine I8-D verdict.json carries, plus canonical panel_hash/seed_base/seed_log_verified).
-    Defaults to a valid, matching, PASSing artifact so every OTHER test in this file (not testing
-    the guard itself) sails through it unchanged; only the guard's own tests override a field or
-    list it in omit_fields to make the artifact invalid in one specific way. (review round 6)
-    git_sha/config_hash/hero_agent/schedule_hash are now parameterisable too, since the guard binds
-    them for real instead of only requiring them present."""
+def _i8d_canonical_stub():
+    """The build_i8d_canonical_schedule() stub shared by _install() and the one test
+    (test_seed_alignment_is_verified) that duplicates its setup manually. A single fake row is
+    enough: the guard only ever reads .schedule_hash and .rows[*].hero_team_hash/.opp_team_hash."""
+    return SimpleNamespace(
+        schedule_hash=_I8D_SCHED_HASH_TEST,
+        rows=(SimpleNamespace(hero_team_hash=_I8D_HERO_HASH_TEST, opp_team_hash=_I8D_OPP_HASH_TEST),))
+
+
+def _write_i8d_verdict(tmp_path, *, omit_fields=(), name="i8d_verdict.json", **overrides):
+    """A fully-shaped I8-D verdict artifact for the T3 identity+PASS+contract guard. Defaults to a
+    valid, matching, PASSing artifact carrying the REAL field set a genuine I8-D verdict.json always
+    has (review round 7: the guard now requires -- and where a canonical value is knowable, checks
+    -- the full 25-field report i8d_runner.run_i8d_live_gate writes, not just the 11 fields it
+    originally happened to read values from) so every OTHER test in this file (not testing the guard
+    itself) sails through unchanged. A test targeting the guard overrides exactly the field(s) it
+    wants wrong via **overrides (e.g. _write_i8d_verdict(tmp_path, git_sha="wrong")), or lists a
+    field in omit_fields to make the artifact incomplete."""
     data = {
-        "candidate_identity": candidate_identity, "verdict": verdict, "calc_backend": calc_backend,
-        "git_sha": git_sha, "config_hash": config_hash, "hero_agent": hero_agent,
-        "panel_hash": panel_hash, "schedule_hash": schedule_hash, "seed_base": seed_base,
-        "seed_log_verified": seed_log_verified, "p95_is_gate_value": p95_is_gate_value,
+        "candidate_identity": _PROV["candidate_identity"], "verdict": "PASS",
+        "calc_backend": _PROV["calc_backend"], "git_sha": _PROV["git_sha"],
+        "config_hash": _PROV["config_hash"], "hero_agent": _PROV["hero_agent"],
+        "panel_hash": I8D_EXPECTED_PANEL_HASH, "schedule_hash": _I8D_SCHED_HASH_TEST,
+        "seed_base": I8D_SEED_BASE, "seed_log_verified": True, "p95_is_gate_value": True,
+        "hero_team_hash": _I8D_HERO_HASH_TEST, "opp_team_hashes": [_I8D_OPP_HASH_TEST],
+        "battles_played": 25, "scored_decisions": 65,
+        "max_scored_decisions": I8D_MAX_SCORED_DECISIONS, "scored_overshoot": 0,
+        "active_valid_decisions": 61, "distinct_active_battles": 21,
+        "stop_reason": "exposure_floor_met", "exposure_floor_met": True,
+        "min_active_decisions": I8D_MIN_ACTIVE_DECISIONS,
+        "min_distinct_battles": I8D_MIN_DISTINCT_BATTLES,
+        "budget_ms": load_latency_budget_ms(), "p95_ms": 1.0,
     }
+    data.update(overrides)
     for field in omit_fields:
         data.pop(field, None)
     path = tmp_path / name
@@ -116,8 +137,7 @@ def _install(monkeypatch, *, rows_for, seed_log_path, games=1, indices_for=None,
 
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
     monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
-    monkeypatch.setattr(cr, "build_i8d_canonical_schedule",
-                        lambda **k: SimpleNamespace(schedule_hash=_I8D_SCHED_HASH_TEST))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
 
 
 def _run(tmp_path, monkeypatch, *, rows_for, n=8, games=1, indices_for=None, capture=None, out="out"):
@@ -406,8 +426,7 @@ def test_seed_alignment_is_verified(tmp_path, monkeypatch):
 
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
     monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
-    monkeypatch.setattr(cr, "build_i8d_canonical_schedule",
-                        lambda **k: SimpleNamespace(schedule_hash=_I8D_SCHED_HASH_TEST))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
     empty_log = tmp_path / "empty.log"
     empty_log.write_text("", encoding="utf-8")
     with pytest.raises(CoverageRunError, match="seed-log"):
@@ -476,10 +495,14 @@ def test_an_i8d_verdict_that_is_not_a_json_object_is_refused(tmp_path, monkeypat
     assert not (tmp_path / "out").exists()
 
 
-@pytest.mark.parametrize("missing_field", ["candidate_identity", "verdict", "panel_hash",
-                                           "seed_base", "calc_backend", "schedule_hash",
-                                           "git_sha", "config_hash", "hero_agent",
-                                           "seed_log_verified", "p95_is_gate_value"])
+@pytest.mark.parametrize("missing_field", [
+    "candidate_identity", "verdict", "calc_backend", "git_sha", "config_hash", "hero_agent",
+    "panel_hash", "schedule_hash", "seed_base", "seed_log_verified", "p95_is_gate_value",
+    "hero_team_hash", "opp_team_hashes", "battles_played", "scored_decisions",
+    "max_scored_decisions", "scored_overshoot", "active_valid_decisions",
+    "distinct_active_battles", "stop_reason", "exposure_floor_met", "min_active_decisions",
+    "min_distinct_battles", "budget_ms", "p95_ms",
+])
 def test_an_i8d_verdict_missing_a_required_field_is_refused(tmp_path, monkeypatch, missing_field):
     # (P1, review round 5) a hand-crafted JSON carrying only SOME fields must not pass -- the
     # check is general (any of the real I8-D verdict's fields, not hardcoded to the two this
@@ -631,6 +654,143 @@ def test_an_i8d_verdict_with_p95_is_gate_value_false_but_verdict_pass_is_refused
     _no_schedule_build(monkeypatch)
     path = _write_i8d_verdict(tmp_path, p95_is_gate_value=False)
     with pytest.raises(CoverageRunError, match="p95_is_gate_value"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_min_active_decisions_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 7) required PRESENT (round 6) but never checked against the pinned floor --
+    # a forged artifact could claim a LOWERED floor and still look complete.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, min_active_decisions=1)
+    with pytest.raises(CoverageRunError, match="min_active_decisions"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_min_distinct_battles_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, min_distinct_battles=1)
+    with pytest.raises(CoverageRunError, match="min_distinct_battles"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_max_scored_decisions_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, max_scored_decisions=1)
+    with pytest.raises(CoverageRunError, match="max_scored_decisions"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_budget_ms_is_refused(tmp_path, monkeypatch):
+    # a forged artifact could claim an INFLATED budget and still look complete.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, budget_ms=999999)
+    with pytest.raises(CoverageRunError, match="budget_ms"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_hero_team_hash_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 7) hero_team_hash/opp_team_hashes required PRESENT (round 6) but never
+    # checked -- both are free given the already-rebuilt canonical I8-D schedule.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, hero_team_hash="not-the-canonical-hero-hash")
+    with pytest.raises(CoverageRunError, match="hero_team_hash"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_opp_team_hashes_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, opp_team_hashes=["not-the-canonical-opp-hash"])
+    with pytest.raises(CoverageRunError, match="opp_team_hashes"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_exposure_floor_met_false_but_verdict_pass_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 7) a genuine verdict="PASS" can only ever pair with
+    # exposure_floor_met=True (i8d_verdict()'s PASS/FAIL branch requires the floor met) -- a
+    # hand-crafted JSON is not bound by that invariant unless checked explicitly.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, exposure_floor_met=False)
+    with pytest.raises(CoverageRunError, match="exposure_floor_met"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_the_wrong_stop_reason_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 7) a genuine verdict="PASS" can only ever pair with
+    # stop_reason="exposure_floor_met" (i8d_runner.should_stop checks the floor FIRST, before
+    # max_battles/max_scored_decisions) -- checked explicitly since a hand-crafted JSON is not bound
+    # by that invariant otherwise.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, stop_reason="max_battles")
+    with pytest.raises(CoverageRunError, match="stop_reason"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_p95_ms_above_budget_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 7) p95_is_gate_value=True (checked since round 6) does not by itself prove
+    # p95_ms is a sane number -- a hand-crafted JSON could pair verdict="PASS" with any p95_ms.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, p95_ms=999999.0)
+    with pytest.raises(CoverageRunError, match="p95_ms"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_a_non_numeric_p95_ms_is_refused(tmp_path, monkeypatch):
+    # type-safety companion to the check above (generalises review round 5 P2's non-object-JSON
+    # lesson): a non-numeric p95_ms must fail closed with CoverageRunError, not crash with an
+    # unhandled TypeError from the "<=" comparison.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, p95_ms=None)
+    with pytest.raises(CoverageRunError, match="p95_ms"):
         run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
                           seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
                           teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
