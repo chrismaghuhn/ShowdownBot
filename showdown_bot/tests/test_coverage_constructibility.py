@@ -122,3 +122,12 @@ def test_cov_foe_slot1s_real_team_leads_its_mega_holder_in_slot_b():
         f"cov_foe_slot1's target_cell=slot1 requires its Mega holder (Delphox) to lead in slot b "
         f"(chosen[1]); the real preview picker leads with {leads!r}"
     )
+
+
+def test_cov_foe_boths_real_team_leads_both_mega_holders():
+    leads = _real_preview_leads("teams/panel_champions_coverage_v0/cov_foe_both.txt")
+    assert set(leads) == {"aerodactyl", "meganium"}, (
+        f"cov_foe_both's target_cell=both_foe_slots requires BOTH Mega holders (Aerodactyl, "
+        f"Meganium) to lead -- order-independent, since the cell only needs both slots occupied, "
+        f"not a specific letter; the real preview picker leads with {leads!r}"
+    )

@@ -13,7 +13,7 @@ import pytest
 
 class _Sched:
     schedule_hash = "sched-cov"
-    panel_hash = "11d63978cb64a961"
+    panel_hash = "6f4c98537a320bed"
     rows = ()
 
 
