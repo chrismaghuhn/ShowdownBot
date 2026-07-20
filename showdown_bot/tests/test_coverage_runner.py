@@ -9,6 +9,8 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -27,6 +29,7 @@ from showdown_bot.eval.coverage_verdict import COVERAGE_MAX_SCORED_DECISIONS
 from showdown_bot.eval import coverage_runner as cr
 from showdown_bot.eval.coverage_runner import (
     CoverageRunError,
+    _is_under_data_eval,
     resolve_coverage_provenance,
     run_coverage_gate,
 )
@@ -161,6 +164,43 @@ def test_the_out_dir_may_not_be_under_data_eval(tmp_path, monkeypatch):
     with pytest.raises(CoverageRunError, match="data/eval"):
         run_coverage_gate(schedule=_schedule(8), out_dir="data/eval/champions-panel-v0/coverage-v0",
                           seed_log_path=str(tmp_path / "s.log"), expected_battles=8, teams_root=_TEAMS_ROOT)
+
+
+def test_the_data_eval_guard_is_case_insensitive_on_windows():
+    # NTFS (this repo's actual platform) is case-insensitive: DATA\EVAL\... and data/eval/... are
+    # the SAME directory on disk. A case-sensitive guard would silently let a run publish into the
+    # protected frozen-evidence tree via a differently-cased path.
+    assert _is_under_data_eval(r"data\eval\coverage-v0") is True
+    assert _is_under_data_eval(r"DATA\EVAL\coverage-v0") is True
+    assert _is_under_data_eval(r"Data\Eval\coverage-v0") is True
+    assert _is_under_data_eval("DATA/EVAL/coverage-v0") is True
+    assert _is_under_data_eval("data/notdata/coverage-v0") is False
+
+
+def test_a_junction_pointing_at_data_eval_is_still_blocked(tmp_path):
+    # Review finding (F6, follow-up): a pure string/segment match (even case-insensitive) never
+    # resolves the path -- a junction/symlink under a totally different name that points AT the
+    # repo's real data/eval would silently bypass it, since the STRING never contains "data/eval".
+    # The write would still land in the protected tree regardless of what the caller's path string
+    # says, so the guard must resolve the real target, not pattern-match the string.
+    if sys.platform != "win32":
+        pytest.skip("junction creation via mklink is Windows-specific")
+    alias = tmp_path / "alias_dir"
+    target = _REPO / "data" / "eval"
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(target)],
+                   check=True, capture_output=True)
+    assert _is_under_data_eval(str(alias / "some-coverage-run")) is True
+
+
+def test_an_unrelated_directory_sharing_the_data_eval_name_stays_allowed(tmp_path):
+    # Review finding (F6, follow-up): a pure segment-pair search anywhere in the string flags ANY
+    # path with a "data" segment immediately followed by an "eval" segment, even one that has
+    # nothing to do with this repo (e.g. an unrelated project's own data/eval directory reached via
+    # a completely different root). The guard protects THIS repo's tree specifically -- it must
+    # compare against the repo's own canonical data/eval, not search for the substring anywhere.
+    other = tmp_path / "other" / "data" / "eval"
+    other.mkdir(parents=True)
+    assert _is_under_data_eval(str(other / "coverage-v0")) is False
 
 
 def test_the_runner_refuses_a_leftover_staging_or_out_dir(tmp_path, monkeypatch):

@@ -16,6 +16,7 @@ import os
 
 from showdown_bot.eval.coverage import coverage_cell_counts
 from showdown_bot.eval.coverage_schedule import (
+    _REPO_ROOT,
     COVERAGE_FORMAT,
     COVERAGE_MANIFEST_PATH,
     COVERAGE_MAX_BATTLES,
@@ -103,9 +104,26 @@ def build_coverage_live_schedule(panel_path: str = COVERAGE_PANEL_PATH,
     return build_coverage_schedule(panel, manifest, n_battles=n_battles, teams_root=teams_root)
 
 
+_CANONICAL_DATA_EVAL = os.path.normcase(os.path.realpath(str(_REPO_ROOT / "data" / "eval")))
+
+
 def _is_under_data_eval(path: str) -> bool:
-    parts = [p for p in os.path.normpath(path).replace("\\", "/").split("/") if p and p != ".."]
-    return any(parts[i] == "data" and parts[i + 1] == "eval" for i in range(len(parts) - 1))
+    """True iff ``path`` resolves -- following symlinks/junctions, then compared
+    platform-appropriately for case -- to THIS repo's own protected data/eval tree, or a
+    descendant of it.
+
+    Never a pure string/segment match: that both under- and over-blocks. Under-blocks because a
+    junction/symlink under a differently-named path that points AT data/eval would never contain
+    the literal substring "data/eval", yet the write would still land there. Over-blocks because
+    ANY unrelated directory elsewhere that merely happens to have a "data" segment immediately
+    followed by an "eval" segment (a different project's own data/eval, reached via a completely
+    different root) would be flagged too, even though this guard only protects THIS repo's tree.
+    ``os.path.realpath`` resolves symlinks/junctions and does not require the path to exist;
+    ``os.path.normcase`` is a case-insensitive comparison on Windows (this repo's platform, where
+    NTFS is case-insensitive) and a no-op on case-sensitive filesystems.
+    """
+    resolved = os.path.normcase(os.path.realpath(path))
+    return resolved == _CANONICAL_DATA_EVAL or resolved.startswith(_CANONICAL_DATA_EVAL + os.sep)
 
 
 def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
