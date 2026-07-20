@@ -30,9 +30,14 @@ def test_resolve_provenance_derives_from_repo_and_env(monkeypatch):
     monkeypatch.setattr(rj, "make_config_hash", lambda m: "cfg-derived")
     monkeypatch.setenv("SHOWDOWN_CALC_BACKEND", "persistent")
 
+    # candidate_identity must be the SHARED formula (learning/provenance.make_candidate_identity),
+    # not a value reimplemented here -- so this assertion is symbolic, not a hardcoded literal.
+    expected_identity = prov.make_candidate_identity(
+        hero_agent="heuristic", git_sha="a1b2c3", config_hash="cfg-derived")
     assert r.resolve_i8d_provenance() == {
         "git_sha": "a1b2c3", "config_hash": "cfg-derived",
-        "calc_backend": "persistent", "hero_agent": "heuristic"}
+        "calc_backend": "persistent", "hero_agent": "heuristic",
+        "candidate_identity": expected_identity}
 
 
 def test_resolve_provenance_refuses_a_dirty_tree(monkeypatch):

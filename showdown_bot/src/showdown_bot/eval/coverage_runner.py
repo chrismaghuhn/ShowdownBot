@@ -10,7 +10,6 @@ injected ``run_local_gauntlet`` -- no server, no battle.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 
@@ -56,7 +55,7 @@ def resolve_coverage_provenance(*, hero_agent: str = "heuristic", format_id: str
     collide)."""
     from showdown_bot.eval.config_env import behavior_env, effective_config_manifest
     from showdown_bot.eval.result_jsonl import make_config_hash
-    from showdown_bot.learning.provenance import git_sha_and_dirty
+    from showdown_bot.learning.provenance import git_sha_and_dirty, make_candidate_identity
 
     git_sha, dirty = git_sha_and_dirty()
     if not git_sha or git_sha == "unknown":
@@ -83,10 +82,8 @@ def resolve_coverage_provenance(*, hero_agent: str = "heuristic", format_id: str
         raise CoverageRunError(
             f"unknown SHOWDOWN_CALC_BACKEND={raw_backend!r} (expected 'oneshot' or 'persistent')"
         )
-    candidate_identity = hashlib.sha1(
-        json.dumps({"hero_agent": hero_agent, "git_sha": git_sha, "config_hash": config_hash},
-                   sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:16]
+    candidate_identity = make_candidate_identity(
+        hero_agent=hero_agent, git_sha=git_sha, config_hash=config_hash)
     return {"git_sha": git_sha, "config_hash": config_hash, "calc_backend": calc_backend,
             "hero_agent": hero_agent, "candidate_identity": candidate_identity}
 

@@ -32,6 +32,15 @@ def _sha16(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:16]
 
 
+def make_candidate_identity(*, hero_agent: str, git_sha: str, config_hash: str) -> str:
+    """Canonical, unambiguous candidate identity: a sha1 of a sorted-key, delimited JSON object
+    (never bare string concatenation, so distinct field boundaries can't collide). The ONE shared
+    formula for every gate that needs to prove it ran the same candidate as another gate."""
+    return _sha16(json.dumps(
+        {"hero_agent": hero_agent, "git_sha": git_sha, "config_hash": config_hash},
+        sort_keys=True, separators=(",", ":")))
+
+
 def team_hash(packed_team: str) -> str:
     return _sha16(packed_team or "")
 
