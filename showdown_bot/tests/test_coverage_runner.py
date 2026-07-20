@@ -100,7 +100,25 @@ def test_caps_are_200_and_2000():
 
 def test_the_runner_does_not_accept_caller_supplied_git_sha_or_config_hash():
     params = set(inspect.signature(run_coverage_gate).parameters)
-    assert not (params & {"git_sha", "config_hash", "candidate_identity", "calc_backend"})
+    assert not (params & {"git_sha", "config_hash", "candidate_identity", "calc_backend",
+                          "expected_panel_hash"})
+
+
+def test_a_forged_panel_hash_on_otherwise_legitimate_rows_is_rejected(tmp_path, monkeypatch):
+    # Review finding (F3, follow-up): expected_panel_hash was itself a caller-suppliable
+    # parameter -- a forged schedule.panel_hash paired with a MATCHING caller-supplied
+    # expected_panel_hash sailed through unnoticed (the rows were otherwise legitimate, so
+    # schedule_hash matched canonical too). Now that the parameter is gone entirely, panel_hash
+    # can only be checked against a canonical value derived internally from the locked
+    # panel/manifest -- never anything the caller can supply or match.
+    sched = _schedule(8)
+    forged = type(sched)(version=sched.version, rows=sched.rows,
+                         schedule_hash=sched.schedule_hash, panel_hash="f" * 16)
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    with pytest.raises(CoverageRunError, match="canonical panel_hash"):
+        run_coverage_gate(schedule=forged, out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8, teams_root=_TEAMS_ROOT)
 
 
 def test_the_runner_uses_the_derived_calc_backend_not_a_default(tmp_path, monkeypatch):
@@ -153,6 +171,42 @@ def test_the_runner_refuses_a_leftover_staging_or_out_dir(tmp_path, monkeypatch)
     with pytest.raises(CoverageRunError, match="already exists"):
         run_coverage_gate(schedule=_schedule(8), out_dir=str(out), seed_log_path=str(tmp_path / "s.log"),
                           expected_battles=8, teams_root=_TEAMS_ROOT)
+
+
+def test_a_reordered_matchup_cycle_is_rejected_even_with_a_valid_panel_hash(tmp_path, monkeypatch):
+    # panel_hash covers team CONTENT only (schedule composition is a separate concern): reverse the
+    # manifest's matchup order before building, so panel_hash is unchanged (still the approved teams)
+    # and the forged schedule is fully SELF-consistent (verify_coverage_schedule's own checks only
+    # compare a schedule against itself) -- only a rebuild-and-compare against the canonical
+    # panel/manifest catches the reordering.
+    from dataclasses import replace
+    manifest = load_coverage_manifest()
+    reordered = replace(manifest, matchups=tuple(reversed(manifest.matchups)))
+    panel = load_panel(str(_REPO / COVERAGE_PANEL_PATH), teams_root=_TEAMS_ROOT)
+    forged = build_coverage_schedule(panel, reordered, n_battles=8, teams_root=_TEAMS_ROOT)
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    with pytest.raises(CoverageRunError, match="schedule_hash"):
+        run_coverage_gate(schedule=forged, out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8, teams_root=_TEAMS_ROOT)
+
+
+def test_a_teams_hash_record_that_no_longer_matches_disk_is_caught_by_the_runner_itself(tmp_path, monkeypatch):
+    # opp_team_hash/hero_team_hash are explicitly EXCLUDED from schedule_hash (eval/schedule.py) --
+    # so a stale/tampered recorded hash is invisible to the canonical-rebuild-and-compare check
+    # above. Only re-hashing every team file from disk (verify_coverage_panel_and_teams) catches it,
+    # and that guard must run INSIDE run_coverage_gate itself -- not only from the CLI wrapper --
+    # so any direct caller of the runner gets the same TOCTOU protection immediately before battle 1.
+    from dataclasses import replace
+    sched = _schedule(8)
+    tampered = replace(sched.rows[0], opp_team_hash="0" * 16)
+    forged = type(sched)(version=sched.version, rows=(tampered,) + sched.rows[1:],
+                         schedule_hash=sched.schedule_hash, panel_hash=sched.panel_hash)
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    with pytest.raises(CoverageRunError, match="content hash"):
+        run_coverage_gate(schedule=forged, out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8, teams_root=_TEAMS_ROOT)
 
 
 def test_the_panel_is_locked_to_the_coverage_panel(tmp_path, monkeypatch):

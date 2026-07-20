@@ -16,14 +16,15 @@ import os
 
 from showdown_bot.eval.coverage import coverage_cell_counts
 from showdown_bot.eval.coverage_schedule import (
-    COVERAGE_EXPECTED_PANEL_HASH,
     COVERAGE_FORMAT,
     COVERAGE_MANIFEST_PATH,
     COVERAGE_MAX_BATTLES,
     COVERAGE_PANEL_PATH,
     COVERAGE_SEED_BASE,
+    CoverageScheduleError,
     build_coverage_schedule,
     load_coverage_manifest,
+    verify_coverage_panel_and_teams,
     verify_coverage_schedule,
 )
 from showdown_bot.eval.coverage_verdict import (
@@ -123,7 +124,6 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
 
 def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
                       hero_agent: str = "heuristic", expected_battles: int = COVERAGE_MAX_BATTLES,
-                      expected_panel_hash: str = COVERAGE_EXPECTED_PANEL_HASH,
                       teams_root: str = ".") -> dict:
     """Drive the coverage schedule with whole-battle stop and render the three-way verdict, deriving
     provenance internally and verifying every execution boundary. A technical abort (Guard 2 partial
@@ -135,10 +135,24 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.team.pack import load_packed_team
 
     verify_coverage_schedule(schedule, expected_battles=expected_battles)
-    if schedule.panel_hash != expected_panel_hash:
+    # panel_hash covers team CONTENT; schedule_hash covers matchup ORDER/assignment. Neither is
+    # checked against a caller-suppliable "expected" value (a forged panel_hash paired with a
+    # matching caller-supplied expected_panel_hash argument used to sail through unnoticed, since
+    # the rows were otherwise legitimate and schedule_hash alone doesn't cover panel_hash). Both
+    # fields are checked against a schedule freshly rebuilt from the LOCKED panel/manifest instead
+    # -- never trust a caller-supplied Schedule's fields, self-consistent or not, on their own.
+    canonical = build_coverage_live_schedule(n_battles=expected_battles, teams_root=teams_root)
+    if canonical.panel_hash != schedule.panel_hash:
         raise CoverageRunError(
-            f"schedule panel_hash {schedule.panel_hash!r} != expected coverage panel "
-            f"{expected_panel_hash!r}: the panel/team contents are not the approved ones"
+            f"schedule panel_hash {schedule.panel_hash!r} != the canonical panel_hash freshly "
+            f"derived from the locked panel ({canonical.panel_hash!r}): the panel/team contents "
+            f"are not the approved ones"
+        )
+    if canonical.schedule_hash != schedule.schedule_hash:
+        raise CoverageRunError(
+            f"schedule_hash {schedule.schedule_hash!r} != the canonical schedule freshly rebuilt "
+            f"from the locked panel/manifest ({canonical.schedule_hash!r}): the caller's schedule "
+            f"composition (matchup order/assignment) does not match the approved one"
         )
     if _is_under_data_eval(out_dir):
         raise CoverageRunError(
@@ -161,6 +175,16 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         raise CoverageRunError(
             "coverage requires the server's seed log (SHOWDOWN_EVAL_SEED_LOG) so played seeds can be proven"
         )
+
+    # TOCTOU guard immediately before battle 1: re-hash every team file this schedule references
+    # FROM DISK, right now -- inside the runner itself, not only from a CLI wrapper a caller might
+    # skip. hero_team_hash/opp_team_hash are excluded from schedule_hash (eval/schedule.py), so the
+    # canonical-schedule check above cannot catch a team file that changed since the schedule was
+    # built; only this can.
+    try:
+        verify_coverage_panel_and_teams(schedule, teams_root=teams_root)
+    except CoverageScheduleError as exc:
+        raise CoverageRunError(str(exc)) from exc
 
     staging_dir = f"{out_dir}.staging"
     for label, p in (("output", out_dir), ("staging", staging_dir)):
