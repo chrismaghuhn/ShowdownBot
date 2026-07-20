@@ -18,8 +18,12 @@ from showdown_bot.eval.coverage import coverage_cell_counts
 from showdown_bot.eval.coverage_schedule import (
     COVERAGE_EXPECTED_PANEL_HASH,
     COVERAGE_FORMAT,
+    COVERAGE_MANIFEST_PATH,
     COVERAGE_MAX_BATTLES,
+    COVERAGE_PANEL_PATH,
     COVERAGE_SEED_BASE,
+    build_coverage_schedule,
+    load_coverage_manifest,
     verify_coverage_schedule,
 )
 from showdown_bot.eval.coverage_verdict import (
@@ -83,6 +87,19 @@ def resolve_coverage_provenance(*, hero_agent: str = "heuristic", format_id: str
     ).hexdigest()[:16]
     return {"git_sha": git_sha, "config_hash": config_hash, "calc_backend": calc_backend,
             "hero_agent": hero_agent, "candidate_identity": candidate_identity}
+
+
+def build_coverage_live_schedule(panel_path: str = COVERAGE_PANEL_PATH,
+                                 manifest_path: str = COVERAGE_MANIFEST_PATH, *,
+                                 n_battles: int = COVERAGE_MAX_BATTLES, teams_root: str = "."):
+    """Bind the fixed coverage schedule (all matchups materialised, frozen in ``schedule_hash``)
+    BEFORE the first battle. Thin wrapper over ``load_panel`` + ``load_coverage_manifest`` +
+    ``build_coverage_schedule`` -- the CLI locks ``panel_path``/``manifest_path`` to the coverage
+    ones, never a caller path."""
+    from showdown_bot.eval.panel import load_panel
+    panel = load_panel(panel_path, teams_root=teams_root)
+    manifest = load_coverage_manifest(manifest_path)
+    return build_coverage_schedule(panel, manifest, n_battles=n_battles, teams_root=teams_root)
 
 
 def _is_under_data_eval(path: str) -> bool:
