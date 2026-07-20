@@ -51,6 +51,8 @@ class HpStatus:
     def parse(cls, condition: str) -> "HpStatus":
         cond = condition.strip()
         parts = cond.split()
+        if not parts:
+            raise ValueError(f"invalid HP condition: {condition!r}")
         hp_part = parts[0]
         status = None
         fainted = False
@@ -105,50 +107,86 @@ def _clean_move_name(move: str) -> str:
 def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | None:
     positional, tags = _split_tags(args)
 
+    def _pokemon(idx: int = 0) -> PokemonId | None:
+        if idx >= len(positional):
+            return None
+        token = str(positional[idx]).strip()
+        if not token or ":" not in token:
+            return None
+        return PokemonId.parse(token)
+
+    def _hp(idx: int) -> HpStatus | None:
+        if idx >= len(positional) or not str(positional[idx]).strip():
+            return None
+        try:
+            return HpStatus.parse(positional[idx])
+        except ValueError:
+            return None
+
     if prefix in ("switch", "drag"):
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="switch",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             details=positional[1] if len(positional) > 1 else None,
-            hp=HpStatus.parse(positional[2]) if len(positional) > 2 else None,
+            hp=_hp(2),
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-damage":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="damage",
-            pokemon=PokemonId.parse(positional[0]),
-            hp=HpStatus.parse(positional[1]) if len(positional) > 1 else None,
+            pokemon=pokemon,
+            hp=_hp(1),
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-heal":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="heal",
-            pokemon=PokemonId.parse(positional[0]),
-            hp=HpStatus.parse(positional[1]) if len(positional) > 1 else None,
+            pokemon=pokemon,
+            hp=_hp(1),
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-sethp":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="sethp",
-            pokemon=PokemonId.parse(positional[0]),
-            hp=HpStatus.parse(positional[1]) if len(positional) > 1 else None,
+            pokemon=pokemon,
+            hp=_hp(1),
             tags=tags,
             raw=raw,
         )
 
     if prefix in ("-boost", "-unboost"):
-        sign = 1 if prefix == "-boost" else -1
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
+        amount = None
+        if len(positional) > 2:
+            try:
+                amount = (1 if prefix == "-boost" else -1) * int(positional[2])
+            except ValueError:
+                amount = None
         return LogEvent(
             type="boost",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
-            amount=sign * int(positional[2]) if len(positional) > 2 else None,
+            amount=amount,
             tags=tags,
             raw=raw,
         )
@@ -177,12 +215,21 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         )
 
     if prefix == "turn":
-        return LogEvent(type="turn", amount=int(positional[0]) if positional else None, raw=raw)
+        amount = None
+        if positional:
+            try:
+                amount = int(positional[0])
+            except ValueError:
+                amount = None
+        return LogEvent(type="turn", amount=amount, raw=raw)
 
     if prefix == "move":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="move",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             details=positional[1] if len(positional) > 1 else None,
             target=PokemonId.parse(positional[2])
             if len(positional) > 2 and ":" in positional[2]
@@ -192,48 +239,66 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         )
 
     if prefix == "faint":
-        return LogEvent(type="faint", pokemon=PokemonId.parse(positional[0]), raw=raw)
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
+        return LogEvent(type="faint", pokemon=pokemon, raw=raw)
 
     if prefix == "-status":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="status",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-curestatus":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="curestatus",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-enditem":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="enditem",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
             tags=tags,
             raw=raw,
         )
 
     if prefix == "detailschange":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="detailschange",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             details=positional[1] if len(positional) > 1 else None,
             tags=tags,
             raw=raw,
         )
 
     if prefix == "-mega":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="mega",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
             details=positional[2] if len(positional) > 2 else None,
             tags=tags,
@@ -241,9 +306,12 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         )
 
     if prefix == "-item":
+        pokemon = _pokemon(0)
+        if pokemon is None:
+            return None
         return LogEvent(
             type="item",
-            pokemon=PokemonId.parse(positional[0]),
+            pokemon=pokemon,
             value=positional[1] if len(positional) > 1 else None,
             tags=tags,
             raw=raw,
