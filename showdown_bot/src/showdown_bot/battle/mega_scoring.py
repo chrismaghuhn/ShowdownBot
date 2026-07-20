@@ -480,8 +480,10 @@ def score_evaluated_variants(
         shape_sink.n_candidates = len(records)
         shape_sink.n_worlds = len(worlds)
     # Task 2 coverage telemetry: decision-level accumulators. The scored foe-Mega slots, and per
-    # (own_slot, foe_mega_slot) interaction the set of (branch_weight, activation_order) actually
-    # scored. Written onto shape_sink ONLY at successful completion, so a mid-scoring abort leaves
+    # (world_idx, own_slot, foe_mega_slot) interaction the set of (branch_weight, activation_order)
+    # actually scored -- world_idx keeps two different sampled worlds' branches from being pooled
+    # into a false tie (a genuine tie is both reversed orderings scored within ONE world). Written
+    # onto shape_sink ONLY at successful completion, so a mid-scoring abort leaves
     # foe_mega_slots/foe_mega_order_tie at their defaults.
     _cov_scored_slots: set[int] = set()
     _cov_tie_orderings: dict[tuple, set] = {}
@@ -766,8 +768,14 @@ def score_evaluated_variants(
                             shape_sink.n_mega_twins += 1   # ...on the foe-Mega branch path
                             # Task 2: this foe slot was positively scored; record it and this
                             # branch's (weight, activation_order) for the interaction's tie test.
+                            # Keyed by world_idx too: a genuine tie is both reversed orderings scored
+                            # WITHIN ONE world's own resolution of the ambiguity, never one world's
+                            # lone half pooled with a different world's lone (coincidentally reversed)
+                            # half -- each sampled world can imply a different speed/spread
+                            # assumption, so two worlds each contributing one half never proves either
+                            # world actually faced a tie (review finding, offline-reproduced).
                             _cov_scored_slots.add(foe_mega_slot)
-                            _cov_tie_orderings.setdefault((slot, foe_mega_slot), set()).add(
+                            _cov_tie_orderings.setdefault((world_idx, slot, foe_mega_slot), set()).add(
                                 (branch.weight, branch.activation_order)
                             )
                         raw_w = original.weight

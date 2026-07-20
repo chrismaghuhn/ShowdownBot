@@ -126,6 +126,40 @@ def test_filling_the_new_fields_leaves_the_chosen_action_and_six_counts_identica
         s_none.close()
 
 
+def test_order_tie_does_not_mix_half_ties_scored_in_different_worlds(monkeypatch):
+    # Two DIFFERENT sampled worlds, each contributing only ONE of the two mutually-reversed 0.5
+    # orderings for the SAME (own_slot, foe_mega_slot) interaction, must NOT be pooled into a false
+    # tie: neither world individually ever saw both halves. mega_decision_no_own_mega_fixture has
+    # exactly one context (own_mega_slot=None) so there is only one interaction key to pollute.
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+    from showdown_bot.engine.mega_projection import WeightedMegaProjection, copy_battle_state
+
+    def _spreads(nature):
+        p = SpreadPreset(nature=nature, evs={"hp": 4}, items=[])
+        return SpeciesSpreads(offense=p, defense=p)
+
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
+    monkeypatch.setattr(ms, "build_world_dist",
+                        lambda *a, **k: {"aerodactyl": [(_spreads("Jolly"), 0.6), (_spreads("Adamant"), 0.4)]})
+
+    order_fwd = (("p2", "a"), ("p1", "b"))
+    order_rev = tuple(reversed(order_fwd))
+    calls = {"n": 0}
+
+    def _one_half_per_world(state, activations, **kw):
+        calls["n"] += 1
+        order = order_fwd if calls["n"] == 1 else order_rev
+        return [WeightedMegaProjection(projected_state=copy_battle_state(state), weight=0.5,
+                                       activation_order=order)]
+
+    monkeypatch.setattr(mp, "compose_mega_projection_branches", _one_half_per_world)
+
+    shape = _shape_for("mega_decision_no_own_mega_fixture")
+    assert calls["n"] == 2                       # one call per world, confirming K=2 actually ran
+    assert tuple(shape.foe_mega_slots) == (0,)    # the slot is still genuinely scored
+    assert shape.foe_mega_order_tie is False      # but no single world ever saw BOTH halves
+
+
 def test_an_aborted_scoring_leaves_the_cell_fields_at_defaults(monkeypatch):
     # Inject a failure after the first scored line: score raises, and the cell fields are written
     # ONLY on successful completion, so they stay at their defaults.
