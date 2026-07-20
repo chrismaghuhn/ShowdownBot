@@ -1,0 +1,21 @@
+{
+  "version": "champions-coverage-v0",
+  "format_id": "gen9championsvgc2026regma",
+  "matchups": [
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_slot0", "opp_policy": "heuristic", "target_cell": "slot0"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_slot0", "opp_policy": "max_damage", "target_cell": "slot0"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_slot1", "opp_policy": "heuristic", "target_cell": "slot1"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_slot1", "opp_policy": "max_damage", "target_cell": "slot1"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_both", "opp_policy": "heuristic", "target_cell": "both_foe_slots"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_both", "opp_policy": "max_damage", "target_cell": "both_foe_slots"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_tie", "opp_policy": "heuristic", "target_cell": "order_tie"},
+    {"hero_team": "fixed_champions_v0", "opp_team": "cov_foe_tie", "opp_policy": "max_damage", "target_cell": "order_tie"}
+  ],
+  "team_content_hashes": {
+    "fixed_champions_v0": "1d3a4cf5a4042532",
+    "cov_foe_slot0": "e0c96fa0cabf1def",
+    "cov_foe_slot1": "0054b6894af7215a",
+    "cov_foe_both": "0b6930668a9f6e72",
+    "cov_foe_tie": "b7077a81e579aa72"
+  }
+}
