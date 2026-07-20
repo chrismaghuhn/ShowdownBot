@@ -121,7 +121,7 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
             )
 
 
-def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str, calc_backend: str = "oneshot",
+def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
                       hero_agent: str = "heuristic", expected_battles: int = COVERAGE_MAX_BATTLES,
                       expected_panel_hash: str = COVERAGE_EXPECTED_PANEL_HASH,
                       teams_root: str = ".") -> dict:
@@ -148,6 +148,7 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str, calc_backen
 
     prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
     git_sha, config_hash = prov["git_sha"], prov["config_hash"]
+    calc_backend = prov["calc_backend"]
     candidate_identity = prov["candidate_identity"]
 
     seed_base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "")

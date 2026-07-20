@@ -100,7 +100,21 @@ def test_caps_are_200_and_2000():
 
 def test_the_runner_does_not_accept_caller_supplied_git_sha_or_config_hash():
     params = set(inspect.signature(run_coverage_gate).parameters)
-    assert not (params & {"git_sha", "config_hash", "candidate_identity"})
+    assert not (params & {"git_sha", "config_hash", "candidate_identity", "calc_backend"})
+
+
+def test_the_runner_uses_the_derived_calc_backend_not_a_default(tmp_path, monkeypatch):
+    # resolve_coverage_provenance is the ONLY legitimate source of calc_backend; a run under
+    # SHOWDOWN_CALC_BACKEND=persistent must report "persistent" even though nothing ever passes
+    # calc_backend as an argument (there is no such parameter -- see the signature test above).
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _install(monkeypatch, rows_for=lambda b, i: [_row(b, 0, slots=(0,))], seed_log_path=seed_log)
+    monkeypatch.setattr(cr, "resolve_coverage_provenance",
+                        lambda **k: {**_PROV, "calc_backend": "persistent"})
+    report = run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                               seed_log_path=seed_log, expected_battles=8, teams_root=_TEAMS_ROOT)
+    assert report["calc_backend"] == "persistent"
 
 
 def test_resolve_coverage_provenance_derives_from_repo_and_env_and_refuses_dirty(monkeypatch):
