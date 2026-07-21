@@ -123,11 +123,20 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         """Returns a parsed ``HpStatus``, ``None`` if the arg slot is genuinely absent/blank, or
         the ``_HP_MALFORMED`` sentinel if the slot is present but fails to parse.
 
-        (review finding) The two failure modes are NOT interchangeable: an HP-defining event
-        (``-damage``/``-heal``/``-sethp``) whose token is present-but-garbled must drop the
-        WHOLE event, matching ``_pokemon()``'s existing precedent -- silently keeping it with
-        ``hp=None`` let a real hit (e.g. "Thunderbolt") get paired downstream with a fabricated
-        ``post_hp == pre_hp`` "no damage happened" record instead of being excluded as unknown.
+        (review finding) On an HP-defining event (``-damage``/``-heal``/``-sethp``), HP is the
+        entire point -- there is no legitimate "damage happened but we don't know the amount"
+        message in the protocol, so callers there must drop the WHOLE event for BOTH failure
+        modes (``hp is None`` for a genuinely absent token, and the ``_HP_MALFORMED`` sentinel
+        for one present but garbled), matching ``_pokemon()``'s existing precedent. An earlier
+        version of this fix only checked the sentinel, missing the absent case -- a real hit with
+        no HP argument at all (e.g. ``-damage|p2a: Defender`` with no third field) still kept the
+        event with ``hp=None`` and got paired downstream into a fabricated
+        ``post_hp == pre_hp`` "no damage happened" record.
+
+        ``switch``'s HP field is different: it is supplementary (species/side tracking is the
+        point of a switch, not HP), so a malformed OR absent token there is legitimately treated
+        as "unknown, keep the event anyway" -- only the sentinel needs converting back to
+        ``None`` there, not dropping the event.
         """
         if idx >= len(positional) or not str(positional[idx]).strip():
             return None
@@ -158,7 +167,7 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         if pokemon is None:
             return None
         hp = _hp(1)
-        if hp is _HP_MALFORMED:
+        if not isinstance(hp, HpStatus):
             return None
         return LogEvent(
             type="damage",
@@ -173,7 +182,7 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         if pokemon is None:
             return None
         hp = _hp(1)
-        if hp is _HP_MALFORMED:
+        if not isinstance(hp, HpStatus):
             return None
         return LogEvent(
             type="heal",
@@ -188,7 +197,7 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         if pokemon is None:
             return None
         hp = _hp(1)
-        if hp is _HP_MALFORMED:
+        if not isinstance(hp, HpStatus):
             return None
         return LogEvent(
             type="sethp",
