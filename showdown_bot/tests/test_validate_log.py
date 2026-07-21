@@ -47,6 +47,39 @@ def test_malformed_hp_token_does_not_fabricate_a_no_damage_instance():
     assert not any(i.move == "Thunderbolt" for i in instances)
 
 
+def test_missing_hp_token_does_not_fabricate_a_no_damage_instance():
+    # (review finding) a genuinely ABSENT HP argument is a DIFFERENT failure mode from a
+    # present-but-garbled one, and an earlier fix only dropped the malformed case -- a real hit
+    # with NO HP field at all (e.g. Showdown omitting the argument) still kept the event with
+    # hp=None and fabricated the same 100->100 "did nothing" record.
+    raw = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, M|100/100",
+        "|switch|p2a: Defender|Delibird, F|100/100",
+        "|move|p1a: Incineroar|Thunderbolt|p2a: Defender",
+        "|-damage|p2a: Defender",
+        "|turn|2",
+    ])
+    events = parse_log(raw)
+    instances = _collect_instances(events)
+    assert not any(i.move == "Thunderbolt" for i in instances)
+
+
+def test_empty_hp_token_does_not_fabricate_a_no_damage_instance():
+    # Same failure mode as the missing-argument case above, via a blank-string argument instead
+    # of an absent one -- _hp() already treats both as "absent" internally, but the event-level
+    # drop must cover both too.
+    raw = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, M|100/100",
+        "|switch|p2a: Defender|Delibird, F|100/100",
+        "|move|p1a: Incineroar|Thunderbolt|p2a: Defender",
+        "|-damage|p2a: Defender|",
+        "|turn|2",
+    ])
+    events = parse_log(raw)
+    instances = _collect_instances(events)
+    assert not any(i.move == "Thunderbolt" for i in instances)
+
+
 def test_missing_move_name_does_not_fabricate_an_empty_move_instance():
     # A move event with no move name must NOT be paired with its damage under a fabricated
     # move="" -- that would feed an empty move name into the damage calculator and compare
