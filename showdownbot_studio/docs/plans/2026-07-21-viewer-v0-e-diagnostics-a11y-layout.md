@@ -558,7 +558,7 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 
 | Test | Assert |
 |---|---|
-| `test_banner_visible_fixture01` | after open + settle, banner **`DECISION RECORDED`** (Plan D `DecisionController.reset` selects first decision on trusted bundles); control visible |
+| `test_banner_visible_fixture01` | after open + settle, banner **`TEAM PREVIEW`** (Plan D selects first `decision_index` = 0; fixture-01 d0 phase is `team_preview`); control visible |
 | `test_banner_fixture04_trace_missing` | `TRACE MISSING` |
 | `test_banner_fixture03_fallback_on_selected_row` | Open fixture-03; `select_decision_row` for the row with `fallback_used == true` (fixture-03 d2 / Plan D nav target); banner **`FALLBACK USED`** (deterministic — no “or”) |
 | `test_banner_fixture05_after_selection` | Open `bundles/fixture-05`; select a recorded decision; banner is one of the §0.5 labels consistent with that row (at minimum: not `BUNDLE INVALID` / not `TRACE MISSING` while trusted+selected) |
