@@ -1,7 +1,7 @@
 # Viewer v0 — Plan E: Diagnostics, Accessibility, and Layout
 
 **Status:** DRAFT — executable plan for review; **implementation not authorized**
-**Date:** 2026-07-21 · **Rev.:** 2 (choice points closed; F1–F4 test-layer fixes)
+**Date:** 2026-07-21 · **Rev.:** 3 (deterministic fixture-05 banner; real phase rows for G1)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -244,7 +244,7 @@ keys; score graph; artwork; theme polish beyond workable defaults; inventing API
 
 ### 0.12 Implementation gate
 
-This Rev. 2 is **DRAFT**. Choice Points A–C are **CLOSED** (§0.13). Code still starts only after:
+This Rev. 3 is **DRAFT**. Choice Points A–C are **CLOSED** (§0.13). Code still starts only after:
 (1) status → **APPROVED**, (2) separate implementation go-ahead. Approve-commit precedes code.
 
 ### 0.13 Choice points — CLOSED (owner, Rev. 2)
@@ -499,8 +499,8 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 | `test_fixture04_trace_missing` | fixture-04 loaded, no refuse → `TRACE MISSING` |
 | `test_waiting_when_no_selection` | trusted bundle, `selected=null` → `WAITING / NO DECISION ROW` |
 | `test_fallback_used` | fixture-03 decision with `fallback_used` → `FALLBACK USED` |
-| `test_phase_team_preview` | constructed phase → `TEAM PREVIEW` |
-| `test_phase_forced_replacement` | constructed → `FORCED REPLACEMENT` |
+| `test_phase_team_preview` | fixture-01: select row for `decision_index == 0` (`team_preview`) → `TEAM PREVIEW`. **Real sealed row** (Loader → Validator allowlist `bundle_validator.gd:73–75` → `bundle_loader.gd:308` copies `decision_phase`) — not a hand-built DTO that only exercises the presenter `match`. |
+| `test_phase_forced_replacement` | fixture-01: select row for `decision_index == 1` (`forced_replacement`) → `FORCED REPLACEMENT`. Same full-chain rationale as above. |
 | `test_decision_recorded_regular` | fixture-01 selected `PHASE_REGULAR_TURN` → `DECISION RECORDED` |
 | `test_degraded_downgrade_warnings` | non-empty `downgrade_warnings` beats waiting (3v4 sample) |
 | `test_dirty_null_label` | `dirty_label(null) == "dirty state not recorded"` |
@@ -561,7 +561,7 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 | `test_banner_visible_fixture01` | after open + settle, banner **`TEAM PREVIEW`** (Plan D selects first `decision_index` = 0; fixture-01 d0 phase is `team_preview`); control visible |
 | `test_banner_fixture04_trace_missing` | `TRACE MISSING` |
 | `test_banner_fixture03_fallback_on_selected_row` | Open fixture-03; `select_decision_row` for the row with `fallback_used == true` (fixture-03 d2 / Plan D nav target); banner **`FALLBACK USED`** (deterministic — no “or”) |
-| `test_banner_fixture05_after_selection` | Open `bundles/fixture-05`; select a recorded decision; banner is one of the §0.5 labels consistent with that row (at minimum: not `BUNDLE INVALID` / not `TRACE MISSING` while trusted+selected) |
+| `test_banner_fixture05_forced_on_d4` | Open `bundles/fixture-05`; select the row with `decision_index == 4` (`forced_replacement`, `fallback_used == false` — measured in `decisions.jsonl`); banner **`FORCED REPLACEMENT`**. Pins priority 6 on real data (no soft “one of §0.5 labels”). |
 | `test_banner_fixture06_refuse_hash_mismatch` | Path **`sources/fixture-06/bundle`** (there is **no** `bundles/fixture-06` — same path as `test_app_shell_smoke.gd:82` / `test_bundle_validator.gd:96`). Assert `get_refuse_reason() == "hash_mismatch"` **and** banner `BUNDLE INVALID`. Pinning the reason prevents a green test on a wrong/missing path that merely fails to open. |
 | `test_deep_link_refuse_uses_plan_d_reason` | mismatch → status/detail contains `battle_id_mismatch` **literal** |
 | `test_keyboard_only_smoke_fixture01` | sequence: open → next decision → focus filter → type → focus selected (no mouse API) |
@@ -671,6 +671,7 @@ implementation start by counting §5 names). No silent case deletion.
 - [x] Approve-before-implement sequencing explicit
 - [x] F1 precedence pairs named; F2 fixtures 5/6 + no soft “or”; F3 priority-8 DiD; F4 changelog
 - [x] B2 monospace Auflage in §0.8 / §0.9 / §4.6 + named test
+- [x] Rev. 3: fixture-05 d4 pin; phase tests use sealed fixture-01 rows (G1/G2)
 - [ ] Owner marks APPROVED (not author)
 
 ---
@@ -713,6 +714,16 @@ implementation start by counting §5 names). No silent case deletion.
 ---
 
 ## 12. Changelog
+
+### Rev. 3 — Deterministic fixture-05 banner + real phase rows (G1/G2)
+
+- **G2:** Replaced soft `test_banner_fixture05_after_selection` with
+  `test_banner_fixture05_forced_on_d4` — select `decision_index == 4` → pin
+  `FORCED REPLACEMENT` (measured: fixture-05 d4/d7 are `forced_replacement`; no
+  `fallback_used` anywhere in that file).
+- **G1:** `test_phase_team_preview` / `test_phase_forced_replacement` now use fixture-01
+  sealed rows (d0 / d1) so Loader → Validator → Seal → `bundle_loader.gd:308` are in the
+  proof chain, not only a constructed DTO `match`.
 
 ### Rev. 2 — Choice points closed + F1–F4
 
