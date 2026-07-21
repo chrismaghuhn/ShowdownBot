@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from showdown_bot.battle.actions import JointAction, SlotAction
-from showdown_bot.battle.decision import _maybe_tera
+from showdown_bot.battle.decision import _maybe_tera, _plan_my_actions
 from showdown_bot.engine.format_config import load_format_config
 from showdown_bot.models.request import BattleRequest
 
@@ -81,3 +81,22 @@ def test_maybe_tera_regi_cfg_tera_true_enters_overlay_loop(_spy_plan_my_actions)
     best = _best_ja()
     _maybe_tera(**_maybe_tera_args(_req(), best, format_config=cfg))
     assert len(_spy_plan_my_actions) >= 1
+
+
+def test_null_active_slot_is_safe_in_planning_and_tera_overlay(_spy_plan_my_actions):
+    original = _req()
+    req = original.model_copy(update={"active": [original.active[0], None]})
+    slot1_move = JointAction(
+        SlotAction(kind="pass"),
+        SlotAction(kind="move", move_index=1, target=1),
+    )
+    plans = _plan_my_actions(
+        req,
+        slot1_move,
+        state=SimpleNamespace(side=lambda _side: {}),
+        our_side="p1",
+        opp_side="p2",
+        speed_oracle=None,
+    )
+    assert [plan.kind for plan in plans] == ["pass", "move"]
+    assert _maybe_tera(**_maybe_tera_args(req, slot1_move, format_config=None)) is slot1_move

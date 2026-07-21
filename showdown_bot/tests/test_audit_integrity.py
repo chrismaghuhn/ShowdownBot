@@ -1,3 +1,5 @@
+import gzip
+
 import pytest
 
 from showdown_bot.learning.audit.contracts import AuditConfig, AuditError, Severity
@@ -110,3 +112,12 @@ def test_mixed_provenance_is_reported(tmp_path, audit_dataset):
     path = audit_dataset(tmp_path, mixed_provenance=True)
     _corpus, findings = load_and_audit_integrity(path, AuditConfig())
     assert any(f.code == "MIXED_PROVENANCE" for f in findings)
+
+
+def test_dataset_hash_matches_plain_and_gzip_content(tmp_path):
+    payload = b'{"row": 1}\n'
+    plain = tmp_path / "dataset.jsonl"
+    compressed = tmp_path / "dataset.jsonl.gz"
+    plain.write_bytes(payload)
+    compressed.write_bytes(gzip.compress(payload))
+    assert dataset_sha256(plain) == dataset_sha256(compressed)
