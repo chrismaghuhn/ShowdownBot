@@ -1,0 +1,27 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/decision/candidate_table_view.gd" id="1_table"]
+
+[node name="CandidateTableView" type="VBoxContainer"]
+layout_mode = 2
+script = ExtResource("1_table")
+
+[node name="FilterRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="FilterLineEdit" type="LineEdit" parent="FilterRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Filter candidates..."
+
+[node name="ChosenOnlyCheckBox" type="CheckBox" parent="FilterRow"]
+layout_mode = 2
+text = "Chosen only"
+
+[node name="SortOption" type="OptionButton" parent="."]
+layout_mode = 2
+
+[node name="CandidateList" type="ItemList" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+select_mode = 0

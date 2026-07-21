@@ -1,0 +1,21 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/diagnostics/state_banner.gd" id="1_banner"]
+
+[node name="StateBanner" type="HBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+script = ExtResource("1_banner")
+
+[node name="IconLabel" type="Label" parent="."]
+layout_mode = 2
+text = "!"
+
+[node name="StateLabel" type="Label" parent="."]
+layout_mode = 2
+text = "BUNDLE INVALID"
+
+[node name="DetailLabel" type="Label" parent="."]
+visible = false
+layout_mode = 2
+autowrap_mode = 3

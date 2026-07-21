@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/decision/decision_detail_view.gd" id="1_detail"]
+
+[node name="DecisionDetailView" type="TabContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+script = ExtResource("1_detail")
+
+[node name="Overview" type="VBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="AggregationLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="RiskLambdaLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="MustReactLambdaLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="LatencyLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="ChooseStringLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="ChosenKeyLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="ChosenIdLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="RequestHashLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="ObservableHashLabel" type="Label" parent="Overview"]
+layout_mode = 2
+
+[node name="Candidate" type="VBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="CandidateIdLabel" type="Label" parent="Candidate"]
+layout_mode = 2
+
+[node name="CandidateRankLabel" type="Label" parent="Candidate"]
+layout_mode = 2
+
+[node name="CandidateScoreLabel" type="Label" parent="Candidate"]
+layout_mode = 2
+
+[node name="CandidateKeyLabel" type="Label" parent="Candidate"]
+layout_mode = 2
+
+[node name="StateSummary" type="VBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="StateSummaryLabel" type="Label" parent="StateSummary"]
+layout_mode = 2
+autowrap_mode = 3

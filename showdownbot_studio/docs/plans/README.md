@@ -9,9 +9,11 @@ here; the status line on each document is authoritative.
 | Document | Status |
 |---|---|
 | [`2026-07-21-viewer-v0-implementation-index.md`](2026-07-21-viewer-v0-implementation-index.md) | **APPROVED** 2026-07-21 (Rev. 2) — orders A–F; **does not authorize code** |
-| Plan A | **APPROVED** 2026-07-21 (Rev. 6) — docs only; **code needs separate go-ahead** |
-| Plan B | **APPROVED** 2026-07-21 (Rev. 6) — docs/pin only; **code** blocked until Plan A/PR #41 merged + go-ahead |
-| Plans C–F | **DRAFT** — each needs its own APPROVED mark before its code may start |
+| Plan A | **APPROVED** + **merged** via PR **#41** |
+| Plan B | **APPROVED** + **merged** via PR **#44** |
+| Plan C | **APPROVED** + **merged** via PR **#46** @ `1b0be1d` |
+| Plan D | **APPROVED** — Rev. 5; implementation authorized |
+| Plans E–F | **DRAFT** — each needs its own APPROVED mark before its code may start |
 
 **Planning authorization:** Viewer v0 design + bundle contract are APPROVED and authorize these
 plans. The master spec is non-binding context for Phase 0 (index §2.2).
@@ -19,23 +21,22 @@ plans. The master spec is non-binding context for Phase 0 (index §2.2).
 **Code authorization (fail-closed):**
 
 1. Approving the implementation index alone does **not** authorize any code.
-2. A plan must be marked **APPROVED** before its code may be considered; Plan A additionally
-   requires a **separate implementation go-ahead** after this docs approval.
+2. A plan must be marked **APPROVED** before its code may be considered; after APPROVED, code still
+   requires a **separate implementation go-ahead**.
 3. Plan X must not start before its hard dependencies in the index §3 graph are satisfied.
 4. Phases 1–5 remain unauthorized.
 
 | Order | Document | Scope | Status |
 |---|---|---|---|
 | 0 | [`2026-07-21-viewer-v0-implementation-index.md`](2026-07-21-viewer-v0-implementation-index.md) | Sequencing, gates, non-goals, file map | **APPROVED** |
-| A | [`2026-07-21-viewer-v0-a-exporter-and-fixtures.md`](2026-07-21-viewer-v0-a-exporter-and-fixtures.md) | Python exporter + contract fixtures | **APPROVED** 2026-07-21 (Rev. 6) |
-| B | [`2026-07-21-viewer-v0-b-godot-shell-and-loader.md`](2026-07-21-viewer-v0-b-godot-shell-and-loader.md) | Godot project + typed DTO loader | **APPROVED** 2026-07-21 (Rev. 6) |
-| C | [`2026-07-21-viewer-v0-c-replay-and-timeline.md`](2026-07-21-viewer-v0-c-replay-and-timeline.md) | Abstract board + timeline | DRAFT |
-| D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | DRAFT |
+| A | [`2026-07-21-viewer-v0-a-exporter-and-fixtures.md`](2026-07-21-viewer-v0-a-exporter-and-fixtures.md) | Python exporter + contract fixtures | **merged** PR #41 |
+| B | [`2026-07-21-viewer-v0-b-godot-shell-and-loader.md`](2026-07-21-viewer-v0-b-godot-shell-and-loader.md) | Godot project + typed DTO loader | **merged** PR #44 |
+| C | [`2026-07-21-viewer-v0-c-replay-and-timeline.md`](2026-07-21-viewer-v0-c-replay-and-timeline.md) | Abstract board + timeline | **merged** PR #46 |
+| D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | **DRAFT** |
 | E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | DRAFT |
 | F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | DRAFT |
 
-**Next:** merge Plan A / PR #41; then separate go-ahead before any Plan B code. Plans C–E remain
-DRAFT until their own APPROVED marks.
+**Next:** Plan D implementation (APPROVED Rev. 5). Plans E–F remain DRAFT until their own APPROVED marks.
 
 ## Authority for this plan set
 
