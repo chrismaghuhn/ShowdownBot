@@ -1,0 +1,20 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/replay/replay_workspace.gd" id="1_ws"]
+[ext_resource type="PackedScene" path="res://src/replay/abstract_board_view.tscn" id="2_board"]
+[ext_resource type="PackedScene" path="res://src/timeline/timeline_view.tscn" id="3_timeline"]
+[ext_resource type="Script" path="res://src/timeline/timeline_controller.gd" id="4_ctl"]
+
+[node name="ReplayWorkspace" type="VBoxContainer"]
+layout_mode = 2
+script = ExtResource("1_ws")
+
+[node name="Board" parent="." instance=ExtResource("2_board")]
+layout_mode = 2
+
+[node name="Timeline" parent="." instance=ExtResource("3_timeline")]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TimelineController" type="Node" parent="."]
+script = ExtResource("4_ctl")
