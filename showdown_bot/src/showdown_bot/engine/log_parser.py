@@ -6,6 +6,10 @@ from showdown_bot.protocol.messages import parse_incoming
 
 _HP_COLOR_SUFFIX = frozenset("ryg")
 
+# Sentinel distinguishing "HP arg present but unparseable" from "HP arg genuinely absent" --
+# see parse_log_line's _hp() helper for why the distinction is load-bearing.
+_HP_MALFORMED = object()
+
 
 def parse_hp_integer(token: str, *, allow_color_suffix: bool = False) -> int:
     """Parse a Showdown HP token.
@@ -115,23 +119,36 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
             return None
         return PokemonId.parse(token)
 
-    def _hp(idx: int) -> HpStatus | None:
+    def _hp(idx: int) -> HpStatus | None | object:
+        """Returns a parsed ``HpStatus``, ``None`` if the arg slot is genuinely absent/blank, or
+        the ``_HP_MALFORMED`` sentinel if the slot is present but fails to parse.
+
+        (review finding) The two failure modes are NOT interchangeable: an HP-defining event
+        (``-damage``/``-heal``/``-sethp``) whose token is present-but-garbled must drop the
+        WHOLE event, matching ``_pokemon()``'s existing precedent -- silently keeping it with
+        ``hp=None`` let a real hit (e.g. "Thunderbolt") get paired downstream with a fabricated
+        ``post_hp == pre_hp`` "no damage happened" record instead of being excluded as unknown.
+        """
         if idx >= len(positional) or not str(positional[idx]).strip():
             return None
         try:
             return HpStatus.parse(positional[idx])
         except ValueError:
-            return None
+            return _HP_MALFORMED
 
     if prefix in ("switch", "drag"):
         pokemon = _pokemon(0)
         if pokemon is None:
             return None
+        # HP is supplementary on a switch (species/side tracking is the point of the event), so
+        # a malformed token here is treated the same as absent -- unlike -damage/-heal/-sethp
+        # below, where HP is the entire point and a malformed token drops the whole event.
+        hp = _hp(2)
         return LogEvent(
             type="switch",
             pokemon=pokemon,
             details=positional[1] if len(positional) > 1 else None,
-            hp=_hp(2),
+            hp=None if hp is _HP_MALFORMED else hp,
             tags=tags,
             raw=raw,
         )
@@ -140,10 +157,13 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         pokemon = _pokemon(0)
         if pokemon is None:
             return None
+        hp = _hp(1)
+        if hp is _HP_MALFORMED:
+            return None
         return LogEvent(
             type="damage",
             pokemon=pokemon,
-            hp=_hp(1),
+            hp=hp,
             tags=tags,
             raw=raw,
         )
@@ -152,10 +172,13 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         pokemon = _pokemon(0)
         if pokemon is None:
             return None
+        hp = _hp(1)
+        if hp is _HP_MALFORMED:
+            return None
         return LogEvent(
             type="heal",
             pokemon=pokemon,
-            hp=_hp(1),
+            hp=hp,
             tags=tags,
             raw=raw,
         )
@@ -164,10 +187,13 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         pokemon = _pokemon(0)
         if pokemon is None:
             return None
+        hp = _hp(1)
+        if hp is _HP_MALFORMED:
+            return None
         return LogEvent(
             type="sethp",
             pokemon=pokemon,
-            hp=_hp(1),
+            hp=hp,
             tags=tags,
             raw=raw,
         )
@@ -227,10 +253,17 @@ def parse_log_line(prefix: str, args: list[str], raw: str = "") -> LogEvent | No
         pokemon = _pokemon(0)
         if pokemon is None:
             return None
+        # (review finding) a move event with no move name must drop the whole event too --
+        # keeping it with details=None let downstream code (validate.py's `pending_move.details
+        # or ""`) fabricate an empty move name, which then got fed to the damage calculator as
+        # if "" were a real move and compared against a genuine HP delta.
+        move_name = positional[1] if len(positional) > 1 else None
+        if not move_name or not move_name.strip():
+            return None
         return LogEvent(
             type="move",
             pokemon=pokemon,
-            details=positional[1] if len(positional) > 1 else None,
+            details=move_name,
             target=PokemonId.parse(positional[2])
             if len(positional) > 2 and ":" in positional[2]
             else None,
