@@ -1,0 +1,41 @@
+Lopunny @ Lopunnite
+Ability: Limber
+- Close Combat
+- Fake Out
+- Triple Axel
+- Encore
+
+Floette-Eternal @ Floettite
+Ability: Flower Veil
+- Moonblast
+- Dazzling Gleam
+- Light of Ruin
+- Protect
+
+Arcanine-Hisui @ Chople Berry
+Ability: Intimidate
+- Flare Blitz
+- Rock Slide
+- Extreme Speed
+- Protect
+
+Whimsicott @ Fairy Feather
+Ability: Prankster
+- Moonblast
+- Tailwind
+- Encore
+- Protect
+
+Basculegion @ Choice Scarf
+Ability: Adaptability
+- Wave Crash
+- Last Respects
+- Aqua Jet
+- Flip Turn
+
+Aegislash @ Focus Sash
+Ability: Stance Change
+- Poltergeist
+- Shadow Sneak
+- Close Combat
+- King's Shield

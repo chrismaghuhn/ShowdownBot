@@ -1,0 +1,55 @@
+Tournament Format & Rules – Pokémon Champions VGC
+This tournament will be conducted using a Swiss-style format in Pokémon Champions, followed by a Top Cut based on standings.
+Event Details
+* Location: Busch Student Center – Rutgers University
+* Address: 604 Bartholomew Rd, Piscataway, NJ 08854
+* Date: Saturday, May 2nd
+* Check-In: 12:00 PM – 1:00 PM
+* Tournament Start Time: 1:15 PM
+Players are strongly encouraged to arrive early. Late arrivals may not be permitted to participate once the tournament has begun.
+Entry Fee
+* Rutgers Students: $10 (must present a valid Rutgers ID / RUID)
+* Non-Rutgers Participants: $15
+Prize Pool
+* This event will feature a $1,000 starting prize pool, consisting of a combination of cash and Pokémon Perfect Order TCG products, distributed as follows:
+   * 1st Place: $300 + Booster Box
+   * 2nd Place: $150 + Booster Box
+   * 3rd–4th Place: $75 + Elite Trainer Box (ETB)
+   * 5th–8th Place: $30 + Booster Bundle
+* The total prize pool may increase based on the number of participants and total sign-ups.
+* Winners may be required to complete a tax form in accordance with Rutgers University prizing policies prior to receiving their prizes.
+Game Format
+* The tournament will follow the official VGC Doubles format.
+* Matches will be played as Best-of-Three (Bo3) sets.
+* Players will register a team of six (6) Pokémon.
+* For each game within a set, players will select four (4) Pokémon from their registered team to battle.
+Ruleset
+* The format will follow the Standard Regulation M–A ruleset, including the use of Mega Evolution, limited to Pokémon currently available in Pokémon Champions.
+* All Pokémon, moves, abilities, and items must comply with the legal standards defined by the game and tournament format.
+Team Sheet Policy
+This is an Open Team Sheet tournament, with the following requirements:
+* Players must submit:
+   1. A Closed Team Sheet, including:
+      * Exact Pokémon
+      * Moves
+      * Abilities
+      * Held items
+      * Stat Spreads
+      * Levels
+   2. An Open Team Sheet, including:
+      * Pokémon
+      * Moves
+      * Abilities
+      * Held items
+* Open Team Sheets will be made available to opponents before each match.
+Wi-Fi Requirement & MAC Address Submission
+* Due to network restrictions, players must submit their Nintendo Switch MAC address in advance to gain access to the event Wi-Fi.
+* Failure to submit a MAC address may result in lack of Wi-Fi access, and tournament organizers are not responsible for providing connectivity in such cases.
+How to Find Your Nintendo Switch MAC Address
+1. From the HOME Menu, select System Settings
+2. Scroll down and select Internet
+3. Select Internet Settings
+4. Your MAC Address will be displayed on this screen
+Additional Notes
+* Players are expected to adhere to all tournament rules and maintain good sportsmanship.
+* Any disputes or rule clarifications will be handled at the discretion of the tournament organizers.
