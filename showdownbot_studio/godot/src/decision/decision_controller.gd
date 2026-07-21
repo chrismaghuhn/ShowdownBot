@@ -17,7 +17,9 @@ func reset(bundle: BundleDTO, timeline: TimelineController) -> void:
 	# Fail-closed: never retain an untrusted bundle for navigation (B1).
 	if bundle == null or not bundle.trace_trusted:
 		_bundle = null
-		_timeline = null
+		_timeline = timeline
+		if _timeline != null:
+			_timeline.selection_changed.connect(on_timeline_selection)
 		decision_selection_changed.emit(_selected_row)
 		return
 	_bundle = bundle

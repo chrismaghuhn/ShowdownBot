@@ -35,7 +35,7 @@ func parse_cli_args(args: PackedStringArray = PackedStringArray()) -> void:
 				# B3: multiple --decision → refuse (no last-wins).
 				_pending_deep_link = DecisionDeepLink.ParseResult.new()
 				_pending_deep_link.ok = false
-				_pending_deep_link.reason = "ambiguous_decision_arg"
+				_pending_deep_link.reason = DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
 				if index + 1 < source.size() and not String(source[index + 1]).begins_with("-"):
 					index += 2
 				else:
@@ -45,7 +45,7 @@ func parse_cli_args(args: PackedStringArray = PackedStringArray()) -> void:
 			if index + 1 >= source.size():
 				_pending_deep_link = DecisionDeepLink.ParseResult.new()
 				_pending_deep_link.ok = false
-				_pending_deep_link.reason = "malformed_decision_arg"
+				_pending_deep_link.reason = DecisionDeepLink.REASON_MALFORMED_DECISION_ARG
 				index += 1
 				continue
 			_pending_deep_link = DecisionDeepLink.parse_arg(String(source[index + 1]))

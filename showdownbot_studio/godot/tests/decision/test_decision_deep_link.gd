@@ -24,19 +24,19 @@ func test_parse_ok() -> void:
 func test_parse_rejects_bare_int() -> void:
 	var r := DecisionDeepLink.parse_arg("2")
 	assert_bool(r.ok).is_false()
-	assert_str(r.reason).is_equal("malformed_decision_arg")
+	assert_str(r.reason).is_equal(DecisionDeepLink.REASON_MALFORMED_DECISION_ARG)
 
 
 func test_parse_rejects_empty_string() -> void:
 	var r := DecisionDeepLink.parse_arg("")
 	assert_bool(r.ok).is_false()
-	assert_str(r.reason).is_equal("malformed_decision_arg")
+	assert_str(r.reason).is_equal(DecisionDeepLink.REASON_MALFORMED_DECISION_ARG)
 
 
 func test_parse_rejects_missing_colon() -> void:
 	var r := DecisionDeepLink.parse_arg("abc")
 	assert_bool(r.ok).is_false()
-	assert_str(r.reason).is_equal("malformed_decision_arg")
+	assert_str(r.reason).is_equal(DecisionDeepLink.REASON_MALFORMED_DECISION_ARG)
 
 
 func test_resolve_success_fixture01() -> void:
@@ -53,18 +53,18 @@ func test_resolve_battle_id_mismatch() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	var applied := DecisionDeepLink.resolve(bundle, "wrong-battle", 1)
 	assert_bool(applied.ok).is_false()
-	assert_str(applied.reason).is_equal("battle_id_mismatch")
+	assert_str(applied.reason).is_equal(DecisionDeepLink.REASON_BATTLE_ID_MISMATCH)
 
 
 func test_resolve_missing_index() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	var applied := DecisionDeepLink.resolve(bundle, bundle.manifest.battle_id, 999999)
 	assert_bool(applied.ok).is_false()
-	assert_str(applied.reason).is_equal("decision_index_not_found")
+	assert_str(applied.reason).is_equal(DecisionDeepLink.REASON_DECISION_INDEX_NOT_FOUND)
 
 
 func test_resolve_trace_not_trusted() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-04")
 	var applied := DecisionDeepLink.resolve(bundle, bundle.manifest.battle_id, 0)
 	assert_bool(applied.ok).is_false()
-	assert_str(applied.reason).is_equal("trace_not_trusted")
+	assert_str(applied.reason).is_equal(DecisionDeepLink.REASON_TRACE_NOT_TRUSTED)

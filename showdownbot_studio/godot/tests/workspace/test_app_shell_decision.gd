@@ -269,7 +269,7 @@ func test_deep_link_mismatch_refuses() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_BATTLE_ID_MISMATCH)
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	assert_object(shell.get_loaded_bundle()).is_not_null()
 
@@ -279,7 +279,7 @@ func test_deep_link_missing_value_malformed() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal("malformed_decision_arg")
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_MALFORMED_DECISION_ARG)
 	assert_object(shell.get_loaded_bundle()).is_not_null()
 
 
@@ -304,7 +304,7 @@ func test_deep_link_refuse_cleared_on_later_manual_open() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_BATTLE_ID_MISMATCH)
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	shell.open_bundle_path(_fixture_path("bundles/fixture-03"))
 	await _await_shell_settled(shell)
@@ -317,6 +317,8 @@ func test_deep_link_duplicate_decision_flag_refuses() -> void:
 	# B3: multiple --decision must not last-wins; refuse like ambiguous_decision_index.
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	var target: DecisionRowDTO = bundle.decisions[1]
+	var first_row := DecisionPresenter.first_row_by_decision_index(bundle)
+	var first_index: int = bundle.decisions[first_row].decision_index
 	var shell: AppShell = await _spawn_shell_ready()
 	shell.parse_cli_args(PackedStringArray([
 		"--decision", "garbage:9",
@@ -324,7 +326,29 @@ func test_deep_link_duplicate_decision_flag_refuses() -> void:
 	]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal("ambiguous_decision_arg")
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal(
+		DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
+	)
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	assert_object(shell.get_loaded_bundle()).is_not_null()
-	assert_int(shell.get_selected_decision_index()).is_not_equal(target.decision_index)
+	assert_int(shell.get_selected_decision_index()).is_equal(first_index)
+
+
+func test_deep_link_duplicate_valid_decision_flags_refuses() -> void:
+	# Two syntactically valid --decision targets still refuse (no last-wins).
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var a: DecisionRowDTO = bundle.decisions[0]
+	var b: DecisionRowDTO = bundle.decisions[1]
+	var first_row := DecisionPresenter.first_row_by_decision_index(bundle)
+	var first_index: int = bundle.decisions[first_row].decision_index
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray([
+		"--decision", "%s:%d" % [bundle.manifest.battle_id, a.decision_index],
+		"--decision", "%s:%d" % [bundle.manifest.battle_id, b.decision_index],
+	]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal(
+		DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
+	)
+	assert_int(shell.get_selected_decision_index()).is_equal(first_index)

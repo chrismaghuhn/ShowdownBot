@@ -181,7 +181,7 @@ func _make_minimal_bundle_with_decisions(decisions: Array, events: Array) -> Bun
 func _make_untrusted_bundle_with_decisions(decisions: Array, events: Array) -> BundleDTO:
 	# Constructed only: decisions present but trace_trusted=false (loader would not emit this).
 	var bundle := BundleDTO.new()
-	bundle.declared_mode = BundleMode.REPLAY_ONLY
+	bundle.declared_mode = BundleMode.REPLAY_TRACE
 	bundle.effective_mode = BundleMode.REPLAY_ONLY
 	bundle.replay_trusted = true
 	bundle.trace_trusted = false
@@ -315,14 +315,16 @@ func test_untrusted_bundle_rejects_navigation() -> void:
 	# B1: DecisionController must fail-closed without relying on DecisionWorkspace.
 	var events: Array = [_make_event(1, "turn", {"amount": 1})]
 	var decisions: Array = [_make_decision(0, 1, true), _make_decision(1, 1, true)]
-	var bundle := _make_untrusted_bundle_with_decisions(decisions, events)
-	var replay := BattleTimeline.build(bundle)
+	var trusted := _make_minimal_bundle_with_decisions(decisions, events)
+	var untrusted := _make_untrusted_bundle_with_decisions(decisions, events)
+	# Build timeline from trusted shape so DECISION entries exist; controller gets untrusted.
+	var replay := BattleTimeline.build(trusted)
 	var ctl := TimelineController.new()
 	add_child(ctl)
 	var dec := DecisionController.new()
 	add_child(dec)
-	ctl.reset(replay, bundle)
-	dec.reset(bundle, ctl)
+	ctl.reset(replay, trusted)
+	dec.reset(untrusted, ctl)
 	await await_idle_frame()
 	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
 	dec.select_decision_row(0)
@@ -332,6 +334,17 @@ func test_untrusted_bundle_rejects_navigation() -> void:
 	dec.jump_prev_decision()
 	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
 	assert_object(dec.get_selected_decision()).is_null()
+	# Timeline DECISION entry must not resurrect a selection (echo path gated by trust).
+	var decision_entry := -1
+	for i in range(replay.entries.size()):
+		if replay.entries[i].kind == TimelineEntryKind.DECISION \
+				or replay.entries[i].kind == TimelineEntryKind.DECISION_WITHOUT_REPLAY_EVENT:
+			decision_entry = i
+			break
+	assert_int(decision_entry).is_greater(-1)
+	ctl.select(decision_entry)
+	await await_idle_frame()
+	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
 
 
 func test_reset_does_not_move_timeline_cursor() -> void:
