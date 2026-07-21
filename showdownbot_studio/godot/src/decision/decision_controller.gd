@@ -12,12 +12,19 @@ var _suppress_timeline_echo: bool = false
 func reset(bundle: BundleDTO, timeline: TimelineController) -> void:
 	if _timeline != null and _timeline.selection_changed.is_connected(on_timeline_selection):
 		_timeline.selection_changed.disconnect(on_timeline_selection)
+	_suppress_timeline_echo = false
+	_selected_row = -1
+	# Fail-closed: never retain an untrusted bundle for navigation (B1).
+	if bundle == null or not bundle.trace_trusted:
+		_bundle = null
+		_timeline = null
+		decision_selection_changed.emit(_selected_row)
+		return
 	_bundle = bundle
 	_timeline = timeline
-	_selected_row = -1
 	if _timeline != null:
 		_timeline.selection_changed.connect(on_timeline_selection)
-	if bundle != null and bundle.trace_trusted and bundle.decisions.size() > 0:
+	if bundle.decisions.size() > 0:
 		_selected_row = DecisionPresenter.first_row_by_decision_index(bundle)
 	decision_selection_changed.emit(_selected_row)
 	# Do NOT sync timeline here — Plan C keeps entry 0 / -1 (§0.6).
@@ -26,6 +33,7 @@ func reset(bundle: BundleDTO, timeline: TimelineController) -> void:
 func clear() -> void:
 	if _timeline != null and _timeline.selection_changed.is_connected(on_timeline_selection):
 		_timeline.selection_changed.disconnect(on_timeline_selection)
+	_suppress_timeline_echo = false
 	_bundle = null
 	_timeline = null
 	_selected_row = -1
@@ -35,7 +43,7 @@ func clear() -> void:
 func on_timeline_selection(entry_index: int) -> void:
 	if _suppress_timeline_echo:
 		return
-	if _bundle == null or _timeline == null:
+	if not _is_trace_live() or _timeline == null:
 		return
 	var replay: ReplayDTO = _timeline.get_replay()
 	if replay == null or entry_index < 0 or entry_index >= replay.entries.size():
@@ -53,7 +61,7 @@ func select_decision_row(row_i: int) -> void:
 
 
 func jump_next(kind: String) -> void:
-	if _bundle == null or _selected_row < 0:
+	if not _is_trace_live() or _selected_row < 0:
 		return
 	var cur: DecisionRowDTO = _bundle.decisions[_selected_row]
 	var next_row := DecisionPresenter.find_next_nav_row(_bundle, cur.decision_index, kind)
@@ -62,7 +70,7 @@ func jump_next(kind: String) -> void:
 
 
 func jump_prev_decision() -> void:
-	if _bundle == null or _selected_row < 0:
+	if not _is_trace_live() or _selected_row < 0:
 		return
 	var cur: DecisionRowDTO = _bundle.decisions[_selected_row]
 	var prev_row := DecisionPresenter.find_prev_decision_row(_bundle, cur.decision_index)
@@ -75,27 +83,31 @@ func get_selected_decision_row_index() -> int:
 
 
 func get_selected_decision() -> DecisionRowDTO:
-	if _bundle == null or _selected_row < 0:
+	if not _is_trace_live() or _selected_row < 0:
 		return null
 	return _bundle.decisions[_selected_row]
 
 
 func has_next(kind: String) -> bool:
-	if _bundle == null or _selected_row < 0:
+	if not _is_trace_live() or _selected_row < 0:
 		return false
 	var cur: DecisionRowDTO = _bundle.decisions[_selected_row]
 	return DecisionPresenter.find_next_nav_row(_bundle, cur.decision_index, kind) >= 0
 
 
 func has_prev_decision() -> bool:
-	if _bundle == null or _selected_row < 0:
+	if not _is_trace_live() or _selected_row < 0:
 		return false
 	var cur: DecisionRowDTO = _bundle.decisions[_selected_row]
 	return DecisionPresenter.find_prev_decision_row(_bundle, cur.decision_index) >= 0
 
 
+func _is_trace_live() -> bool:
+	return _bundle != null and _bundle.trace_trusted
+
+
 func _set_row(row_i: int, sync_timeline: bool) -> void:
-	if _bundle == null or row_i < 0 or row_i >= _bundle.decisions.size():
+	if not _is_trace_live() or row_i < 0 or row_i >= _bundle.decisions.size():
 		return
 	if row_i == _selected_row:
 		if sync_timeline:

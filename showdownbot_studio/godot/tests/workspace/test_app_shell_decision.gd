@@ -311,3 +311,20 @@ func test_deep_link_refuse_cleared_on_later_manual_open() -> void:
 	assert_str(shell.get_deep_link_refuse_reason()).is_equal("")
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_false()
 	assert_str(shell.get_loaded_bundle().manifest.battle_id).is_equal("synthetic00000003")
+
+
+func test_deep_link_duplicate_decision_flag_refuses() -> void:
+	# B3: multiple --decision must not last-wins; refuse like ambiguous_decision_index.
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var target: DecisionRowDTO = bundle.decisions[1]
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray([
+		"--decision", "garbage:9",
+		"--decision", "%s:%d" % [bundle.manifest.battle_id, target.decision_index],
+	]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("ambiguous_decision_arg")
+	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
+	assert_object(shell.get_loaded_bundle()).is_not_null()
+	assert_int(shell.get_selected_decision_index()).is_not_equal(target.decision_index)

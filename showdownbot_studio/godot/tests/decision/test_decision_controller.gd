@@ -178,6 +178,33 @@ func _make_minimal_bundle_with_decisions(decisions: Array, events: Array) -> Bun
 	return bundle
 
 
+func _make_untrusted_bundle_with_decisions(decisions: Array, events: Array) -> BundleDTO:
+	# Constructed only: decisions present but trace_trusted=false (loader would not emit this).
+	var bundle := BundleDTO.new()
+	bundle.declared_mode = BundleMode.REPLAY_ONLY
+	bundle.effective_mode = BundleMode.REPLAY_ONLY
+	bundle.replay_trusted = true
+	bundle.trace_trusted = false
+	bundle.manifest = _make_manifest()
+	bundle.warnings = []
+	bundle.downgrade_warnings = []
+	bundle.config_manifest = null
+	var sealed_events: Array = []
+	for item in events:
+		var e: BattleEventDTO = item
+		e.seal()
+		sealed_events.append(e)
+	var sealed_decisions: Array = []
+	for item in decisions:
+		var d: DecisionRowDTO = item
+		d.seal()
+		sealed_decisions.append(d)
+	bundle.battle_events = sealed_events
+	bundle.decisions = sealed_decisions
+	bundle.seal()
+	return bundle
+
+
 func test_timeline_decision_selects_row() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	var replay := BattleTimeline.build(bundle)
@@ -282,6 +309,29 @@ func test_replay_only_reset_no_selection() -> void:
 	dec.reset(bundle, ctl)
 	await await_idle_frame()
 	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
+
+
+func test_untrusted_bundle_rejects_navigation() -> void:
+	# B1: DecisionController must fail-closed without relying on DecisionWorkspace.
+	var events: Array = [_make_event(1, "turn", {"amount": 1})]
+	var decisions: Array = [_make_decision(0, 1, true), _make_decision(1, 1, true)]
+	var bundle := _make_untrusted_bundle_with_decisions(decisions, events)
+	var replay := BattleTimeline.build(bundle)
+	var ctl := TimelineController.new()
+	add_child(ctl)
+	var dec := DecisionController.new()
+	add_child(dec)
+	ctl.reset(replay, bundle)
+	dec.reset(bundle, ctl)
+	await await_idle_frame()
+	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
+	dec.select_decision_row(0)
+	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
+	dec.jump_next("decision")
+	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
+	dec.jump_prev_decision()
+	assert_int(dec.get_selected_decision_row_index()).is_equal(-1)
+	assert_object(dec.get_selected_decision()).is_null()
 
 
 func test_reset_does_not_move_timeline_cursor() -> void:

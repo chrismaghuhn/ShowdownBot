@@ -27,9 +27,21 @@ func parse_cli_args(args: PackedStringArray = PackedStringArray()) -> void:
 	_deep_link_refuse_reason = ""
 	var source := args if not args.is_empty() else OS.get_cmdline_user_args()
 	var index := 0
+	var saw_decision := false
 	while index < source.size():
 		var token := String(source[index])
 		if token == "--decision":
+			if saw_decision:
+				# B3: multiple --decision → refuse (no last-wins).
+				_pending_deep_link = DecisionDeepLink.ParseResult.new()
+				_pending_deep_link.ok = false
+				_pending_deep_link.reason = "ambiguous_decision_arg"
+				if index + 1 < source.size() and not String(source[index + 1]).begins_with("-"):
+					index += 2
+				else:
+					index += 1
+				continue
+			saw_decision = true
 			if index + 1 >= source.size():
 				_pending_deep_link = DecisionDeepLink.ParseResult.new()
 				_pending_deep_link.ok = false
