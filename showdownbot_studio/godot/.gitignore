@@ -4,6 +4,7 @@
 /tools/engine/
 /tools/engine_cache/
 /.godot/
+/reports/
 /test-reports/
 *.translation
 export.cfg
