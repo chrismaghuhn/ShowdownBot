@@ -56,6 +56,14 @@ def test_spearman_ties_and_quantile_edges_are_deterministic():
     assert train_quantile_edges(values) == train_quantile_edges(list(reversed(values)))
 
 
+def test_spearman_empty_pair_is_neutral_but_length_mismatch_is_rejected():
+    assert spearman([], []) == 0.0
+    with pytest.raises(ValueError, match="equal-length"):
+        spearman([], [1.0])
+    with pytest.raises(ValueError, match="equal-length"):
+        spearman([1.0], [])
+
+
 def test_format_id_feature_metadata_overlap_is_not_a_denylist_violation():
     # format_id intentionally appears in BOTH FEATURE_COLUMNS and METADATA_KEYS (schema: the only
     # allowed overlap). A real dataset carrying it as a feature must NOT trip the allowlist FAIL.
