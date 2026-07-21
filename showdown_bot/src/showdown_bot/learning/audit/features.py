@@ -60,10 +60,10 @@ def average_ranks(values: list[float]) -> list[float]:
 
 
 def spearman(left: list[float], right: list[float]) -> float:
-    if not left or not right:
-        return 0.0
     if len(left) != len(right):
         raise ValueError("spearman requires equal-length inputs")
+    if not left:
+        return 0.0
     a, b = average_ranks(left), average_ranks(right)
     am, bm = sum(a) / len(a), sum(b) / len(b)
     numerator = sum((x - am) * (y - bm) for x, y in zip(a, b))
