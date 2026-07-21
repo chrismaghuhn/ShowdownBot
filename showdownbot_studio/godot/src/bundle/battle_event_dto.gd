@@ -1,0 +1,164 @@
+class_name BattleEventDTO
+extends RefCounted
+
+var _sealed: bool = false
+var _protocol_index: int = 0
+var _type: String = ""
+var _pokemon_side: Variant = null
+var _pokemon_slot: Variant = null
+var _pokemon_species: Variant = null
+var _target_side: Variant = null
+var _target_slot: Variant = null
+var _details: Variant = null
+var _value: Variant = null
+var _side: Variant = null
+var _amount: Variant = null
+var _hp_current: Variant = null
+var _hp_maximum: Variant = null
+var _hp_fainted: Variant = null
+var _hp_status: Variant = null
+var _tags: PackedStringArray = PackedStringArray()
+var _unknown_fields: Dictionary = {}
+
+var protocol_index: int:
+	get:
+		return _protocol_index
+	set(value):
+		if _sealed:
+			return
+		_protocol_index = value
+
+var type: String:
+	get:
+		return _type
+	set(value):
+		if _sealed:
+			return
+		_type = value
+
+var pokemon_side: Variant:
+	get:
+		return _pokemon_side
+	set(value):
+		if _sealed:
+			return
+		_pokemon_side = value
+
+var pokemon_slot: Variant:
+	get:
+		return _pokemon_slot
+	set(value):
+		if _sealed:
+			return
+		_pokemon_slot = value
+
+var pokemon_species: Variant:
+	get:
+		return _pokemon_species
+	set(value):
+		if _sealed:
+			return
+		_pokemon_species = value
+
+var target_side: Variant:
+	get:
+		return _target_side
+	set(value):
+		if _sealed:
+			return
+		_target_side = value
+
+var target_slot: Variant:
+	get:
+		return _target_slot
+	set(value):
+		if _sealed:
+			return
+		_target_slot = value
+
+var details: Variant:
+	get:
+		return _details
+	set(value):
+		if _sealed:
+			return
+		_details = value
+
+var value: Variant:
+	get:
+		return _value
+	set(value):
+		if _sealed:
+			return
+		_value = value
+
+var side: Variant:
+	get:
+		return _side
+	set(value):
+		if _sealed:
+			return
+		_side = value
+
+var amount: Variant:
+	get:
+		return _amount
+	set(value):
+		if _sealed:
+			return
+		_amount = value
+
+var hp_current: Variant:
+	get:
+		return _hp_current
+	set(value):
+		if _sealed:
+			return
+		_hp_current = value
+
+var hp_maximum: Variant:
+	get:
+		return _hp_maximum
+	set(value):
+		if _sealed:
+			return
+		_hp_maximum = value
+
+var hp_fainted: Variant:
+	get:
+		return _hp_fainted
+	set(value):
+		if _sealed:
+			return
+		_hp_fainted = value
+
+var hp_status: Variant:
+	get:
+		return _hp_status
+	set(value):
+		if _sealed:
+			return
+		_hp_status = value
+
+var tags: PackedStringArray:
+	get:
+		return _tags
+	set(value):
+		if _sealed:
+			return
+		_tags = value
+
+var unknown_fields: Dictionary:
+	get:
+		return _unknown_fields
+	set(value):
+		if _sealed:
+			return
+		_unknown_fields = value if value != null else {}
+
+
+func seal() -> void:
+	if _sealed:
+		return
+	_unknown_fields.make_read_only()
+	_sealed = true
