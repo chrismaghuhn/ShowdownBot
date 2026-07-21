@@ -1,0 +1,200 @@
+{
+  "purpose": "Task 13 source-proof evidence freeze (Gate B D-1b, plan sec 2 rule 1) -- proves the six top-placement team sheets from the Rutgers Scarlet Classic (Reg M-A) were publicly and reproducibly retrievable as full sheets at the time this evidence was frozen, independent of whether the live tournament site later changes or goes offline.",
+  "tournament": {
+    "name": "Rutgers Scarlet Classic Pokemon Champions VGC Tour",
+    "id": "69eba1eb19228b1daf6bf907",
+    "details_url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/details",
+    "standings_url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/standings",
+    "format": "gen9championsvgc2026regma",
+    "date": "2026-05-02"
+  },
+  "extraction_rule": "DISPLAY view (place-N-*-teamlist.txt): get_page_text on each player's /teamlist page, trimmed to the Teamlist section only (player name + record header, then per-Pokemon: species / held item / \"Ability: X\" / its 4 listed moves in display order) -- site chrome (nav, login, ads, footer, \"Copy to Clipboard\") excluded. A blank line separates each Pokemon block. Human-readable corroborating record; NOT the source for team-file creation (see naming_divergence_note).",
+  "export_extraction_rule": "EXPORT view (place-N-*-export.txt): the exact string the page's own \"Copy to Clipboard\" button passes to navigator.clipboard.writeText -- captured by temporarily wrapping that API (inspection only, no page behavior altered) and triggering the existing button via a real click, not by hand-authoring Showdown syntax from the display view. This is Pokemon Showdown's standard team-paste export format and is the intended source for eventual Task 12 team-file creation, since its species/item names are the ones that resolve against showdown_bot/config/species/speciesdata.json and showdown_bot/config/items/itemdata.json -- the display view's prose names do not always resolve (see naming_divergence_note).",
+  "sha256_algorithm": "sha256sum over the frozen .txt file's exact bytes (LF line endings, UTF-8, trailing newline)",
+  "fetched_at": "2026-07-21T16:32:07Z",
+  "export_fetched_at": "2026-07-21T16:56:06Z",
+  "naming_divergence_note": "The display view and the export view name form-variant species differently, and only the export view's names resolve against speciesdata.json. Confirmed examples from this exact freeze: 'Eternal Flower Floette' (display) vs 'Floette-Eternal' (export; speciesdata.json key floetteeternal, name 'Floette-Eternal' -- 'Eternal Flower Floette' matches no entry); 'Wash Rotom' (display) vs 'Rotom-Wash' (export); 'Alolan Ninetales' (display) vs 'Ninetales-Alola' (export); 'Hisuian Arcanine' (display) vs 'Arcanine-Hisui' (export, place 7). A rule-2 legality check run against the display-view files would report these as unknown species -- a false illegality, forcing a wrongful skip for a spelling reason rather than a rules reason. The export view must be the source rule 2 actually checks.",
+  "rules_section": {
+    "note": "Freezes the source for the 'species AND ability both pre-Mega' claim in mega_stone_ability_audit. The site's own '📄 Full Tournament Rules' link goes to an external Google Doc (docs.google.com/document/d/1Vvg-o6L9QOq5N0zwQgW3h1chc1MU8qOm-NqnOGM9TRU) whose body renders on a canvas, not extractable as plain text with available tools -- confirmed: both get_page_text and the accessibility tree returned only the document-outline sidebar, never body content, and the standard /export?format=txt endpoint was denied by the browser tool. Not chased further. The claim actually cited rests on the /details page's own '⚠️ Critical Team Sheet Rules' section, frozen here instead -- fetched fresh a third time this session, byte-identical to the first two fetches each time.",
+    "precision_note": "The frozen text states 'All Pokemon with Mega Evolutions must be listed in their base (pre-Mega) form' (species) and, separately, that 'all submitted stats... including EVs, IVs, moves, ability, or nature' must match in-game stats exactly. It does NOT contain one sentence saying 'ability must also be pre-Mega' -- that is the combination/interpretation mega_stone_ability_audit draws from these two rules together, not a direct quote. Recorded here so the line between quoted and interpreted is not lost.",
+    "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/details",
+    "filename": "tournament-rules-section.txt",
+    "sha256": "03954ea82eb1b2c8851e6438f7913a956887af17801c0ffe013e3d1d312c340c",
+    "fetched_at": "2026-07-21T17:26:52Z"
+  },
+  "mega_stone_ability_audit": {
+    "note": "SUPERSEDES an earlier draft of this field that generalized from 2 of the 10 real instances and proposed accepting either base or Mega ability whenever a Mega Stone is held. That proposal was wrong: it treated a single outlier as a second convention. All 10 Mega Stone holders across all 6 export files were checked against showdown_bot/config/species/speciesdata.json (not sampled, not inferred) -- 9 report the base (pre-Mega) ability, matching the tournament's own stated sheet-formatting rule (species AND ability both pre-Mega); exactly one, Delphox, reports the Mega ability instead.",
+    "instances": [
+      {"sheet": "place-1: Delphox @ Delphoxite / Ability: Levitate", "base_abilities": ["Blaze", "Magician"], "mega_abilities": ["Levitate"], "reported_ability_is": "MEGA -- the sole outlier"},
+      {"sheet": "place-1, place-3: Floette-Eternal @ Floettite / Ability: Flower Veil", "base_abilities": ["Flower Veil", "Symbiosis"], "mega_abilities": ["Fairy Aura"], "reported_ability_is": "base"},
+      {"sheet": "place-2, place-6: Scovillain @ Scovillainite / Ability: Moody", "base_abilities": ["Chlorophyll", "Insomnia", "Moody"], "mega_abilities": ["Spicy Spray"], "reported_ability_is": "base"},
+      {"sheet": "place-3: Charizard @ Charizardite Y / Ability: Blaze", "base_abilities": ["Blaze", "Solar Power"], "mega_abilities": ["Drought"], "reported_ability_is": "base"},
+      {"sheet": "place-4, place-6: Aerodactyl @ Aerodactylite / Ability: Unnerve", "base_abilities": ["Rock Head", "Pressure", "Unnerve"], "mega_abilities": ["Tough Claws"], "reported_ability_is": "base"},
+      {"sheet": "place-4: Froslass @ Froslassite / Ability: Cursed Body", "base_abilities": ["Snow Cloak", "Cursed Body"], "mega_abilities": ["Snow Warning"], "reported_ability_is": "base"},
+      {"sheet": "place-5: Gengar @ Gengarite / Ability: Cursed Body", "base_abilities": ["Cursed Body"], "mega_abilities": ["Shadow Tag"], "reported_ability_is": "base"}
+    ],
+    "ruling": "Delphox's own base ability (Blaze or Magician) is not readable from any published sheet, and the two are not interchangeable -- they differ pre-Mega. No interpretation is needed: rule 2's existing text already covers this ('a placement is skipped ... or a sheet that is not fully accessible'), and any choice between Blaze/Magician would be exactly the reconstruction-from-inference rule 3 forbids. DECIDED: place 1 (James Evans / thekingvillager) is skipped under rule 2 as originally written. Place 7 (Rob McNeilly) is the replacement -- see replacement_entries, sourced/frozen/legality-checked in batch 2.",
+    "consequence": "The tournament's actual winner (James Evans, place 1) will not appear in the holdout panel. This is a direct, disclosed consequence of applying rule 2 exactly as pre-registered, not a side effect of a new interpretation chosen after seeing the data."
+  },
+  "place_4_defective_sheet_entry": {
+    "note": "Garchomp's item field on place 4 (Richard Wan / richpro16) reads 'Dragon Claw' in BOTH independently-captured views (display and export) -- ruling out a capture error on this freeze's own side. 'Dragon Claw' does not exist in itemdata.json (583 items, Champions-current -- it knows Dragoninite/Dragonium Z; real dragon-type items are Dragon Fang, Dragon Gem, Dragon Memory, Dragon Scale, Dragoninite, Dragonium Z; 'Dragon Claw' matches none). 'Dragon Claw' also appears as Garchomp's first listed MOVE on the same sheet -- the same string occupying both the item and move slots is the signature of a duplication or shift in the underlying record or its rendering (the item slot is most likely empty or lost, and the first move shifted up into it), not a player mistyping a move name into an item field. This strengthens the skip reading rather than weakening it: not a curious-but-genuine entry, a defective record.",
+    "attribution_precision": "Both frozen views agreeing proves the SOURCE publishes this -- both views come from the same page and almost certainly the same underlying record, so their agreement is not independent confirmation of what Richard Wan actually submitted. This distinction does not change the rule-2 outcome, but the artifact must not overclaim it: the correct claim is 'the source publishes this,' not 'the player submitted this.'",
+    "ruling": "Second rule-2 skip, same clause as place 1: the published sheet does not define a buildable team, and no resolution is available without the reconstruction-from-inference rule 3 forbids. 'No item' is not a neutral fallback either -- itemless vs Leftovers vs Life Orb is a real gameplay difference, not a formality. DECIDED: place 4 (Richard Wan / richpro16) is skipped under rule 2 as originally written.",
+    "consequence": "Combined with place 1's skip, the panel becomes places 2, 3, 5, 6, 7, 8 -- two replacements, sourced/sealed/frozen together in one batch rather than individually, which is exactly why place 7 was not fetched in isolation once place 4's issue surfaced."
+  },
+  "user_supplied_full_rules_document": {
+    "note": "NOT part of the source-proof this manifest's purpose field claims -- see provenance/verified_against_live_source/load_bearing below. Kept because it explains an absence: no sheet anywhere in this evidence set carries EVs/Nature/Level, and this document is why -- it defines a two-tier Team Sheet Policy: a Closed Team Sheet (exact Pokemon, moves, abilities, held items, stat spreads, levels) submitted to organizers, and a separate Open Team Sheet (Pokemon, moves, abilities, held items -- no stat spreads/levels) 'made available to opponents before each match.' The Open tier is structurally all that is ever public. This matches every frozen export file exactly (species/item/ability/moves, never EVs/Nature/Level) -- confirming that absence was never an extraction gap on this evidence set's side.",
+    "provenance": "user-supplied local file, NOT agent-fetched, no reproducible URL retrieval -- supplied via C:\\Users\\chris\\Downloads\\Tournament Format & Rules – Pokémon Champions VGC.txt after the agent had already documented the source URL (the site's '📄 Full Tournament Rules' link, an external Google Doc) as unreachable by its own tools.",
+    "verified_against_live_source": false,
+    "verified_against_live_source_reason": "The Google Doc's body renders on a canvas; get_page_text, the accessibility tree, and the standard /export?format=txt endpoint all failed to return body text (see rules_section.note for the full account of that attempt). The agent has not independently confirmed this file's content against the live document and cannot -- only that the text is internally consistent with everything else already frozen (see note above).",
+    "filename": "user-supplied-full-rules-document.txt",
+    "sha256": "3691015d94820259d5bfdb68a9ea83318fca0c83f5d9339415401f4a5f6d2d40",
+    "sha256_note": "Computed over a normalized copy (UTF-8 BOM stripped, CRLF->LF, single trailing newline added) to match this evidence set's own sha256_algorithm convention -- NOT byte-identical to the original Downloads file, which was UTF-8-with-BOM/CRLF/no-trailing-newline. Content is unchanged; only encoding/line-ending form was normalized. The original local file's own hash was not recorded, since it is not the artifact this manifest tracks.",
+    "load_bearing": false,
+    "load_bearing_statement": "No rule-1 or rule-2 decision in this manifest rests on this artifact. It explains an absence that rule 1's own text ('natures/EVs where published') already permits without needing this document at all. If any later revision cites this document as justification for a skip, a legality ruling, or an assumption, that is a boundary violation and should be visible in the diff against this line."
+  },
+  "ev_nature_synthesis_rule": {
+    "note": "Every sourced sheet is Open Team Sheet tier (see user_supplied_full_rules_document) and structurally never carries EVs/Nature/Level -- rule 1 already tolerates this ('natures/EVs where published'), but Task 12 still needs complete team files. This field points to the frozen rule that fills that gap.",
+    "filename": "ev-nature-synthesis-rule.md",
+    "sha256": "631aba7da42251bd92b49e31c06cc3b65edbbaa80e53dc5f316bf1ece47bfb95",
+    "fetched_at": "2026-07-21T18:22:00Z",
+    "input_set": "showdown_bot/config/species/speciesdata.json (baseStats only), showdown_bot/config/moves/movedata.json (category only), the already-sourced published sheet itself, and the format config's EV budget -- no file derived from this project's own team data (default_spreads.yaml, likely_sets.yaml, any panel/hero/coverage team file) was read.",
+    "rejected_default_spreads_yaml": "showdown_bot/config/formats/meta/champions/default_spreads.yaml was checked and rejected: its own header states it is derived from this project's committed hero + panel team pastes, and 23 of 36 holdout roster slots (63.9%, checked programmatically) have a species-specific entry in it. Using it would have assigned holdout Pokemon the same EV/Nature/item combination as an existing panel/hero Pokemon of the same species on a majority of the roster -- build-level duplication, not mere species overlap.",
+    "smogon_comparison": "Smogon's VGC 2026 Regulation M-A Strategy Pokedex was checked against the rule's output for all 21 unique holdout species, as a disclosed comparison only -- never fed back into the rule. 14/21 species had usable data; comparison surfaced 4 real archetype-level misses (Kingambit, Incineroar, Scovillain, Archaludon), recorded in the frozen document's Known Limitations section rather than patched into the rule, since adjusting the rule after seeing this comparison would repeat the same after-the-fact-adjustment problem the selection rule (rule 2) was written to avoid.",
+    "disclosure_scope": "Species/item/ability/moves come from the real published sheet; only EVs and Nature are synthetic. A Gate B verdict built on these teams tests strength against real tournament species/items/abilities/moves with synthetic spreads, not against the teams these players actually played -- see the frozen document's Disclosure scope section for the exact wording."
+  },
+  "holdout_independence_limitation": {
+    "note": "Rule 2's contamination check is HASH-based ('exact contamination (hash collision with an existing repo team)') and only catches byte-identical teams. A rough species-roster overlap check (a proxy only, not the rule-2 check itself -- see not_yet_done) against the 9 existing Champions teams, rerun against the CURRENT candidate panel (places 2, 3, 5, 6, 7, 8 -- 1 and 4 excluded, skipped) found no exact roster match. Real partial overlap remains: place 2 shares 4/6 species with rain_offense/cov_foe_slot0; place 6 shares 4/6 species with rain_offense/cov_foe_slot0/cov_foe_tie. Places 3, 7, 8 show no overlap of 4+/6 with any existing team. (Place 4's earlier 5/6 overlap with cov_foe_both/cov_foe_tie is no longer relevant to the current panel -- place 4 is skipped.) None of this is contamination under the rule as written -- no exact hit -- and this finding does NOT propose changing that criterion: the selection rule was fixed before reading specifically so it would not bend to an inconvenient result, and 'never re-ordered after the fact' forbids stretching it now.",
+    "disclosed_limitation": "What Gate B's holdout independence claim actually proves is HASH-disjointness from the existing panel, not ARCHETYPE-disjointness. A holdout team sharing 4 of 6 species with a team the bot was tuned against is not independent in the content-meaningful sense, even though no hash collides. Anyone reading a Gate B verdict later needs to know this -- the independence claim is narrower than the word alone suggests. A second, separate narrowing: see ev_nature_synthesis_rule -- the six holdout teams are the published sheet plus a documented synthetic EV/Nature spread, not the exact teams these players played. Rule 1 explicitly permits this ('natures/EVs where published') and rule 3 is not violated (species/item/ability/moves are never guessed, only EVs/Nature are synthesized by a disclosed mechanical rule) -- but a verdict built on these teams tests strength against real tournament species/items/abilities/moves with synthetic spreads, which is a different, narrower claim than 'against real tournament teams' read plainly."
+  },
+  "entries": [
+    {
+      "place": 1,
+      "player": "James Evans",
+      "username": "thekingvillager",
+      "record": "9 points (9-1-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/thekingvillager/teamlist",
+      "filename": "place-1-thekingvillager-teamlist.txt",
+      "sha256": "3adfbe098706016d2e8e43a68182b7604c1d37f2e3c245d4e1240d1506f78158",
+      "export_filename": "place-1-thekingvillager-export.txt",
+      "export_sha256": "a8b0f8469be00d67b0f504b982acab1aaca4fba7d7aa9192f81f754d324a457b"
+    },
+    {
+      "place": 2,
+      "player": "William Brown",
+      "username": "wb_vg",
+      "record": "8 points (8-2-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/wb_vg/teamlist",
+      "filename": "place-2-wb_vg-teamlist.txt",
+      "sha256": "ce422dbf8daeca984c3039999272f42bdfcf50b77e810d4d0440cedaa4d62d8f",
+      "export_filename": "place-2-wb_vg-export.txt",
+      "export_sha256": "58bd852b31b9943d0a666ff5011e8e4798ef427420f47ae6e9ae9d64093f38bb"
+    },
+    {
+      "place": 3,
+      "player": "Nicholas Morales",
+      "username": "charmdi",
+      "record": "7 points (7-2-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/charmdi/teamlist",
+      "filename": "place-3-charmdi-teamlist.txt",
+      "sha256": "b19cc4de2967d91479ae7d829038c38bc8dbc46beb72f456837f46a58b9abb8a",
+      "export_filename": "place-3-charmdi-export.txt",
+      "export_sha256": "ecc79087f40ac49e66f8adf3c9cad8a60b3742ae06295a12c8a30775aae2b00f"
+    },
+    {
+      "place": 4,
+      "player": "Richard Wan",
+      "username": "richpro16",
+      "record": "7 points (7-2-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/richpro16/teamlist",
+      "filename": "place-4-richpro16-teamlist.txt",
+      "sha256": "9958d721e42fccc016e687c286d599cc04b72edc86ce1d1d718c7b78989ce69d",
+      "export_filename": "place-4-richpro16-export.txt",
+      "export_sha256": "68419895a01ee982d0bdf39df3eb123220699995425fa51171aef9a2f1e5a5e2"
+    },
+    {
+      "place": 5,
+      "player": "Chris Han",
+      "username": "darts",
+      "record": "6 points (6-2-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/darts/teamlist",
+      "filename": "place-5-darts-teamlist.txt",
+      "sha256": "ac74f61929dd4c5b05a407066f5cabfcb00845c5c432809c3be536857787c42e",
+      "export_filename": "place-5-darts-export.txt",
+      "export_sha256": "8209bfd0785665e6c4b6950ca0b4cbd1dc106960b8afb71b59047f6e570f6294"
+    },
+    {
+      "place": 6,
+      "player": "Thaison Hughes",
+      "username": "charismaacheck",
+      "record": "6 points (6-2-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/charismaacheck/teamlist",
+      "filename": "place-6-charismaacheck-teamlist.txt",
+      "sha256": "bd5e50ba3a73359ae8583afd39734eb34a059470a2a679fc1ed8b9f8a09f1bb1",
+      "export_filename": "place-6-charismaacheck-export.txt",
+      "export_sha256": "7a48c6cb84a0227b560915e85d7c7195e66d196a8a3f30fdbf6b59d6649adba8"
+    }
+  ],
+  "replacement_entries": [
+    {
+      "place": 7,
+      "replaces": 1,
+      "note": "Replacement for place 1 (James Evans / thekingvillager), skipped under rule 2 -- see mega_stone_ability_audit.ruling.",
+      "player": "Rob McNeilly",
+      "username": "rovbmc",
+      "record": "5 points (5-3-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/rovbmc/teamlist",
+      "filename": "place-7-rovbmc-teamlist.txt",
+      "sha256": "d996e9b882d92758a647d05eca9216807862977f79958461b35c04dd37b7fe01",
+      "export_filename": "place-7-rovbmc-export.txt",
+      "export_sha256": "528852bb2935649b1cd415e6cfcbdc41e226c6be6a3512c043048785b8b45ad3",
+      "legality_check": {
+        "method": "Lookup-table sanity check run first against known-good keys (protect, leftovers, garchomp all resolved correctly in movedata.json/itemdata.json/speciesdata.json before trusting the script's output on this entry), then every species/item/move on the export-view sheet checked for existence, then the one Mega Stone holder's reported ability checked against its BASE form's ability set per mega_stone_ability_audit's rule.",
+        "mega_stone_instance": "Lopunny @ Lopunnite / Ability: Limber -- Lopunny's base abilities are Cute Charm/Klutz/Limber (Lopunny-Mega's is Scrappy); Limber is a base ability, so this sheet is consistent with the tournament's own species-and-ability-both-pre-Mega convention. Confirmed directly against speciesdata.json's lopunny and lopunnymega entries, not inferred.",
+        "result": "PASS -- all 6 species, 6 items, 24 moves resolve against speciesdata.json/itemdata.json/movedata.json; no unresolvable fields; no defective item/move duplication pattern like place 4's."
+      }
+    },
+    {
+      "place": 8,
+      "replaces": 4,
+      "note": "Replacement for place 4 (Richard Wan / richpro16), skipped under rule 2 -- see place_4_defective_sheet_entry.ruling.",
+      "player": "Joshua Robinson",
+      "username": "quivern",
+      "record": "5 points (5-3-0)",
+      "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/player/quivern/teamlist",
+      "filename": "place-8-quivern-teamlist.txt",
+      "sha256": "fd676ed048faf831bc27aca7ff343e6ac383c2293acfa8cb7dded4d40a457ac9",
+      "export_filename": "place-8-quivern-export.txt",
+      "export_sha256": "688130aa1c1c065bf1658b921434680b380a4fd54e45ef53881474f51e42937e",
+      "legality_check": {
+        "method": "Same sanity-checked lookup as place 7 (protect/leftovers/garchomp confirmed resolving first), then every species/item/move on the export-view sheet checked for existence, then the one Mega Stone holder's reported ability checked against its BASE form's ability set.",
+        "mega_stone_instance": "Lucario @ Lucarionite / Ability: Inner Focus -- Lucario's base abilities are Steadfast/Inner Focus/Justified (Lucario-Mega's is Adaptability); Inner Focus is a base ability, consistent with the same convention. Confirmed directly against speciesdata.json's lucario and lucariomega entries.",
+        "result": "PASS -- all 6 species, 6 items, 24 moves resolve against speciesdata.json/itemdata.json/movedata.json; no unresolvable fields. Note: this sheet also lists a Garchomp holding White Herb with move Dragon Claw (not an item field this time -- Dragon Claw is only in the move slot here, matching place 4's own move list) -- item and move fields are both well-formed and distinct, unlike place 4's defective record; not a rule-2 issue."
+      }
+    }
+  ],
+  "standings_snapshot": {
+    "note": "Proves the entries above (places 1-6, entries[]) and the replacement_entries below (places 7-8) were each at that exact final standing, not just that the teams existed -- the place/record fields alone are transcribed claims, not independent evidence of ordering. This same frozen file already lists places 7 and 8 (lines 9-10: '7\\tRob McNeilly', '8\\tJoshua Robinson'), so no separate standings fetch was needed when places 7/8 were added as replacements in batch 2. Without this file, a standings page that later changed or went offline would leave rule 2's selection criterion ('places 1-6 by final standing', extended to 7-8 by the place-1/place-4 skips) unverifiable even though the teamlists themselves remained provably genuine.",
+    "phase": "Combined (2 Single Elimination Bracket + 1 Swiss Rounds) -- the tournament's own final-standing view, not Swiss-only",
+    "url": "https://play.limitlesstcg.com/tournament/69eba1eb19228b1daf6bf907/standings",
+    "filename": "standings-combined.txt",
+    "sha256": "b3d1db7c48d3dd7fc8e65b55ac085fdb7997a4c23f7bb957f9d4d1281765ab88",
+    "fetched_at": "2026-07-21T16:42:31Z",
+    "extraction_rule": "get_page_text on the standings page (Combined phase, the default view), trimmed to the place+name rows only -- phase-tab links, 'Show details' toggle, and site chrome excluded. One row per line, tab-separated place (blank where the source itself shows no numeric place) and full name, in on-page display order -- that order IS the evidence of ranking.",
+    "line_counts": {
+      "total_lines": 88,
+      "header_line": 1,
+      "blank_separator_line": 1,
+      "data_lines": 86,
+      "ranked_entries": 50,
+      "unranked_entries": 36,
+      "note": "88 total lines is NOT '88 ranked entries' -- an earlier chat report conflated raw line count with entry count. Only 50 of the 86 data lines carry a numeric place; the remaining 36 (players who did not place, e.g. the last data line '\\tMark Saba') are listed with a blank place field, faithfully matching the live page. The claim rule 2 actually depends on -- places 1-6 -- is independently confirmed exact against entries[] (see the earlier round's cross-check)."
+    }
+  },
+  "not_yet_done": [
+    "Rule 2 exact contamination (hash collision with an existing repo team) -- NOT YET CHECKED AND CANNOT YET BE CHECKED: the rule requires a packed team file, which does not exist before Task 12, so this criterion is only checkable after selection, not before. The species-roster overlap documented in holdout_independence_limitation is an early indicator only, not this check. The real check belongs after packing (Task 12) and before final sealing -- not before, or a team could be sealed and only afterward discovered to be contaminated.",
+    "Rule 3 team-file creation (no team.txt/.packed exists yet for any placement, including the place 7/8 replacements)",
+    "Task 12 sealing (seal_team, real content_hash)",
+    "Any Task 13 definition-of-done item beyond this source-proof"
+  ]
+}

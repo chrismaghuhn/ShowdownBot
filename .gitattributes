@@ -98,3 +98,10 @@ showdownbot_studio/docs/design/viewer-v0-mockups/thumbnail.webp binary
 # manifest check fails. Prefer `text eol=lf` (normalises on add AND checkout).
 showdownbot_studio/fixtures/** text eol=lf
 showdownbot_studio/godot/tests/fixtures/** text eol=lf
+
+# Gate B Task 13 source-proof evidence freeze: sources.json pins a sha256 per teamlist .txt.
+# text eol=lf (not -text), matching the provenance-inputs rationale above: this evidence was
+# authored LF on write, but the pinned hashes must survive a checkout on any platform, and
+# eol=lf also stops a CRLF working copy from ever being committed back in and drifting the
+# index. Independent-source evidence has no weaker a claim to byte-stability than a fixture.
+docs/projects/champions/audits/2026-07-21-task13-source-evidence/** text eol=lf

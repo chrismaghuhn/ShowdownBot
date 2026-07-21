@@ -1,0 +1,41 @@
+Scovillain @ Scovillainite
+Ability: Moody
+- Leech Seed
+- Overheat
+- Rage Powder
+- Protect
+
+Aerodactyl @ Aerodactylite
+Ability: Unnerve
+- Rock Slide
+- Dual Wingbeat
+- Tailwind
+- Protect
+
+Sneasler @ White Herb
+Ability: Unburden
+- Close Combat
+- Dire Claw
+- Fake Out
+- Protect
+
+Basculegion @ Choice Scarf
+Ability: Adaptability
+- Wave Crash
+- Last Respects
+- Flip Turn
+- Aqua Jet
+
+Pelipper @ Sitrus Berry
+Ability: Drizzle
+- Weather Ball
+- Hurricane
+- Wide Guard
+- Protect
+
+Archaludon @ Leftovers
+Ability: Stamina
+- Electro Shot
+- Flash Cannon
+- Dragon Pulse
+- Protect

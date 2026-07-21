@@ -1,0 +1,41 @@
+Aegislash @ Colbur Berry
+Ability: Stance Change
+- Poltergeist
+- Shadow Sneak
+- Close Combat
+- King's Shield
+
+Rotom-Wash @ Sitrus Berry
+Ability: Levitate
+- Hydro Pump
+- Volt Switch
+- Will-O-Wisp
+- Protect
+
+Gengar @ Gengarite
+Ability: Cursed Body
+- Sludge Bomb
+- Shadow Ball
+- Disable
+- Protect
+
+Garchomp @ Choice Scarf
+Ability: Rough Skin
+- Earthquake
+- Stomping Tantrum
+- Rock Slide
+- Rock Tomb
+
+Ninetales-Alola @ Focus Sash
+Ability: Snow Warning
+- Blizzard
+- Freeze-Dry
+- Encore
+- Protect
+
+Incineroar @ Shuca Berry
+Ability: Intimidate
+- Darkest Lariat
+- Flare Blitz
+- Fake Out
+- Parting Shot

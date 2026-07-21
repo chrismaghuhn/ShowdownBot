@@ -1,0 +1,41 @@
+Aerodactyl @ Focus Sash
+Ability: Unnerve
+- Rock Slide
+- Dual Wingbeat
+- Protect
+- Tailwind
+
+Floette-Eternal @ Floettite
+Ability: Flower Veil
+- Protect
+- Moonblast
+- Dazzling Gleam
+- Light of Ruin
+
+Kingambit @ Chople Berry
+Ability: Defiant
+- Kowtow Cleave
+- Iron Head
+- Sucker Punch
+- Protect
+
+Garchomp @ Dragon Fang
+Ability: Rough Skin
+- Protect
+- Rock Slide
+- Earthquake
+- Scale Shot
+
+Sinistcha @ Kasib Berry
+Ability: Hospitality
+- Shadow Ball
+- Leaf Storm
+- Trick Room
+- Rage Powder
+
+Charizard @ Charizardite Y
+Ability: Blaze
+- Heat Wave
+- Protect
+- Overheat
+- Solar Beam
