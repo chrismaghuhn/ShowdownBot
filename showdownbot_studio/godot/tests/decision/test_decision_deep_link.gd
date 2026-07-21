@@ -39,6 +39,14 @@ func test_parse_rejects_missing_colon() -> void:
 	assert_str(r.reason).is_equal("malformed_decision_arg")
 
 
+func test_parse_splits_at_last_colon() -> void:
+	# B4: battle_id may contain colons; split on the last separator only.
+	var r := DecisionDeepLink.parse_arg("a:b:3")
+	assert_bool(r.ok).is_true()
+	assert_str(r.battle_id).is_equal("a:b")
+	assert_int(r.decision_index).is_equal(3)
+
+
 func test_resolve_success_fixture01() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	var target: DecisionRowDTO = bundle.decisions[1]

@@ -24,7 +24,7 @@ class ApplyResult extends RefCounted:
 
 static func parse_arg(value: String) -> ParseResult:
 	var r := ParseResult.new()
-	var sep := value.find(":")
+	var sep := value.rfind(":")
 	if sep <= 0 or sep >= value.length() - 1:
 		r.reason = REASON_MALFORMED_DECISION_ARG
 		return r
@@ -52,6 +52,10 @@ static func resolve(bundle: BundleDTO, battle_id: String, decision_index: int) -
 		var d: DecisionRowDTO = bundle.decisions[i]
 		if d.decision_index == decision_index:
 			if found >= 0:
+				# Defense-in-depth only: BundleValidator already refuses duplicate
+				# decision_index (see fixtures/unit/refuse-duplicate-decision-index/).
+				# This branch is not a production-covered path and must not be
+				# counted as one.
 				r.reason = REASON_AMBIGUOUS_DECISION_INDEX
 				return r
 			found = i
