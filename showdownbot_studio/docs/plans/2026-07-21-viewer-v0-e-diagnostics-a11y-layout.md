@@ -2,8 +2,9 @@
 
 **Status:** APPROVED — 2026-07-21 (Rev. 3). Owner review PASS across Rev. 1–3.
 Amended Rev. 4 (additive Plan-D test coverage, owner-authorised, pre-implementation).
-**Implementation not authorized** until a separate go-ahead (§10 Schritt 4; own branch).
-**Date:** 2026-07-21 · **Rev.:** 4 (Plan-D coverage gaps T1–T3 + settled-load rule)
+Amended Rev. 5 (priority-3 optional display-file disjunct — E1 review follow-up).
+**Implementation authorized** for E1 on `studio/plan-e-state-banner` (§10 Schritt 4).
+**Date:** 2026-07-21 · **Rev.:** 5 (priority-3 optional display-file disjunct)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -122,7 +123,7 @@ Priority (first match wins; highest severity first):
 |---|---|---|
 | 1 | `BUNDLE INVALID` | `refuse_diagnostic != null` **or** no successful load (shell has refuse) |
 | 2 | `TRACE MISSING` | Bundle loaded, `not bundle.trace_trusted` |
-| 3 | `STATE DEGRADED` | `downgrade_warnings` non-empty **or** optional required-for-display file absent with persistent warning already on bundle |
+| 3 | `STATE DEGRADED` | `downgrade_warnings` non-empty **or** an optional **display** file on `bundle.manifest.files` has `required == false` and `present == false` — scoped to `warnings` and `config_manifest` only (`bundle_manifest_dto.gd:126` / `file_entry_dto.gd:18,26`). Mode-peer absences (`battle_log` on TRACE_ONLY, `decision_trace` on REPLAY_ONLY) are **not** degradation. |
 | 4 | `WAITING / NO DECISION ROW` | `trace_trusted` and selected decision is `null` |
 | 5 | `FALLBACK USED` | Selected decision `fallback_used == true` |
 | 6 | `FORCED REPLACEMENT` | Selected `decision_phase == BundleMode.PHASE_FORCED_REPLACEMENT` |
@@ -512,11 +513,13 @@ requires a loaded bundle MUST assert an additional positive load signal after se
 | `test_phase_forced_replacement` | fixture-01: select row for `decision_index == 1` (`forced_replacement`) → `FORCED REPLACEMENT`. Same full-chain rationale as above. |
 | `test_decision_recorded_regular` | fixture-01 selected `PHASE_REGULAR_TURN` → `DECISION RECORDED` |
 | `test_degraded_downgrade_warnings` | non-empty `downgrade_warnings` beats waiting (3v4 sample) |
+| `test_degraded_absent_optional_display_file` | trusted, empty `downgrade_warnings`, `config_manifest` optional+absent → `STATE DEGRADED` (Rev. 5) |
 | `test_dirty_null_label` | `dirty_label(null) == "dirty state not recorded"` |
 | **Precedence (both conditions set — F1)** | |
 | `test_precedence_1v2_refuse_beats_trace_missing` | **bundle and `refuse_diagnostic` both non-null** → `BUNDLE INVALID` (catches impls that key only on `bundle == null`) |
 | `test_precedence_2v3_trace_missing_beats_degraded` | `not trace_trusted` **and** non-empty `downgrade_warnings` → `TRACE MISSING` |
 | `test_precedence_3v4_degraded_beats_waiting` | `trace_trusted`, non-empty `downgrade_warnings`, `selected=null` → `STATE DEGRADED` (3 and 4 both match; 3 wins) |
+| `test_precedence_3v4_absent_optional_beats_waiting` | trusted, absent optional display file, `selected=null` → `STATE DEGRADED` not `WAITING` (Rev. 5) |
 | `test_precedence_4v5_waiting_vs_fallback_exclusive` | **Unreachable simultaneous:** 4 needs `selected==null`, 5 needs a selected row with `fallback_used`. Assert `selected==null`→`WAITING / NO DECISION ROW` and selected+`fallback_used`→`FALLBACK USED` in this named case; document exclusivity. |
 | `test_precedence_5v6_fallback_beats_forced` | `fallback_used == true` **and** `decision_phase == PHASE_FORCED_REPLACEMENT` → `FALLBACK USED` |
 | `test_precedence_6v7_phases_mutually_exclusive` | `FORCED_REPLACEMENT` and `TEAM_PREVIEW` **cannot co-occur** on one row (validator allowlist `bundle_validator.gd:73–75`, refuse `:683`). Assert FORCED→`FORCED REPLACEMENT` and TEAM→`TEAM PREVIEW` separately in this named case; document unreachable simultaneous. |
@@ -775,6 +778,24 @@ implementation start by counting §5 names). No silent case deletion.
 ---
 
 ## 12. Changelog
+
+### Rev. 5 — Priority-3 optional display-file disjunct (E1 follow-up)
+
+- **Anlass:** E1 review (`e757772`): §0.5 priority 3 named a second disjunct
+  (“optional required-for-display file absent with persistent warning already on
+  bundle”) that does not exist — `downgrade_warnings.append` occurs only for
+  `unsupported_trace_schema_version` (`bundle_validator.gd:304–308`); absent
+  optional files `continue` with no warning (`:209` / `:218`). Unrestricted
+  `required==false && present==false` would also false-degrade TRACE_ONLY loads
+  (absent `battle_log` by design).
+- **Umfang:** Reformulate priority 3 to the real mechanism — `warnings` /
+  `config_manifest` entries on `bundle.manifest.files` with
+  `required == false` and `present == false`. Add §5.1 cases
+  `test_degraded_absent_optional_display_file` and
+  `test_precedence_3v4_absent_optional_beats_waiting`. Presenter implements the
+  scoped check; mode-peer absences remain non-degrading.
+- **Einordnung:** Additive amend of an APPROVED plan during E1 implementation
+  (second commit on `studio/plan-e-state-banner`), not a re-plan.
 
 ### Rev. 4 — Plan-D coverage gaps (T1–T3) + settled-load rule
 

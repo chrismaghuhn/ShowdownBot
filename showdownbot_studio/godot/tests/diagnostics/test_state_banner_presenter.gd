@@ -1,6 +1,7 @@
 extends GdUnitTestSuite
 
-## Plan E §5.1 — StateBannerPresenter (16 cases). Baseline tip case count: 189.
+## Plan E §5.1 — StateBannerPresenter (18 cases after Rev. 5 optional-file disjunct).
+## Baseline tip case count at E1 start: 189; after initial E1: 205; after Rev. 5: 207.
 
 const _FIXTURES_ROOT := "res://../fixtures/viewer-v0"
 
@@ -55,6 +56,41 @@ func _make_bundle(trace_trusted: bool, downgrade_warnings: Array = []) -> Bundle
 	return b
 
 
+func _make_optional_entry(present: bool, logical_name: String) -> FileEntryDTO:
+	var entry := FileEntryDTO.new()
+	entry.required = false
+	entry.present = present
+	entry.path = ("%s.json" % logical_name) if present else null
+	entry.sha256 = "abc" if present else null
+	return entry
+
+
+func _make_mode_entry(present: bool) -> FileEntryDTO:
+	var entry := FileEntryDTO.new()
+	entry.required = present
+	entry.present = present
+	entry.path = "battle.jsonl" if present else null
+	entry.sha256 = "abc" if present else null
+	return entry
+
+
+## Trusted REPLAY_TRACE shape; optional display files controlled explicitly.
+func _make_trusted_bundle_with_optionals(
+		warnings_present: bool,
+		config_manifest_present: bool
+) -> BundleDTO:
+	var files := FilesTableDTO.new()
+	files.battle_log = _make_mode_entry(true)
+	files.decision_trace = _make_mode_entry(true)
+	files.warnings = _make_optional_entry(warnings_present, "warnings")
+	files.config_manifest = _make_optional_entry(config_manifest_present, "config-manifest")
+	var manifest := BundleManifestDTO.new()
+	manifest.files = files
+	var b := _make_bundle(true)
+	b.manifest = manifest
+	return b
+
+
 func _row_by_decision_index(bundle: BundleDTO, decision_index: int) -> DecisionRowDTO:
 	for item in bundle.decisions:
 		var row: DecisionRowDTO = item
@@ -92,6 +128,8 @@ func test_waiting_when_no_selection() -> void:
 	var bundle := _fixture_bundle("bundles/fixture-01")
 	assert_bool(bundle.trace_trusted).is_true()
 	assert_bool(bundle.downgrade_warnings.is_empty()).is_true()
+	assert_bool(bundle.manifest.files.warnings.present).is_true()
+	assert_bool(bundle.manifest.files.config_manifest.present).is_true()
 	var state := StateBannerPresenter.compute(bundle, null, null)
 	assert_str(state).is_equal(StateBannerPresenter.WAITING_NO_DECISION)
 
@@ -141,6 +179,18 @@ func test_degraded_downgrade_warnings() -> void:
 	assert_str(state).is_equal(StateBannerPresenter.STATE_DEGRADED)
 
 
+func test_degraded_absent_optional_display_file() -> void:
+	# Rev. 5: config_manifest optional+absent → STATE DEGRADED (no downgrade_warnings).
+	var bundle := _make_trusted_bundle_with_optionals(true, false)
+	assert_bool(bundle.trace_trusted).is_true()
+	assert_bool(bundle.downgrade_warnings.is_empty()).is_true()
+	assert_bool(bundle.manifest.files.config_manifest.required).is_false()
+	assert_bool(bundle.manifest.files.config_manifest.present).is_false()
+	var selected := _make_decision(BundleMode.PHASE_REGULAR_TURN, false)
+	var state := StateBannerPresenter.compute(bundle, selected, null)
+	assert_str(state).is_equal(StateBannerPresenter.STATE_DEGRADED)
+
+
 func test_dirty_null_label() -> void:
 	assert_str(StateBannerPresenter.dirty_label(null)).is_equal("dirty state not recorded")
 
@@ -171,6 +221,18 @@ func test_precedence_3v4_degraded_beats_waiting() -> void:
 	assert_bool(bundle.downgrade_warnings.is_empty()).is_false()
 	var state := StateBannerPresenter.compute(bundle, null, null)
 	assert_str(state).is_equal(StateBannerPresenter.STATE_DEGRADED)
+
+
+func test_precedence_3v4_absent_optional_beats_waiting() -> void:
+	# Rev. 5: absent optional display file + selected==null → STATE DEGRADED (not WAITING).
+	var bundle := _make_trusted_bundle_with_optionals(false, true)
+	assert_bool(bundle.trace_trusted).is_true()
+	assert_bool(bundle.downgrade_warnings.is_empty()).is_true()
+	assert_bool(bundle.manifest.files.warnings.required).is_false()
+	assert_bool(bundle.manifest.files.warnings.present).is_false()
+	var state := StateBannerPresenter.compute(bundle, null, null)
+	assert_str(state).is_equal(StateBannerPresenter.STATE_DEGRADED)
+	assert_str(state).is_not_equal(StateBannerPresenter.WAITING_NO_DECISION)
 
 
 func test_precedence_4v5_waiting_vs_fallback_exclusive() -> void:
