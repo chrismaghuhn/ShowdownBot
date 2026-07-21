@@ -1,9 +1,10 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/workspace/app_shell.gd" id="1_shell"]
 [ext_resource type="Script" path="res://src/bundle/bundle_loader.gd" id="2_loader"]
 [ext_resource type="PackedScene" path="res://src/replay/replay_workspace.tscn" id="3_ws"]
 [ext_resource type="PackedScene" path="res://src/decision/decision_workspace.tscn" id="4_dws"]
+[ext_resource type="PackedScene" path="res://src/diagnostics/state_banner.tscn" id="5_banner"]
 
 [node name="AppShell" type="Control"]
 layout_mode = 3
@@ -37,6 +38,9 @@ placeholder_text = "Bundle directory path"
 [node name="OpenButton" type="Button" parent="VBox/PathRow"]
 layout_mode = 2
 text = "Open"
+
+[node name="StateBanner" parent="VBox" instance=ExtResource("5_banner")]
+layout_mode = 2
 
 [node name="StatusLabel" type="Label" parent="VBox"]
 layout_mode = 2

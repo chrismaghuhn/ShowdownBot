@@ -3,6 +3,7 @@ extends Control
 
 @onready var _path_edit: LineEdit = $VBox/PathRow/PathEdit
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
+@onready var _state_banner: StateBanner = $VBox/StateBanner
 @onready var _status_label: Label = $VBox/StatusLabel
 @onready var _replay_workspace: ReplayWorkspace = $VBox/ReplayWorkspace
 @onready var _decision_workspace: DecisionWorkspace = $VBox/DecisionWorkspace
@@ -19,6 +20,11 @@ func _ready() -> void:
 	_loader.completed.connect(_on_completed)
 	_loader.refused.connect(_on_refused)
 	_loader.cancelled.connect(_on_cancelled)
+	# decision_controller.gd:4 — refresh prominent banner on selection changes.
+	_decision_workspace.get_decision_controller().decision_selection_changed.connect(
+		_on_decision_selection_changed
+	)
+	_refresh_state_banner()
 	parse_cli_args()
 
 
@@ -153,6 +159,7 @@ func _start_load(path: String) -> void:
 	_decision_workspace.clear()
 	_decision_workspace.set_loading(true)
 	_set_status("Loading...")
+	_refresh_state_banner()
 	_loader.load_async(path)
 
 
@@ -165,6 +172,7 @@ func _on_completed(bundle: BundleDTO) -> void:
 	_apply_pending_deep_link(bundle)
 	if _deep_link_refuse_reason.is_empty():
 		_set_status(_format_loaded_status(bundle))
+	_refresh_state_banner()
 
 
 func _apply_pending_deep_link(bundle: BundleDTO) -> void:
@@ -192,6 +200,7 @@ func _on_refused(diagnostic: RefuseDiagnostic) -> void:
 	_replay_workspace.clear()
 	_decision_workspace.clear()
 	_set_status("Refused: %s" % diagnostic.reason)
+	_refresh_state_banner()
 
 
 func _on_cancelled() -> void:
@@ -200,6 +209,20 @@ func _on_cancelled() -> void:
 	_replay_workspace.clear()
 	_decision_workspace.clear()
 	_set_status("Load cancelled")
+	_refresh_state_banner()
+
+
+func _on_decision_selection_changed(_decision_row_index: int) -> void:
+	_refresh_state_banner()
+
+
+func _refresh_state_banner() -> void:
+	# Uses private _current_refuse (app_shell.gd:12) — no new public refuse getter (§0.11).
+	var selected: DecisionRowDTO = null
+	if _current_bundle != null:
+		selected = _decision_workspace.get_decision_controller().get_selected_decision()
+	var state := StateBannerPresenter.compute(_current_bundle, selected, _current_refuse)
+	_state_banner.set_banner(state)
 
 
 func _format_loaded_status(bundle: BundleDTO) -> String:
