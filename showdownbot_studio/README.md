@@ -13,12 +13,11 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 - Product north star: design approved; written master spec is non-binding context for Phase 0
   (separate review later / before later phases).
 - Viewer v0: design + bundle contract approved (incl. §14.1 Amendment A). Implementation **index**
-  APPROVED; **Plan A** APPROVED 2026-07-21 (Rev. 6) as docs only.
-  ([`docs/plans/`](docs/plans/)). Plans B–F remain DRAFT. **Plan A code** still requires a separate
-  implementation go-ahead.
-- Next: Plan A implementation authorization, or Plan B review.
-- Godot application: not created.
-- Python bundle exporter: not implemented.
+  APPROVED ([`docs/plans/`](docs/plans/)).
+- **Plan A** merged via PR **#41** (exporter + fixtures).
+- **Plan B** merged via PR **#44** (Godot shell + sealed DTO loader).
+- **Plan C** merged via PR **#46** (replay board + timeline) @ `1b0be1d`.
+- **Plans D–F** remain DRAFT. **Next:** Plan D implementation (APPROVED Rev. 5).
 - Live client, plugins, mods, and external bots: future phases only.
 - Active ShowdownBot work remains governed by [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
@@ -36,10 +35,10 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 | Path | Purpose |
 |---|---|
 | `docs/` | Master spec, research, slice specs, decisions, and plans |
-| `godot/` | Future typed-GDScript desktop application |
-| `python/` | Future deterministic exporters and protocol/domain adapters |
+| `godot/` | Typed-GDScript desktop application (Plans B–C on tip) |
+| `python/` | Deterministic exporters and protocol/domain adapters (Plan A on tip) |
 | `schemas/` | Future versioned cross-process and bundle contracts |
-| `fixtures/` | Future small, provenance-clean viewer fixtures |
-| `tests/` | Future contract and end-to-end verification |
+| `fixtures/` | Small, provenance-clean viewer fixtures |
+| `tests/` | Contract and end-to-end verification |
 
-The placeholder READMEs reserve responsibilities only. They do not authorize implementation.
+The placeholder READMEs reserve responsibilities only where a later plan has not yet landed.
