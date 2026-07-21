@@ -1,4 +1,5 @@
 import gzip
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -148,31 +149,48 @@ class _TrackingReadHandle:
         return False
 
 
-def test_dataset_sha256_closes_its_read_handle(tmp_path, monkeypatch):
-    plain = tmp_path / "dataset.jsonl"
-    plain.write_bytes(b'{"row": 1}\n')
+def test_dataset_sha256_closes_its_read_handle_on_the_gzip_path(tmp_path, monkeypatch):
+    # (review finding) a PLAIN file already went through the safe Path.read_bytes() path even in
+    # the pre-ed14bdd implementation -- only the .gz branch used the unsafe
+    # gzip.open(path, "rb").read(). A handle-close test using a plain file would stay green
+    # against the OLD code too, proving nothing. Use a .gz file instead: the fixed code's uniform
+    # `p.read_bytes()` + in-memory `gzip.decompress()` routes through Path.open and touches the
+    # tracking handle; the old gzip.open(p, "rb") opens the real file directly (bypassing
+    # Path.open), so it would NOT touch this handle -- correctly distinguishing fixed from
+    # unfixed. The handle serves the COMPRESSED bytes, matching what read_bytes() actually reads
+    # off a .gz file before in-memory decompression.
+    payload = b'{"row": 1}\n'
+    compressed_bytes = gzip.compress(payload)
+    compressed_path = tmp_path / "dataset.jsonl.gz"
+    compressed_path.write_bytes(compressed_bytes)
 
-    handle = _TrackingReadHandle(b'{"row": 1}\n')
+    handle = _TrackingReadHandle(compressed_bytes)
     monkeypatch.setattr(Path, "open", lambda self, *a, **k: handle)
 
-    dataset_sha256(plain)
+    result = dataset_sha256(compressed_path)
 
     assert handle.closed is True
+    assert result == hashlib.sha256(payload).hexdigest()
 
 
-def test_sha256_of_file_matches_plain_and_gzip_content_and_closes_its_handle(tmp_path, monkeypatch):
+def test_sha256_of_file_matches_plain_and_gzip_content_and_closes_its_handle_on_the_gzip_path(
+    tmp_path, monkeypatch,
+):
     # Parallel coverage for reranker_train.sha256_of_file() -- the same gzip-transparent hashing
-    # utility as dataset_sha256 above, previously untested on its own.
+    # utility as dataset_sha256 above, previously untested on its own. Same .gz-vs-plain
+    # distinction as the test above: a plain file wouldn't distinguish fixed from unfixed.
     payload = b'{"row": 1}\n'
     plain = tmp_path / "dataset.jsonl"
     compressed = tmp_path / "dataset.jsonl.gz"
     plain.write_bytes(payload)
-    compressed.write_bytes(gzip.compress(payload))
+    compressed_bytes = gzip.compress(payload)
+    compressed.write_bytes(compressed_bytes)
     assert sha256_of_file(str(plain)) == sha256_of_file(str(compressed))
 
-    handle = _TrackingReadHandle(payload)
+    handle = _TrackingReadHandle(compressed_bytes)
     monkeypatch.setattr(Path, "open", lambda self, *a, **k: handle)
 
-    sha256_of_file(str(plain))
+    result = sha256_of_file(str(compressed))
 
     assert handle.closed is True
+    assert result == hashlib.sha256(payload).hexdigest()
