@@ -1,7 +1,7 @@
 # Viewer v0 — Plan E: Diagnostics, Accessibility, and Layout
 
 **Status:** DRAFT — executable plan for review; **implementation not authorized**
-**Date:** 2026-07-21 · **Rev.:** 1 (sketch → executable)
+**Date:** 2026-07-21 · **Rev.:** 2 (choice points closed; F1–F4 test-layer fixes)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -125,7 +125,15 @@ Priority (first match wins; highest severity first):
 | 5 | `FALLBACK USED` | Selected decision `fallback_used == true` |
 | 6 | `FORCED REPLACEMENT` | Selected `decision_phase == BundleMode.PHASE_FORCED_REPLACEMENT` |
 | 7 | `TEAM PREVIEW` | Selected `decision_phase == BundleMode.PHASE_TEAM_PREVIEW` |
-| 8 | `DECISION RECORDED` | Selected decision present (incl. `PHASE_REGULAR_TURN` / other recorded phase strings) |
+| 8 | `DECISION RECORDED` | Selected decision present and `decision_phase == BundleMode.PHASE_REGULAR_TURN` |
+
+**Priority 8 / phase allowlist (defense-in-depth):** The loader allowlists exactly three
+phases — `PHASE_TEAM_PREVIEW`, `PHASE_FORCED_REPLACEMENT`, `PHASE_REGULAR_TURN`
+(`bundle_validator.gd:73–75`) — and refuses any other string with `unknown decision_phase`
+(`bundle_validator.gd:683`). After priorities 6–7, the only reachable remaining phase is
+`PHASE_REGULAR_TURN`. There are **no** other live “recorded phase strings.” A hypothetical
+unknown phase must never be treated as a production-covered banner path (same class of note as
+`ambiguous_decision_index` in §0.3).
 
 **Warnings:** banner and diagnostics lists use **text + icon**, never color alone (design §6.4).
 
@@ -172,7 +180,7 @@ filter; navigation shortcuts that would conflict while typing (`Left`/`Right`/`S
 | Resizable / collapsible docks | `WorkspaceLayout` owns split/tab containers wrapping Replay + Decision + Diagnostics |
 | Reset-to-safe | Restores default split ratios, density Comfortable, scale 100%, all primary docks visible |
 | Small window | May stack/tab; **timeline controls and path/open (file) row remain reachable** (design §6.1) |
-| Min window size | **OPEN — Choice Point A (E3)** |
+| Min window size | **1280×720** (`DisplayServer.window_set_min_size(Vector2i(1280, 720))`) — Choice Point A **CLOSED** |
 | Mixed-DPI | Manual Windows checklist → evidence note for Plan F (not an automated green gate) |
 
 ### 0.8 Scale and density (binding)
@@ -183,7 +191,7 @@ filter; navigation shortcuts that would conflict while typing (`Left`/`Right`/`S
 | Presets | Snap buttons/menu: **75 / 100 / 150 / 200** (design §9.2) |
 | Density | **Compact** / **Comfortable** — same information + same selection; only spacing/font metrics change |
 | Truncation | Visual truncate + tooltip/full detail; **copy paths never truncate IDs** |
-| Fonts | Offline only — **OPEN — Choice Point B (E6)** |
+| Fonts | **B2 CLOSED:** offline **system stack** only (no bundled font files; no network fonts). **Binding Auflage:** provenance value labels, hash fields, and the raw-evidence surface MUST use an explicit **monospace** fallback (see §0.9 / §4.2 / §4.6). |
 
 ### 0.9 Provenance + raw evidence (binding)
 
@@ -195,6 +203,22 @@ Provenance panel shows when present on sealed DTOs:
 - `source_hashes_battle_log`, `source_hashes_decision_trace`
 - `exporter_name`, `exporter_version`
 - `source_provenance.dirty` tri-state: `true` / `false` / `null`→**`dirty state not recorded`**
+
+**Monospace (binding — Choice Point B Auflage):** Every control that displays `git_sha`,
+`config_hash`, source hashes, or raw evidence text MUST render with a monospace system font.
+Binding mechanism (Godot 4.5.2 Control / SystemFont APIs — do not invent):
+
+1. Build `var mono := SystemFont.new()` and set
+   `mono.font_names = PackedStringArray(["monospace"])` — Godot’s portable system-font **alias**
+   for monospace (resolves to platform monospace; see Godot “Using fonts” / `SystemFont.font_names`).
+2. Apply with `Control.add_theme_font_override(&"font", mono)` on each hash/raw surface control
+   ([`Control.add_theme_font_override`](https://docs.godotengine.org/en/stable/classes/class_control.html#class-control-method-add-theme-font-override)).
+3. Tests assert `control.has_theme_font_override(&"font")` and that
+   `control.get_theme_font(&"font")` is a `SystemFont` whose `font_names` contains `"monospace"`
+   ([`has_theme_font_override`](https://docs.godotengine.org/en/stable/classes/class_control.html#class-control-method-has-theme-font-override) /
+   [`get_theme_font`](https://docs.godotengine.org/en/stable/classes/class_control.html#class-control-method-get-theme-font)).
+
+UI chrome (banner title, buttons) may use the default sans system stack; hash/raw surfaces may not.
 
 Diagnostics panel: exporter warnings + downgrade warnings (text + icon).
 
@@ -220,15 +244,17 @@ keys; score graph; artwork; theme polish beyond workable defaults; inventing API
 
 ### 0.12 Implementation gate
 
-This Rev. 1 is **DRAFT**. Code starts only after: (1) owner closes Choice Points A–C,
-(2) status → **APPROVED**, (3) separate implementation go-ahead. Approve-commit precedes code.
+This Rev. 2 is **DRAFT**. Choice Points A–C are **CLOSED** (§0.13). Code still starts only after:
+(1) status → **APPROVED**, (2) separate implementation go-ahead. Approve-commit precedes code.
 
-### 0.13 Open choice points (owner decides — implementer must not close)
+### 0.13 Choice points — CLOSED (owner, Rev. 2)
+
+Options below remain as protocol. Status of each point: **CLOSED (owner, Rev. 2)**.
 
 #### Choice Point A — Minimum supported window size (E3)
 
 **Spec:** design §6.1 / §9.2 + MASTER_SPEC §5 — primary controls reachable at min window; numbers
-TBD (index §9 item 4).
+were TBD (index §9 item 4).
 
 | Option | Numbers | Consequence |
 |---|---|---|
@@ -236,12 +262,11 @@ TBD (index §9 item 4).
 | A2 | **1024×640** min | Harder layout; forces earlier stacking; better small-laptop coverage |
 | A3 | **1280×720** min + **1024×640** “degraded stack” documented | Two tiers; more test surface |
 
-**Recommendation:** **A1 (1280×720)** as the **acceptance** minimum for “primary controls
-reachable” + scale matrix; document that narrower widths may stack (still no unreachable
-timeline/path). Rationale: current AppShell is a vertical stack of two `size_flags_vertical=3`
-workspaces — 1024×640 without a finished layout shell is a layout rewrite, not a pin.
-
-**Status:** OPEN.
+| | |
+|---|---|
+| **Decision** | **A1 — 1280×720** as the acceptance minimum |
+| **Rationale** | Derived from the real AppShell (vertical stack of two `size_flags_vertical=3` workspaces). 1024×640 without a finished layout shell would be a rewrite, not a pin. Narrower widths may stack; timeline and Path/Open remain reachable. |
+| **Status** | **CLOSED (owner, Rev. 2)** |
 
 #### Choice Point B — Offline fonts (E6)
 
@@ -252,11 +277,12 @@ workspaces — 1024×640 without a finished layout shell is a layout rewrite, no
 
 Mockup HTML may keep Google Fonts; **app must not** load network fonts (design §8 / index §5.8).
 
-**Recommendation:** **B2 for v0** (system stack), with Theme fallbacks documented. Rationale:
-Phase 0 offline + YAGNI; mockup already uses IBM Plex via network for design only. Bundle fonts
-can be a post-v0 polish if glyph consistency becomes a real defect.
-
-**Status:** OPEN.
+| | |
+|---|---|
+| **Decision** | **B2 — system stack**, with binding Auflage |
+| **Rationale** | Phase-0 offline + YAGNI. |
+| **Auflage (binding)** | Provenance, hash, and raw-evidence surfaces get an explicit **monospace** Theme/Control font fallback (`SystemFont` + alias `"monospace"` via `add_theme_font_override` — §0.9 / §4.6). A viewer whose job is reading `git_sha` / `config_hash` / source hashes must not render hex digits with platform-dependent proportional glyph drift on those surfaces. |
+| **Status** | **CLOSED (owner, Rev. 2)** |
 
 #### Choice Point C — “Next close” semantics (E4 binds a shortcut)
 
@@ -264,7 +290,7 @@ can be a post-v0 polish if glyph consistency becomes a real defect.
 define `"close"` as `top1_top2_margin != null` with **no numeric threshold**. Design §6.5:
 “v0 defines no universal close-decision threshold.”
 
-Empirics (bundles on tip):
+Empirics (bundles on tip; unchanged):
 
 | Fixture | Decisions | With non-null margin | Without |
 |---|---|---|---|
@@ -278,10 +304,11 @@ So on fixture-05, Next-close ≈ Next-decision; on fixture-01 it still filters.
 | C1 | **Keep** Plan D / design (null check only) | Spec-faithful; E4 binds `jump_next("close")` as-is; weak UX on dense-margin fixtures |
 | C2 | Introduce numeric threshold | Requires **design §6.5 amendment** + Plan D presenter/tests change — **not** a silent E cleanup |
 
-**Recommendation:** **C1 — leave as-is.** E documents the empirics; does not invent a threshold.
-If the owner wants C2, that is a **spec amendment** before E implementation, not an E task.
-
-**Status:** OPEN.
+| | |
+|---|---|
+| **Decision** | **C1 — leave unchanged** |
+| **Rationale** | design §6.5 remains authoritative. A threshold would be a spec change plus Plan D presenter/tests — not Plan E cleanup. Empirics stay documented above. |
+| **Status** | **CLOSED (owner, Rev. 2)** |
 
 ---
 
@@ -300,7 +327,7 @@ without network font loads.
 - Localization
 - Dark/light theme polish beyond workable defaults
 - Candidate filter semantics / UI / tests (Plan D)
-- Changing Next-close threshold without Choice Point C → C2 + spec amend
+- Changing Next-close threshold (Choice Point C **CLOSED** as C1; C2 would need a design §6.5 amend)
 - Strength / bot-correctness claims
 
 ---
@@ -334,11 +361,13 @@ gdUnit can assert derivation without full scene trees. Views bind sealed DTOs re
 | `godot/src/diagnostics/provenance_presenter.gd` | Field formatting; dirty tri-state |
 | `godot/src/diagnostics/diagnostics_presenter.gd` | Warning list model |
 | `godot/src/diagnostics/diagnostics_dock.gd` + `.tscn` | Provenance + warnings + raw tab |
+| `godot/src/diagnostics/studio_mono_font.gd` | §4.6 `StudioMonoFont` helper |
 | `godot/src/workspace/workspace_layout.gd` + `.tscn` | Docks, density, scale, reset |
 | `godot/src/workspace/workspace_shortcuts.gd` | Keyboard → existing APIs |
 | `godot/src/workspace/shortcut_labels.gd` | Ctrl vs Cmd strings |
 | `godot/src/workspace/app_shell.gd` / `.tscn` | Mount banner + layout; keep D deep link |
-| `godot/assets/fonts/` **or** Theme system stack | Per Choice Point B |
+| `godot/assets/fonts/` | **Not used** (B2 — no bundled fonts) |
+| Theme / `SystemFont` monospace override | Hash + raw surfaces (§0.9 / §4.6) |
 | `godot/tests/diagnostics/test_state_banner_presenter.gd` | E1 |
 | `godot/tests/diagnostics/test_provenance_presenter.gd` | E2 |
 | `godot/tests/diagnostics/test_diagnostics_dock.gd` | E2 |
@@ -395,6 +424,10 @@ Formats manifest + `source_provenance` into ordered `Array` of `{label, value}` 
 Never invent hashes. Null optional → `not recorded` (reuse `DecisionPresenter.optional_text`
 where applicable).
 
+**View binding:** each **value** control for hash-like fields (`git_sha`, `config_hash`,
+`source_hashes_*`, and any other hex/hash string shown in the provenance tab) MUST receive the
+monospace override from §4.6 before display.
+
 ### 4.3 `WorkspaceLayout` (binding API)
 
 ```gdscript
@@ -410,7 +443,7 @@ func reset_to_safe() -> void
 func focus_diagnostics() -> void
 ```
 
-Min window: `DisplayServer.window_set_min_size(Vector2i(W, H))` with **W×H from Choice Point A**.
+Min window: `DisplayServer.window_set_min_size(Vector2i(1280, 720))` (Choice Point A CLOSED).
 
 ### 4.4 `WorkspaceShortcuts` (binding)
 
@@ -430,6 +463,27 @@ static func mod_key() -> String:
 	# "Cmd" on macOS, "Ctrl" elsewhere (OS.get_name()).
 ```
 
+### 4.6 Monospace helper (binding — Choice Point B Auflage)
+
+```gdscript
+class_name StudioMonoFont
+extends RefCounted
+
+## Shared SystemFont using Godot's portable "monospace" alias.
+static func system_mono() -> SystemFont:
+	var font := SystemFont.new()
+	font.font_names = PackedStringArray(["monospace"])
+	return font
+
+
+static func apply_to(control: Control) -> void:
+	# Control.add_theme_font_override(name: StringName, font: Font)
+	control.add_theme_font_override(&"font", system_mono())
+```
+
+**Surfaces that MUST call `apply_to`:** provenance hash/value labels, raw-evidence `TextEdit`
+(or equivalent). Asserted by §5.3 `test_hash_surfaces_use_monospace`.
+
 ---
 
 ## 5. Named tests (binding)
@@ -447,9 +501,17 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 | `test_fallback_used` | fixture-03 decision with `fallback_used` → `FALLBACK USED` |
 | `test_phase_team_preview` | constructed phase → `TEAM PREVIEW` |
 | `test_phase_forced_replacement` | constructed → `FORCED REPLACEMENT` |
-| `test_decision_recorded_regular` | fixture-01 selected regular → `DECISION RECORDED` |
-| `test_degraded_downgrade_warnings` | non-empty `downgrade_warnings` beats waiting |
+| `test_decision_recorded_regular` | fixture-01 selected `PHASE_REGULAR_TURN` → `DECISION RECORDED` |
+| `test_degraded_downgrade_warnings` | non-empty `downgrade_warnings` beats waiting (3v4 sample) |
 | `test_dirty_null_label` | `dirty_label(null) == "dirty state not recorded"` |
+| **Precedence (both conditions set — F1)** | |
+| `test_precedence_1v2_refuse_beats_trace_missing` | **bundle and `refuse_diagnostic` both non-null** → `BUNDLE INVALID` (catches impls that key only on `bundle == null`) |
+| `test_precedence_2v3_trace_missing_beats_degraded` | `not trace_trusted` **and** non-empty `downgrade_warnings` → `TRACE MISSING` |
+| `test_precedence_3v4_degraded_beats_waiting` | `trace_trusted`, non-empty `downgrade_warnings`, `selected=null` → `STATE DEGRADED` (3 and 4 both match; 3 wins) |
+| `test_precedence_4v5_waiting_vs_fallback_exclusive` | **Unreachable simultaneous:** 4 needs `selected==null`, 5 needs a selected row with `fallback_used`. Assert `selected==null`→`WAITING / NO DECISION ROW` and selected+`fallback_used`→`FALLBACK USED` in this named case; document exclusivity. |
+| `test_precedence_5v6_fallback_beats_forced` | `fallback_used == true` **and** `decision_phase == PHASE_FORCED_REPLACEMENT` → `FALLBACK USED` |
+| `test_precedence_6v7_phases_mutually_exclusive` | `FORCED_REPLACEMENT` and `TEAM_PREVIEW` **cannot co-occur** on one row (validator allowlist `bundle_validator.gd:73–75`, refuse `:683`). Assert FORCED→`FORCED REPLACEMENT` and TEAM→`TEAM PREVIEW` separately in this named case; document unreachable simultaneous. |
+| `test_precedence_7v8_team_preview_beats_decision_recorded` | selected present **and** `decision_phase == PHASE_TEAM_PREVIEW` → `TEAM PREVIEW` (not `DECISION RECORDED`) |
 
 ### 5.2 `tests/diagnostics/test_provenance_presenter.gd`
 
@@ -466,6 +528,7 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 | `test_raw_tab_bounded` | huge string input truncated with marker; no one Control per line beyond TextEdit |
 | `test_warnings_show_text_and_icon` | warning row has non-empty text; icon node visible |
 | `test_no_filesystem_paths_in_raw` | raw view does not include absolute local path of fixture dir |
+| `test_hash_surfaces_use_monospace` | After dock bind of fixture-01: each provenance hash **value** control and the raw `TextEdit` satisfy `has_theme_font_override(&"font") == true`, `get_theme_font(&"font") is SystemFont`, and `"monospace" in (font as SystemFont).font_names` (§4.6) |
 
 ### 5.4 `tests/workspace/test_workspace_layout.gd`
 
@@ -475,7 +538,7 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 | `test_scale_presets` | 0.75/1.0/1.5/2.0 stick |
 | `test_density_preserves_selection` | change compact↔comfortable; decision_index + timeline entry unchanged |
 | `test_reset_to_safe_restores_defaults` | after custom scale/density/collapse → reset → defaults |
-| `test_min_window_set` | after ready, min size equals Choice Point A numbers |
+| `test_min_window_set` | after ready, min size equals **`Vector2i(1280, 720)`** |
 
 ### 5.5 `tests/workspace/test_workspace_shortcuts.gd`
 
@@ -495,9 +558,11 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 
 | Test | Assert |
 |---|---|
-| `test_banner_visible_fixture01` | after open, banner text in allowed set; control visible |
+| `test_banner_visible_fixture01` | after open + settle, banner **`DECISION RECORDED`** (Plan D `DecisionController.reset` selects first decision on trusted bundles); control visible |
 | `test_banner_fixture04_trace_missing` | `TRACE MISSING` |
-| `test_banner_fixture03_or_fallback_path` | fallback or decision-recorded per selection |
+| `test_banner_fixture03_fallback_on_selected_row` | Open fixture-03; `select_decision_row` for the row with `fallback_used == true` (fixture-03 d2 / Plan D nav target); banner **`FALLBACK USED`** (deterministic — no “or”) |
+| `test_banner_fixture05_after_selection` | Open `bundles/fixture-05`; select a recorded decision; banner is one of the §0.5 labels consistent with that row (at minimum: not `BUNDLE INVALID` / not `TRACE MISSING` while trusted+selected) |
+| `test_banner_fixture06_refuse_hash_mismatch` | Path **`sources/fixture-06/bundle`** (there is **no** `bundles/fixture-06` — same path as `test_app_shell_smoke.gd:82` / `test_bundle_validator.gd:96`). Assert `get_refuse_reason() == "hash_mismatch"` **and** banner `BUNDLE INVALID`. Pinning the reason prevents a green test on a wrong/missing path that merely fails to open. |
 | `test_deep_link_refuse_uses_plan_d_reason` | mismatch → status/detail contains `battle_id_mismatch` **literal** |
 | `test_keyboard_only_smoke_fixture01` | sequence: open → next decision → focus filter → type → focus selected (no mouse API) |
 
@@ -537,16 +602,15 @@ implementation start by counting §5 names). No silent case deletion.
 - [ ] **GREEN:** `ProvenancePresenter`, `DiagnosticsPresenter`, `DiagnosticsDock` with Raw bounded.
 - [ ] **Commit:** `feat(studio): add diagnostics and provenance dock`
 
-### Task E3 — Scale + density (+ min window after Choice Point A)
+### Task E3 — Scale + density (+ min window 1280×720)
 
-- [ ] **Owner must have closed Choice Point A** (else stop).
-- [ ] **RED:** §5.4 scale/density/min-window tests.
+- [ ] **RED:** §5.4 scale/density/min-window tests (`Vector2i(1280, 720)`).
 - [ ] **GREEN:** `WorkspaceLayout.set_ui_scale` / `set_density` / min size.
 - [ ] **Commit:** `feat(studio): add UI scale and density controls`
 
 ### Task E4 — Keyboard shortcuts
 
-- [ ] **Owner should have closed Choice Point C** (default C1 = no code change to presenter).
+- [ ] **Next-close:** Choice Point C **CLOSED** as C1 — no presenter threshold change; bind `jump_next("close")` as-is.
 - [ ] **RED:** §5.5 tests — especially filter focus identity + Space suppression.
 - [ ] **GREEN:** `WorkspaceShortcuts` + `ShortcutLabels`; bind only §0.6 APIs.
 - [ ] **Commit:** `feat(studio): wire keyboard shortcuts to Plan C/D APIs`
@@ -558,13 +622,13 @@ implementation start by counting §5 names). No silent case deletion.
 - [ ] **Manual:** start Mixed-DPI checklist draft (unfilled OK until E done).
 - [ ] **Commit:** `feat(studio): add workspace layout shell and reset`
 
-### Task E6 — Offline fonts + manual evidence templates
+### Task E6 — Offline fonts (B2) + monospace surfaces + manual evidence templates
 
-- [ ] **Owner must have closed Choice Point B**.
-- [ ] **GREEN:** Theme/system stack **or** bundled fonts + license file; grep CI/local script:
-  no `fonts.googleapis` / http font URLs under `godot/src` and `godot/assets`.
+- [ ] **Choice Point B CLOSED as B2 + Auflage.**
+- [ ] **RED/GREEN:** §5.3 `test_hash_surfaces_use_monospace`; implement §4.6 `StudioMonoFont`.
+- [ ] Grep: no `fonts.googleapis` / http font URLs under `godot/src` and `godot/assets`.
 - [ ] Add `docs/plans/evidence/viewer-v0-e-manual-checks.md` template (SR + DPI).
-- [ ] **Commit:** `feat(studio): offline fonts and Plan E manual evidence template`
+- [ ] **Commit:** `feat(studio): system fonts with monospace hash surfaces + evidence template`
 
 ### Task E7 — Full regression + pin
 
@@ -581,30 +645,33 @@ implementation start by counting §5 names). No silent case deletion.
 |---|---|
 | Keyboard-only inspection of fixture-01 | §5.6 smoke + §5.5 shortcuts green |
 | Focus filter focuses Plan D `LineEdit` | Same instance assert; no second filter |
-| Scale 75/100/150/200 | §5.4 + recorded note that primary controls reachable at Choice Point A size |
-| Banner correct for fixtures 1, 3, 4, 5, 6 | Presenter/shell tests; fixture-06 refuse → `BUNDLE INVALID` / cleared UI |
+| Scale 75/100/150/200 | §5.4 + primary controls reachable at **1280×720** |
+| Banner correct for fixtures 1, 3, 4, 5, 6 | §5.6 named tests (fixture-06 via `sources/fixture-06/bundle` + `hash_mismatch`) |
+| Banner precedence | §5.1 adjacent-pair tests |
 | Dirty null honesty | §5.1 / §5.2 |
 | Deep link reasons unchanged | Literal `battle_id_mismatch` etc.; `DecisionDeepLink.REASON_*` in prod |
-| Offline fonts | Choice Point B implemented; no network font loads in app |
+| Offline fonts + monospace hashes | B2; §5.3 `test_hash_surfaces_use_monospace` |
 | Mixed-DPI | Checklist **filed** (not “tests passed”) |
 | Screen-reader | Honest smoke notes **filed**; no completeness claim |
-| Next-close | Per Choice Point C (default: unchanged Plan D semantics) |
+| Next-close | C1 — unchanged Plan D semantics |
 
 ---
 
 ## 8. Self-review checklist (author)
 
-- [x] Sketch ownership split preserved verbatim in spirit (§0.2)
+- [x] Sketch ownership split preserved (§0.2)
 - [x] Filter precondition recorded as satisfied; no second filter
 - [x] Every E4 action maps to a cited existing API
 - [x] `_disable_all_nav` marked taboo
 - [x] Deep-link vocabulary not duplicated
-- [x] D→E handoffs (`_disable_all_nav`, `rfind`, defense-in-depth) documented
-- [x] Choice Points A–C open with options + recommendation
-- [x] Spec §6.5 “no universal close threshold” aligned with recommendation C1
+- [x] D→E handoffs documented
+- [x] Choice Points A–C **CLOSED** with decision + rationale; option lists retained
+- [x] Spec §6.5 “no universal close threshold” aligned with C1
 - [x] SR + DPI are evidence artifacts, not fake gates
 - [x] Approve-before-implement sequencing explicit
-- [ ] Owner closes A–C and marks APPROVED (not author)
+- [x] F1 precedence pairs named; F2 fixtures 5/6 + no soft “or”; F3 priority-8 DiD; F4 changelog
+- [x] B2 monospace Auflage in §0.8 / §0.9 / §4.6 + named test
+- [ ] Owner marks APPROVED (not author)
 
 ---
 
@@ -612,7 +679,7 @@ implementation start by counting §5 names). No silent case deletion.
 
 | Topic | Sketch / master | Design (wins) | Plan E handling |
 |---|---|---|---|
-| Close threshold | Empirics tempt a threshold | §6.5: no universal threshold | Choice Point C; recommend keep |
+| Close threshold | Empirics tempt a threshold | §6.5: no universal threshold | Choice Point C → **C1 CLOSED** |
 | Master §2.4 SR | Best effort | §9.2 best effort | Evidence note only |
 | Master binding | Sketch cites MASTER_SPEC | Index §2.2: non-binding context | Cited as context; design is authority |
 
@@ -620,9 +687,9 @@ implementation start by counting §5 names). No silent case deletion.
 
 ## 10. Handoff
 
-1. Owner reviews this DRAFT against code + design.
-2. Owner closes Choice Points A–C (record decisions in a Rev. 2 §0.13 table).
-3. Status → **APPROVED** in a **docs-only** commit.
+1. Owner reviews this DRAFT (Rev. 2) against code + design.
+2. ~~Owner closes Choice Points A–C~~ — **done in Rev. 2** (§0.13).
+3. Status → **APPROVED** in a **docs-only** commit (owner).
 4. Separate go-ahead → isolated branch → E1…E7.
 5. Plan F consumes manual evidence files.
 
@@ -634,18 +701,29 @@ implementation start by counting §5 names). No silent case deletion.
 
 | Commit | Content |
 |---|---|
-| docs | APPROVED mark + closed choice points |
+| docs | APPROVED mark |
 | E1 | Banner |
 | E2 | Diagnostics dock |
 | E3 | Scale/density/min window |
 | E4 | Shortcuts |
 | E5 | Layout shell |
-| E6 | Fonts + evidence template |
+| E6 | System fonts + monospace hash surfaces + evidence template |
 | E7 | Regression |
 
 ---
 
-## 12. Rev. 1 changelog (sketch → executable)
+## 12. Changelog
+
+### Rev. 2 — Choice points closed + F1–F4
+
+- §0.13: A→**A1 1280×720**, B→**B2 system stack + monospace Auflage**, C→**C1 keep Plan D close nav** — all **CLOSED (owner, Rev. 2)**; option tables retained as protocol.
+- B2 Auflage made binding in §0.8 / §0.9 / §4.2 / §4.6 with Godot `SystemFont` + `Control.add_theme_font_override` / `has_theme_font_override` / `get_theme_font` cites; named test `test_hash_surfaces_use_monospace`.
+- **F1:** §5.1 adds seven adjacent precedence cases (1v2…7v8); 1v2 / 2v3 / 5v6 called out; 4v5 and 6v7 documented where simultaneous is unreachable.
+- **F2:** §5.6 adds fixture-05 and fixture-06 (`sources/fixture-06/bundle` + pin `hash_mismatch`); replaces soft `test_banner_fixture03_or_fallback_path` with deterministic fallback-row assert.
+- **F3:** Priority 8 limited to `PHASE_REGULAR_TURN`; other phases marked unreachable / DiD with `bundle_validator.gd:73–75` / `:683`.
+- **F4:** Document that **E7** (full regression + pin) is new vs sketch E1–E6 (intentional, not scope creep).
+
+### Rev. 1 — sketch → executable
 
 - Expanded to Plan D structural density: §0 closed decisions, open choice points, file map,
   contracts, named tests, TDD tasks, acceptance, handoff.
@@ -654,3 +732,4 @@ implementation start by counting §5 names). No silent case deletion.
 - Marked filter precondition satisfied (Plan D shipped).
 - Separated prominent `StateBanner` from operational `StatusLabel`.
 - Added honesty protocol for screen-reader and Mixed-DPI evidence.
+- Introduced **E7** (regression + pin) beyond sketch E1–E6.
