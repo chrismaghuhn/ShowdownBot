@@ -72,6 +72,13 @@ async def authenticate(conn: ShowdownConnection, settings: Settings) -> str:
             if msg.prefix == "updateuser":
                 user = msg.args[0] if msg.args else ""
                 named = msg.args[1] if len(msg.args) > 1 else "0"
+                # (review finding, P1) fail closed: only accept the updateuser that both matches
+                # the identity we requested AND is confirmed "named" (a real login, not a stale
+                # or unrelated confirmation) -- mirrors the same fix already applied to
+                # authenticate_local() for the local-server path.
+                if named != "1" or to_showdown_id(user) != to_showdown_id(settings.username):
+                    logger.debug("ignoring unrelated/unnamed updateuser %s (named=%s)", user.strip(), named)
+                    continue
                 logger.info("logged in as %s (named=%s)", user.strip(), named)
                 return user.strip()
         raise AuthError("connection closed before updateuser")
