@@ -30,6 +30,39 @@ def test_collect_instances_pairs_moves_and_skips_recoil():
     assert all(i.defender_species != "Rillaboom" for i in instances)
 
 
+def test_malformed_hp_token_does_not_fabricate_a_no_damage_instance():
+    # A real hit whose HP token is garbled must NOT be recorded as "no damage happened" --
+    # the parser previously let a present-but-unparseable HP token through as hp=None, and
+    # _collect_instances silently defaulted post_hp to the stale pre_hp, fabricating a
+    # 100->100 "Thunderbolt did nothing" record for a hit that actually landed.
+    raw = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, M|100/100",
+        "|switch|p2a: Delibird|Delibird, F|100/100",
+        "|move|p1a: Incineroar|Thunderbolt|p2a: Delibird",
+        "|-damage|p2a: Delibird|garbled-hp-token",
+        "|turn|2",
+    ])
+    events = parse_log(raw)
+    instances = _collect_instances(events)
+    assert not any(i.move == "Thunderbolt" for i in instances)
+
+
+def test_missing_move_name_does_not_fabricate_an_empty_move_instance():
+    # A move event with no move name must NOT be paired with its damage under a fabricated
+    # move="" -- that would feed an empty move name into the damage calculator and compare
+    # its output against a real HP delta as if the comparison meant something.
+    raw = "\n".join([
+        "|switch|p1a: Incineroar|Incineroar, M|100/100",
+        "|switch|p2a: Delibird|Delibird, F|100/100",
+        "|move|p1a: Incineroar",
+        "|-damage|p2a: Delibird|60/100",
+        "|turn|2",
+    ])
+    events = parse_log(raw)
+    instances = _collect_instances(events)
+    assert not instances
+
+
 @pytest.mark.integration
 def test_strict_validation_all_match():
     cfg = load_format_config("gen9vgc2025regi")

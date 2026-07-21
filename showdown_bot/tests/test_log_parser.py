@@ -75,10 +75,13 @@ def test_malformed_protocol_lines_do_not_abort_following_valid_events():
         ]
     )
     events = parse_log(raw)
+    # "-damage" with a present-but-unparseable HP token and "move" with no move name are now
+    # DROPPED entirely (like an unparseable pokemon token already was), not kept with a
+    # fabricated None/"" field -- see test_validate_log.py's fabrication-prevention tests for
+    # why: a kept-but-nulled HP/move silently becomes "no damage happened" / an empty move name
+    # once paired into a DamageInstance downstream.
     assert [(event.type, event.amount) for event in events] == [
-        ("damage", None),
         ("boost", None),
         ("turn", None),
-        ("move", None),
         ("turn", 7),
     ]
