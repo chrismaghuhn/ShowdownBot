@@ -160,5 +160,12 @@ var unknown_fields: Dictionary:
 func seal() -> void:
 	if _sealed:
 		return
-	_unknown_fields.make_read_only()
+	JsonNumbers.freeze_containers(_pokemon_side)
+	JsonNumbers.freeze_containers(_pokemon_species)
+	JsonNumbers.freeze_containers(_target_side)
+	JsonNumbers.freeze_containers(_details)
+	JsonNumbers.freeze_containers(_value)
+	JsonNumbers.freeze_containers(_side)
+	JsonNumbers.freeze_containers(_hp_status)
+	JsonNumbers.freeze_containers(_unknown_fields)
 	_sealed = true

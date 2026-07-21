@@ -79,29 +79,17 @@ func _start_load(path: String) -> void:
 	_suppress_publish = false
 	_terminal_received_for_active = false
 
-	var user_data := {
+	# Shared context only — no Node self capture on the worker thread.
+	var ctx := {
 		"request_id": _active_request_id,
 		"path": path,
+		"cancel_flag": _cancel_flag,
+		"queue_mutex": _queue_mutex,
+		"message_queue": _message_queue,
+		"hooks": _worker_hooks,
 	}
 	_worker_thread = Thread.new()
-	_worker_thread.start(_worker_thread_func.bind(user_data))
-
-
-func _worker_thread_func(user_data: Dictionary) -> void:
-	var request_id: int = user_data["request_id"]
-	var path: String = user_data["path"]
-	var worker := BundleWorker.new()
-	var is_cancelled := func() -> bool:
-		return _cancel_flag.get("cancelled", false)
-	var enqueue := func(envelope: Dictionary) -> void:
-		_worker_enqueue(envelope)
-	worker.run(request_id, path, _worker_hooks, is_cancelled, enqueue)
-
-
-func _worker_enqueue(envelope: Dictionary) -> void:
-	_queue_mutex.lock()
-	_message_queue.append(envelope)
-	_queue_mutex.unlock()
+	_worker_thread.start(BundleWorker.thread_main.bind(ctx))
 
 
 func _drain_queue() -> void:

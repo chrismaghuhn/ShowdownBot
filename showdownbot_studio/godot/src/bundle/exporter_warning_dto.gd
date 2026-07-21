@@ -43,5 +43,5 @@ var unknown_fields: Dictionary:
 func seal() -> void:
 	if _sealed:
 		return
-	_unknown_fields.make_read_only()
+	JsonNumbers.freeze_containers(_unknown_fields)
 	_sealed = true

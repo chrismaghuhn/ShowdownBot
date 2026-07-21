@@ -157,5 +157,5 @@ func seal() -> void:
 		_files.seal()
 	if _source_provenance != null:
 		_source_provenance.seal()
-	_unknown_fields.make_read_only()
+	JsonNumbers.freeze_containers(_unknown_fields)
 	_sealed = true

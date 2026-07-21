@@ -16,6 +16,28 @@ const ENVELOPE_REFUSE := "refuse"
 const ENVELOPE_CANCELLED := "cancelled"
 
 
+## Thread entry point — static, never bound to a Node.
+## `ctx` carries only shared primitives / RefCounted / Mutex / Array (no Node).
+static func thread_main(ctx: Dictionary) -> void:
+	var worker := BundleWorker.new()
+	var cancel_flag: Dictionary = ctx["cancel_flag"]
+	var queue_mutex: Mutex = ctx["queue_mutex"]
+	var message_queue: Array = ctx["message_queue"]
+	var is_cancelled := func() -> bool:
+		return cancel_flag.get("cancelled", false)
+	var enqueue := func(envelope: Dictionary) -> void:
+		queue_mutex.lock()
+		message_queue.append(envelope)
+		queue_mutex.unlock()
+	worker.run(
+		int(ctx["request_id"]),
+		String(ctx["path"]),
+		ctx.get("hooks"),
+		is_cancelled,
+		enqueue
+	)
+
+
 func run(
 	request_id: int,
 	path: String,

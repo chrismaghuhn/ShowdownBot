@@ -127,6 +127,13 @@ func test_worker_has_no_node_reference() -> void:
 	assert_str(worker_script.get_global_name()).is_equal("BundleWorker")
 	assert_str(worker_script.get_instance_base_type()).is_equal("RefCounted")
 	assert_object(BundleWorker.new()).is_instanceof(RefCounted)
+	# Thread entry is static BundleWorker.thread_main — not a BundleLoader Node method.
+	var entry: Callable = BundleWorker.thread_main
+	assert_bool(entry.is_valid()).is_true()
+	var bound: Object = entry.get_object()
+	if bound != null:
+		assert_str(bound.get_class()).is_not_equal("Node")
+		assert_bool(bound is BundleLoader).is_false()
 
 
 func test_published_dto_not_aliased_to_worker_buffer() -> void:

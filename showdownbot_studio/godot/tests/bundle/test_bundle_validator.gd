@@ -42,6 +42,7 @@ func _write_json(path: String, data: Variant) -> void:
 	var file := FileAccess.open(path, FileAccess.WRITE)
 	assert_object(file).is_not_null()
 	file.store_string(JSON.stringify(data))
+	file.close()
 
 
 func _read_json(path: String) -> Variant:
@@ -128,6 +129,14 @@ func test_refuse_subdirectory() -> void:
 	_assert_refuse(result, "undeclared_subdirectory")
 
 
+func _mark_skip(reason: String) -> void:
+	for child in get_children():
+		if child.has_method("do_skip") and child.has_method("test_name"):
+			if String(child.test_name()) == __active_test_case:
+				child.do_skip(true, reason)
+				return
+
+
 func test_refuse_symlink_or_junction_payload(
 	do_skip := OS.get_name() != "Windows",
 	skip_reason := "Plan F: symlink creation requires Windows"
@@ -145,7 +154,7 @@ func test_refuse_symlink_or_junction_payload(
 		false
 	)
 	if exit_code != 0:
-		# Plan F: re-run with elevation when mklink requires privilege.
+		_mark_skip("Plan F: mklink requires privilege — re-run elevated")
 		return
 	var result: ValidationResult = BundleValidator.validate_dir(bundle_dir)
 	_assert_refuse(result, "symlink_or_reparse_refused")
@@ -168,7 +177,7 @@ func test_junction_named_battle_jsonl_is_reparse_not_subdir(
 		false
 	)
 	if exit_code != 0:
-		# Plan F: re-run with elevation when mklink /J requires privilege.
+		_mark_skip("Plan F: mklink /J requires privilege — re-run elevated")
 		return
 	var result: ValidationResult = BundleValidator.validate_dir(bundle_dir)
 	_assert_refuse(result, "symlink_or_reparse_refused")
@@ -235,3 +244,135 @@ func test_decision_rows_do_not_require_battle_id_or_our_side() -> void:
 	assert_int(result.bundle.decisions.size()).is_equal(3)
 	for row in result.bundle.decisions:
 		assert_that(row).is_instanceof(DecisionRowDTO)
+
+
+func test_refuse_non_object_manifest() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("manifest_array")
+	_write_json(bundle_dir.path_join("manifest.json"), [])
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_bad_privacy_profile() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("bad_privacy")
+	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
+	manifest["privacy"]["profile"] = "not-a-profile"
+	_write_json(bundle_dir.path_join("manifest.json"), manifest)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_raw_source_included_true() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("raw_source")
+	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
+	manifest["privacy"]["raw_source_included"] = true
+	_write_json(bundle_dir.path_join("manifest.json"), manifest)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_dirty_wrong_type() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("dirty_type")
+	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
+	manifest["source_provenance"]["dirty"] = "yes"
+	_write_json(bundle_dir.path_join("manifest.json"), manifest)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_null_source_hash_when_present() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("null_source_hash")
+	var manifest_path := bundle_dir.path_join("manifest.json")
+	var text := FileAccess.get_file_as_string(manifest_path)
+	var re := RegEx.new()
+	re.compile('("source_hashes"\\s*:\\s*\\{\\s*"battle_log"\\s*:\\s*)"[0-9a-f]+"')
+	var replaced := re.sub(text, "$1null", false)
+	assert_str(replaced).is_not_equal(text)
+	var file := FileAccess.open(manifest_path, FileAccess.WRITE)
+	file.store_string(replaced)
+	file.close()
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "nullability")
+
+
+func test_refuse_non_object_config_manifest() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("config_array")
+	var config_path := bundle_dir.path_join("config-manifest.json")
+	var file := FileAccess.open(config_path, FileAccess.WRITE)
+	file.store_string("[]")
+	file.close()
+	_rehash_payload(bundle_dir, "config_manifest", config_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_fractional_pokemon_slot() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("frac_slot")
+	var battle_path := bundle_dir.path_join("battle.jsonl")
+	# Explicit numeric fractional slot (Showdown letter slots remain strings).
+	var out := FileAccess.open(battle_path, FileAccess.WRITE)
+	out.store_string(
+		'{"protocol_index":1,"type":"switch","pokemon":{"side":"p1","slot":1.5,"species":"Pikachu"}}\n'
+	)
+	out.close()
+	_rehash_payload(bundle_dir, "battle_log", battle_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_integer")
+
+
+func test_refuse_numeric_hp_fainted() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("hp_fainted_num")
+	var battle_path := bundle_dir.path_join("battle.jsonl")
+	var lines: PackedStringArray = FileAccess.get_file_as_string(battle_path).split("\n")
+	var rewritten: PackedStringArray = PackedStringArray()
+	var mutated := false
+	for line in lines:
+		var trimmed := line.strip_edges()
+		if trimmed.is_empty():
+			continue
+		var json := JSON.new()
+		assert_int(json.parse(trimmed)).is_equal(OK)
+		var row: Dictionary = json.data
+		if not mutated and row.has("hp") and typeof(row["hp"]) == TYPE_DICTIONARY:
+			row["hp"]["fainted"] = 1
+			mutated = true
+		rewritten.append(JSON.stringify(row))
+	assert_bool(mutated).is_true()
+	var out := FileAccess.open(battle_path, FileAccess.WRITE)
+	out.store_string("\n".join(rewritten) + "\n")
+	out.close()
+	_rehash_payload(bundle_dir, "battle_log", battle_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func _rehash_payload(bundle_dir: String, logical_key: String, file_path: String) -> void:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(FileAccess.get_file_as_bytes(file_path))
+	var digest := ctx.finish().hex_encode()
+	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
+	manifest["files"][logical_key]["sha256"] = digest
+	_write_json(bundle_dir.path_join("manifest.json"), manifest)
+
+
+func test_refuse_empty_candidates_with_chosen_tera_slot() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("chosen_tera_empty")
+	var decisions_path := bundle_dir.path_join("decisions.jsonl")
+	var lines: PackedStringArray = FileAccess.get_file_as_string(decisions_path).split("\n")
+	var rewritten: PackedStringArray = PackedStringArray()
+	var mutated := false
+	for line in lines:
+		var trimmed := line.strip_edges()
+		if trimmed.is_empty():
+			continue
+		var json := JSON.new()
+		assert_int(json.parse(trimmed)).is_equal(OK)
+		var row: Dictionary = json.data
+		if not mutated:
+			row["candidates"] = []
+			row["chosen_candidate_key"] = null
+			row["chosen_candidate_id"] = null
+			row["chosen_rank"] = null
+			row["chosen_tera_slot"] = 1
+			row["chosen_mega_slot"] = null
+			mutated = true
+		rewritten.append(JSON.stringify(row))
+	assert_bool(mutated).is_true()
+	var out := FileAccess.open(decisions_path, FileAccess.WRITE)
+	out.store_string("\n".join(rewritten) + "\n")
+	out.close()
+	_rehash_payload(bundle_dir, "decision_trace", decisions_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "chosen_integrity")

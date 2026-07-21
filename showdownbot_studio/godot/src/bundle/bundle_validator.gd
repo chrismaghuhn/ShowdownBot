@@ -88,9 +88,10 @@ static func validate_dir(path: String) -> ValidationResult:
 	var manifest_parse := _read_json_file(manifest_path)
 	if not manifest_parse.ok:
 		return _refuse(manifest_parse.reason, manifest_parse.message, _MANIFEST_NAME)
-	var manifest_raw: Dictionary = manifest_parse.value
-	if typeof(manifest_raw) != TYPE_DICTIONARY:
+	var manifest_value: Variant = manifest_parse.value
+	if typeof(manifest_value) != TYPE_DICTIONARY:
 		return _refuse("malformed_type", "manifest must be an object", _MANIFEST_NAME)
+	var manifest_raw: Dictionary = manifest_value
 
 	var files_raw: Variant = manifest_raw.get("files")
 	if typeof(files_raw) != TYPE_DICTIONARY:
@@ -343,8 +344,14 @@ static func validate_dir(path: String) -> ValidationResult:
 		var config_parse := _read_json_file(config_path)
 		if not config_parse.ok:
 			return _refuse(config_parse.reason, config_parse.message, BundleMode.PATH_CONFIG_MANIFEST)
+		if typeof(config_parse.value) != TYPE_DICTIONARY:
+			return _refuse(
+				"malformed_type",
+				"config-manifest.json must be an object",
+				BundleMode.PATH_CONFIG_MANIFEST
+			)
 		var raw := ConfigManifestRawDTO.new()
-		raw.root = config_parse.value if typeof(config_parse.value) == TYPE_DICTIONARY else {}
+		raw.root = config_parse.value
 		config_manifest = raw
 
 	var bundle := BundleDTO.new()
@@ -417,23 +424,73 @@ static func _validate_rel_path(rel_path: String) -> Dictionary:
 
 
 static func _check_nullability(manifest_raw: Dictionary, declared_mode: String) -> Dictionary:
-	if declared_mode == BundleMode.REPLAY_ONLY:
+	var source_hashes: Variant = manifest_raw.get("source_hashes")
+	if typeof(source_hashes) != TYPE_DICTIONARY:
+		return {
+			"ok": false,
+			"reason": "malformed_type",
+			"message": "source_hashes must be an object",
+			"offender": "source_hashes",
+		}
+	var hashes: Dictionary = source_hashes
+	if not hashes.has("battle_log") or not hashes.has("decision_trace"):
+		return _nullability_fail("source_hashes must declare battle_log and decision_trace", "source_hashes")
+
+	var battle_hash: Variant = hashes.get("battle_log")
+	var decision_hash: Variant = hashes.get("decision_trace")
+
+	if declared_mode == BundleMode.REPLAY_TRACE:
+		if typeof(battle_hash) != TYPE_STRING:
+			return _nullability_fail(
+				"source_hashes.battle_log must be a string in replay+trace",
+				"source_hashes.battle_log"
+			)
+		if typeof(decision_hash) != TYPE_STRING:
+			return _nullability_fail(
+				"source_hashes.decision_trace must be a string in replay+trace",
+				"source_hashes.decision_trace"
+			)
+	elif declared_mode == BundleMode.REPLAY_ONLY:
 		if manifest_raw.get("trace_schema_version") != null:
-			return _nullability_fail("trace_schema_version must be null in replay-only", "trace_schema_version")
-		var source_hashes: Variant = manifest_raw.get("source_hashes")
-		if typeof(source_hashes) == TYPE_DICTIONARY:
-			if source_hashes.get("decision_trace") != null:
-				return _nullability_fail(
-					"source_hashes.decision_trace must be null",
-					"source_hashes.decision_trace"
-				)
-		var sp: Variant = manifest_raw.get("source_provenance")
-		if typeof(sp) == TYPE_DICTIONARY and sp.get("our_side") != null:
+			return _nullability_fail(
+				"trace_schema_version must be null in replay-only",
+				"trace_schema_version"
+			)
+		if typeof(battle_hash) != TYPE_STRING:
+			return _nullability_fail(
+				"source_hashes.battle_log must be a string in replay-only",
+				"source_hashes.battle_log"
+			)
+		if decision_hash != null:
+			return _nullability_fail(
+				"source_hashes.decision_trace must be null in replay-only",
+				"source_hashes.decision_trace"
+			)
+		var sp_ro: Variant = manifest_raw.get("source_provenance")
+		if typeof(sp_ro) == TYPE_DICTIONARY and sp_ro.get("our_side") != null:
 			return _nullability_fail("our_side must be null in replay-only", "source_provenance.our_side")
-	if declared_mode == BundleMode.TRACE_ONLY:
-		var source_hashes2: Variant = manifest_raw.get("source_hashes")
-		if typeof(source_hashes2) == TYPE_DICTIONARY and source_hashes2.get("battle_log") != null:
-			return _nullability_fail("source_hashes.battle_log must be null", "source_hashes.battle_log")
+	elif declared_mode == BundleMode.TRACE_ONLY:
+		if battle_hash != null:
+			return _nullability_fail(
+				"source_hashes.battle_log must be null in trace-only",
+				"source_hashes.battle_log"
+			)
+		if typeof(decision_hash) != TYPE_STRING:
+			return _nullability_fail(
+				"source_hashes.decision_trace must be a string in trace-only",
+				"source_hashes.decision_trace"
+			)
+
+	var sp: Variant = manifest_raw.get("source_provenance")
+	if typeof(sp) == TYPE_DICTIONARY:
+		var our_side: Variant = sp.get("our_side")
+		if declared_mode != BundleMode.REPLAY_ONLY:
+			if typeof(our_side) != TYPE_STRING:
+				return _nullability_fail(
+					"our_side must be a string when decisions are present",
+					"source_provenance.our_side"
+				)
+
 	return {"ok": true}
 
 
@@ -458,17 +515,16 @@ static func _build_manifest_dto(
 	if typeof(privacy_raw) != TYPE_DICTIONARY:
 		return null
 	var privacy_dict: Dictionary = privacy_raw
-	var raw_bool: Variant = privacy_dict.get("raw_source_included")
-	if typeof(raw_bool) != TYPE_BOOL:
+	if not _privacy_profile_valid(privacy_dict):
 		return null
 
 	var privacy := PrivacyDTO.new()
-	privacy.profile = str(privacy_dict.get("profile", ""))
-	privacy.chat = str(privacy_dict.get("chat", ""))
-	privacy.private_messages = str(privacy_dict.get("private_messages", ""))
-	privacy.player_names = str(privacy_dict.get("player_names", ""))
-	privacy.source_url = str(privacy_dict.get("source_url", ""))
-	privacy.raw_source_included = raw_bool
+	privacy.profile = privacy_dict.get("profile")
+	privacy.chat = privacy_dict.get("chat")
+	privacy.private_messages = privacy_dict.get("private_messages")
+	privacy.player_names = privacy_dict.get("player_names")
+	privacy.source_url = privacy_dict.get("source_url")
+	privacy.raw_source_included = privacy_dict.get("raw_source_included")
 
 	var sp_raw: Variant = manifest_raw.get("source_provenance")
 	if typeof(sp_raw) != TYPE_DICTIONARY:
@@ -479,15 +535,27 @@ static func _build_manifest_dto(
 	var seed_parse := JsonNumbers.parse_json_int(sp.get("seed_index"), "source_provenance.seed_index")
 	if not seed_parse.ok:
 		return null
+	var dirty_raw: Variant = sp.get("dirty")
+	if dirty_raw != null and typeof(dirty_raw) != TYPE_BOOL:
+		return null
+	var our_side_raw: Variant = sp.get("our_side")
+	if our_side_raw != null and typeof(our_side_raw) != TYPE_STRING:
+		return null
+	var showdown_commit_raw: Variant = sp.get("showdown_commit")
+	if showdown_commit_raw != null and typeof(showdown_commit_raw) != TYPE_STRING:
+		return null
+	var server_patch_raw: Variant = sp.get("server_patch_hash")
+	if server_patch_raw != null and typeof(server_patch_raw) != TYPE_STRING:
+		return null
 
 	var provenance := SourceProvenanceDTO.new()
-	provenance.dirty = sp.get("dirty")
-	provenance.our_side = sp.get("our_side")
+	provenance.dirty = dirty_raw
+	provenance.our_side = our_side_raw
 	provenance.config_id = sp.get("config_id")
 	provenance.schedule_hash = sp.get("schedule_hash")
 	provenance.seed_index = seed_parse.value
-	provenance.showdown_commit = sp.get("showdown_commit")
-	provenance.server_patch_hash = sp.get("server_patch_hash")
+	provenance.showdown_commit = showdown_commit_raw
+	provenance.server_patch_hash = server_patch_raw
 	provenance.unknown_fields = _collect_unknown(sp, {
 		"dirty": true,
 		"our_side": true,
@@ -504,12 +572,9 @@ static func _build_manifest_dto(
 	files_table.warnings = _file_entry_from_parsed(parsed_entries[BundleMode.FILE_WARNINGS])
 	files_table.config_manifest = _file_entry_from_parsed(parsed_entries[BundleMode.FILE_CONFIG_MANIFEST])
 
-	var source_hashes_raw: Variant = manifest_raw.get("source_hashes")
-	var battle_log_hash: Variant = null
-	var decision_trace_hash: Variant = null
-	if typeof(source_hashes_raw) == TYPE_DICTIONARY:
-		battle_log_hash = source_hashes_raw.get("battle_log")
-		decision_trace_hash = source_hashes_raw.get("decision_trace")
+	var source_hashes_raw: Dictionary = manifest_raw.get("source_hashes")
+	var battle_log_hash: Variant = source_hashes_raw.get("battle_log")
+	var decision_trace_hash: Variant = source_hashes_raw.get("decision_trace")
 
 	for required_key in ["battle_id", "format_id", "git_sha", "config_hash"]:
 		if typeof(manifest_raw.get(required_key)) != TYPE_STRING:
@@ -745,6 +810,8 @@ static func _parse_decision_row(raw: Dictionary) -> Dictionary:
 		row.chosen_candidate_key != null
 		or row.chosen_candidate_id != null
 		or row.chosen_rank != null
+		or row.chosen_tera_slot != null
+		or row.chosen_mega_slot != null
 	)
 	if parsed_candidates.is_empty():
 		if has_chosen:
@@ -948,18 +1015,45 @@ static func _parse_battle_event(raw: Dictionary, last_protocol_index: int) -> Di
 		return amount_parse
 	event.amount = amount_parse.value
 	var pokemon: Variant = raw.get("pokemon")
-	if typeof(pokemon) == TYPE_DICTIONARY:
+	if pokemon != null:
+		if typeof(pokemon) != TYPE_DICTIONARY:
+			return {
+				"ok": false,
+				"reason": "malformed_type",
+				"message": "pokemon must be an object",
+				"offender": BundleMode.PATH_BATTLE_LOG,
+			}
 		var p: Dictionary = pokemon
 		event.pokemon_side = p.get("side")
-		event.pokemon_slot = p.get("slot")
 		event.pokemon_species = p.get("species")
+		var pslot := _parse_battle_slot(p.get("slot"), "pokemon.slot")
+		if not pslot.ok:
+			return pslot
+		event.pokemon_slot = pslot.value
 	var target: Variant = raw.get("target")
-	if typeof(target) == TYPE_DICTIONARY:
+	if target != null:
+		if typeof(target) != TYPE_DICTIONARY:
+			return {
+				"ok": false,
+				"reason": "malformed_type",
+				"message": "target must be an object",
+				"offender": BundleMode.PATH_BATTLE_LOG,
+			}
 		var t: Dictionary = target
 		event.target_side = t.get("side")
-		event.target_slot = t.get("slot")
+		var tslot := _parse_battle_slot(t.get("slot"), "target.slot")
+		if not tslot.ok:
+			return tslot
+		event.target_slot = tslot.value
 	var hp: Variant = raw.get("hp")
-	if typeof(hp) == TYPE_DICTIONARY:
+	if hp != null:
+		if typeof(hp) != TYPE_DICTIONARY:
+			return {
+				"ok": false,
+				"reason": "malformed_type",
+				"message": "hp must be an object",
+				"offender": BundleMode.PATH_BATTLE_LOG,
+			}
 		var h: Dictionary = hp
 		var cur_parse := _parse_optional_int(h.get("current"), "hp.current")
 		if not cur_parse.ok:
@@ -969,10 +1063,49 @@ static func _parse_battle_event(raw: Dictionary, last_protocol_index: int) -> Di
 		if not max_parse.ok:
 			return max_parse
 		event.hp_maximum = max_parse.value
-		event.hp_fainted = h.get("fainted")
+		var fainted_raw: Variant = h.get("fainted")
+		if fainted_raw != null:
+			if typeof(fainted_raw) != TYPE_BOOL:
+				return {
+					"ok": false,
+					"reason": "malformed_type",
+					"message": "hp.fainted must be a boolean",
+					"offender": BundleMode.PATH_BATTLE_LOG,
+				}
+			event.hp_fainted = fainted_raw
 		event.hp_status = h.get("status")
 	event.unknown_fields = _collect_unknown(raw, _KNOWN_BATTLE_EVENT_KEYS)
 	return {"ok": true, "value": event}
+
+
+static func _parse_battle_slot(value: Variant, field_name: String) -> Dictionary:
+	if value == null:
+		return {"ok": true, "value": null}
+	# Showdown seat letters ("a","b",...) remain strings; numeric slots use §5 int rules.
+	if typeof(value) == TYPE_STRING:
+		return {"ok": true, "value": value}
+	var parsed := JsonNumbers.parse_json_int(value, field_name)
+	if not parsed.ok:
+		return _parse_fail_from_json(parsed, BundleMode.PATH_BATTLE_LOG)
+	return {"ok": true, "value": parsed.value}
+
+
+static func _privacy_profile_valid(privacy_dict: Dictionary) -> bool:
+	if privacy_dict.get("profile") != "portable-pseudonymous-v1":
+		return false
+	if privacy_dict.get("chat") != "excluded":
+		return false
+	if privacy_dict.get("private_messages") != "excluded":
+		return false
+	if privacy_dict.get("player_names") != "seat-pseudonyms":
+		return false
+	if privacy_dict.get("source_url") != "excluded":
+		return false
+	if typeof(privacy_dict.get("raw_source_included")) != TYPE_BOOL:
+		return false
+	if privacy_dict.get("raw_source_included") != false:
+		return false
+	return true
 
 
 static func _parse_optional_int(value: Variant, field_name: String) -> Dictionary:

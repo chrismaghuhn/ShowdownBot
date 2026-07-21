@@ -103,6 +103,29 @@ func test_sealed_nested_dict_rejects_mutation() -> void:
 	assert_bool(row.unknown_fields["extra"]).is_true()
 
 
+func test_sealed_nested_unknown_fields_deep_freeze() -> void:
+	var candidate := CandidateDTO.new()
+	candidate.candidate_id = "move"
+	candidate.rank = 0
+	candidate.aggregate_score = 1.0
+	candidate.unknown_fields = {"nested": {"a": 1}}
+	candidate.seal()
+	await assert_error(func() -> void: candidate.unknown_fields["nested"]["a"] = 2).is_runtime_error(
+		"Invalid assignment on read-only value (on base: 'Dictionary')."
+	)
+	assert_int(candidate.unknown_fields["nested"]["a"]).is_equal(1)
+
+	var event := BattleEventDTO.new()
+	event.protocol_index = 1
+	event.type = "move"
+	event.details = {"nested": {"b": 2}}
+	event.seal()
+	await assert_error(func() -> void: event.details["nested"]["b"] = 9).is_runtime_error(
+		"Invalid assignment on read-only value (on base: 'Dictionary')."
+	)
+	assert_int(event.details["nested"]["b"]).is_equal(2)
+
+
 func test_sealed_nested_array_rejects_mutation() -> void:
 	var bundle := BundleDTO.new()
 	bundle.decisions = []
