@@ -269,7 +269,7 @@ func test_deep_link_mismatch_refuses() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_BATTLE_ID_MISMATCH)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	assert_object(shell.get_loaded_bundle()).is_not_null()
 
@@ -279,7 +279,7 @@ func test_deep_link_missing_value_malformed() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_MALFORMED_DECISION_ARG)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("malformed_decision_arg")
 	assert_object(shell.get_loaded_bundle()).is_not_null()
 
 
@@ -304,7 +304,7 @@ func test_deep_link_refuse_cleared_on_later_manual_open() -> void:
 	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal(DecisionDeepLink.REASON_BATTLE_ID_MISMATCH)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	shell.open_bundle_path(_fixture_path("bundles/fixture-03"))
 	await _await_shell_settled(shell)
@@ -326,9 +326,7 @@ func test_deep_link_duplicate_decision_flag_refuses() -> void:
 	]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal(
-		DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
-	)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("ambiguous_decision_arg")
 	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
 	assert_object(shell.get_loaded_bundle()).is_not_null()
 	assert_int(shell.get_selected_decision_index()).is_equal(first_index)
@@ -348,7 +346,5 @@ func test_deep_link_duplicate_valid_decision_flags_refuses() -> void:
 	]))
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
-	assert_str(shell.get_deep_link_refuse_reason()).is_equal(
-		DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
-	)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("ambiguous_decision_arg")
 	assert_int(shell.get_selected_decision_index()).is_equal(first_index)
