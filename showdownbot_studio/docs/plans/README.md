@@ -10,7 +10,8 @@ here; the status line on each document is authoritative.
 |---|---|
 | [`2026-07-21-viewer-v0-implementation-index.md`](2026-07-21-viewer-v0-implementation-index.md) | **APPROVED** 2026-07-21 (Rev. 2) — orders A–F; **does not authorize code** |
 | Plan A | **APPROVED** 2026-07-21 (Rev. 6) — docs only; **code needs separate go-ahead** |
-| Plans B–F | **DRAFT** — each needs its own APPROVED mark before its code may start |
+| Plan B | **APPROVED** 2026-07-21 (Rev. 6) — docs/pin only; **code** blocked until Plan A/PR #41 merged + go-ahead |
+| Plans C–F | **DRAFT** — each needs its own APPROVED mark before its code may start |
 
 **Planning authorization:** Viewer v0 design + bundle contract are APPROVED and authorize these
 plans. The master spec is non-binding context for Phase 0 (index §2.2).
@@ -27,14 +28,14 @@ plans. The master spec is non-binding context for Phase 0 (index §2.2).
 |---|---|---|---|
 | 0 | [`2026-07-21-viewer-v0-implementation-index.md`](2026-07-21-viewer-v0-implementation-index.md) | Sequencing, gates, non-goals, file map | **APPROVED** |
 | A | [`2026-07-21-viewer-v0-a-exporter-and-fixtures.md`](2026-07-21-viewer-v0-a-exporter-and-fixtures.md) | Python exporter + contract fixtures | **APPROVED** 2026-07-21 (Rev. 6) |
-| B | [`2026-07-21-viewer-v0-b-godot-shell-and-loader.md`](2026-07-21-viewer-v0-b-godot-shell-and-loader.md) | Godot project + typed DTO loader | DRAFT |
+| B | [`2026-07-21-viewer-v0-b-godot-shell-and-loader.md`](2026-07-21-viewer-v0-b-godot-shell-and-loader.md) | Godot project + typed DTO loader | **APPROVED** 2026-07-21 (Rev. 6) |
 | C | [`2026-07-21-viewer-v0-c-replay-and-timeline.md`](2026-07-21-viewer-v0-c-replay-and-timeline.md) | Abstract board + timeline | DRAFT |
 | D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | DRAFT |
 | E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | DRAFT |
 | F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | DRAFT |
 
-**Next:** separate implementation go-ahead for Plan A code, or review Plan B (DRAFT). No code
-without that go-ahead.
+**Next:** merge Plan A / PR #41; then separate go-ahead before any Plan B code. Plans C–E remain
+DRAFT until their own APPROVED marks.
 
 ## Authority for this plan set
 
