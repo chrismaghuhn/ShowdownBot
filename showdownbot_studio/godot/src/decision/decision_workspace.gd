@@ -38,7 +38,6 @@ func reset(bundle: BundleDTO, timeline: TimelineController) -> void:
 	_empty.visible = false
 	_empty.text = ""
 	_controller.reset(bundle, timeline)
-	_set_nav_enabled(true)
 	_refresh_from_controller()
 
 
@@ -53,7 +52,7 @@ func clear() -> void:
 	_tera.text = ""
 	_empty.visible = false
 	_empty.text = ""
-	_set_nav_enabled(false)
+	_disable_all_nav()
 	set_loading(false)
 
 
@@ -91,7 +90,7 @@ func _show_empty_trace() -> void:
 	_fallback.text = ""
 	_mega.text = ""
 	_tera.text = ""
-	_set_nav_enabled(false)
+	_disable_all_nav()
 
 
 func _on_decision_selection_changed(_row: int) -> void:
@@ -112,7 +111,7 @@ func _refresh_from_controller() -> void:
 		_fallback.text = ""
 		_mega.text = ""
 		_tera.text = ""
-		_set_nav_enabled(false)
+		_disable_all_nav()
 		return
 	_header.text = DecisionPresenter.header_text(decision)
 	_stage.text = "stage: %s" % DecisionPresenter.optional_text(decision.selection_stage)
@@ -132,10 +131,9 @@ func _refresh_from_controller() -> void:
 	_warn.disabled = not _controller.has_next("warning")
 
 
-func _set_nav_enabled(enabled: bool) -> void:
-	if not enabled:
-		_prev.disabled = true
-		_next.disabled = true
-		_close.disabled = true
-		_fb.disabled = true
-		_warn.disabled = true
+func _disable_all_nav() -> void:
+	_prev.disabled = true
+	_next.disabled = true
+	_close.disabled = true
+	_fb.disabled = true
+	_warn.disabled = true
