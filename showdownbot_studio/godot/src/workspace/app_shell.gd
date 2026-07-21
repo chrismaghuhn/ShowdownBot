@@ -5,13 +5,13 @@ extends Control
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
 @onready var _status_label: Label = $VBox/StatusLabel
 @onready var _replay_workspace: ReplayWorkspace = $VBox/ReplayWorkspace
+@onready var _decision_workspace: DecisionWorkspace = $VBox/DecisionWorkspace
 @onready var _loader: BundleLoader = $BundleLoader
-
-var cli_decision_index: int = -1
 
 var _current_bundle: BundleDTO = null
 var _current_refuse: RefuseDiagnostic = null
-var _selected_decision_index: int = -1
+var _pending_deep_link: DecisionDeepLink.ParseResult = null
+var _deep_link_refuse_reason: String = ""
 
 
 func _ready() -> void:
@@ -23,18 +23,39 @@ func _ready() -> void:
 
 
 func parse_cli_args(args: PackedStringArray = PackedStringArray()) -> void:
-	cli_decision_index = -1
+	_pending_deep_link = null
+	_deep_link_refuse_reason = ""
 	var source := args if not args.is_empty() else OS.get_cmdline_user_args()
 	var index := 0
+	var saw_decision := false
 	while index < source.size():
 		var token := String(source[index])
-		if token == "--decision" and index + 1 < source.size():
-			var value := String(source[index + 1])
-			if value.is_valid_int():
-				cli_decision_index = value.to_int()
+		if token == "--decision":
+			if saw_decision:
+				# B3: multiple --decision → refuse (no last-wins).
+				_pending_deep_link = DecisionDeepLink.ParseResult.new()
+				_pending_deep_link.ok = false
+				_pending_deep_link.reason = DecisionDeepLink.REASON_AMBIGUOUS_DECISION_ARG
+				if index + 1 < source.size() and not String(source[index + 1]).begins_with("-"):
+					index += 2
+				else:
+					index += 1
+				continue
+			saw_decision = true
+			if index + 1 >= source.size():
+				_pending_deep_link = DecisionDeepLink.ParseResult.new()
+				_pending_deep_link.ok = false
+				_pending_deep_link.reason = DecisionDeepLink.REASON_MALFORMED_DECISION_ARG
+				index += 1
+				continue
+			_pending_deep_link = DecisionDeepLink.parse_arg(String(source[index + 1]))
 			index += 2
 			continue
 		index += 1
+
+
+func get_deep_link_refuse_reason() -> String:
+	return _deep_link_refuse_reason
 
 
 func open_bundle_path(path: String) -> void:
@@ -44,6 +65,10 @@ func open_bundle_path(path: String) -> void:
 
 func get_replay_workspace() -> ReplayWorkspace:
 	return _replay_workspace
+
+
+func get_decision_workspace() -> DecisionWorkspace:
+	return _decision_workspace
 
 
 func is_loading() -> bool:
@@ -105,7 +130,10 @@ func get_status_text() -> String:
 
 
 func get_selected_decision_index() -> int:
-	return _selected_decision_index
+	var d: DecisionRowDTO = _decision_workspace.get_decision_controller().get_selected_decision()
+	if d == null:
+		return -1
+	return d.decision_index
 
 
 func _on_open_pressed() -> void:
@@ -119,8 +147,11 @@ func _on_open_pressed() -> void:
 func _start_load(path: String) -> void:
 	_current_bundle = null
 	_current_refuse = null
+	_deep_link_refuse_reason = ""
 	_replay_workspace.clear()
 	_replay_workspace.set_loading(true)
+	_decision_workspace.clear()
+	_decision_workspace.set_loading(true)
 	_set_status("Loading...")
 	_loader.load_async(path)
 
@@ -130,13 +161,36 @@ func _on_completed(bundle: BundleDTO) -> void:
 	_current_refuse = null
 	var replay: ReplayDTO = BattleTimeline.build(bundle)
 	_replay_workspace.reset(replay, bundle)
-	_set_status(_format_loaded_status(bundle))
+	_decision_workspace.reset(bundle, _replay_workspace.get_timeline_controller())
+	_apply_pending_deep_link(bundle)
+	if _deep_link_refuse_reason.is_empty():
+		_set_status(_format_loaded_status(bundle))
+
+
+func _apply_pending_deep_link(bundle: BundleDTO) -> void:
+	if _pending_deep_link == null:
+		_deep_link_refuse_reason = ""
+		return
+	var pending := _pending_deep_link
+	_pending_deep_link = null
+	if not pending.ok:
+		_deep_link_refuse_reason = pending.reason
+		_set_status("Deep link refused: %s" % _deep_link_refuse_reason)
+		return
+	var applied := DecisionDeepLink.resolve(bundle, pending.battle_id, pending.decision_index)
+	if not applied.ok:
+		_deep_link_refuse_reason = applied.reason
+		_set_status("Deep link refused: %s" % _deep_link_refuse_reason)
+		return
+	_deep_link_refuse_reason = ""
+	_decision_workspace.get_decision_controller().select_decision_row(applied.decision_row_index)
 
 
 func _on_refused(diagnostic: RefuseDiagnostic) -> void:
 	_current_bundle = null
 	_current_refuse = diagnostic
 	_replay_workspace.clear()
+	_decision_workspace.clear()
 	_set_status("Refused: %s" % diagnostic.reason)
 
 
@@ -144,6 +198,7 @@ func _on_cancelled() -> void:
 	_current_bundle = null
 	_current_refuse = null
 	_replay_workspace.clear()
+	_decision_workspace.clear()
 	_set_status("Load cancelled")
 
 

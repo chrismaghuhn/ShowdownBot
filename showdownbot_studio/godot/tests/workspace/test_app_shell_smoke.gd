@@ -100,11 +100,3 @@ func test_downgrade_warning_when_declared_ne_effective() -> void:
 	assert_str(shell.get_downgrade_warning_reasons()[0]).is_equal("unsupported_trace_schema_version")
 	assert_str(shell.get_status_text()).contains("downgrade")
 	assert_str(shell.get_status_text()).contains("unsupported_trace_schema_version")
-
-
-func test_cli_stub_records_decision_without_navigation() -> void:
-	var shell: AppShell = await _spawn_shell_ready()
-	shell.parse_cli_args(["--decision", "2"])
-
-	assert_int(shell.cli_decision_index).is_equal(2)
-	assert_int(shell.get_selected_decision_index()).is_equal(-1)

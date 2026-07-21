@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://src/workspace/app_shell.gd" id="1_shell"]
 [ext_resource type="Script" path="res://src/bundle/bundle_loader.gd" id="2_loader"]
 [ext_resource type="PackedScene" path="res://src/replay/replay_workspace.tscn" id="3_ws"]
+[ext_resource type="PackedScene" path="res://src/decision/decision_workspace.tscn" id="4_dws"]
 
 [node name="AppShell" type="Control"]
 layout_mode = 3
@@ -43,6 +44,10 @@ text = "No bundle loaded"
 autowrap_mode = 3
 
 [node name="ReplayWorkspace" parent="VBox" instance=ExtResource("3_ws")]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DecisionWorkspace" parent="VBox" instance=ExtResource("4_dws")]
 layout_mode = 2
 size_flags_vertical = 3
 
