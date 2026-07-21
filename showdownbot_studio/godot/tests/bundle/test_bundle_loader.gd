@@ -136,25 +136,93 @@ func test_worker_has_no_node_reference() -> void:
 		assert_bool(bound is BundleLoader).is_false()
 
 
+func _copy_dir_recursive(src: String, dst: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dst)
+	var dir := DirAccess.open(src)
+	assert_object(dir).is_not_null()
+	dir.list_dir_begin()
+	var name := dir.get_next()
+	while name != "":
+		if name == "." or name == "..":
+			name = dir.get_next()
+			continue
+		var src_path := src.path_join(name)
+		var dst_path := dst.path_join(name)
+		if DirAccess.dir_exists_absolute(src_path):
+			_copy_dir_recursive(src_path, dst_path)
+		else:
+			DirAccess.copy_absolute(src_path, dst_path)
+		name = dir.get_next()
+	dir.list_dir_end()
+
+
+func _rehash_payload(bundle_dir: String, logical_key: String, file_path: String) -> void:
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(FileAccess.get_file_as_bytes(file_path))
+	var digest := ctx.finish().hex_encode()
+	var json := JSON.new()
+	assert_int(json.parse(FileAccess.get_file_as_string(bundle_dir.path_join("manifest.json")))).is_equal(OK)
+	var manifest: Dictionary = json.data
+	manifest["files"][logical_key]["sha256"] = digest
+	var out := FileAccess.open(bundle_dir.path_join("manifest.json"), FileAccess.WRITE)
+	out.store_string(JSON.stringify(manifest))
+	out.close()
+
+
 func test_published_dto_not_aliased_to_worker_buffer() -> void:
+	# Fixture-01 details are strings; inject a container so aliasing is observable via is_same().
+	var bundle_dir := OS.get_cache_dir().path_join(
+		"gdunit_loader_alias_%d" % Time.get_ticks_usec()
+	)
+	_copy_dir_recursive(_fixture_path("bundles/fixture-01"), bundle_dir)
+	var battle_path := bundle_dir.path_join("battle.jsonl")
+	var lines: PackedStringArray = FileAccess.get_file_as_string(battle_path).split("\n")
+	var rewritten: PackedStringArray = PackedStringArray()
+	var mutated := false
+	for line in lines:
+		var trimmed := line.strip_edges()
+		if trimmed.is_empty():
+			continue
+		var json := JSON.new()
+		assert_int(json.parse(trimmed)).is_equal(OK)
+		var row: Dictionary = json.data
+		if not mutated and row.get("type") == "move":
+			row["details"] = {"alias_probe": true, "nested": {"n": 1}}
+			mutated = true
+		rewritten.append(JSON.stringify(row))
+	assert_bool(mutated).is_true()
+	var battle_out := FileAccess.open(battle_path, FileAccess.WRITE)
+	battle_out.store_string("\n".join(rewritten) + "\n")
+	battle_out.close()
+	_rehash_payload(bundle_dir, "battle_log", battle_path)
+
 	var hooks := BundleWorker.WorkerHooks.new()
-	var capture := {
-		"worker_bundle": null,
-		"snapshot": {},
-	}
+	var capture := {"worker_bundle": null}
 	hooks.on_after_validate = func(result: ValidationResult) -> void:
 		capture.worker_bundle = result.bundle
-		if result.bundle != null and not result.bundle.decisions.is_empty():
-			capture.snapshot = result.bundle.decisions[0].state_summary.duplicate(true)
 
 	var loader := _add_loader(hooks)
-	loader.load_async(_fixture_path("bundles/fixture-01"))
+	loader.load_async(bundle_dir)
 	var published: BundleDTO = await await_signal_on(loader, "completed", [], 5000)
 
 	assert_object(capture.worker_bundle).is_not_null()
 	assert_int(published.get_instance_id()).is_not_equal(capture.worker_bundle.get_instance_id())
-	capture.snapshot["injected_alias_probe"] = true
-	assert_bool(published.decisions[0].state_summary.has("injected_alias_probe")).is_false()
+
+	var worker_details: Variant = null
+	var published_details: Variant = null
+	for event in capture.worker_bundle.battle_events:
+		if typeof(event.details) == TYPE_DICTIONARY and event.details.has("alias_probe"):
+			worker_details = event.details
+			break
+	for event in published.battle_events:
+		if typeof(event.details) == TYPE_DICTIONARY and event.details.has("alias_probe"):
+			published_details = event.details
+			break
+	assert_object(worker_details).is_not_null()
+	assert_object(published_details).is_not_null()
+	assert_bool(is_same(worker_details, published_details)).is_false()
+	assert_bool(published_details["alias_probe"]).is_true()
 
 
 func test_finished_thread_wait_to_finish_on_main() -> void:

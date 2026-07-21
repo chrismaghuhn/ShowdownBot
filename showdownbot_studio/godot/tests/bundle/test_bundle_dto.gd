@@ -126,6 +126,17 @@ func test_sealed_nested_unknown_fields_deep_freeze() -> void:
 	assert_int(event.details["nested"]["b"]).is_equal(2)
 
 
+func test_battle_variant_setter_decouples_shared_container() -> void:
+	var shared := {"nested": {"b": 2}}
+	var event := BattleEventDTO.new()
+	event.protocol_index = 1
+	event.type = "move"
+	event.details = shared
+	shared["nested"]["b"] = 9
+	assert_int(event.details["nested"]["b"]).is_equal(2)
+	assert_bool(is_same(event.details, shared)).is_false()
+
+
 func test_sealed_nested_array_rejects_mutation() -> void:
 	var bundle := BundleDTO.new()
 	bundle.decisions = []

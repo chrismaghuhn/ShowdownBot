@@ -348,19 +348,20 @@ func _deep_copy_battle_event(source: BattleEventDTO) -> BattleEventDTO:
 	var copy := BattleEventDTO.new()
 	copy.protocol_index = source.protocol_index
 	copy.type = source.type
-	copy.pokemon_side = source.pokemon_side
-	copy.pokemon_slot = source.pokemon_slot
-	copy.pokemon_species = source.pokemon_species
-	copy.target_side = source.target_side
-	copy.target_slot = source.target_slot
-	copy.details = source.details
-	copy.value = source.value
-	copy.side = source.side
-	copy.amount = source.amount
-	copy.hp_current = source.hp_current
-	copy.hp_maximum = source.hp_maximum
-	copy.hp_fainted = source.hp_fainted
-	copy.hp_status = source.hp_status
+	# Variant fields may hold containers — always deep-copy (never share with worker DTO).
+	copy.pokemon_side = JsonNumbers.deep_copy_value(source.pokemon_side)
+	copy.pokemon_slot = JsonNumbers.deep_copy_value(source.pokemon_slot)
+	copy.pokemon_species = JsonNumbers.deep_copy_value(source.pokemon_species)
+	copy.target_side = JsonNumbers.deep_copy_value(source.target_side)
+	copy.target_slot = JsonNumbers.deep_copy_value(source.target_slot)
+	copy.details = JsonNumbers.deep_copy_value(source.details)
+	copy.value = JsonNumbers.deep_copy_value(source.value)
+	copy.side = JsonNumbers.deep_copy_value(source.side)
+	copy.amount = JsonNumbers.deep_copy_value(source.amount)
+	copy.hp_current = JsonNumbers.deep_copy_value(source.hp_current)
+	copy.hp_maximum = JsonNumbers.deep_copy_value(source.hp_maximum)
+	copy.hp_fainted = JsonNumbers.deep_copy_value(source.hp_fainted)
+	copy.hp_status = JsonNumbers.deep_copy_value(source.hp_status)
 	copy.tags = source.tags.duplicate()
 	copy.unknown_fields = source.unknown_fields.duplicate(true)
 	return copy

@@ -278,6 +278,12 @@ static func validate_dir(path: String) -> ValidationResult:
 		return _refuse("malformed_type", "manifest field parse failed", "manifest.json")
 
 	var trace_version: Variant = manifest_raw.get("trace_schema_version")
+	if trace_version != null and typeof(trace_version) != TYPE_STRING:
+		return _refuse(
+			"malformed_type",
+			"trace_schema_version must be string or null",
+			"trace_schema_version"
+		)
 	var decision_trace_present: bool = parsed_entries[BundleMode.FILE_DECISION_TRACE].present
 	var battle_log_present: bool = parsed_entries[BundleMode.FILE_BATTLE_LOG].present
 
@@ -730,8 +736,22 @@ static func _parse_decision_row(raw: Dictionary) -> Dictionary:
 	row.warning_count = warning_count_parse.value
 	row.selection_stage = raw.get("selection_stage")
 	row.fallback_reason = raw.get("fallback_reason")
-	row.chosen_candidate_key = raw.get("chosen_candidate_key")
-	row.chosen_candidate_id = raw.get("chosen_candidate_id")
+	var chosen_key_parse := _parse_optional_string(
+		raw.get("chosen_candidate_key"),
+		"chosen_candidate_key",
+		BundleMode.PATH_DECISION_TRACE
+	)
+	if not chosen_key_parse.ok:
+		return chosen_key_parse
+	row.chosen_candidate_key = chosen_key_parse.value
+	var chosen_id_parse := _parse_optional_string(
+		raw.get("chosen_candidate_id"),
+		"chosen_candidate_id",
+		BundleMode.PATH_DECISION_TRACE
+	)
+	if not chosen_id_parse.ok:
+		return chosen_id_parse
+	row.chosen_candidate_id = chosen_id_parse.value
 
 	var rank_parse := _parse_optional_int(raw.get("chosen_rank"), "chosen_rank")
 	if not rank_parse.ok:
@@ -794,7 +814,7 @@ static func _parse_decision_row(raw: Dictionary) -> Dictionary:
 			return cand_parse
 		var cand: CandidateDTO = cand_parse.value
 		if cand.candidate_key != null:
-			var key_str := str(cand.candidate_key)
+			var key_str: String = cand.candidate_key
 			if candidate_keys_seen.has(key_str):
 				return {
 					"ok": false,
@@ -860,11 +880,18 @@ static func _parse_candidate(raw: Dictionary) -> Dictionary:
 	var score_parse := JsonNumbers.parse_json_float(raw.get("aggregate_score"), "aggregate_score")
 	if not score_parse.ok:
 		return _parse_fail_from_json(score_parse, BundleMode.PATH_DECISION_TRACE)
+	var key_parse := _parse_optional_string(
+		raw.get("candidate_key"),
+		"candidate_key",
+		BundleMode.PATH_DECISION_TRACE
+	)
+	if not key_parse.ok:
+		return key_parse
 	var candidate := CandidateDTO.new()
 	candidate.candidate_id = raw.get("candidate_id")
 	candidate.rank = rank_parse.value
 	candidate.aggregate_score = score_parse.value
-	candidate.candidate_key = raw.get("candidate_key")
+	candidate.candidate_key = key_parse.value
 	candidate.unknown_fields = _collect_unknown(raw, _KNOWN_CANDIDATE_KEYS)
 	return {"ok": true, "value": candidate}
 
@@ -881,14 +908,19 @@ static func _parse_warnings_json(path: String) -> Dictionary:
 			"offender": BundleMode.PATH_WARNINGS,
 		}
 	var root: Dictionary = parsed.value
+	if not root.has("warnings"):
+		return {
+			"ok": false,
+			"reason": "malformed_type",
+			"message": "warnings must be a present array",
+			"offender": BundleMode.PATH_WARNINGS,
+		}
 	var warnings_raw: Variant = root.get("warnings")
-	if warnings_raw == null:
-		warnings_raw = []
 	if typeof(warnings_raw) != TYPE_ARRAY:
 		return {
 			"ok": false,
 			"reason": "malformed_type",
-			"message": "warnings must be array",
+			"message": "warnings must be a present array",
 			"offender": BundleMode.PATH_WARNINGS,
 		}
 	var out: Array = []
@@ -1106,6 +1138,19 @@ static func _privacy_profile_valid(privacy_dict: Dictionary) -> bool:
 	if privacy_dict.get("raw_source_included") != false:
 		return false
 	return true
+
+
+static func _parse_optional_string(value: Variant, field_name: String, offender: String) -> Dictionary:
+	if value == null:
+		return {"ok": true, "value": null}
+	if typeof(value) != TYPE_STRING:
+		return {
+			"ok": false,
+			"reason": "malformed_type",
+			"message": "%s must be string or null" % field_name,
+			"offender": offender,
+		}
+	return {"ok": true, "value": value}
 
 
 static func _parse_optional_int(value: Variant, field_name: String) -> Dictionary:

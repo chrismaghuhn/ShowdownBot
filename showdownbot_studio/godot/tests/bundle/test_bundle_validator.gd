@@ -376,3 +376,59 @@ func test_refuse_empty_candidates_with_chosen_tera_slot() -> void:
 	out.close()
 	_rehash_payload(bundle_dir, "decision_trace", decisions_path)
 	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "chosen_integrity")
+
+
+func test_refuse_numeric_candidate_and_chosen_keys() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("numeric_candidate_key")
+	var decisions_path := bundle_dir.path_join("decisions.jsonl")
+	var lines: PackedStringArray = FileAccess.get_file_as_string(decisions_path).split("\n")
+	var rewritten: PackedStringArray = PackedStringArray()
+	var mutated := false
+	for line in lines:
+		var trimmed := line.strip_edges()
+		if trimmed.is_empty():
+			continue
+		var json := JSON.new()
+		assert_int(json.parse(trimmed)).is_equal(OK)
+		var row: Dictionary = json.data
+		if not mutated and typeof(row.get("candidates")) == TYPE_ARRAY and not (row["candidates"] as Array).is_empty():
+			var candidates: Array = row["candidates"]
+			var cand: Dictionary = candidates[0]
+			cand["candidate_key"] = 1
+			row["chosen_candidate_key"] = 1
+			mutated = true
+		rewritten.append(JSON.stringify(row))
+	assert_bool(mutated).is_true()
+	var out := FileAccess.open(decisions_path, FileAccess.WRITE)
+	out.store_string("\n".join(rewritten) + "\n")
+	out.close()
+	_rehash_payload(bundle_dir, "decision_trace", decisions_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_missing_warnings_array() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("warnings_missing")
+	var warnings_path := bundle_dir.path_join("warnings.json")
+	var file := FileAccess.open(warnings_path, FileAccess.WRITE)
+	file.store_string("{}")
+	file.close()
+	_rehash_payload(bundle_dir, "warnings", warnings_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_null_warnings_array() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("warnings_null")
+	var warnings_path := bundle_dir.path_join("warnings.json")
+	var file := FileAccess.open(warnings_path, FileAccess.WRITE)
+	file.store_string('{"warnings":null}')
+	file.close()
+	_rehash_payload(bundle_dir, "warnings", warnings_path)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+func test_refuse_non_string_trace_schema_version() -> void:
+	var bundle_dir := _copy_fixture01_to_temp("trace_version_int")
+	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
+	manifest["trace_schema_version"] = 7
+	_write_json(bundle_dir.path_join("manifest.json"), manifest)
+	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")

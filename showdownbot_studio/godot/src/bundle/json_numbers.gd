@@ -69,6 +69,14 @@ static func _type_name(value_type: int) -> String:
 			return str(value_type)
 
 
+static func deep_copy_value(value: Variant) -> Variant:
+	if value is Dictionary:
+		return (value as Dictionary).duplicate(true)
+	if value is Array:
+		return (value as Array).duplicate(true)
+	return value
+
+
 static func freeze_containers(value: Variant) -> void:
 	if value is Dictionary:
 		var dict := value as Dictionary

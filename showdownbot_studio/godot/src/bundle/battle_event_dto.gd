@@ -42,7 +42,7 @@ var pokemon_side: Variant:
 	set(value):
 		if _sealed:
 			return
-		_pokemon_side = value
+		_pokemon_side = JsonNumbers.deep_copy_value(value)
 
 var pokemon_slot: Variant:
 	get:
@@ -50,7 +50,7 @@ var pokemon_slot: Variant:
 	set(value):
 		if _sealed:
 			return
-		_pokemon_slot = value
+		_pokemon_slot = JsonNumbers.deep_copy_value(value)
 
 var pokemon_species: Variant:
 	get:
@@ -58,7 +58,7 @@ var pokemon_species: Variant:
 	set(value):
 		if _sealed:
 			return
-		_pokemon_species = value
+		_pokemon_species = JsonNumbers.deep_copy_value(value)
 
 var target_side: Variant:
 	get:
@@ -66,7 +66,7 @@ var target_side: Variant:
 	set(value):
 		if _sealed:
 			return
-		_target_side = value
+		_target_side = JsonNumbers.deep_copy_value(value)
 
 var target_slot: Variant:
 	get:
@@ -74,7 +74,7 @@ var target_slot: Variant:
 	set(value):
 		if _sealed:
 			return
-		_target_slot = value
+		_target_slot = JsonNumbers.deep_copy_value(value)
 
 var details: Variant:
 	get:
@@ -82,7 +82,7 @@ var details: Variant:
 	set(value):
 		if _sealed:
 			return
-		_details = value
+		_details = JsonNumbers.deep_copy_value(value)
 
 var value: Variant:
 	get:
@@ -90,7 +90,7 @@ var value: Variant:
 	set(value):
 		if _sealed:
 			return
-		_value = value
+		_value = JsonNumbers.deep_copy_value(value)
 
 var side: Variant:
 	get:
@@ -98,7 +98,7 @@ var side: Variant:
 	set(value):
 		if _sealed:
 			return
-		_side = value
+		_side = JsonNumbers.deep_copy_value(value)
 
 var amount: Variant:
 	get:
@@ -106,7 +106,7 @@ var amount: Variant:
 	set(value):
 		if _sealed:
 			return
-		_amount = value
+		_amount = JsonNumbers.deep_copy_value(value)
 
 var hp_current: Variant:
 	get:
@@ -114,7 +114,7 @@ var hp_current: Variant:
 	set(value):
 		if _sealed:
 			return
-		_hp_current = value
+		_hp_current = JsonNumbers.deep_copy_value(value)
 
 var hp_maximum: Variant:
 	get:
@@ -122,7 +122,7 @@ var hp_maximum: Variant:
 	set(value):
 		if _sealed:
 			return
-		_hp_maximum = value
+		_hp_maximum = JsonNumbers.deep_copy_value(value)
 
 var hp_fainted: Variant:
 	get:
@@ -130,7 +130,7 @@ var hp_fainted: Variant:
 	set(value):
 		if _sealed:
 			return
-		_hp_fainted = value
+		_hp_fainted = JsonNumbers.deep_copy_value(value)
 
 var hp_status: Variant:
 	get:
@@ -138,7 +138,7 @@ var hp_status: Variant:
 	set(value):
 		if _sealed:
 			return
-		_hp_status = value
+		_hp_status = JsonNumbers.deep_copy_value(value)
 
 var tags: PackedStringArray:
 	get:
@@ -154,7 +154,7 @@ var unknown_fields: Dictionary:
 	set(value):
 		if _sealed:
 			return
-		_unknown_fields = value if value != null else {}
+		_unknown_fields = value.duplicate(true) if value != null else {}
 
 
 func seal() -> void:
