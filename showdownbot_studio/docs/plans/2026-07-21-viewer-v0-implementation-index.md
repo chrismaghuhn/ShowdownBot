@@ -6,8 +6,10 @@
 **Product:** ShowdownBot Studio Phase 0 — Offline Replay + DecisionTrace Viewer
 
 **Delivery tip (status only; does not change authorization rules):** Plan **A** merged PR **#41**;
-Plan **B** merged PR **#44**; Plan **C** merged PR **#46** @ `1b0be1d`. **Next:** Plan D implementation (APPROVED Rev. 5).
-Plans D–F remain DRAFT until each is marked APPROVED + separate go-ahead.
+Plan **B** merged PR **#44**; Plan **C** merged PR **#46**; Plan **D** merged PR **#47** (+
+follow-ups PR **#48**) @ `0256602`. **Next:** Plan **E** DRAFT under review
+(`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`). Plan F remains DRAFT. Code for E/F
+starts only after each plan is APPROVED + separate go-ahead.
 
 ## 1. Why this index
 
