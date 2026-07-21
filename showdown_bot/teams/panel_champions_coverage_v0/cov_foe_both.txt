@@ -35,7 +35,7 @@ EVs: 32 Atk / 32 Spe / 2 HP
 Jolly Nature
 - Dire Claw
 - Close Combat
-- Fake Out
+- Poison Jab
 - Protect
 
 Basculegion @ Choice Scarf

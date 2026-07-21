@@ -735,6 +735,9 @@ def run_coverage_gate_cli(args) -> None:
             "champions-coverage-gate requires SHOWDOWN_EVAL_SEED_LOG (the server's seed log) so the "
             "played seeds can be proven -- the server must be started with it and SHOWDOWN_BATTLE_SEED_BASE"
         )
+    i8d_verdict_path = getattr(args, "i8d_verdict_path", "")
+    if not i8d_verdict_path:
+        raise SystemExit("champions-coverage-gate requires --i8d-verdict-path")
     teams_root = getattr(args, "teams_root", ".") or "."
 
     # the panel + manifest are LOCKED to the coverage ones (not caller-chosen); the panel + team
@@ -746,13 +749,16 @@ def run_coverage_gate_cli(args) -> None:
           f"panel_hash={schedule.panel_hash}")
     report = run_coverage_gate(
         schedule=schedule, out_dir=out_dir, seed_log_path=seed_log,
-        expected_battles=COVERAGE_MAX_BATTLES, teams_root=teams_root)
+        expected_battles=COVERAGE_MAX_BATTLES, teams_root=teams_root,
+        i8d_verdict_path=i8d_verdict_path)
     print(f"champions-coverage-gate verdict: {report['verdict']} "
           f"(stop={report['stop_reason']}, safety_violations={report['safety_violations']}, "
           f"candidate_identity={report['candidate_identity']}) -> {out_dir}/")
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
+    """Parser construction split out from ``main`` so tests can drive the REAL parser (e.g. to
+    prove a new global flag's default doesn't break other commands) without executing dispatch."""
     parser = argparse.ArgumentParser(description="VGC Showdown Bot")
     parser.add_argument(
         "command",
@@ -906,6 +912,15 @@ def main() -> None:
         "created if missing.",
     )
     parser.add_argument(
+        "--i8d-verdict-path",
+        dest="i8d_verdict_path",
+        default="",
+        help="Path to the I8-D gate's verdict.json for the SAME candidate (champions-coverage-gate, "
+        "required): the runner refuses to run unless that verdict's candidate_identity matches this "
+        "run's freshly-derived one AND its verdict is 'PASS'. Global default is empty so other "
+        "commands are unaffected; only champions-coverage-gate's own handler requires it.",
+    )
+    parser.add_argument(
         "--mode",
         default="gate",
         choices=["gate", "dev"],
@@ -1025,6 +1040,11 @@ def main() -> None:
         "no decision-level claim. Default off (full mode), which requires --baseline-trace "
         "and --candidate-trace.",
     )
+    return parser
+
+
+def main() -> None:
+    parser = _build_parser()
     args = parser.parse_args()
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
 

@@ -10,7 +10,6 @@ injected ``run_local_gauntlet`` -- no server, no battle.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 
@@ -39,7 +38,32 @@ from showdown_bot.eval.decision_profile import (
     _read_rows,
     validate_live_profile_dataset,
 )
-from showdown_bot.eval.i8d_runner import _adopt_battle_atomic, _write_json_atomic
+from showdown_bot.eval.gates import load_latency_budget_ms
+from showdown_bot.eval.i8d_runner import (
+    I8D_MAX_SCORED_DECISIONS,
+    I8D_MIN_ACTIVE_DECISIONS,
+    I8D_MIN_DISTINCT_BATTLES,
+    _adopt_battle_atomic,
+    _write_json_atomic,
+    build_i8d_live_schedule,
+)
+from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_PANEL_PATH, I8D_SEED_BASE
+
+# (review round 7, P1) the EXACT field set a genuine I8-D verdict.json always carries -- the full
+# report dict i8d_runner.run_i8d_live_gate writes, including the run-specific counters this guard
+# cannot independently verify. Round 5's set only required the 11 fields this guard happened to
+# read values from, so a hand-crafted artifact carrying just those 11 (and none of the other 14 a
+# real run always produces) was accepted as "complete". Presence is required for ALL of them; the
+# ones with a knowable canonical value are also checked below.
+_I8D_VERDICT_REQUIRED_FIELDS = frozenset({
+    "candidate_identity", "git_sha", "config_hash", "calc_backend", "hero_agent",
+    "verdict", "panel_hash", "schedule_hash", "seed_base", "seed_log_verified",
+    "p95_is_gate_value", "hero_team_hash", "opp_team_hashes", "battles_played",
+    "scored_decisions", "max_scored_decisions", "scored_overshoot",
+    "active_valid_decisions", "distinct_active_battles", "stop_reason",
+    "exposure_floor_met", "min_active_decisions", "min_distinct_battles",
+    "budget_ms", "p95_ms",
+})
 
 
 class CoverageRunError(ValueError):
@@ -56,7 +80,7 @@ def resolve_coverage_provenance(*, hero_agent: str = "heuristic", format_id: str
     collide)."""
     from showdown_bot.eval.config_env import behavior_env, effective_config_manifest
     from showdown_bot.eval.result_jsonl import make_config_hash
-    from showdown_bot.learning.provenance import git_sha_and_dirty
+    from showdown_bot.learning.provenance import git_sha_and_dirty, make_candidate_identity
 
     git_sha, dirty = git_sha_and_dirty()
     if not git_sha or git_sha == "unknown":
@@ -83,10 +107,8 @@ def resolve_coverage_provenance(*, hero_agent: str = "heuristic", format_id: str
         raise CoverageRunError(
             f"unknown SHOWDOWN_CALC_BACKEND={raw_backend!r} (expected 'oneshot' or 'persistent')"
         )
-    candidate_identity = hashlib.sha1(
-        json.dumps({"hero_agent": hero_agent, "git_sha": git_sha, "config_hash": config_hash},
-                   sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:16]
+    candidate_identity = make_candidate_identity(
+        hero_agent=hero_agent, git_sha=git_sha, config_hash=config_hash)
     return {"git_sha": git_sha, "config_hash": config_hash, "calc_backend": calc_backend,
             "hero_agent": hero_agent, "candidate_identity": candidate_identity}
 
@@ -102,6 +124,16 @@ def build_coverage_live_schedule(panel_path: str = COVERAGE_PANEL_PATH,
     panel = load_panel(panel_path, teams_root=teams_root)
     manifest = load_coverage_manifest(manifest_path)
     return build_coverage_schedule(panel, manifest, n_battles=n_battles, teams_root=teams_root)
+
+
+def build_i8d_canonical_schedule(teams_root: str = "."):
+    """Rebuild the FIXED I8-D schedule fresh from the pinned I8-D panel (review round 6, P1), so the
+    I8-D verdict guard below can bind an artifact's ``schedule_hash`` to the REAL canonical I8-D
+    schedule instead of trusting the artifact's own claim -- mirroring how ``build_coverage_live_
+    schedule`` above lets this run's OWN schedule be re-derived and compared, never trusted as-is.
+    Thin wrapper over ``i8d_runner.build_i8d_live_schedule``, locked to the I8-D panel path -- never
+    a caller path."""
+    return build_i8d_live_schedule(I8D_PANEL_PATH, teams_root=teams_root)
 
 
 _CANONICAL_DATA_EVAL = os.path.normcase(os.path.realpath(str(_REPO_ROOT / "data" / "eval")))
@@ -142,7 +174,7 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
 
 def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
                       hero_agent: str = "heuristic", expected_battles: int = COVERAGE_MAX_BATTLES,
-                      teams_root: str = ".") -> dict:
+                      teams_root: str = ".", i8d_verdict_path: str = "") -> dict:
     """Drive the coverage schedule with whole-battle stop and render the three-way verdict, deriving
     provenance internally and verifying every execution boundary. A technical abort (Guard 2 partial
     battle, Guard 3 unjoinable index, seed-log failure) leaves the un-published staging dir, never an
@@ -151,6 +183,278 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.eval.result_jsonl import make_battle_id
     from showdown_bot.eval.seeding import derive_battle_seed
     from showdown_bot.team.pack import load_packed_team
+
+    prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
+    git_sha, config_hash = prov["git_sha"], prov["config_hash"]
+    calc_backend = prov["calc_backend"]
+    candidate_identity = prov["candidate_identity"]
+
+    # (T3, section 5 hardening) fail closed on the SAME, PASSing I8-D candidate before anything
+    # else -- before the canonical schedule is even built -- so coverage can never execute against
+    # a candidate I8-D never verified. Checked HERE, inside the runner, not only by the CLI wrapper,
+    # for the same "any direct caller gets the same protection" reason as the TOCTOU team-hash
+    # guard below.
+    if not i8d_verdict_path:
+        raise CoverageRunError(
+            "coverage requires --i8d-verdict-path (the I8-D gate's verdict.json for this SAME "
+            "candidate, which must have PASSed) so a coverage run can never execute against a "
+            "candidate the I8-D latency gate never verified"
+        )
+    try:
+        with open(i8d_verdict_path, encoding="utf-8") as fh:
+            i8d_verdict_data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise CoverageRunError(f"cannot read the I8-D verdict at {i8d_verdict_path!r}: {exc}") from exc
+    # (review round 5, P2) json.load succeeds on any valid JSON, not just objects -- "[]"/"null"/a
+    # bare string all parse cleanly to a non-dict, and .get() on those raises AttributeError, not
+    # CoverageRunError. Must fail closed here, before any field access.
+    if not isinstance(i8d_verdict_data, dict):
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} is not a JSON object "
+            f"(got {type(i8d_verdict_data).__name__}): not a genuine I8-D gate artifact"
+        )
+    # (review round 5, P1) bind the artifact to the REAL I8-D contract -- a hand-crafted JSON
+    # carrying only candidate_identity+verdict must not pass. Require the full field set a genuine
+    # I8-D verdict.json always carries, then cross-check the ones with a known-canonical value
+    # (panel_hash, seed_base, seed_log_verified) so a forger would also have to reproduce those
+    # correctly, not just guess two field names.
+    # (review round 8, P2) "the EXACT field set" was the comment's claim but not the check's
+    # behaviour -- only MISSING fields were rejected, so an artifact carrying every required field
+    # plus arbitrary extras still passed. Compare the full set both ways.
+    actual_fields = set(i8d_verdict_data)
+    missing = _I8D_VERDICT_REQUIRED_FIELDS - actual_fields
+    extra = actual_fields - _I8D_VERDICT_REQUIRED_FIELDS
+    if missing or extra:
+        problems = []
+        if missing:
+            problems.append(f"missing required field(s) {sorted(missing)}")
+        if extra:
+            problems.append(f"unexpected extra field(s) {sorted(extra)}")
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has {' and '.join(problems)}: not a "
+            f"genuine I8-D gate artifact"
+        )
+    # (review round 8, P1) the five per-run counters were required PRESENT (round 7) but never
+    # checked for internal consistency -- an artifact with active_valid_decisions=0 (or a string, or
+    # negative) was accepted as long as exposure_floor_met/verdict separately claimed PASS. These
+    # are genuinely dynamic (no FIXED expected value derivable offline), but they are NOT
+    # independent: type safety, the scored_overshoot formula (i8d_runner's own literal
+    # "max(0, scored_decisions - max_scored_decisions)"), and two subset relationships (active-valid
+    # rows are a subset of all scored rows; distinct active battle_ids are at most the battles
+    # played) hold for ANY genuine artifact, PASS or not.
+    for counter_field in ("battles_played", "scored_decisions", "scored_overshoot",
+                          "active_valid_decisions", "distinct_active_battles"):
+        counter_value = i8d_verdict_data[counter_field]
+        if isinstance(counter_value, bool) or not isinstance(counter_value, int) or counter_value < 0:
+            raise CoverageRunError(
+                f"the I8-D verdict at {i8d_verdict_path!r} has {counter_field}={counter_value!r}, "
+                f"not a non-negative int: not a genuine I8-D gate artifact"
+            )
+    expected_overshoot = max(0, i8d_verdict_data["scored_decisions"] - I8D_MAX_SCORED_DECISIONS)
+    if i8d_verdict_data["scored_overshoot"] != expected_overshoot:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has scored_overshoot "
+            f"{i8d_verdict_data['scored_overshoot']!r} != max(0, scored_decisions - "
+            f"{I8D_MAX_SCORED_DECISIONS}) = {expected_overshoot!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["active_valid_decisions"] > i8d_verdict_data["scored_decisions"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has active_valid_decisions "
+            f"{i8d_verdict_data['active_valid_decisions']!r} > scored_decisions "
+            f"{i8d_verdict_data['scored_decisions']!r}: active-valid rows cannot outnumber all "
+            f"scored rows; not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["distinct_active_battles"] > i8d_verdict_data["battles_played"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has distinct_active_battles "
+            f"{i8d_verdict_data['distinct_active_battles']!r} > battles_played "
+            f"{i8d_verdict_data['battles_played']!r}: distinct active battles cannot outnumber "
+            f"battles played; not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["panel_hash"] != I8D_EXPECTED_PANEL_HASH:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has panel_hash "
+            f"{i8d_verdict_data['panel_hash']!r} != the pinned I8-D panel "
+            f"{I8D_EXPECTED_PANEL_HASH!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["seed_base"] != I8D_SEED_BASE:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has seed_base "
+            f"{i8d_verdict_data['seed_base']!r} != the pinned I8-D seed namespace "
+            f"{I8D_SEED_BASE!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["seed_log_verified"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} does not have seed_log_verified=True: "
+            f"not a genuine I8-D gate artifact"
+        )
+    # (review round 7, P1) min_active_decisions/min_distinct_battles/max_scored_decisions/budget_ms
+    # were required PRESENT but never checked against the pinned values I8-D itself uses -- a forged
+    # artifact could claim a LOWERED floor or an INFLATED budget and still look complete.
+    if i8d_verdict_data["min_active_decisions"] != I8D_MIN_ACTIVE_DECISIONS:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has min_active_decisions "
+            f"{i8d_verdict_data['min_active_decisions']!r} != the pinned floor "
+            f"{I8D_MIN_ACTIVE_DECISIONS!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["min_distinct_battles"] != I8D_MIN_DISTINCT_BATTLES:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has min_distinct_battles "
+            f"{i8d_verdict_data['min_distinct_battles']!r} != the pinned floor "
+            f"{I8D_MIN_DISTINCT_BATTLES!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["max_scored_decisions"] != I8D_MAX_SCORED_DECISIONS:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has max_scored_decisions "
+            f"{i8d_verdict_data['max_scored_decisions']!r} != the pinned cap "
+            f"{I8D_MAX_SCORED_DECISIONS!r}: not a genuine I8-D gate artifact"
+        )
+    budget_ms = load_latency_budget_ms()
+    if i8d_verdict_data["budget_ms"] != budget_ms:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has budget_ms "
+            f"{i8d_verdict_data['budget_ms']!r} != the pinned latency budget {budget_ms!r}: "
+            f"not a genuine I8-D gate artifact"
+        )
+    # (review round 6, P1) candidate_identity is a PUBLIC, locally-computable hash -- nothing secret
+    # in the formula (sha1 of {hero_agent, git_sha, config_hash}) or its inputs, so a hand-crafted
+    # artifact can carry the CORRECT candidate_identity (trivially reproducible by anyone who can
+    # write this file) alongside a COMPLETELY UNRELATED git_sha/config_hash/hero_agent. Comparing
+    # only the opaque candidate_identity token (as the prior round did, below) never catches that:
+    # bind each raw field directly to this run's own freshly-derived provenance too.
+    if i8d_verdict_data["git_sha"] != git_sha:
+        raise CoverageRunError(
+            f"I8-D git_sha {i8d_verdict_data['git_sha']!r} != this run's git_sha {git_sha!r}: "
+            f"coverage must run on the SAME commit I8-D verified"
+        )
+    if i8d_verdict_data["config_hash"] != config_hash:
+        raise CoverageRunError(
+            f"I8-D config_hash {i8d_verdict_data['config_hash']!r} != this run's config_hash "
+            f"{config_hash!r}: coverage must run on the SAME config I8-D verified"
+        )
+    if i8d_verdict_data["hero_agent"] != hero_agent:
+        raise CoverageRunError(
+            f"I8-D hero_agent {i8d_verdict_data['hero_agent']!r} != this run's hero_agent "
+            f"{hero_agent!r}: coverage must run on the SAME hero agent I8-D verified"
+        )
+    i8d_identity = i8d_verdict_data["candidate_identity"]
+    if i8d_identity != candidate_identity:
+        raise CoverageRunError(
+            f"I8-D candidate_identity {i8d_identity!r} != this run's freshly-derived "
+            f"candidate_identity {candidate_identity!r}: coverage must run on the SAME candidate "
+            f"I8-D verified"
+        )
+    # (review round 5, P1) candidate_identity does NOT capture calc_backend by design -- it hashes
+    # only hero_agent/git_sha/config_hash. Confirmed empirically: switching SHOWDOWN_CALC_BACKEND
+    # between oneshot/persistent leaves config_hash and candidate_identity byte-identical (both
+    # "594295543f13a55d" / "a68acfef984b91f1" in the reproduction). I8-D's PASS is fundamentally a
+    # LATENCY claim, and latency is backend-dependent, so this must be its own explicit check.
+    i8d_calc_backend = i8d_verdict_data["calc_backend"]
+    if i8d_calc_backend != calc_backend:
+        raise CoverageRunError(
+            f"I8-D calc_backend {i8d_calc_backend!r} != this run's calc_backend {calc_backend!r}: "
+            f"candidate_identity does not capture calc_backend, so it is checked separately"
+        )
+    # (review round 6, P1) schedule_hash was required PRESENT but never checked against anything --
+    # a forged artifact could name an arbitrary (or never-run) I8-D schedule and still pass. Bind it
+    # to the REAL fixed I8-D schedule, freshly rebuilt from the pinned I8-D panel -- never trust the
+    # artifact's own claim, mirroring how this run's OWN schedule is re-derived and compared below
+    # rather than trusting the caller's Schedule. Checked after the cheap field-equality checks
+    # above (fail fast before the heavier rebuild).
+    i8d_canonical = build_i8d_canonical_schedule(teams_root=teams_root)
+    if i8d_verdict_data["schedule_hash"] != i8d_canonical.schedule_hash:
+        raise CoverageRunError(
+            f"I8-D schedule_hash {i8d_verdict_data['schedule_hash']!r} != the canonical I8-D "
+            f"schedule_hash freshly rebuilt from the pinned I8-D panel "
+            f"({i8d_canonical.schedule_hash!r}): not a genuine I8-D gate artifact"
+        )
+    # (review round 7, P1) hero_team_hash/opp_team_hashes were required PRESENT but never checked --
+    # both are free given the canonical schedule just rebuilt above (the SAME two fields
+    # i8d_runner.run_i8d_live_gate itself derives from its own schedule object).
+    i8d_canonical_hero_hash = i8d_canonical.rows[0].hero_team_hash if i8d_canonical.rows else None
+    if i8d_verdict_data["hero_team_hash"] != i8d_canonical_hero_hash:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has hero_team_hash "
+            f"{i8d_verdict_data['hero_team_hash']!r} != the canonical I8-D hero_team_hash "
+            f"{i8d_canonical_hero_hash!r}: not a genuine I8-D gate artifact"
+        )
+    i8d_canonical_opp_hashes = sorted({r.opp_team_hash for r in i8d_canonical.rows
+                                       if r.opp_team_hash is not None})
+    if i8d_verdict_data["opp_team_hashes"] != i8d_canonical_opp_hashes:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has opp_team_hashes "
+            f"{i8d_verdict_data['opp_team_hashes']!r} != the canonical I8-D opp_team_hashes "
+            f"{i8d_canonical_opp_hashes!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["verdict"] != "PASS":
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} is {i8d_verdict_data['verdict']!r}, not "
+            f"'PASS': coverage may only run after I8-D PASSes on the same candidate"
+        )
+    # (review round 6, P1) the real i8d_verdict() can never produce verdict="PASS" together with
+    # p95_is_gate_value=False (its PASS/FAIL branch always pairs with True; only the untested
+    # INCONCLUSIVE branch sets it False) -- but a hand-crafted JSON is not bound by that invariant
+    # unless it is checked explicitly here.
+    if i8d_verdict_data["p95_is_gate_value"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
+            f"p95_is_gate_value is not True: not a genuine I8-D gate artifact (a real PASS always "
+            f"has p95_is_gate_value=True)"
+        )
+    # (review round 7, P1) exposure_floor_met/stop_reason/p95_ms were required PRESENT but not
+    # checked. By construction (i8d_runner.should_stop checks the floor FIRST, before max_battles/
+    # max_scored_decisions, and i8d_verdict()'s PASS/FAIL branch requires that SAME floor met) a
+    # genuine verdict="PASS" can only ever pair with exposure_floor_met=True and
+    # stop_reason="exposure_floor_met" -- a hand-crafted JSON is not bound by that invariant unless
+    # checked explicitly.
+    if i8d_verdict_data["exposure_floor_met"] is not True:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
+            f"exposure_floor_met is not True: not a genuine I8-D gate artifact"
+        )
+    # (review round 8, P1) exposure_floor_met=True is, by itself, just a bare claim unless
+    # cross-checked against the SAME counters i8d_runner.exposure_floor_met() actually compares --
+    # otherwise a forged artifact could pair exposure_floor_met=True with active_valid_decisions=0.
+    if i8d_verdict_data["active_valid_decisions"] < i8d_verdict_data["min_active_decisions"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims exposure_floor_met=True but "
+            f"active_valid_decisions {i8d_verdict_data['active_valid_decisions']!r} < "
+            f"min_active_decisions {i8d_verdict_data['min_active_decisions']!r}: not a genuine "
+            f"I8-D gate artifact"
+        )
+    if i8d_verdict_data["distinct_active_battles"] < i8d_verdict_data["min_distinct_battles"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims exposure_floor_met=True but "
+            f"distinct_active_battles {i8d_verdict_data['distinct_active_battles']!r} < "
+            f"min_distinct_battles {i8d_verdict_data['min_distinct_battles']!r}: not a genuine "
+            f"I8-D gate artifact"
+        )
+    if i8d_verdict_data["stop_reason"] != "exposure_floor_met":
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but stop_reason is "
+            f"{i8d_verdict_data['stop_reason']!r}, not 'exposure_floor_met': not a genuine I8-D "
+            f"gate artifact"
+        )
+    # p95_is_gate_value=True (above) does not by itself prove p95_ms is a sane number -- a
+    # hand-crafted JSON could pair verdict="PASS" with any p95_ms. isinstance guards against a
+    # non-numeric value (e.g. None, the INCONCLUSIVE branch's real value) crashing a comparison with
+    # an unhandled TypeError instead of failing closed with CoverageRunError (generalises review
+    # round 5 P2's non-object-JSON lesson).
+    # (review round 8, P1) `> budget_ms` alone is NaN-unsafe: json.loads parses the bare token NaN
+    # (Python's json module allows it by default) into float('nan'), and EVERY comparison with NaN
+    # -- including `>` -- returns False under IEEE 754, so both `NaN > budget_ms` and
+    # `-1.0 > budget_ms` are False and silently sailed through. Empirically reproduced before fixing.
+    # A closed range check is NaN-safe: `0 <= NaN` is already False, so the chained comparison
+    # short-circuits to False and `not False` correctly flags it -- and the same range naturally
+    # excludes negative values and +/-inf too, with no separate isnan()/isinf() needed.
+    i8d_p95_ms = i8d_verdict_data["p95_ms"]
+    if (isinstance(i8d_p95_ms, bool) or not isinstance(i8d_p95_ms, (int, float))
+            or not (0 <= i8d_p95_ms <= budget_ms)):
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but p95_ms "
+            f"{i8d_p95_ms!r} is not a finite real number in [0, {budget_ms}] ms: not a genuine "
+            f"I8-D gate artifact"
+        )
 
     verify_coverage_schedule(schedule, expected_battles=expected_battles)
     # panel_hash covers team CONTENT; schedule_hash covers matchup ORDER/assignment. Neither is
@@ -177,11 +481,6 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"out_dir {out_dir!r} is under data/eval/; the runner writes only to a scratch/run tree. "
             f"Freezing a run's output into data/eval/ is a separate, separately-authorized commit."
         )
-
-    prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
-    git_sha, config_hash = prov["git_sha"], prov["config_hash"]
-    calc_backend = prov["calc_backend"]
-    candidate_identity = prov["candidate_identity"]
 
     seed_base = os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "")
     if seed_base != COVERAGE_SEED_BASE:

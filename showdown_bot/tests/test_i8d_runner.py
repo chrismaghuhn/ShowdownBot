@@ -276,6 +276,19 @@ def test_output_dir_is_published_atomically_and_verdict_equals_return(tmp_path, 
     assert (out / "profile.jsonl").exists()                   # profile + verdict published together
     assert not (tmp_path / "out.staging").exists()            # the staging dir was consumed by the rename
 
+    # candidate_identity + its ingredients must reach the published artifact, not just be
+    # computable in isolation -- _run() calls run_i8d_live_gate with git_sha="deadbeef",
+    # config_hash="cfg01", hero_agent defaulting to "heuristic".
+    from showdown_bot.learning.provenance import make_candidate_identity
+    expected_identity = make_candidate_identity(
+        hero_agent="heuristic", git_sha="deadbeef", config_hash="cfg01")
+    for field, expected in (("candidate_identity", expected_identity), ("git_sha", "deadbeef"),
+                            ("config_hash", "cfg01"), ("calc_backend", "oneshot"),
+                            ("hero_agent", "heuristic")):
+        assert report[field] == expected, f"report[{field!r}] == {report.get(field)!r}"
+        parsed = json.loads(raw.decode("utf-8"))
+        assert parsed[field] == expected, f"published verdict.json[{field!r}] == {parsed.get(field)!r}"
+
 
 def _gate(tmp_path, schedule, monkeypatch, *, seed_log=None, base=I8D_SEED_BASE):
     """Call the runner with the env set but WITHOUT a stub -- for the fail-closed preflight gates

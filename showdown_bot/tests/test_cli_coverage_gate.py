@@ -13,7 +13,7 @@ import pytest
 
 class _Sched:
     schedule_hash = "sched-cov"
-    panel_hash = "11d63978cb64a961"
+    panel_hash = "6f4c98537a320bed"
     rows = ()
 
 
@@ -47,7 +47,8 @@ def test_command_locks_the_coverage_panel_derives_provenance_and_reaches_the_run
     captured: dict = {}
     _install_cli_stubs(monkeypatch, captured)
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
-    cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
+    cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root=".",
+                                                  i8d_verdict_path="i8d.json"))
     kw = captured["run_kwargs"]
     assert kw["expected_battles"] == 200                        # locked to the cap, not caller-set
     assert kw["seed_log_path"] == str(tmp_path / "seed.log")
@@ -65,7 +66,8 @@ def test_the_command_takes_no_provenance_flags(tmp_path, monkeypatch):
     captured: dict = {}
     _install_cli_stubs(monkeypatch, captured)
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
-    cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
+    cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root=".",
+                                                  i8d_verdict_path="i8d.json"))
     kw = captured["run_kwargs"]
     assert not ({"git_sha", "config_hash", "candidate_identity"} & set(kw))
 
@@ -85,3 +87,25 @@ def test_command_requires_the_server_seed_log(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="requires SHOWDOWN_EVAL_SEED_LOG"):
         cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
     assert "run_kwargs" not in captured
+
+
+def test_command_requires_i8d_verdict_path(tmp_path, monkeypatch):
+    from showdown_bot import cli
+    captured: dict = {}
+    _install_cli_stubs(monkeypatch, captured)
+    monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(tmp_path / "seed.log"))
+    with pytest.raises(SystemExit, match="requires --i8d-verdict-path"):
+        cli.run_coverage_gate_cli(argparse.Namespace(out_dir=str(tmp_path / "out"), teams_root="."))
+    assert "run_kwargs" not in captured
+
+
+def test_other_commands_are_unaffected_by_the_new_flag():
+    # T3 (review round 4, P1): the global --i8d-verdict-path registration must default to "" so
+    # argparse itself never rejects a command line for OTHER commands lacking it -- only
+    # champions-coverage-gate's own handler (tested above) may reject a missing path. Drives the
+    # REAL parser (not a hand-built Namespace) for two unrelated commands.
+    from showdown_bot import cli
+    parser = cli._build_parser()
+    for argv in (["smoke"], ["i8d-live-gate"]):
+        ns = parser.parse_args(argv)
+        assert ns.i8d_verdict_path == ""

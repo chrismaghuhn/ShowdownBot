@@ -168,7 +168,7 @@ def resolve_i8d_provenance(*, hero_agent: str = "heuristic", format_id: str = I8
     """
     from showdown_bot.eval.config_env import behavior_env, effective_config_manifest
     from showdown_bot.eval.result_jsonl import make_config_hash
-    from showdown_bot.learning.provenance import git_sha_and_dirty
+    from showdown_bot.learning.provenance import git_sha_and_dirty, make_candidate_identity
 
     git_sha, dirty = git_sha_and_dirty()
     if not git_sha or git_sha == "unknown":
@@ -195,8 +195,11 @@ def resolve_i8d_provenance(*, hero_agent: str = "heuristic", format_id: str = I8
         raise I8DRunError(
             f"unknown SHOWDOWN_CALC_BACKEND={raw_backend!r} (expected 'oneshot' or 'persistent')"
         )
+    candidate_identity = make_candidate_identity(
+        hero_agent=hero_agent, git_sha=git_sha, config_hash=config_hash)
     return {"git_sha": git_sha, "config_hash": config_hash,
-            "calc_backend": calc_backend, "hero_agent": hero_agent}
+            "calc_backend": calc_backend, "hero_agent": hero_agent,
+            "candidate_identity": candidate_identity}
 
 
 def build_i8d_live_schedule(panel_path: str, *, n_battles: int = I8D_MAX_BATTLES,
@@ -242,6 +245,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.eval.i8d_schedule import verify_i8d_schedule
     from showdown_bot.eval.result_jsonl import make_battle_id
     from showdown_bot.eval.seeding import derive_battle_seed
+    from showdown_bot.learning.provenance import make_candidate_identity
     from showdown_bot.team.pack import load_packed_team
 
     # (finding 3) never trust the caller's schedule -- re-derive structure + recompute the hash.
@@ -363,6 +367,11 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
 
     verdict = i8d_verdict(active_valid=active_valid, distinct_battles=distinct_battles,
                           active_measured_ms=_active_measured_ms(staging_profile), budget_ms=budget_ms)
+    # candidate_identity computed HERE from this call's own already-bound git_sha/config_hash/
+    # hero_agent -- never a caller-supplied field, matching resolve_i8d_provenance's own guarantee
+    # and giving the coverage gate's identity cross-check (T3) something to compare against.
+    candidate_identity = make_candidate_identity(
+        hero_agent=hero_agent, git_sha=git_sha, config_hash=config_hash)
     report = {
         "schedule_hash": schedule.schedule_hash,
         # (blocker 2) the content-bound panel + team identity, recorded in the verdict so two runs
@@ -380,6 +389,11 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         "active_valid_decisions": active_valid,
         "distinct_active_battles": distinct_battles,
         "stop_reason": stop_reason,
+        "git_sha": git_sha,
+        "config_hash": config_hash,
+        "calc_backend": calc_backend,
+        "hero_agent": hero_agent,
+        "candidate_identity": candidate_identity,
         **verdict,
     }
     _write_json_atomic(os.path.join(staging_dir, "verdict.json"), report)

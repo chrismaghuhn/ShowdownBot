@@ -32,8 +32,8 @@ COVERAGE_PANEL_PATH = "config/eval/panels/panel_champions_coverage_v0.yaml"
 COVERAGE_MANIFEST_PATH = "config/eval/coverage/champions_coverage_v0_manifest.json"
 # Frozen content-derived hashes (Task 4): panel_hash binds the four team files' CONTENT; the
 # manifest hash binds the matchup order, target_cells and frozen team_content_hashes.
-COVERAGE_EXPECTED_PANEL_HASH = "11d63978cb64a961"
-COVERAGE_EXPECTED_MANIFEST_HASH = "c4ca3da5118b24ba"
+COVERAGE_EXPECTED_PANEL_HASH = "6f4c98537a320bed"
+COVERAGE_EXPECTED_MANIFEST_HASH = "6278dc41907cf63c"
 
 COVERAGE_CELLS = ("slot0", "slot1", "both_foe_slots", "order_tie")
 
