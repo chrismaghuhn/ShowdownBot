@@ -2,9 +2,10 @@ import math
 
 import pytest
 
-from showdown_bot.learning.audit.contracts import AuditConfig, AuditCorpus, Severity
+from showdown_bot.learning.audit.contracts import AuditConfig, AuditCorpus, AuditError, Severity
 from showdown_bot.learning.audit.model import (
-    audit_model_artifacts, audit_optional_model, calibration_metrics, fit_temperature,
+    audit_model_artifacts, audit_optional_model, calibration_metrics, decision_nll,
+    fit_temperature, softmax,
 )
 from showdown_bot.learning.dataset import Decision
 from showdown_bot.learning.reranker_features import LABEL_DENYLIST, METADATA_DENYLIST, feature_schema_hash
@@ -115,3 +116,14 @@ def test_calibration_metrics_handle_teacher_ties():
     assert metrics["n"] == 1
     assert math.isfinite(metrics["nll"])
     assert math.isfinite(metrics["brier"])
+
+
+def test_empty_calibration_inputs_fail_closed():
+    with pytest.raises(AuditError, match="at least one score"):
+        softmax([], 1.0)
+    with pytest.raises(AuditError, match="teacher_best"):
+        decision_nll({"scores": [1.0], "teacher_best": [False]}, 1.0)
+    with pytest.raises(AuditError, match="validation decisions"):
+        fit_temperature([])
+    with pytest.raises(AuditError, match="requires decisions"):
+        calibration_metrics([], 1.0)

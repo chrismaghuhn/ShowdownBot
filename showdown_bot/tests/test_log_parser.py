@@ -60,3 +60,25 @@ def test_enditem_and_move_target():
     moves = [e for e in events if e.type == "move"]
     fake_out = next(e for e in moves if e.details == "Fake Out")
     assert fake_out.target and fake_out.target.name == "Delibird"
+
+
+def test_malformed_protocol_lines_do_not_abort_following_valid_events():
+    raw = "\n".join(
+        [
+            "|switch|",
+            "|-damage|p1a: Incineroar|not-hp",
+            "|-boost|p1a: Incineroar|atk|not-an-int",
+            "|turn|not-a-turn",
+            "|move|p1a: Incineroar",
+            "|faint|",
+            "|turn|7",
+        ]
+    )
+    events = parse_log(raw)
+    assert [(event.type, event.amount) for event in events] == [
+        ("damage", None),
+        ("boost", None),
+        ("turn", None),
+        ("move", None),
+        ("turn", 7),
+    ]

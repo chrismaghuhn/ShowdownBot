@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from showdown_bot.battle.legal_actions import _move_targets, enumerate_slot_pairs
+from showdown_bot.battle.legal_actions import (
+    _bench_switch_targets,
+    _move_targets,
+    enumerate_slot_pairs,
+)
 from showdown_bot.engine.moves import get_move_meta
 from showdown_bot.models.actions import SlotAction, SlotPair
 from showdown_bot.models.request import BattleRequest
@@ -66,6 +70,27 @@ def test_force_switch_with_null_active_yields_switches():
     assert all(p.slot0.kind == "switch" for p in pairs)
     assert all(p.slot1.kind == "pass" for p in pairs)
     assert {p.slot0.target_ident for p in pairs} == {"C", "D"}
+
+
+def test_bench_switch_targets_tolerates_short_force_switch_vector():
+    req = BattleRequest.model_validate(
+        {
+            "forceSwitch": [True],
+            "side": {
+                "pokemon": [
+                    {
+                        "ident": "p1: A",
+                        "details": "A",
+                        "condition": "0 fnt",
+                        "active": True,
+                        "moves": [],
+                    }
+                ]
+            },
+            "rqid": 10,
+        }
+    )
+    assert _bench_switch_targets(req, 1) == []
 
 
 def _choice_request(item: str):
