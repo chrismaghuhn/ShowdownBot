@@ -60,9 +60,11 @@ func get_board_model() -> BoardModel:
 
 func _on_selection_changed(entry_index: int) -> void:
 	_timeline_view.set_selected_entry_index(entry_index)
-	if _replay == null or _bundle == null or entry_index < 0:
+	if _replay == null or _bundle == null:
 		_board = null
 		_board_view.bind(null)
 		return
+	# Trusted empty timeline (cursor -1): still bind a fresh board so has_replay
+	# stays true and the missing-evidence banner stays hidden (§0.5).
 	_board = ReplayPresenter.build_board(_bundle, _replay, entry_index)
 	_board_view.bind(_board)
