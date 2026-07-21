@@ -91,3 +91,10 @@ config/eval/**/*.jsonl text eol=lf
 showdownbot_studio/docs/design/viewer-v0-mockups/*.html -text
 showdownbot_studio/docs/design/viewer-v0-mockups/support.js -text
 showdownbot_studio/docs/design/viewer-v0-mockups/thumbnail.webp binary
+
+# Studio viewer-v0 fixtures are byte-pinned by manifest sha256 (bundle contract).
+# Same class of defect as Champions config/hash drift: without an attribute, Windows
+# core.autocrlf rewrites LF blobs to CRLF on checkout/merge and every raw-byte
+# manifest check fails. Prefer `text eol=lf` (normalises on add AND checkout).
+showdownbot_studio/fixtures/** text eol=lf
+showdownbot_studio/godot/tests/fixtures/** text eol=lf
