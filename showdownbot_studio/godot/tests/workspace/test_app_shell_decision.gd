@@ -8,6 +8,13 @@ func _fixture_path(relative: String) -> String:
 	return ProjectSettings.globalize_path(_FIXTURES_ROOT.path_join(relative))
 
 
+func _fixture_bundle(rel: String) -> BundleDTO:
+	var path := _fixture_path(rel)
+	var result: ValidationResult = BundleValidator.validate_dir(path)
+	assert_object(result.bundle).is_not_null()
+	return result.bundle
+
+
 func after_test() -> void:
 	for child in get_children():
 		if child is AppShell:
@@ -242,3 +249,65 @@ func test_bundle_switch_01_to_04_hides_claims() -> void:
 	var ws := shell.get_decision_workspace()
 	assert_bool(ws.get_empty_state_visible()).is_true()
 	assert_int(ws.get_candidate_table_view().get_item_count()).is_equal(0)
+
+
+func test_deep_link_success() -> void:
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var target: DecisionRowDTO = bundle.decisions[1]
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray([
+		"--decision", "%s:%d" % [bundle.manifest.battle_id, target.decision_index]
+	]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("")
+	assert_int(shell.get_selected_decision_index()).is_equal(target.decision_index)
+
+
+func test_deep_link_mismatch_refuses() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
+	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
+	assert_object(shell.get_loaded_bundle()).is_not_null()
+
+
+func test_deep_link_missing_value_malformed() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray(["--decision"]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("malformed_decision_arg")
+	assert_object(shell.get_loaded_bundle()).is_not_null()
+
+
+func test_deep_link_one_shot_not_reapplied_on_manual_open() -> void:
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var target: DecisionRowDTO = bundle.decisions[1]
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray([
+		"--decision", "%s:%d" % [bundle.manifest.battle_id, target.decision_index]
+	]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_int(shell.get_selected_decision_index()).is_equal(target.decision_index)
+	shell.open_bundle_path(_fixture_path("bundles/fixture-03"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("")
+	assert_str(shell.get_loaded_bundle().manifest.battle_id).is_equal("synthetic00000003")
+
+
+func test_deep_link_refuse_cleared_on_later_manual_open() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.parse_cli_args(PackedStringArray(["--decision", "wrong-battle:1"]))
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("battle_id_mismatch")
+	assert_bool(shell.get_status_text().contains("Deep link refused")).is_true()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-03"))
+	await _await_shell_settled(shell)
+	assert_str(shell.get_deep_link_refuse_reason()).is_equal("")
+	assert_bool(shell.get_status_text().contains("Deep link refused")).is_false()
+	assert_str(shell.get_loaded_bundle().manifest.battle_id).is_equal("synthetic00000003")
