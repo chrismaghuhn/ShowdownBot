@@ -1,6 +1,7 @@
 # Viewer v0 — Plan E: Diagnostics, Accessibility, and Layout
 
-**Status:** DRAFT — executable plan for review; **implementation not authorized**
+**Status:** APPROVED — 2026-07-21 (Rev. 3). Owner review PASS across Rev. 1–3.
+**Implementation not authorized** until a separate go-ahead (§10 Schritt 4; own branch).
 **Date:** 2026-07-21 · **Rev.:** 3 (deterministic fixture-05 banner; real phase rows for G1)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
@@ -672,7 +673,7 @@ implementation start by counting §5 names). No silent case deletion.
 - [x] F1 precedence pairs named; F2 fixtures 5/6 + no soft “or”; F3 priority-8 DiD; F4 changelog
 - [x] B2 monospace Auflage in §0.8 / §0.9 / §4.6 + named test
 - [x] Rev. 3: fixture-05 d4 pin; phase tests use sealed fixture-01 rows (G1/G2)
-- [ ] Owner marks APPROVED (not author)
+- [x] Owner marks APPROVED (not author)
 
 ---
 
