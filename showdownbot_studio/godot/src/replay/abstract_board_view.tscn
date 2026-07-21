@@ -1,0 +1,79 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/replay/abstract_board_view.gd" id="1_view"]
+
+[node name="AbstractBoardView" type="VBoxContainer"]
+layout_mode = 2
+script = ExtResource("1_view")
+
+[node name="LoadingLabel" type="Label" parent="."]
+layout_mode = 2
+text = ""
+
+[node name="EmptyStateLabel" type="Label" parent="."]
+layout_mode = 2
+text = ""
+
+[node name="MetaRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="TurnLabel" type="Label" parent="MetaRow"]
+layout_mode = 2
+
+[node name="WeatherLabel" type="Label" parent="MetaRow"]
+layout_mode = 2
+
+[node name="TerrainLabel" type="Label" parent="MetaRow"]
+layout_mode = 2
+
+[node name="FieldConditionsLabel" type="Label" parent="MetaRow"]
+layout_mode = 2
+
+[node name="SideConditionsRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="P1SideLabel" type="Label" parent="SideConditionsRow"]
+layout_mode = 2
+
+[node name="P2SideLabel" type="Label" parent="SideConditionsRow"]
+layout_mode = 2
+
+[node name="Slots" type="GridContainer" parent="."]
+layout_mode = 2
+columns = 2
+
+[node name="P1ASpecies" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P1AHP" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P1AStatus" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P1BSpecies" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P1BHP" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P1BStatus" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2ASpecies" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2AHP" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2AStatus" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2BSpecies" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2BHP" type="Label" parent="Slots"]
+layout_mode = 2
+
+[node name="P2BStatus" type="Label" parent="Slots"]
+layout_mode = 2
