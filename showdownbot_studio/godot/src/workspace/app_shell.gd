@@ -5,6 +5,7 @@ extends Control
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
 @onready var _status_label: Label = $VBox/StatusLabel
 @onready var _replay_workspace: ReplayWorkspace = $VBox/ReplayWorkspace
+@onready var _decision_workspace: DecisionWorkspace = $VBox/DecisionWorkspace
 @onready var _loader: BundleLoader = $BundleLoader
 
 var cli_decision_index: int = -1
@@ -44,6 +45,10 @@ func open_bundle_path(path: String) -> void:
 
 func get_replay_workspace() -> ReplayWorkspace:
 	return _replay_workspace
+
+
+func get_decision_workspace() -> DecisionWorkspace:
+	return _decision_workspace
 
 
 func is_loading() -> bool:
@@ -105,7 +110,10 @@ func get_status_text() -> String:
 
 
 func get_selected_decision_index() -> int:
-	return _selected_decision_index
+	var d: DecisionRowDTO = _decision_workspace.get_decision_controller().get_selected_decision()
+	if d == null:
+		return -1
+	return d.decision_index
 
 
 func _on_open_pressed() -> void:
@@ -121,6 +129,8 @@ func _start_load(path: String) -> void:
 	_current_refuse = null
 	_replay_workspace.clear()
 	_replay_workspace.set_loading(true)
+	_decision_workspace.clear()
+	_decision_workspace.set_loading(true)
 	_set_status("Loading...")
 	_loader.load_async(path)
 
@@ -130,6 +140,7 @@ func _on_completed(bundle: BundleDTO) -> void:
 	_current_refuse = null
 	var replay: ReplayDTO = BattleTimeline.build(bundle)
 	_replay_workspace.reset(replay, bundle)
+	_decision_workspace.reset(bundle, _replay_workspace.get_timeline_controller())
 	_set_status(_format_loaded_status(bundle))
 
 
@@ -137,6 +148,7 @@ func _on_refused(diagnostic: RefuseDiagnostic) -> void:
 	_current_bundle = null
 	_current_refuse = diagnostic
 	_replay_workspace.clear()
+	_decision_workspace.clear()
 	_set_status("Refused: %s" % diagnostic.reason)
 
 
@@ -144,6 +156,7 @@ func _on_cancelled() -> void:
 	_current_bundle = null
 	_current_refuse = null
 	_replay_workspace.clear()
+	_decision_workspace.clear()
 	_set_status("Load cancelled")
 
 

@@ -1,0 +1,70 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/decision/decision_workspace.gd" id="1_ws"]
+[ext_resource type="PackedScene" path="res://src/decision/candidate_table_view.tscn" id="2_table"]
+[ext_resource type="PackedScene" path="res://src/decision/decision_detail_view.tscn" id="3_detail"]
+[ext_resource type="Script" path="res://src/decision/decision_controller.gd" id="4_ctl"]
+
+[node name="DecisionWorkspace" type="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+script = ExtResource("1_ws")
+
+[node name="LoadingLabel" type="Label" parent="."]
+layout_mode = 2
+
+[node name="EmptyStateLabel" type="Label" parent="."]
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="HeaderLabel" type="Label" parent="."]
+layout_mode = 2
+
+[node name="ChromeRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="StageLabel" type="Label" parent="ChromeRow"]
+layout_mode = 2
+
+[node name="FallbackLabel" type="Label" parent="ChromeRow"]
+layout_mode = 2
+
+[node name="MegaLabel" type="Label" parent="ChromeRow"]
+layout_mode = 2
+
+[node name="TeraLabel" type="Label" parent="ChromeRow"]
+layout_mode = 2
+
+[node name="NavRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="PrevDecisionButton" type="Button" parent="NavRow"]
+layout_mode = 2
+text = "Prev decision"
+
+[node name="NextDecisionButton" type="Button" parent="NavRow"]
+layout_mode = 2
+text = "Next decision"
+
+[node name="NextCloseButton" type="Button" parent="NavRow"]
+layout_mode = 2
+text = "Next close"
+
+[node name="NextFallbackButton" type="Button" parent="NavRow"]
+layout_mode = 2
+text = "Next fallback"
+
+[node name="NextWarningButton" type="Button" parent="NavRow"]
+layout_mode = 2
+text = "Next warning"
+
+[node name="CandidateTable" parent="." instance=ExtResource("2_table")]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Detail" parent="." instance=ExtResource("3_detail")]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DecisionController" type="Node" parent="."]
+script = ExtResource("4_ctl")
