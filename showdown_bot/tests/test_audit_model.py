@@ -127,3 +127,15 @@ def test_empty_calibration_inputs_fail_closed():
         fit_temperature([])
     with pytest.raises(AuditError, match="requires decisions"):
         calibration_metrics([], 1.0)
+
+
+def test_calibration_metrics_rejects_a_decision_with_no_teacher_best_candidate():
+    # (review finding) an EMPTY items list is a different failure mode from a NON-empty items
+    # list whose single decision has no teacher_best=True candidate -- fb773ff's own commit
+    # message groups calibration_metrics with decision_nll ("divided by len(best)==0"), but the
+    # empty-list case above predates that commit and doesn't exercise this specific guard
+    # (line-level `if not best: raise` inside the per-item loop). This does.
+    scored = [{"scores": [1.0, 2.0], "teacher_best": [False, False],
+               "game_id": "g", "decision_id": "d"}]
+    with pytest.raises(AuditError, match="at least one teacher_best candidate"):
+        calibration_metrics(scored, 1.0)

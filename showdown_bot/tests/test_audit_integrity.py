@@ -1,9 +1,11 @@
 import gzip
+from pathlib import Path
 
 import pytest
 
 from showdown_bot.learning.audit.contracts import AuditConfig, AuditError, Severity
 from showdown_bot.learning.audit.integrity import build_split_manifest, dataset_sha256, load_and_audit_integrity
+from showdown_bot.learning.reranker_train import sha256_of_file
 from showdown_bot.learning.schema import FEATURE_COLUMNS, LABEL_KEYS, METADATA_KEYS, Row, to_jsonl_line
 
 
@@ -121,3 +123,56 @@ def test_dataset_hash_matches_plain_and_gzip_content(tmp_path):
     plain.write_bytes(payload)
     compressed.write_bytes(gzip.compress(payload))
     assert dataset_sha256(plain) == dataset_sha256(compressed)
+
+
+class _TrackingReadHandle:
+    """A fake read handle recording whether it was closed -- proves resource cleanup directly
+    instead of only inferring it from hash equality (review finding: the test above proves
+    dataset_sha256 hashes plain/gzip content identically, but never proves the handle it reads
+    through gets closed)."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+        self.closed = False
+
+    def read(self, *args: object) -> bytes:
+        if self.closed:
+            raise ValueError("read from closed handle")
+        return self._data
+
+    def __enter__(self) -> "_TrackingReadHandle":
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        self.closed = True
+        return False
+
+
+def test_dataset_sha256_closes_its_read_handle(tmp_path, monkeypatch):
+    plain = tmp_path / "dataset.jsonl"
+    plain.write_bytes(b'{"row": 1}\n')
+
+    handle = _TrackingReadHandle(b'{"row": 1}\n')
+    monkeypatch.setattr(Path, "open", lambda self, *a, **k: handle)
+
+    dataset_sha256(plain)
+
+    assert handle.closed is True
+
+
+def test_sha256_of_file_matches_plain_and_gzip_content_and_closes_its_handle(tmp_path, monkeypatch):
+    # Parallel coverage for reranker_train.sha256_of_file() -- the same gzip-transparent hashing
+    # utility as dataset_sha256 above, previously untested on its own.
+    payload = b'{"row": 1}\n'
+    plain = tmp_path / "dataset.jsonl"
+    compressed = tmp_path / "dataset.jsonl.gz"
+    plain.write_bytes(payload)
+    compressed.write_bytes(gzip.compress(payload))
+    assert sha256_of_file(str(plain)) == sha256_of_file(str(compressed))
+
+    handle = _TrackingReadHandle(payload)
+    monkeypatch.setattr(Path, "open", lambda self, *a, **k: handle)
+
+    sha256_of_file(str(plain))
+
+    assert handle.closed is True
