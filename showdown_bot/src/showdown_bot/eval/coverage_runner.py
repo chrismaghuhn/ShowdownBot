@@ -218,11 +218,58 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     # I8-D verdict.json always carries, then cross-check the ones with a known-canonical value
     # (panel_hash, seed_base, seed_log_verified) so a forger would also have to reproduce those
     # correctly, not just guess two field names.
-    missing = _I8D_VERDICT_REQUIRED_FIELDS - set(i8d_verdict_data)
-    if missing:
+    # (review round 8, P2) "the EXACT field set" was the comment's claim but not the check's
+    # behaviour -- only MISSING fields were rejected, so an artifact carrying every required field
+    # plus arbitrary extras still passed. Compare the full set both ways.
+    actual_fields = set(i8d_verdict_data)
+    missing = _I8D_VERDICT_REQUIRED_FIELDS - actual_fields
+    extra = actual_fields - _I8D_VERDICT_REQUIRED_FIELDS
+    if missing or extra:
+        problems = []
+        if missing:
+            problems.append(f"missing required field(s) {sorted(missing)}")
+        if extra:
+            problems.append(f"unexpected extra field(s) {sorted(extra)}")
         raise CoverageRunError(
-            f"the I8-D verdict at {i8d_verdict_path!r} is missing required field(s) "
-            f"{sorted(missing)}: not a genuine I8-D gate artifact"
+            f"the I8-D verdict at {i8d_verdict_path!r} has {' and '.join(problems)}: not a "
+            f"genuine I8-D gate artifact"
+        )
+    # (review round 8, P1) the five per-run counters were required PRESENT (round 7) but never
+    # checked for internal consistency -- an artifact with active_valid_decisions=0 (or a string, or
+    # negative) was accepted as long as exposure_floor_met/verdict separately claimed PASS. These
+    # are genuinely dynamic (no FIXED expected value derivable offline), but they are NOT
+    # independent: type safety, the scored_overshoot formula (i8d_runner's own literal
+    # "max(0, scored_decisions - max_scored_decisions)"), and two subset relationships (active-valid
+    # rows are a subset of all scored rows; distinct active battle_ids are at most the battles
+    # played) hold for ANY genuine artifact, PASS or not.
+    for counter_field in ("battles_played", "scored_decisions", "scored_overshoot",
+                          "active_valid_decisions", "distinct_active_battles"):
+        counter_value = i8d_verdict_data[counter_field]
+        if isinstance(counter_value, bool) or not isinstance(counter_value, int) or counter_value < 0:
+            raise CoverageRunError(
+                f"the I8-D verdict at {i8d_verdict_path!r} has {counter_field}={counter_value!r}, "
+                f"not a non-negative int: not a genuine I8-D gate artifact"
+            )
+    expected_overshoot = max(0, i8d_verdict_data["scored_decisions"] - I8D_MAX_SCORED_DECISIONS)
+    if i8d_verdict_data["scored_overshoot"] != expected_overshoot:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has scored_overshoot "
+            f"{i8d_verdict_data['scored_overshoot']!r} != max(0, scored_decisions - "
+            f"{I8D_MAX_SCORED_DECISIONS}) = {expected_overshoot!r}: not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["active_valid_decisions"] > i8d_verdict_data["scored_decisions"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has active_valid_decisions "
+            f"{i8d_verdict_data['active_valid_decisions']!r} > scored_decisions "
+            f"{i8d_verdict_data['scored_decisions']!r}: active-valid rows cannot outnumber all "
+            f"scored rows; not a genuine I8-D gate artifact"
+        )
+    if i8d_verdict_data["distinct_active_battles"] > i8d_verdict_data["battles_played"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} has distinct_active_battles "
+            f"{i8d_verdict_data['distinct_active_battles']!r} > battles_played "
+            f"{i8d_verdict_data['battles_played']!r}: distinct active battles cannot outnumber "
+            f"battles played; not a genuine I8-D gate artifact"
         )
     if i8d_verdict_data["panel_hash"] != I8D_EXPECTED_PANEL_HASH:
         raise CoverageRunError(
@@ -365,6 +412,23 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but "
             f"exposure_floor_met is not True: not a genuine I8-D gate artifact"
         )
+    # (review round 8, P1) exposure_floor_met=True is, by itself, just a bare claim unless
+    # cross-checked against the SAME counters i8d_runner.exposure_floor_met() actually compares --
+    # otherwise a forged artifact could pair exposure_floor_met=True with active_valid_decisions=0.
+    if i8d_verdict_data["active_valid_decisions"] < i8d_verdict_data["min_active_decisions"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims exposure_floor_met=True but "
+            f"active_valid_decisions {i8d_verdict_data['active_valid_decisions']!r} < "
+            f"min_active_decisions {i8d_verdict_data['min_active_decisions']!r}: not a genuine "
+            f"I8-D gate artifact"
+        )
+    if i8d_verdict_data["distinct_active_battles"] < i8d_verdict_data["min_distinct_battles"]:
+        raise CoverageRunError(
+            f"the I8-D verdict at {i8d_verdict_path!r} claims exposure_floor_met=True but "
+            f"distinct_active_battles {i8d_verdict_data['distinct_active_battles']!r} < "
+            f"min_distinct_battles {i8d_verdict_data['min_distinct_battles']!r}: not a genuine "
+            f"I8-D gate artifact"
+        )
     if i8d_verdict_data["stop_reason"] != "exposure_floor_met":
         raise CoverageRunError(
             f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but stop_reason is "
@@ -373,14 +437,22 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         )
     # p95_is_gate_value=True (above) does not by itself prove p95_ms is a sane number -- a
     # hand-crafted JSON could pair verdict="PASS" with any p95_ms. isinstance guards against a
-    # non-numeric value (e.g. None, the INCONCLUSIVE branch's real value) crashing the "<="
-    # comparison with an unhandled TypeError instead of failing closed with CoverageRunError
-    # (generalises review round 5 P2's non-object-JSON lesson).
+    # non-numeric value (e.g. None, the INCONCLUSIVE branch's real value) crashing a comparison with
+    # an unhandled TypeError instead of failing closed with CoverageRunError (generalises review
+    # round 5 P2's non-object-JSON lesson).
+    # (review round 8, P1) `> budget_ms` alone is NaN-unsafe: json.loads parses the bare token NaN
+    # (Python's json module allows it by default) into float('nan'), and EVERY comparison with NaN
+    # -- including `>` -- returns False under IEEE 754, so both `NaN > budget_ms` and
+    # `-1.0 > budget_ms` are False and silently sailed through. Empirically reproduced before fixing.
+    # A closed range check is NaN-safe: `0 <= NaN` is already False, so the chained comparison
+    # short-circuits to False and `not False` correctly flags it -- and the same range naturally
+    # excludes negative values and +/-inf too, with no separate isnan()/isinf() needed.
     i8d_p95_ms = i8d_verdict_data["p95_ms"]
-    if isinstance(i8d_p95_ms, bool) or not isinstance(i8d_p95_ms, (int, float)) or i8d_p95_ms > budget_ms:
+    if (isinstance(i8d_p95_ms, bool) or not isinstance(i8d_p95_ms, (int, float))
+            or not (0 <= i8d_p95_ms <= budget_ms)):
         raise CoverageRunError(
             f"the I8-D verdict at {i8d_verdict_path!r} claims verdict='PASS' but p95_ms "
-            f"{i8d_p95_ms!r} is not a real number <= the {budget_ms} ms budget: not a genuine "
+            f"{i8d_p95_ms!r} is not a finite real number in [0, {budget_ms}] ms: not a genuine "
             f"I8-D gate artifact"
         )
 

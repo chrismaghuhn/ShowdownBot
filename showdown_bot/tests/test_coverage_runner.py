@@ -797,6 +797,142 @@ def test_an_i8d_verdict_with_a_non_numeric_p95_ms_is_refused(tmp_path, monkeypat
     assert not (tmp_path / "out").exists()
 
 
+@pytest.mark.parametrize("counter_field,bad_value", [
+    ("battles_played", "25"),
+    ("battles_played", True),
+    ("scored_decisions", -1),
+    ("scored_overshoot", 3.5),
+    ("active_valid_decisions", -5),
+    ("active_valid_decisions", False),
+    ("distinct_active_battles", "21"),
+])
+def test_an_i8d_verdict_with_a_bad_counter_type_or_sign_is_refused(tmp_path, monkeypatch,
+                                                                    counter_field, bad_value):
+    # (P1, review round 8) the five per-run counters were required PRESENT (round 7) but never
+    # type/sign-checked -- a string, bool, float, or negative value was accepted.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, **{counter_field: bad_value})
+    with pytest.raises(CoverageRunError, match=counter_field):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_a_wrong_scored_overshoot_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) scored_overshoot is a DETERMINISTIC function of scored_decisions
+    # (i8d_runner's own literal "max(0, scored_decisions - max_scored_decisions)") but was only
+    # presence-checked (round 7) -- an internally-inconsistent value sailed through.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, scored_overshoot=999)
+    with pytest.raises(CoverageRunError, match="scored_overshoot"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_more_active_valid_decisions_than_scored_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) active-valid rows are a SUBSET of all scored rows by construction --
+    # claiming more active-valid than total scored is internally impossible.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, scored_decisions=10, active_valid_decisions=61)  # 61 > 10
+    with pytest.raises(CoverageRunError, match="active_valid_decisions"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_more_distinct_active_battles_than_battles_played_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) distinct active battle_ids cannot outnumber battles actually played.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, battles_played=5, distinct_active_battles=21)  # 21 > 5
+    with pytest.raises(CoverageRunError, match="distinct_active_battles"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_active_valid_decisions_below_the_floor_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) exposure_floor_met=True (checked since round 7) is, by itself, just a
+    # bare claim -- re-derive i8d_runner.exposure_floor_met()'s own comparison against the
+    # artifact's own counters instead of trusting the boolean alone.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, active_valid_decisions=0)
+    with pytest.raises(CoverageRunError, match="active_valid_decisions"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_distinct_active_battles_below_the_floor_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, distinct_active_battles=0)
+    with pytest.raises(CoverageRunError, match="distinct_active_battles"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_nan_p95_ms_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) json.loads parses the bare token NaN into float('nan'), and EVERY
+    # comparison with NaN -- including the round-7 guard's "> budget_ms" -- returns False under
+    # IEEE 754. Empirically reproduced before fixing: the round-7 guard silently accepted this.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, p95_ms=float("nan"))
+    with pytest.raises(CoverageRunError, match="p95_ms"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_a_negative_p95_ms_is_refused(tmp_path, monkeypatch):
+    # (P1, review round 8) a negative p95_ms is physically nonsensical; the round-7 "> budget_ms"
+    # check never excluded it (a negative number is trivially "not greater than the budget").
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, p95_ms=-1.0)
+    with pytest.raises(CoverageRunError, match="p95_ms"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_i8d_verdict_with_an_unexpected_extra_field_is_refused(tmp_path, monkeypatch):
+    # (P2, review round 8) the comment claimed "the EXACT field set" but the check only rejected
+    # MISSING fields -- an artifact with every required field plus an arbitrary extra still passed.
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    _install(monkeypatch, rows_for=lambda b, i: [], seed_log_path=str(tmp_path / "s.log"))
+    _no_schedule_build(monkeypatch)
+    path = _write_i8d_verdict(tmp_path, totally_unexpected_field="anything")
+    with pytest.raises(CoverageRunError, match="unexpected extra field"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
+                          teams_root=_TEAMS_ROOT, i8d_verdict_path=path)
+    assert not (tmp_path / "out").exists()
+
+
 def test_an_i8d_verdict_with_the_right_identity_but_verdict_fail_is_refused(tmp_path, monkeypatch):
     # Same candidate, but I8-D itself did not PASS -- the binding execution order is "I8-D must
     # PASS -> coverage runs on the same candidate", not merely "same candidate" (P1, review round 5).
