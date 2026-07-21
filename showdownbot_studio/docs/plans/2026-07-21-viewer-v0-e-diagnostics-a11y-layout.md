@@ -1,8 +1,9 @@
 # Viewer v0 — Plan E: Diagnostics, Accessibility, and Layout
 
 **Status:** APPROVED — 2026-07-21 (Rev. 3). Owner review PASS across Rev. 1–3.
+Amended Rev. 4 (additive Plan-D test coverage, owner-authorised, pre-implementation).
 **Implementation not authorized** until a separate go-ahead (§10 Schritt 4; own branch).
-**Date:** 2026-07-21 · **Rev.:** 3 (deterministic fixture-05 banner; real phase rows for G1)
+**Date:** 2026-07-21 · **Rev.:** 4 (Plan-D coverage gaps T1–T3 + settled-load rule)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -490,7 +491,14 @@ static func apply_to(control: Control) -> void:
 ## 5. Named tests (binding)
 
 Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`, `_spawn_shell_ready`,
-`_await_shell_settled`). Do not invent alternate loaders.
+`_await_shell_settled`, `_make_candidate`). Do not invent alternate loaders.
+
+**Settled ≠ loaded (binding):** `_await_shell_settled` only asserts `is_loading() == false`
+(Plan D §14 helper). If a load never starts, the wait loop runs zero iterations and the assert
+still passes — so “settled” is **not** proof of a successful open. Every Plan E test that
+requires a loaded bundle MUST assert an additional positive load signal after settle:
+`get_loaded_bundle() != null`, **or** (refuse fixtures) the pinned refuse reason (same rule as
+§5.6 fixture-06 / `hash_mismatch`). Do not conclude “loaded” from settle alone.
 
 ### 5.1 `tests/diagnostics/test_state_banner_presenter.gd`
 
@@ -573,6 +581,54 @@ Shared helpers: same pattern as Plan D §14 (`_fixture_path`, `_fixture_bundle`,
 |---|---|
 | `docs/plans/evidence/viewer-v0-e-manual-checks.md` | Blank checklist: SR steps + DPI steps; filled during E6/E5 acceptance; Plan F archives |
 
+### 5.8 Plan-D coverage gaps closed in Plan E (binding)
+
+These cases land in **existing Plan D suites** — primarily
+`tests/decision/test_decision_presenter.gd`, and table-facing checks only if a sort mode must be
+driven through `CandidateTableView.set_sort_mode` (`candidate_table_view.gd:22–27` offers the five
+modes). They are **not** new Plan E suite files: they prove Plan D surfaces that Plan E builds on.
+Found in the post-merge Plan D test-code review (1568 lines / 59 tests after PR **#47** / **#48**);
+**additive coverage only** — no production behavior change.
+
+Reuse the existing `_make_candidate(candidate_id, rank, score, key)` helper already in those suites
+(Plan D §14). Do not invent a second factory.
+
+**APIs under test (verified tip):**
+
+| Symbol | Path:lines |
+|---|---|
+| `resolve_chosen_row_index` + duplicate fail-closed | `decision_presenter.gd:14–29` (`:26–27` return `-1` on second match) |
+| `sorted_candidate_indices` + five modes | `decision_presenter.gd:55–92` (`SORT_*` consts `:7–11`) |
+| `header_text` | `decision_presenter.gd:46–52` |
+| `format_state_summary` | `decision_presenter.gd:162–170` (`NOT_RECORDED` `:5`) |
+
+#### T1 — Sort order + permutation
+
+| Test | Assert |
+|---|---|
+| `test_sort_rank_ascending` | `SORT_RANK` (`"rank"`): ranks non-decreasing along returned indices. Prefer sealed fixture-16 decision with ≥3 candidates (`bundles/fixture-16`, first non-empty candidates row). |
+| `test_sort_score_descending_rank_tiebreak` | `SORT_SCORE`: `aggregate_score` descending; on equal score, lower `rank` first. **Constructed** via `_make_candidate` — fixtures do not reliably expose intentional equal-score pairs; justify constructed DTO in the test comment. |
+| `test_sort_label_ascending_rank_tiebreak` | `SORT_LABEL`: `candidate_id` ascending; equal id → lower `rank` first. Constructed for the tie (same rationale). |
+| `test_sort_key_ascending_null_empty_rank_tiebreak` | `SORT_KEY`: `str(candidate_key)` ascending with `null → ""` (`decision_presenter.gd:75–76`); equal key text → lower `rank` first. Constructed (need null key + tie). |
+| `test_sort_chosen_first_then_rank` | `SORT_CHOSEN_FIRST`: chosen index at position 0; remaining by rank ascending. Prefer sealed fixture row with resolvable chosen (e.g. fixture-16 non-empty) + assert `out[0] == resolve_chosen_row_index(d)`. |
+| `test_sort_all_modes_are_permutation` | For **each** of the five `SORT_*` modes: output length == `n`, every index in `0…n-1` appears exactly once (no drops, no duplicates). Catches `return range(n)` only when combined with order tests — both are required. |
+
+#### T2 — Duplicate chosen-key fail-closed
+
+| Test | Assert |
+|---|---|
+| `test_resolve_chosen_duplicate_key_fail_closed` | `decision_valid = true`; two candidates with the **same** non-null `candidate_key`; `chosen_candidate_key` equals that key → `resolve_chosen_row_index` returns **exactly `-1`** (`decision_presenter.gd:26–27`). Constructed (fixtures refuse / never seal duplicate chosen keys). |
+
+#### T3 — `format_state_summary` / `header_text`
+
+| Test | Assert |
+|---|---|
+| `test_format_state_summary_empty_or_null` | `decision == null` **or** empty `state_summary` → `DecisionPresenter.NOT_RECORDED` (`"not recorded"`) |
+| `test_format_state_summary_sorted_keys` | Non-empty `state_summary` → keys ascending; each line `"<key>: <value>"`; joined with `"\n"` (`decision_presenter.gd:165–170`). Constructed dict with deliberately unsorted insertion order. |
+| `test_header_text_valid_invalid_null` | `null` → `""`; `decision_valid == true` → exactly `"decision #<n>"`; `decision_valid == false` → `"decision #<n> (invalid)"` (`decision_presenter.gd:46–52`). Prefer fixture-01 row for the valid branch; constructed/`decision_valid=false` for the invalid suffix. |
+
+**Named-test count for E7 Δ:** **10** cases in §5.8 (6 + 1 + 3).
+
 ---
 
 ## 6. Tasks (TDD)
@@ -633,6 +689,8 @@ implementation start by counting §5 names). No silent case deletion.
 
 ### Task E7 — Full regression + pin
 
+- [ ] §5.8 Plan-D coverage gaps (T1–T3) green in `test_decision_presenter.gd` (and table suite only if needed); suite case count increases by **exactly 10** vs pre-E tip — no silent deletions
+- [ ] Every Plan E load path asserts positive load signal after `_await_shell_settled` (§5 settled rule)
 - [ ] `verify_engine_pin.ps1` OK
 - [ ] `run_gdunit_headless.ps1 -a "res://tests/"` → 0 failures (privilege skips OK)
 - [ ] `git diff --check` clean
@@ -655,6 +713,7 @@ implementation start by counting §5 names). No silent case deletion.
 | Mixed-DPI | Checklist **filed** (not “tests passed”) |
 | Screen-reader | Honest smoke notes **filed**; no completeness claim |
 | Next-close | C1 — unchanged Plan D semantics |
+| Plan-D coverage gaps (T1–T3) | §5.8 green; +10 cases |
 
 ---
 
@@ -673,6 +732,7 @@ implementation start by counting §5 names). No silent case deletion.
 - [x] F1 precedence pairs named; F2 fixtures 5/6 + no soft “or”; F3 priority-8 DiD; F4 changelog
 - [x] B2 monospace Auflage in §0.8 / §0.9 / §4.6 + named test
 - [x] Rev. 3: fixture-05 d4 pin; phase tests use sealed fixture-01 rows (G1/G2)
+- [x] Rev. 4: §5.8 Plan-D coverage gaps (T1–T3) + settled≠loaded rule (additive, pre-implementation)
 - [x] Owner marks APPROVED (not author)
 
 ---
@@ -715,6 +775,16 @@ implementation start by counting §5 names). No silent case deletion.
 ---
 
 ## 12. Changelog
+
+### Rev. 4 — Plan-D coverage gaps (T1–T3) + settled-load rule
+
+- **Anlass:** Post-merge review of Plan D test code (~1568 lines / 59 tests after PR **#47** /
+  **#48**). Production APIs are real; gaps are in **proof** (sort order, duplicate chosen-key
+  fail-closed, `format_state_summary` / filled `header_text`).
+- **Umfang:** New §5.8 (10 named cases into Plan D presenter suite); binding note that
+  `_await_shell_settled` alone is not “loaded”; E7 checkbox for §5.8 + case-count Δ.
+- **Einordnung:** Additive amendment **after** APPROVED (Rev. 3 / `f8396e6`) and **before**
+  implementation go-ahead — not a scope expansion, not a new approve cycle. Owner box stays checked.
 
 ### Rev. 3 — Deterministic fixture-05 banner + real phase rows (G1/G2)
 
