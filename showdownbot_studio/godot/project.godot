@@ -9,6 +9,7 @@ config/name="ShowdownBot Studio"
 config/description="Viewer v0 local bundle shell (Plan B)"
 config/features=PackedStringArray("4.5")
 config/icon="res://icon.svg"
+run/main_scene="res://src/workspace/app_shell.tscn"
 
 [editor_plugins]
 
