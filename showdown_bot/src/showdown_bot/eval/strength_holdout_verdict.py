@@ -20,6 +20,7 @@ error. Malformed types are validated explicitly before ever reaching ``.get()``/
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from showdown_bot.eval.coverage_runner import build_coverage_live_schedule, build_i8d_canonical_schedule
 from showdown_bot.eval.coverage_schedule import COVERAGE_CELLS, COVERAGE_EXPECTED_PANEL_HASH, COVERAGE_SEED_BASE
@@ -29,6 +30,9 @@ from showdown_bot.eval.i8d_runner import (
     I8D_MAX_SCORED_DECISIONS, I8D_MIN_ACTIVE_DECISIONS, I8D_MIN_DISTINCT_BATTLES,
 )
 from showdown_bot.eval.i8d_schedule import I8D_EXPECTED_PANEL_HASH, I8D_SEED_BASE
+from showdown_bot.eval.pairing import Pair
+from showdown_bot.eval.report import _build_cells, _find_cell_flips, _paired_verdict, _strength_delta
+from showdown_bot.eval.stats import exact_binom_two_sided_p, mcnemar_counts
 
 # (mirrors coverage_runner._I8D_VERDICT_REQUIRED_FIELDS exactly -- the field set a genuine I8-D
 # verdict.json always carries, per i8d_runner.run_i8d_live_gate's own report construction.)
@@ -481,3 +485,57 @@ def verify_coverage_verdict_artifact(
             f"is {data['stop_reason']!r}, not 'coverage_floor_met'"
         )
     return data
+
+
+# --- Task 8: McNemar verdict rendering via the real, unmodified report.py pipeline -----------
+
+
+@dataclass(frozen=True)
+class GateBVerdict:
+    verdict: str
+    reasons: list
+    n_discordant: int
+    n_total: int
+    delta: float
+    exact_p: float
+    strength_delta: float
+    cell_flips: list
+
+
+def render_strength_holdout_verdict(pairs: list[Pair], *, safety_pass: bool) -> GateBVerdict:
+    """Wires already-paired battle results into the EXISTING, UNCHANGED report.py pipeline --
+    the same _build_cells/_find_cell_flips/_strength_delta/_paired_verdict a live paired gate
+    already uses (report.py's _generate_paired). This function does not reimplement any
+    statistics or cell logic; it only builds the two per-run row lists those functions expect."""
+    rows_a = [p.row_a for p in pairs]
+    rows_b = [p.row_b for p in pairs]
+
+    counts = mcnemar_counts([(p.hero_win_a, p.hero_win_b) for p in pairs])
+    # exact_binom_two_sided_p already returns 1.0 for n=0 internally (stats.py) -- no separate
+    # guard needed here, matching report.py._generate_paired's own unconditional call exactly.
+    exact_p = exact_binom_two_sided_p(counts.n10, counts.n_discordant)
+
+    cells_a = _build_cells(rows_a, {})  # {} = team_path_by_hash, cosmetic-display-only field
+    cells_b = _build_cells(rows_b, {})
+    cell_flips = _find_cell_flips(cells_a, cells_b)
+    strength_delta, _n_strength, _n10_s, _n01_s = _strength_delta(pairs)
+
+    verdict, reasons = _paired_verdict(counts, exact_p, cell_flips, strength_delta, safety_pass)
+
+    return GateBVerdict(
+        verdict=verdict, reasons=reasons, n_discordant=counts.n_discordant, n_total=counts.total,
+        delta=counts.delta, exact_p=exact_p, strength_delta=strength_delta, cell_flips=cell_flips,
+    )
+
+
+def compute_safety_pass(rows_a: list[dict], rows_b: list[dict]) -> bool:
+    """Narrow, Gate-B-specific mirror of report.py's run_safety_gates core fields
+    (invalid_choices==0, crashes==0, end_reason=='normal') across BOTH arms -- not the full
+    RunBundle-based safety table, which needs machinery (schedule_row_count, panel hashes,
+    manifest, ...) Gate B's simpler two-row-list shape does not produce. Disclosed narrowing,
+    not a silent one."""
+    for rows in (rows_a, rows_b):
+        for row in rows:
+            if row["invalid_choices"] != 0 or row["crashes"] != 0 or row["end_reason"] != "normal":
+                return False
+    return True

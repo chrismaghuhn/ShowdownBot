@@ -627,3 +627,83 @@ def test_coverage_live_schedule_rebuild_is_real_and_offline():
     assert schedule.rows
     assert schedule.schedule_hash
     assert schedule.panel_hash == COVERAGE_EXPECTED_PANEL_HASH
+
+
+# --- Task 8: McNemar verdict rendering via the real, unmodified report.py pipeline -----------
+
+from showdown_bot.eval.pairing import Pair
+from showdown_bot.eval.strength_holdout_verdict import compute_safety_pass, render_strength_holdout_verdict
+
+
+def _row(config_hash, seed_index, opp_policy, opp_team_hash, winner, invalid_choices=0, crashes=0, end_reason="normal"):
+    return {
+        "battle_id": f"b{seed_index}", "run_id": "r", "config_id": config_hash, "format_id": "gen9championsvgc2026regma",
+        "config_hash": config_hash, "schedule_hash": "sched1", "seed_index": seed_index,
+        "opp_policy": opp_policy, "hero_team_path": "hero.txt", "opp_team_path": "opp.txt",
+        "seed": seed_index, "seed_base": "champions-strength-holdout-v0", "winner": winner,
+        "turns": 5, "invalid_choices": invalid_choices, "crashes": crashes,
+        "decision_latency_p95_ms": 10.0, "git_sha": "deadbeef", "dirty": False, "end_reason": end_reason,
+        "opp_team_hash": opp_team_hash,
+    }
+
+
+def _pair(a_win, b_win, seed_index, opp_policy="heuristic", opp_team_hash="t1"):
+    row_a = _row("cfgA", seed_index, opp_policy, opp_team_hash, "hero" if a_win else "villain")
+    row_b = _row("cfgB", seed_index, opp_policy, opp_team_hash, "hero" if b_win else "villain")
+    return Pair(battle_id=row_a["battle_id"], seed_index=seed_index, cell=(opp_policy, opp_team_hash),
+                hero_win_a=a_win, hero_win_b=b_win, row_a=row_a, row_b=row_b)
+
+
+def test_render_verdict_underpowered_below_ten_discordant_pairs():
+    pairs = [_pair(True, False, i) for i in range(5)] + [_pair(True, True, i) for i in range(5, 10)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert verdict.verdict == "UNDERPOWERED"
+
+
+def test_render_verdict_go_with_enough_uniform_positive_evidence():
+    pairs = [_pair(True, False, i) for i in range(12)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert verdict.verdict == "GO"
+
+
+def test_render_verdict_safety_fail_regardless_of_pair_evidence():
+    pairs = [_pair(True, False, i) for i in range(12)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=False)
+    assert verdict.verdict == "SAFETY-FAIL"
+
+
+def test_render_verdict_catches_a_losing_cell_flip_even_with_a_winning_overall_delta():
+    # Overall: 10 discordant pairs, A wins 8, loses 2 -- looks like a strong positive delta.
+    # But ALL of A's wins are against cell (heuristic, t1), and A LOSES every pair against
+    # cell (max_damage, t2) where B was winning -- a real cell-flip regression a hardcoded
+    # cell_flips=[] could never have detected.
+    winning_cell_pairs = [_pair(True, False, i, opp_policy="heuristic", opp_team_hash="t1") for i in range(8)]
+    flipped_cell_pairs = [_pair(False, True, i, opp_policy="max_damage", opp_team_hash="t2") for i in range(8, 10)]
+    pairs = winning_cell_pairs + flipped_cell_pairs
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert verdict.verdict == "NO-GO"
+    assert any("flip" in r for r in verdict.reasons)
+
+
+def test_compute_safety_pass_true_when_both_arms_clean():
+    rows_a = [_row("cfgA", i, "heuristic", "t1", "hero") for i in range(3)]
+    rows_b = [_row("cfgB", i, "heuristic", "t1", "villain") for i in range(3)]
+    assert compute_safety_pass(rows_a, rows_b) is True
+
+
+def test_compute_safety_pass_false_on_any_invalid_choice():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=1)]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_any_crash():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero")]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain", crashes=1)]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_non_normal_end_reason():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", end_reason="crash")]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
+    assert compute_safety_pass(rows_a, rows_b) is False
