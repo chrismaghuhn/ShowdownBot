@@ -991,6 +991,62 @@ satisfied, in order, before any team file is created:**
 
 **Tasks 1–12 do not depend on this decision and are not blocked by it.**
 
+### 2a. AMENDMENT, 2026-07-22 — the Task 13 source is now VGCPastes, not Rutgers
+
+**Everything in §2 above is retained as the historical record of the D-1b decision and the rules it
+fixed. Nothing above is deleted or reinterpreted.** What follows supersedes it on one point only:
+*which source Task 13 builds from*.
+
+**Why.** The Rutgers source-proof PASSED (independent review,
+`docs/projects/champions/audits/2026-07-22-gate-b-source-proof-independent-review.md`), but Task 13
+construction was BLOCKED there: that tournament's Open Team Sheet tier structurally never publishes
+EVs or natures, so building playable teams required synthesizing them — beyond what rule 3 ("No
+reconstruction") authorizes. Rather than rule on synthetic spreads, the project owner chose a source
+that publishes complete sets.
+
+**Authorized source (owner decision, 2026-07-22).** The VGCPastes Repository sheet
+"Champions M-A Featured Teams"
+(`https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/edit?gid=417374305`).
+
+**Selection rule (owner-fixed, before any paste was read for construction):** the first six entries,
+in table order, with `EVs = Yes`, a reachable PokéPaste, six complete Pokémon, and declared format
+`gen9championsvgc2026regma`. The six resulting IDs are enumerated and **must not be substituted or
+re-ordered**, in particular not after seeing species overlap or any bot behaviour:
+
+| # | Team ID | Placement | PokéPaste |
+|---|---|---|---|
+| 1 | PC1102 | PJCS 2026 Champion (Hiroshi Onishi) | `pokepast.es/c17e51b1dee42c8c` |
+| 2 | PC1101 | PJCS 2026 Champion, Seniors | `pokepast.es/1f7d6d16d171d672` |
+| 3 | PC1100 | PJCS 2026 Runner-up | `pokepast.es/34cb00fce368cd94` |
+| 4 | PC1099 | PJCS 2026 Runner-up, Seniors | `pokepast.es/879641da13859e2f` |
+| 5 | PC1098 | PJCS 2026 Top 4, Seniors | `pokepast.es/8bcfc47c2d206318` |
+| 6 | PC1097 | PJCS 2026 Top 4, Seniors | `pokepast.es/25efa05b579532c4` |
+
+**Consequences for the rules above.**
+
+- **Rule 1** is satisfied by this source in the stronger sense: natures and EVs *are* published, so
+  the "where published" clause is met by presence, not by permitted absence.
+- **Rule 2**'s placement-order skip mechanism is replaced, for this source, by the sheet-order
+  selection rule above. Its *spirit* is unchanged: fixed before reading, never re-ordered after.
+- **Rule 3** is satisfied without qualification: no field is completed, guessed, or synthesized.
+- **Rule 4** (UmbreNews fallback) is **not** reached and is now moot for Task 13 — it was
+  conditioned on the primary source failing rule 1, which never happened.
+- The `ev-nature-synthesis-rule.md` frozen under the Rutgers evidence set is **not used** by this
+  path. It remains in the historical evidence tree; it is not a Task 13 input.
+
+**Evidence and verification:**
+`docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-selection.md` +
+`docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/`. All six pastes are
+frozen with SHA-256, all six carry complete EVs/natures/items/abilities/four moves on six Pokémon,
+and all six return exit 0 from `pokemon-showdown validate-team gen9championsvgc2026regma` against
+the pinned checkout `f8ac140`.
+
+**Near-duplicate scope, stated so it is not overread:** the production guard compares each holdout
+team against the nine pinned existing Champions M-A reference teams **only**. It does not compare
+holdout teams against each other, and this amendment does not change that. PC1099 and PC1098 share
+an identical species set (with different items/moves/spreads); that is recorded as audit information
+in the selection audit, not as a gate input.
+
 ## 3. File structure (updated)
 
 ```
