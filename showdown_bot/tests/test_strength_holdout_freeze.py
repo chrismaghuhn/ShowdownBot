@@ -164,6 +164,44 @@ def test_real_baseline_tamper_on_an_opponent_team_hash_fails_closed():
         verify_strength_holdout_baseline(baseline, repo_root=str(_REPO_ROOT))
 
 
+def test_reference_near_duplicate_audit_is_reproducible_and_diagnostic():
+    """Task 13 item 5: run find_near_duplicate_flags for every sealed holdout team against exactly
+    the nine canonical reference teams (species from the real .packed), and pin the audit's
+    load-bearing claims recorded in the selection audit's near-duplicate section. Diagnostic only --
+    a flag is a normal return value, never a raised exception or an auto-FAIL."""
+    from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
+    from showdown_bot.eval.near_duplicate import find_near_duplicate_flags, load_team_species
+    from showdown_bot.eval.strength_holdout_runner import CANONICAL_REFERENCE_TEAM_PATHS
+
+    holdout_ids = [t["team_id"] for t in _manifest_teams()]  # from the manifest, never hardcoded
+    references = {
+        rid: load_team_species(path, teams_root=str(_REPO_ROOT))
+        for rid, path in CANONICAL_REFERENCE_TEAM_PATHS.items()
+    }
+    assert len(references) == 9
+
+    flagged_teams = 0
+    all_flags = []
+    for tid in holdout_ids:
+        species = load_team_species(f"{HOLDOUT_TEAMS_DIR}{tid}.txt", teams_root=str(_REPO_ROOT))
+        flags = find_near_duplicate_flags(
+            candidate_team_id=tid, candidate_species=species, reference_teams=references,
+        )
+        if flags:
+            flagged_teams += 1
+        all_flags.extend(flags)
+
+    # No holdout team is a TRUE near-duplicate of any reference: every flag sits exactly at the
+    # inclusive 0.5 threshold (4 of 6 shared), none above it.
+    assert all_flags, "expected the documented threshold-edge staple flags to reproduce"
+    assert all(f.overlap_fraction == pytest.approx(0.5) for f in all_flags)
+    # Exactly three of the six holdout teams carry any flag (the selection audit's §8 count).
+    assert flagged_teams == 3
+    # Every flag is against an engineered COVERAGE foe (cov_foe_*), never a panel_champions_v0
+    # dev/held-out team -- the holdout set does not near-duplicate the development panel at all.
+    assert all(f.reference_team_id.startswith("cov_foe_") for f in all_flags)
+
+
 def test_placeholder_valued_baseline_is_refused_fail_closed():
     # A blanked hash is the shape the pre-freeze placeholder carried; verify must refuse it against
     # the real tree even though the dict is otherwise well-formed.

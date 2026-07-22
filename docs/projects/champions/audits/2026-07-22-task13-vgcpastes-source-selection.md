@@ -213,6 +213,60 @@ property without it silently becoming a verdict input.
 
 ---
 
+## 5a. Reference near-duplicate flags — Task 13 step 3 (the production guard's real run)
+
+**This is the diagnostic §4a/§7 deferred to step 3.** It is the guard the gate actually runs:
+`find_near_duplicate_flags` (Task 4), as wired in `combine_strength_holdout_arms`, comparing **each
+of the six sealed holdout teams against exactly the nine pinned reference teams**
+(`CANONICAL_REFERENCE_TEAM_PATHS`: the five `panel_champions_v0` teams + the four
+`panel_champions_coverage_v0` foes), species derived from each team's **real sealed `.packed`** via
+`load_team_species`. It is **diagnostic only** — a flag is a normal return value, never an auto-FAIL
+and never a leakage finding (exact-identity leakage and hash-disjointness are separately clean,
+§7). Threshold: Jaccard `>= 0.5` (inclusive), unchanged from Task 4. Teams are referenced here by
+their public selection index (§2); the internal operational IDs live only in the allowlisted panel/
+manifest/baseline, never in this file.
+
+Reproduced by `showdown_bot/tests/test_strength_holdout_freeze.py::
+test_reference_near_duplicate_audit_is_reproducible_and_diagnostic`.
+
+**Result: six flags across three teams, every one exactly at the 0.5 threshold edge.**
+
+| Holdout (sel. #) | Flagged reference | Jaccard | Shared species (4 of 6) |
+|---|---|---|---|
+| #2 (PC1101) | `cov_foe_both` | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
+| #2 (PC1101) | `cov_foe_tie` | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
+| #4 (PC1099) | `cov_foe_both` | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| #4 (PC1099) | `cov_foe_tie` | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| #5 (PC1098) | `cov_foe_both` | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| #5 (PC1098) | `cov_foe_tie` | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+
+Teams #1 (PC1102), #3 (PC1100) and #6 (PC1097) produce **no** flag against any reference.
+
+**Disposition — dismissed as coincidental format-staple overlap (DESIGN sec 3.3), recorded before
+proceeding:**
+
+- **Every flag is at exactly 0.5 — the inclusive boundary, never above it.** For two six-species
+  teams, Jaccard `>= 0.5` needs 4 of 6 shared; each flag shares exactly 4, and every shared name is
+  a ubiquitous `gen9championsvgc2026regma` staple (Garchomp, Kingambit, Aerodactyl, Basculegion,
+  Sneasler). None shares a distinctive 5- or 6-Pokémon core, which is what a genuine near-duplicate
+  would show.
+- **Every flag is against an engineered `cov_foe_*` COVERAGE team, never a `panel_champions_v0`
+  dev/held-out team.** The coverage foes were purpose-built (spec §2.4) to stack Mega-capable
+  staples so they force the opponent-Mega cells; overlap with them at the staple level is expected
+  and says nothing about the holdout team's provenance. The holdout set does **not** near-duplicate
+  the development panel at all.
+- **The holdout teams are published PJCS 2026 tournament teams (§2), selection-blind (§4a) and
+  sealed before first bot contact.** They cannot be, and were not, derived from or tuned against the
+  coverage foes; the firewall (spec §3.4/D-3) is intact.
+- The selection is **owner-fixed and may not be re-ordered** (§1); this disposition records the
+  property for manual awareness, exactly as DESIGN sec 3.3 requires, and does not (and could not)
+  change the team set. No flag is escalated.
+
+The gate contract is **not** changed here: no intra-holdout comparison is added (that remains
+audit-only, §5), and the threshold and reference set are unchanged.
+
+---
+
 ## 6. Relationship to the prior Rutgers evidence
 
 The Rutgers evidence set (`2026-07-21-task13-source-evidence/`) and its independent review are
@@ -228,8 +282,11 @@ What changes is only which source Task 13 builds from.
 
 ## 7. Outstanding
 
-Everything downstream of sourcing remains to be done and is listed in
-`sources.json` `.not_yet_done`: canonical `.txt`/`.packed` artifacts, `seal_team` sealing, exact
-hash disjointness against the frozen coverage set, the repo-wide leakage scan, the panel/holdout/
-baseline manifests, and the CLI data wiring. No live server, battle, or gate is involved in any of
-it.
+Everything downstream of sourcing has now been done, offline, across Task 13 steps 1–3: the
+canonical `.txt`/`.packed` artifacts and `seal_team` sealing (step 2); exact hash disjointness
+against the frozen coverage set and the repo-wide leakage scan (both green); the panel, holdout and
+baseline manifests with real frozen hashes (step 3); the reference near-duplicate audit above
+(§5a); and the CLI data wiring so both subcommands source real data instead of naming a Task-13
+blocker (step 3). What remains is the whole-suite verification and Codex review of this branch —
+after which the live Gate B run is a **separate** authorization (plan §17). No live server, battle,
+or gate has been involved in any of the above.
