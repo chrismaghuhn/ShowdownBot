@@ -756,32 +756,102 @@ def run_coverage_gate_cli(args) -> None:
           f"candidate_identity={report['candidate_identity']}) -> {out_dir}/")
 
 
-def run_strength_holdout_arm_cli(args) -> int:
-    """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11).
+def _load_holdout_content_hashes(teams_root: str) -> dict:
+    """Read the six holdout ``{team_id: team_content_hash}`` from the AUTHORITATIVE holdout manifest
+    (Amendment A1.1 -- the manifest is the single source of these IDs; nothing hardcodes them).
+    Resolved under ``teams_root`` (Gate B's repo-root geometry). Every malformed/missing/degenerate
+    shape becomes a clean ``GateBAbort`` -- never a raw ``OSError``/``JSONDecodeError``/``KeyError``
+    -- so both CLI handlers stop fail-closed, before any runner/combiner call and before any
+    battle or publish (Task 13 step 3)."""
+    import json
+    import os
 
-    Deliberately blocked today: a real ``holdout_teams`` mapping (team_id ->
-    {team_path, content_hash}) only exists once Task 13 seals the six teams. This raises a clear,
-    NAMED error rather than accepting an empty or invented mapping and failing confusingly deeper
-    in the call stack -- ``run_strength_holdout_arm`` itself is fully implemented and tested
-    (Task 9); only this handler's ability to SOURCE real teams is pending D-1b.
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import STRENGTH_HOLDOUT_MANIFEST_PATH
+
+    path = os.path.join(teams_root or ".", STRENGTH_HOLDOUT_MANIFEST_PATH)
+    try:
+        man = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise GateBAbort(f"could not read the holdout manifest at {path!r}: {exc}") from exc
+    if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
+        raise GateBAbort(f"holdout manifest at {path!r} must be an object with a 'teams' list")
+    hashes: dict[str, str] = {}
+    for i, entry in enumerate(man["teams"]):
+        if not isinstance(entry, dict):
+            raise GateBAbort(f"holdout manifest teams[{i}] must be an object")
+        team_id, content_hash = entry.get("team_id"), entry.get("team_content_hash")
+        if not (isinstance(team_id, str) and team_id.strip()
+                and isinstance(content_hash, str) and content_hash.strip()):
+            raise GateBAbort(
+                f"holdout manifest teams[{i}] has a blank/non-string team_id or team_content_hash"
+            )
+        if team_id in hashes:
+            raise GateBAbort(f"holdout manifest has a duplicate team_id {team_id!r}")
+        hashes[team_id] = content_hash
+    if len(hashes) != 6:
+        raise GateBAbort(f"holdout manifest must register exactly six teams, got {len(hashes)}")
+    return hashes
+
+
+def _load_gate_b_panel_hash(teams_root: str) -> str:
+    """``panel_hash`` of the real Gate B panel, resolved under ``teams_root`` (repo-root geometry).
+    Any load/parse failure -- missing file, malformed YAML, or a panel-schema violation -- becomes a
+    clean ``GateBAbort`` rather than a raw traceback."""
+    import os
+
+    import yaml
+
+    from showdown_bot.eval.panel import PanelError, load_panel
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import STRENGTH_HOLDOUT_PANEL_PATH
+
+    root = teams_root or "."
+    panel_path = os.path.join(root, STRENGTH_HOLDOUT_PANEL_PATH)
+    try:
+        return load_panel(panel_path, teams_root=root).panel_hash
+    except (PanelError, OSError, yaml.YAMLError) as exc:
+        raise GateBAbort(f"could not load the Gate B panel at {panel_path!r}: {exc}") from exc
+
+
+def run_strength_holdout_arm_cli(args) -> int:
+    """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11; WIRED in Task 13
+    step 3).
+
+    Sources the six holdout IDs + content hashes from the authoritative manifest, builds the real
+    180-key schedule from the real panel, and plays the arm via ``run_strength_holdout_arm``.
+    ``date_stratum_id`` is required (enforced by ``main`` via ``parser.error``); ``stratum_override``
+    is optional and threads into ``detect_stratum`` (needed for a real Kaggle run). Every
+    data-sourcing / runner failure is a clean ``GateBAbort``/``UnattestedStratumError`` mapped to a
+    named stderr line + exit 1 -- never a traceback and never a half-built publish.
     """
     import sys
 
-    from showdown_bot.eval.strength_holdout_runner import GateBAbort
     from showdown_bot.eval.strata_guard import UnattestedStratumError
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort, run_strength_holdout_arm
+    from showdown_bot.eval.strength_holdout_schedule import (
+        STRENGTH_HOLDOUT_SEED_BASE, build_strength_holdout_schedule,
+    )
 
     try:
-        raise GateBAbort(
-            "no sealed holdout team IDs available yet -- Task 13 (blocked on the D-1b "
-            "source-proof) must seal six teams and register their IDs before this subcommand "
-            "can build a real schedule; this is a deliberate, named stop, not a bug"
+        content_hashes = _load_holdout_content_hashes(args.teams_root)
+        panel_hash = _load_gate_b_panel_hash(args.teams_root)
+        schedule = build_strength_holdout_schedule(
+            holdout_team_ids=sorted(content_hashes), panel_hash=panel_hash,
+            seed_base=STRENGTH_HOLDOUT_SEED_BASE,
         )
+        run_strength_holdout_arm(
+            hero_agent=args.hero_agent, schedule=schedule, out_dir=args.out_dir,
+            seed_log_path=args.seed_log_path, holdout_team_content_hashes=content_hashes,
+            date_stratum_id=args.date_stratum_id, teams_root=args.teams_root,
+            stratum_env_override=(args.stratum_override or None),
+        )
+        return 0
     except (GateBAbort, UnattestedStratumError) as exc:
-        # Verified sufficient, Rev. 9 (§1h's audit table): every exception reachable from
-        # run_strength_holdout_arm's own call graph is GateBAbort, with one still-untraced trust
-        # boundary (_derive_config_hash -> resolve_coverage_provenance, disclosed since Rev. 1/2).
-        # Rev. 15 (§1n) added detect_stratum() to that call graph, which raises its OWN
-        # UnattestedStratumError rather than GateBAbort -- hence the two-class tuple.
+        # Every exception reachable from the arm's data-sourcing + run_strength_holdout_arm call
+        # graph is GateBAbort (the loaders above wrap OSError/JSON/YAML/PanelError into it), with
+        # detect_stratum's own UnattestedStratumError the one sibling class -- hence the two-class
+        # tuple (Rev. 9 §1h / Rev. 15 §1n).
         print(f"champions-strength-holdout-arm: {exc}", file=sys.stderr)
         return 1
 
@@ -829,14 +899,15 @@ def _describe_strength_holdout_combine_error(exc: BaseException) -> tuple[str, i
 
 
 def run_strength_holdout_combine_cli(args) -> int:
-    """Gate B, combine the two published arms into a verdict (plan §14, Task 11).
+    """Gate B, combine the two published arms into a verdict (plan §14, Task 11; WIRED in Task 13
+    step 3).
 
-    Blocked today for the same reason as the arm handler: ``holdout_content_hashes`` needs Task
-    13's six sealed teams. Note the species side is NOT a CLI concern -- Task 10's review-fix
-    removed the ``holdout_candidate_species``/``reference_species`` parameters and derives both
-    mappings from the real sealed ``.packed`` files. Passing ``{}`` here (Rev. 3's shape) would
-    now abort anyway, and doing so silently is exactly the vacuous-guard trust shape this plan
-    exists to eliminate.
+    Sources the six holdout content hashes from the authoritative manifest (the species side is NOT
+    a CLI concern -- ``combine_strength_holdout_arms`` derives both species mappings from the real
+    sealed ``.packed`` files, Task 10 review-fix) and runs the real combiner. ``stratum_override``
+    is passed only as an EXPECTATION checked against the arms' own recorded stratum -- combine never
+    re-detects the stratum here. The seven combine exception classes map to four exit codes via
+    ``_describe_strength_holdout_combine_error`` (NF4, §1f/§1g).
     """
     import sys
 
@@ -844,22 +915,24 @@ def run_strength_holdout_combine_cli(args) -> int:
     from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
     from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
     from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
-    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort, combine_strength_holdout_arms
 
     try:
-        raise GateBAbort(
-            "no sealed holdout team hashes available yet -- Task 13 (blocked on the D-1b "
-            "source-proof) must seal six teams before this subcommand has a real "
-            "holdout_content_hashes mapping to pass; this is a deliberate, named stop, not a "
-            "bug. combine_strength_holdout_arms itself is fully functional and tested "
-            "(Task 10) -- only this CLI's data sourcing is pending."
+        content_hashes = _load_holdout_content_hashes(args.teams_root)
+        combine_strength_holdout_arms(
+            arm_a_dir=args.arm_a_dir, arm_b_dir=args.arm_b_dir, out_dir=args.out_dir,
+            i8d_verdict_path=args.i8d_verdict_path,
+            coverage_verdict_path=args.coverage_verdict_path,
+            holdout_content_hashes=content_hashes,
+            repo_root=(args.teams_root or "."), teams_root=(args.teams_root or "."),
+            stratum_env_override=(args.stratum_override or None),
         )
+        return 0
     except (GateBAbort, AccessBudgetError, HoldoutNotDisjointError, LeakageDriftError,
             LeakageScanError, StrataPoolingError, UnattestedStratumError) as exc:
-        # NF4 fix (Rev. 8): widened from `except GateBAbort` alone -- that shape let the other six
-        # classes escape as raw tracebacks the moment Task 13 unblocks a real combine call beneath
-        # this still-deliberate early stop. The stop is unchanged; only the boundary is now honest
-        # about what it must eventually handle.
+        # NF4 fix (Rev. 8): the seven combine exception classes across four categories -- the
+        # data-sourcing loader wraps its own OSError/JSON into GateBAbort, and combine itself raises
+        # the other six; _describe_strength_holdout_combine_error maps each to its exit code.
         message, code = _describe_strength_holdout_combine_error(exc)
         print(f"champions-strength-holdout-combine: {message}", file=sys.stderr)
         return code
@@ -1071,6 +1144,26 @@ def _build_parser() -> argparse.ArgumentParser:
         "AND a Coverage PASS. Global default is empty so other commands are unaffected.",
     )
     parser.add_argument(
+        "--date-stratum-id",
+        dest="date_stratum_id",
+        default="",
+        help="Pre-registered date/stratum identifier for champions-strength-holdout-arm (required "
+        "for it; whitespace-only is treated as missing): fixed before the run, threaded unchanged "
+        "into the arm's provenance (DESIGN sec 3.5 -- 'a Kaggle strength stratum is a separate "
+        "pre-registered run'). Global default empty so other commands are unaffected.",
+    )
+    parser.add_argument(
+        "--stratum-override",
+        dest="stratum_override",
+        default="",
+        choices=["windows", "kaggle"],
+        help="Optional explicit hardware stratum. For champions-strength-holdout-arm it is passed "
+        "to detect_stratum (required for a real Kaggle run, which detect_stratum refuses to guess "
+        "from a bare non-Windows platform read); for champions-strength-holdout-combine it is ONLY "
+        "an expectation checked against the arms' own recorded stratum, never a re-detection. "
+        "Empty default (auto-detect / no expectation).",
+    )
+    parser.add_argument(
         "--mode",
         default="gate",
         choices=["gate", "dev"],
@@ -1253,7 +1346,8 @@ def main() -> None:
             flag for flag, value in (
                 ("--hero-agent", args.hero_agent), ("--out-dir", args.out_dir),
                 ("--seed-log-path", args.seed_log_path), ("--teams-root", args.teams_root),
-            ) if not value
+                ("--date-stratum-id", args.date_stratum_id),
+            ) if not (value or "").strip()  # whitespace-only counts as missing (date-stratum-id)
         ]
         if missing:
             parser.error(f"champions-strength-holdout-arm requires {', '.join(missing)}")

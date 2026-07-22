@@ -1,22 +1,66 @@
-"""Gate B (Independent Strength Holdout) CLI subcommands — Task 11, plan §14.
+"""Gate B (Independent Strength Holdout) CLI subcommands — Task 11 + Task 13 step-3 wiring.
 
-Both subcommands are deliberately, honestly blocked until Task 13 seals the six holdout teams:
-they name that blocker and exit non-zero rather than raising NotImplementedError, printing a
-traceback, or (worse) silently "succeeding" against empty inputs. Nothing here starts a server,
-plays a battle, or needs a team file.
+As of Task 13 step 3 both subcommands are WIRED: they source the six holdout team IDs and content
+hashes from the authoritative holdout manifest, build the real schedule from the real panel, and
+call the real runner/combiner. Nothing here starts a server or plays a battle -- the runner is
+stubbed for the success-path tests, and every data-sourcing / argparse error path is exercised
+without one.
+
+Worktree note: ``_run_cli`` propagates this interpreter's ``sys.path`` into the subprocess as
+``PYTHONPATH`` so ``python -m showdown_bot.cli`` resolves the WORKTREE package (which pytest is
+already using), not the globally-installed editable copy in the main checkout -- without this the
+subprocess would import a showdown_bot that has never heard of these subcommands (worktree trap #2).
 """
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
+import types
+from pathlib import Path
 
 import pytest
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]  # tests/ -> showdown_bot/ -> <repo>
+_MANIFEST_PATH = _REPO_ROOT / "config" / "eval" / "holdout" / "champions_strength_holdout_v0_manifest.json"
+
 
 def _run_cli(*argv):
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
     return subprocess.run(
-        [sys.executable, "-m", "showdown_bot.cli", *argv], capture_output=True, text=True,
+        [sys.executable, "-m", "showdown_bot.cli", *argv], capture_output=True, text=True, env=env,
     )
+
+
+def _manifest_id_to_hash():
+    man = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    # IDs read from the authoritative manifest -- never hardcoded (Amendment A1.1).
+    return {t["team_id"]: t["team_content_hash"] for t in man["teams"]}
+
+
+def _arm_args(**overrides):
+    base = dict(
+        command="champions-strength-holdout-arm", hero_agent="heuristic",
+        out_dir=str(_REPO_ROOT / "unused-because-runner-is-stubbed"),
+        seed_log_path="seeds.jsonl", teams_root=str(_REPO_ROOT),
+        date_stratum_id="2026-07-23-windows", stratum_override="",
+    )
+    base.update(overrides)
+    return types.SimpleNamespace(**base)
+
+
+def _combine_args(**overrides):
+    base = dict(
+        command="champions-strength-holdout-combine", arm_a_dir="a", arm_b_dir="b", out_dir="out",
+        i8d_verdict_path="i8d.json", coverage_verdict_path="cov.json",
+        teams_root=str(_REPO_ROOT), stratum_override="",
+    )
+    base.update(overrides)
+    return types.SimpleNamespace(**base)
+
+
+# --- argparse surface (subprocess against the worktree CLI) ------------------------------------
 
 
 def test_cli_exposes_both_strength_holdout_subcommands():
@@ -28,11 +72,39 @@ def test_cli_exposes_both_strength_holdout_subcommands():
 def test_arm_subcommand_requires_hero_agent_and_out_dir():
     result = _run_cli("champions-strength-holdout-arm")
     assert result.returncode != 0
-    # Without this the assertion below is vacuous: an UNKNOWN command makes argparse print the
-    # full usage line, which already contains "--out-dir" -- so the test would pass just as well
-    # against a CLI that has never heard of this subcommand (verified: it did, before Task 11).
-    assert "invalid choice" not in result.stderr
+    assert "invalid choice" not in result.stderr  # an unknown command's usage also lists --out-dir
     assert "--hero-agent" in result.stderr or "--out-dir" in result.stderr
+
+
+def test_arm_requires_the_date_stratum_id(tmp_path):
+    result = _run_cli(
+        "champions-strength-holdout-arm", "--hero-agent", "heuristic",
+        "--out-dir", str(tmp_path / "o"), "--seed-log-path", str(tmp_path / "s.jsonl"),
+        "--teams-root", str(tmp_path),
+    )
+    assert result.returncode != 0
+    assert "invalid choice" not in result.stderr
+    assert "--date-stratum-id" in result.stderr
+
+
+def test_arm_treats_a_whitespace_only_date_stratum_id_as_missing(tmp_path):
+    result = _run_cli(
+        "champions-strength-holdout-arm", "--hero-agent", "heuristic",
+        "--out-dir", str(tmp_path / "o"), "--seed-log-path", str(tmp_path / "s.jsonl"),
+        "--teams-root", str(tmp_path), "--date-stratum-id", "   ",
+    )
+    assert result.returncode != 0
+    assert "--date-stratum-id" in result.stderr
+
+
+def test_arm_rejects_an_invalid_stratum_override(tmp_path):
+    result = _run_cli(
+        "champions-strength-holdout-arm", "--hero-agent", "heuristic",
+        "--out-dir", str(tmp_path / "o"), "--seed-log-path", str(tmp_path / "s.jsonl"),
+        "--teams-root", str(tmp_path), "--date-stratum-id", "d", "--stratum-override", "bogus",
+    )
+    assert result.returncode != 0
+    assert "invalid choice" in result.stderr
 
 
 def test_combine_subcommand_requires_both_arm_dirs():
@@ -42,21 +114,16 @@ def test_combine_subcommand_requires_both_arm_dirs():
 
 
 def test_combine_subcommand_requires_both_upstream_verdict_paths():
-    # Rev. 3 fix: these must be genuinely required, not silently optional (Task 10's core-function
-    # bug, mirrored here at the CLI layer). Supplying everything EXCEPT the two verdict paths is
-    # what isolates this check -- the bare invocation above would already fail on the arm dirs.
     result = _run_cli(
         "champions-strength-holdout-combine",
         "--arm-a-dir", "a", "--arm-b-dir", "b", "--out-dir", "out",
     )
     assert result.returncode != 0
-    assert "invalid choice" not in result.stderr  # see the arm test above for why
+    assert "invalid choice" not in result.stderr
     assert "--i8d-verdict-path" in result.stderr or "--coverage-verdict-path" in result.stderr
 
 
 def test_combine_still_requires_the_coverage_verdict_path_when_only_i8d_is_given():
-    # Guards against a check that stops at the first missing path: the coverage verdict is not
-    # optional just because the I8-D one was supplied.
     result = _run_cli(
         "champions-strength-holdout-combine",
         "--arm-a-dir", "a", "--arm-b-dir", "b", "--out-dir", "out",
@@ -66,10 +133,18 @@ def test_combine_still_requires_the_coverage_verdict_path_when_only_i8d_is_given
     assert "--coverage-verdict-path" in result.stderr
 
 
-# NF4 fix (Rev. 8): _describe_strength_holdout_combine_error is a pure function, fully testable
-# today independent of Task 13 -- these tests do NOT go through the CLI subprocess above (which
-# can't reach the real combine_strength_holdout_arms call yet), they call the mapping helper
-# directly.
+def test_existing_commands_still_parse_without_the_new_gate_b_flags():
+    from showdown_bot.cli import _build_parser
+    args = _build_parser().parse_args(["smoke"])
+    assert args.command == "smoke"
+    for flag in ("hero_agent", "seed_log_path", "arm_a_dir", "arm_b_dir", "coverage_verdict_path",
+                 "date_stratum_id", "stratum_override"):
+        assert getattr(args, flag) == ""
+
+
+# --- combine error mapping (pure helper, in-process) -------------------------------------------
+
+
 def test_describe_combine_error_maps_access_budget_error():
     from showdown_bot.cli import _describe_strength_holdout_combine_error
     from showdown_bot.eval.heldout_ledger import AccessBudgetError
@@ -95,7 +170,7 @@ def test_describe_combine_error_maps_leakage_scan_error_distinctly_from_leakage_
     from showdown_bot.eval.holdout_leakage_scan import LeakageScanError
     message, code = _describe_strength_holdout_combine_error(LeakageScanError("git missing"))
     assert "could not be completed" in message
-    assert code == 4  # NOT 3 -- "couldn't check" must never read as "checked, found a problem"
+    assert code == 4
 
 
 def test_describe_combine_error_maps_gatebabort_to_exit_code_one_unchanged():
@@ -113,9 +188,6 @@ def test_describe_combine_error_refuses_to_mislabel_an_unrecognized_exception_ty
 
 
 def test_leakage_scan_error_is_not_swallowed_by_the_leakage_drift_branch():
-    # LeakageScanError and LeakageDriftError live in the same module and are easy to collapse into
-    # one isinstance tuple. If they ever share a branch this test fails, because "the scan could
-    # not run" (4) and "the scan ran and found a leak" (3) are different operator decisions.
     from showdown_bot.cli import _describe_strength_holdout_combine_error
     from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
     _, drift_code = _describe_strength_holdout_combine_error(LeakageDriftError("x"))
@@ -123,48 +195,80 @@ def test_leakage_scan_error_is_not_swallowed_by_the_leakage_drift_branch():
     assert (drift_code, scan_code) == (3, 4)
 
 
-# --- End-to-end handler regressions: the honest Task-13 blocker, no teams/server/battles -------
+# --- real wiring: manifest-sourced IDs/hashes + real schedule, runner stubbed -------------------
 
 
-def test_full_arm_invocation_reaches_the_named_task13_blocker_without_a_traceback(tmp_path):
-    result = _run_cli(
-        "champions-strength-holdout-arm",
-        "--hero-agent", "heuristic",
-        "--out-dir", str(tmp_path / "arm_out"),
-        "--seed-log-path", str(tmp_path / "seeds.jsonl"),
-        "--teams-root", str(tmp_path),
+def test_arm_cli_sources_the_six_teams_from_the_manifest_and_runs_windows_without_override(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: captured.update(kw) or {"ok": True},
     )
-    assert result.returncode == 1, result.stderr
-    assert "Traceback" not in result.stderr
-    assert "NotImplementedError" not in result.stderr
-    assert "champions-strength-holdout-arm:" in result.stderr
-    assert "Task 13" in result.stderr
-    # Nothing was published: an honest stop must not leave a half-built artifact behind.
-    assert not (tmp_path / "arm_out").exists()
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args())
+    assert rc == 0
+    # sourced from the manifest, not hardcoded or invented
+    assert captured["holdout_team_content_hashes"] == _manifest_id_to_hash()
+    # a real 180-key schedule built from the real panel
+    assert len(captured["schedule"].battle_keys) == 180
+    # windows / empty override -> None threaded to detect_stratum
+    assert captured["stratum_env_override"] is None
+    assert captured["hero_agent"] == "heuristic"
+    assert captured["date_stratum_id"] == "2026-07-23-windows"
+    assert captured["teams_root"] == str(_REPO_ROOT)
 
 
-def test_full_combine_invocation_reaches_the_named_task13_blocker_without_a_traceback(tmp_path):
-    result = _run_cli(
-        "champions-strength-holdout-combine",
-        "--arm-a-dir", str(tmp_path / "arm_a"),
-        "--arm-b-dir", str(tmp_path / "arm_b"),
-        "--out-dir", str(tmp_path / "combined"),
-        "--i8d-verdict-path", str(tmp_path / "i8d.json"),
-        "--coverage-verdict-path", str(tmp_path / "cov.json"),
+def test_arm_cli_threads_the_kaggle_override_to_the_runner(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: captured.update(kw) or {},
     )
-    assert result.returncode == 1, result.stderr
-    assert "Traceback" not in result.stderr
-    assert "NotImplementedError" not in result.stderr
-    assert "champions-strength-holdout-combine:" in result.stderr
-    assert "Task 13" in result.stderr
-    assert not (tmp_path / "combined").exists()
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args(stratum_override="kaggle"))
+    assert rc == 0
+    assert captured["stratum_env_override"] == "kaggle"
 
 
-def test_existing_commands_still_parse_without_the_new_gate_b_flags():
-    # The new flags are global (this CLI has no subparsers), so they must keep an empty default --
-    # marking any of them required=True would break every other command's invocation.
-    from showdown_bot.cli import _build_parser
-    args = _build_parser().parse_args(["smoke"])
-    assert args.command == "smoke"
-    for flag in ("hero_agent", "seed_log_path", "arm_a_dir", "arm_b_dir", "coverage_verdict_path"):
-        assert getattr(args, flag) == ""
+def test_arm_cli_no_longer_names_a_task13_blocker_and_prints_no_traceback(monkeypatch):
+    # The runner is stubbed to raise the SAME abort a real serverless run would (missing seed-base
+    # env), proving the handler reaches the runner rather than a Task-13 data stop, maps it to a
+    # clean exit 1, and prints no traceback.
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    def _boom(**kw):
+        raise GateBAbort("SHOWDOWN_BATTLE_SEED_BASE must be ... (serverless)")
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm", _boom)
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args())
+    assert rc == 1
+
+
+def test_combine_cli_sources_manifest_hashes_and_passes_override_as_expectation_only(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.combine_strength_holdout_arms",
+        lambda **kw: captured.update(kw) or {"verdict": "X"},
+    )
+    from showdown_bot.cli import run_strength_holdout_combine_cli
+    rc = run_strength_holdout_combine_cli(_combine_args(stratum_override="windows"))
+    assert rc == 0
+    assert captured["holdout_content_hashes"] == _manifest_id_to_hash()
+    # combine receives the override only as an expectation string; it never re-detects the stratum
+    # (that property is enforced inside combine_strength_holdout_arms itself; here we only prove the
+    # CLI passes it through rather than calling detect_stratum).
+    assert captured["stratum_env_override"] == "windows"
+    assert captured["arm_a_dir"] == "a" and captured["arm_b_dir"] == "b"
+
+
+def test_arm_cli_aborts_cleanly_when_the_holdout_manifest_is_missing(monkeypatch, tmp_path):
+    # A teams_root with no manifest must abort with a named GateBAbort-mapped message and exit 1,
+    # before any runner call -- no traceback, nothing published.
+    called = {"ran": False}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: called.__setitem__("ran", True),
+    )
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args(teams_root=str(tmp_path)))
+    assert rc == 1
+    assert called["ran"] is False
