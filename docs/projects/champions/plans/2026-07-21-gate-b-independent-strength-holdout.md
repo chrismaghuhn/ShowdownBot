@@ -1,7 +1,8 @@
 # Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 21)
 
 > **Status: Rev. 21 — Tasks 1–11 are IMPLEMENTED, reviewed (Codex PASS) and merged on this
-> branch. Task 12 is the active slice; Task 13 and any live run remain BLOCKED.**
+> branch. Task 13 is the active slice -- its source condition is SATISFIED as of 2026-07-22
+> (see 2a); its construction/sealing/wiring work is outstanding. Any live run remains BLOCKED.**
 > - **Rev. 20 → Rev. 21** (§1t, mechanical sync, no new design round): Task 11's embedded code and
 >   its argparse instructions are replaced with the flat-CLI implementation actually merged as
 >   `b71923f`. The removed claim — "register both subparsers … all five `required=True`" — was
@@ -7754,15 +7755,25 @@ files to be committed.
 
 ---
 
-## 16. Task 13 — [BLOCKED on the source-proof, §2] Source, seal, and register the six holdout teams
+## 16. Task 13 — Source, seal, and register the six holdout teams
 
 Unchanged in structure from Rev. 1, with the pre-conditions from §2 now explicit gate items.
-**Do not start until the §2 source-proof succeeds.**
+
+**Source status, 2026-07-22 (see §2a):** the source condition is **SATISFIED**. The authorized
+source is the VGCPastes "Champions M-A Featured Teams" selection fixed in §2a — **not** Rutgers
+Scarlet Classic, and **not** the UmbreNews fallback, which is moot. Items 1 and 2 below are
+restated accordingly; every other item is unchanged and still outstanding.
 
 **Definition of done:**
-1. Source-proof passes for Rutgers Scarlet Classic (or, only if that fails, UmbreNews) per §2.
-2. Six teams selected by the pre-registered rule (§2 item 2), each `validate-team`-legal for
-   `gen9championsvgc2026regma`.
+1. ~~Source-proof passes for Rutgers Scarlet Classic (or, only if that fails, UmbreNews) per §2.~~
+   **Superseded by §2a and DONE:** the six §2a teams are frozen with SHA-256 under
+   `docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/`, each publishing
+   six complete Pokémon with item, ability, level, **EVs, nature** and four moves. The selection
+   order is reproducible from the frozen sheet export in that same directory.
+2. Six teams selected by the **§2a** selection rule (not §2 item 2, which governed the superseded
+   Rutgers path), each `validate-team`-legal for `gen9championsvgc2026regma`. **Legality already
+   confirmed** for all six against the pinned checkout `f8ac140` (exit 0 each); it is re-run on the
+   final `.txt`/`.packed` artifacts as part of this task.
 3. Each sealed via Task 12's `seal_team` (real `.txt`+`.packed` hash), with a specific,
    non-generic `blind_attestation`.
 4. `assert_disjoint_from_coverage` (Task 5) passes against the real six hashes.
@@ -7784,7 +7795,8 @@ Unchanged in structure from Rev. 1, with the pre-conditions from §2 now explici
    the comparison, which is not what this check exists to catch). Task 13's own sourcing/
    sealing work still owns deriving these nine teams' actual species lists (parsing the real
    `.txt`/`.packed` files at these paths into `reference_teams: dict[str, list[str]]`) -- not
-   specified further here, since Task 13 remains blocked on the source-proof (§2) regardless.
+   specified further here; it is owned by Task 13's own sourcing/sealing work, whose source
+   condition is now satisfied per §2a.
 6. `assert_no_holdout_leakage` (Task 2, both the identifier scan and the raw `.txt`/`.packed`
    payload scan, Rev. 12 §1k) returns zero hits outside the allowlist.
 7. Panel YAML, holdout manifest JSON, and the Task 6 baseline manifest all get real content;
@@ -7932,8 +7944,11 @@ Steps 3-6 are explicitly out of scope for this plan.
 **Rev. 21 status.** Tasks 1–11 are implemented, reviewed (Codex PASS), and merged on
 `feat/champions-gate-b-task-1-schedule`; this document's Task 10 and Task 11 sections now mirror
 that merged source rather than a proposal. Task 12 (team sealing/provenance) is the active slice.
-Task 13 remains BLOCKED behind the §2 source-proof, and no live Gate B run is authorized: both CLI
-subcommands stop honestly at that same blocker today.
+Task 13's source condition is SATISFIED as of 2026-07-22 (§2a): the six authorized teams are
+frozen, complete, and `validate-team`-legal. What remains for Task 13 is construction, sealing and
+wiring -- the `.txt`/`.packed` artifacts, `seal_team`, the panel/holdout/baseline manifests and the
+CLI data wiring -- after which both CLI subcommands stop naming a Task 13 blocker. **No live Gate B
+run is authorized regardless**; that is a separate decision (§17).
 
 Every finding raised across all prior review rounds is fixed with real, verified code, and the one
 item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`

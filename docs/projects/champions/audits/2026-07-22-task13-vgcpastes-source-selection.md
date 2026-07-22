@@ -34,12 +34,25 @@ public source. Nothing is synthesized here, so the authority gap Q1 described do
 The six resulting team IDs were enumerated explicitly by the owner and **may not be substituted or
 re-ordered** — in particular not after seeing species overlap or any bot behaviour.
 
-**The rule was verified, not assumed.** The sheet's cell grid renders on canvas and is not
-extractable as text, so the row order was confirmed through the sheet's own CSV export endpoint
-(`/gviz/tq?tqx=out:csv&gid=417374305`). Rows 1–6 in table order are exactly PC1102, PC1101, PC1100,
-PC1099, PC1098, PC1097, each with `EVs = Yes`. The seventh row (PC1096) also carries `EVs = Yes`,
-which matters: the cut at six is the rule's own count, **not** an artifact of EV availability
-running out. No row was skipped.
+**The rule was verified, and the proof is frozen.** The sheet's cell grid renders on canvas and is
+not extractable as text, so the row order rests on the sheet's own CSV export
+(`/gviz/tq?tqx=out:csv&gid=417374305`). That export is now frozen in the evidence directory as
+`selection-source-export.csv` (SHA-256 `270bd0d919a6fde7…`, 178 666 bytes, 331 CSV rows), so the
+selection is reproducible from the evidence tree alone rather than from a URL that may change.
+
+Re-parsing it (`csv.reader`; real header at row index 2, since rows 0–1 are sheet preamble; data
+rows are those with a non-empty `Team ID`, in file order) yields rows 1–6 as exactly PC1102,
+PC1101, PC1100, PC1099, PC1098, PC1097, each with `EVs = Yes` and the exact PokéPaste URLs frozen
+here. The seventh row (PC1096) also carries `EVs = Yes` — the cut at six is the rule's own count,
+**not** the point at which EV data runs out. No row was skipped.
+
+**Provenance of that file, stated plainly:** the browser tool was denied navigation to the
+docs.google.com CSV endpoint, so the export was downloaded by the project owner and supplied
+locally, then frozen unmodified. It is therefore *not* agent-fetched. It is, however,
+independently corroborated: before it was supplied, this agent fetched the same endpoint read-only
+and observed the same ordering of the first seven `EVs = Yes` rows. That earlier fetch returned a
+model-rendered simplification of the CSV rather than its bytes — the frozen file is the authority
+for column names and values, and re-parsing it is what corrected the placement wording below.
 
 ---
 
@@ -48,19 +61,30 @@ running out. No row was skipped.
 All values below are the publisher's own. Frozen bytes in
 `docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/`.
 
-| # | Team ID | Placement | PokéPaste | Frozen file | SHA-256 (first 16) | Bytes |
-|---|---|---|---|---|---|---|
-| 1 | PC1102 | PJCS 2026 Champion 🥇 (Hiroshi Onishi) | `pokepast.es/c17e51b1dee42c8c` | `pc1102-paste.txt` | `5fd0fa4de8b29e57` | 937 |
-| 2 | PC1101 | PJCS 2026 Champion, Seniors | `pokepast.es/1f7d6d16d171d672` | `pc1101-paste.txt` | `645fb9b20b7d8f81` | 934 |
-| 3 | PC1100 | PJCS 2026 Runner-up 🥈 | `pokepast.es/34cb00fce368cd94` | `pc1100-paste.txt` | `702cfd156002f451` | 899 |
-| 4 | PC1099 | PJCS 2026 Runner-up, Seniors | `pokepast.es/879641da13859e2f` | `pc1099-paste.txt` | `d0de3354333be1a2` | 908 |
-| 5 | PC1098 | PJCS 2026 Top 4, Seniors | `pokepast.es/8bcfc47c2d206318` | `pc1098-paste.txt` | `cb6fec8dc63995a0` | 927 |
-| 6 | PC1097 | PJCS 2026 Top 4, Seniors | `pokepast.es/25efa05b579532c4` | `pc1097-paste.txt` | `bb350a90ff9c0381` | 902 |
+Placement columns below are copied verbatim from the frozen CSV (`Rank`, `Tournament / Event`,
+`Full Name`). The sheet has **no** "Placement" column: an earlier revision of this audit carried
+strings like "1st place (gold), Masters", which were an artifact of the model-rendered CSV reading
+and have been corrected against the real bytes.
+
+| # | Team ID | `Rank` | `Tournament / Event` | `Full Name` | PokéPaste | Frozen file | SHA-256 (first 16) | Bytes |
+|---|---|---|---|---|---|---|---|---|
+| 1 | PC1102 | Champion | PJCS 2026 | Hiroshi Onishi | `pokepast.es/c17e51b1dee42c8c` | `pc1102-paste.txt` | `5fd0fa4de8b29e57` | 937 |
+| 2 | PC1101 | Champion (Seniors) | PJCS 2026 | ryu_poke197 | `pokepast.es/1f7d6d16d171d672` | `pc1101-paste.txt` | `645fb9b20b7d8f81` | 934 |
+| 3 | PC1100 | Runner Up | PJCS 2026 | alaninepoke | `pokepast.es/34cb00fce368cd94` | `pc1100-paste.txt` | `702cfd156002f451` | 899 |
+| 4 | PC1099 | Runner Up (Seniors) | PJCS 2026 | vdmd8olfjy68698 | `pokepast.es/879641da13859e2f` | `pc1099-paste.txt` | `d0de3354333be1a2` | 908 |
+| 5 | PC1098 | Top 4 (Seniors) | PJCS 2026 | hiyu000000 | `pokepast.es/8bcfc47c2d206318` | `pc1098-paste.txt` | `cb6fec8dc63995a0` | 927 |
+| 6 | PC1097 | Top 4 (Seniors) | PJCS 2026 | nm_k_ | `pokepast.es/25efa05b579532c4` | `pc1097-paste.txt` | `bb350a90ff9c0381` | 902 |
 
 Full digests are in `sources.json`. Manifest verified in both directions: every registered file
 exists with a matching digest and byte size; no unregistered file is present; all files are UTF-8,
 LF-only, with a single trailing newline; no local path, username, or hostname appears anywhere in
 the committed directory.
+
+**On "frozen": these `.txt` files are normalized, not byte-identical to the served response.**
+Per-line trailing whitespace (a renderer artifact of the text extraction) was stripped, and the
+files are written UTF-8/LF with a single trailing newline. No Pokémon, field, value or ordering was
+altered. The SHA-256 values are digests of *these normalized files* — the artifact this evidence
+tree tracks — and must not be cited as digests of the upstream HTTP response body.
 
 ---
 
@@ -85,7 +109,9 @@ The EV budget matches `showdown_bot/config/formats/gen9championsvgc2026regma.yam
 signal that these are genuine Champions-format spreads.
 
 **No synthetic fields.** Species, item, ability, level, EVs, nature and all four moves are
-transcribed unchanged from the published paste. There is no EV/nature synthesis rule in this path
+transcribed unchanged from the published paste — "unchanged" meaning no value was added, removed,
+substituted or reordered; see the normalization note in §2 for the whitespace/line-ending handling
+that the digests cover. There is no EV/nature synthesis rule in this path
 and none is needed. The narrowing that the Rutgers path would have forced — "real
 species/items/abilities/moves with synthetic spreads" — **does not apply here**.
 
@@ -108,6 +134,28 @@ species/items/abilities/moves with synthetic spreads" — **does not apply here*
 This is the independent legality authority. It is deliberately **not** derived from
 `speciesdata.json`/`itemdata.json` — finding H4 of the independent review noted those snapshots
 self-declare `gen9vgc2024regg`, and `validate-team` reads neither.
+
+---
+
+## 4a. Blindness attestation (APPROVED spec §3.4)
+
+**The six teams were selected blind to this bot's results.** Stated positively, as the spec
+requires independence to be a verifiable property rather than an absence of evidence:
+
+- The selection rule is **positional and mechanical** — the first six table-order entries meeting
+  fixed predicates — and was fixed and enumerated by the project owner **before any paste was read
+  for construction**.
+- **No bot result existed for any of these teams at selection time**, and none was consulted: no
+  win rate, no cell exposure, no coverage outcome, no Gate B verdict. Nothing was chosen, kept,
+  dropped, or re-ordered because of how the bot performs against it.
+- **The claim is checkable without trusting the selector.** Re-running the documented parse over
+  `selection-source-export.csv` reproduces the same six IDs in the same order, with no reference to
+  any bot artifact. Independence therefore does not rest on assurance.
+
+**What this does not claim:** it is not a claim of archetype-disjointness from the existing panel,
+nor that the six are unlike teams the bot was tuned against. That is a separate, narrower property.
+Exact hash disjointness and the reference near-duplicate flags are computed later, in Task 13
+step 3, and are reported there.
 
 ---
 
