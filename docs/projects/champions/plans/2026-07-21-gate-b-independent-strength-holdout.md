@@ -1074,10 +1074,12 @@ in the selection audit, not as a gate input.
 Mirrors **Amendment A1** of the APPROVED spec (owner decision, narrow). §2a's source selection is
 unchanged.
 
-1. **Opaque internal team IDs** (a fixed `gbh_*` set, frozen selection order). The concrete IDs and
-   their mapping to the public `PC…` IDs live **only** in the holdout manifest and are not restated
-   in any document or test — a document that spelled them would itself become a leakage hit. Tests
-   read them from the manifest.
+1. **Opaque internal team IDs** (a fixed `gbh_*` set, frozen selection order). **Only the
+   public-ID-to-internal-ID mapping is exclusive to the holdout manifest.** The internal IDs
+   themselves necessarily appear in the allowlisted operational artifacts — team filenames, panel,
+   baseline manifest, run evidence — which is exactly where §3.3 permits a holdout identifier to
+   live. Documents and tests hardcode neither the IDs nor the mapping; both are read from the
+   manifest.
 2. **One allowlist entry**, exactly the frozen source-evidence directory, because the sealed `.txt`
    files are intentionally byte-identical to the frozen pastes. No broader `docs/` exemption, none
    for the selection audit, none for tests.
@@ -1697,6 +1699,18 @@ ALLOWED_EXACT_PATHS = (
 ALLOWED_DIRECTORY_PREFIXES = (
     "showdown_bot/teams/panel_champions_strength_holdout_v0/",
     "data/eval/champions-panel-v0/strength-holdout-v0/",
+    # Spec Amendment A1.2 (APPROVED, 2026-07-22): the holdout's own frozen provenance directory.
+    # The six sealed .txt team files are DELIBERATELY byte-identical to the pastes frozen here --
+    # that byte-equality is the evidence nothing was altered between the published source and the
+    # sealed artifact. scan_for_raw_payload_leakage uses those bytes as its needle, so without this
+    # entry the guard reports the holdout's own authoritative source as a leak. Renaming the teams
+    # cannot avoid it: the needle is the file's content, not its name.
+    #
+    # Scope is exactly this directory. The sibling selection-audit file, any broader docs/ prefix,
+    # and every test file stay OUTSIDE the allowlist and must keep failing the scan. The trailing
+    # "/" makes this a bounded directory prefix, so a similarly-named sibling directory does not
+    # inherit the exemption (see _is_allowed).
+    "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/",
 )
 HOLDOUT_TEAMS_DIR = "showdown_bot/teams/panel_champions_strength_holdout_v0/"
 

@@ -448,11 +448,12 @@ identity**.
 ## A1.1 Opaque internal holdout team IDs
 
 The six holdout teams carry **opaque internal IDs** — a fixed `gbh_*` set, assigned in the frozen
-selection order (selection index 1 first). The concrete IDs and their mapping to the public `PC…`
-source IDs are **deliberately not written here**: they live only in the holdout's own allowlisted
-manifest (`config/eval/holdout/champions_strength_holdout_v0_manifest.json`). Documents may name
-the public source IDs; they must not spell the internal ones, and tests read both from the
-manifest.
+selection order (selection index 1 first). Neither the concrete IDs nor their mapping to the public
+`PC…` source IDs is written here.
+
+Only the **mapping** from public source ID to opaque internal ID is exclusive to the holdout manifest. The internal IDs themselves necessarily appear in the allowlisted operational artifacts — team filenames, the panel, the baseline manifest and the run's own evidence — and that is fine, because those are exactly the places §3.3 permits a holdout identifier to live. What must never happen is the *mapping* leaking, or an internal ID appearing anywhere outside those artifacts. Documents and tests therefore hardcode neither: they read both from the manifest.
+
+The mapping's home is `config/eval/holdout/champions_strength_holdout_v0_manifest.json`.
 
 *Why opaque, and why not the obvious choices:* §3.3's leakage guard exists so a holdout identifier
 appears nowhere but the holdout's own operational artifacts. Source-derived IDs (`pc…`) would put

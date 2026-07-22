@@ -34,9 +34,11 @@ def _manifest() -> dict:
 def _mapping() -> list[tuple[str, str]]:
     """(public source id, opaque internal id) pairs, in frozen selection order.
 
-    Read from the holdout manifest and never restated here: spec Amendment A1.1 makes that manifest
-    the ONLY artifact allowed to carry the internal ids, so a test that spelled them would itself
-    become a leakage hit -- exactly the property the amendment exists to protect.
+    Read from the holdout manifest and never restated here. Spec Amendment A1.1 makes that manifest
+    the only artifact carrying the public-id-to-internal-id MAPPING; the internal ids themselves
+    legitimately appear in the allowlisted operational artifacts (team filenames, panel, baseline,
+    evidence). A test is not one of those, so spelling either here would make this file a leakage
+    hit -- exactly the property the amendment exists to protect.
     """
     teams = sorted(_manifest()["teams"], key=lambda t: t["selection_index"])
     return [(t["source_team_id"], t["team_id"]) for t in teams]

@@ -264,3 +264,111 @@ def test_read_git_blob_wraps_a_called_process_error(tmp_path):
     repo = _init_repo(tmp_path, {"README.md": b"unrelated"})
     with pytest.raises(LeakageScanError, match="could not read committed blob"):
         _read_git_blob("no/such/path.txt", cwd=repo)
+
+
+# --- Amendment A1.2: the frozen source-evidence directory ------------------------------------
+#
+# The sealed .txt team files are DELIBERATELY byte-identical to the pastes frozen in that
+# directory -- that equality is the evidence nothing was altered between published source and
+# sealed artifact -- and scan_for_raw_payload_leakage uses those bytes as its needle. Without the
+# exemption the guard reports the holdout's own authoritative provenance. These tests pin the
+# exemption's exact width: the directory itself, and nothing adjacent to it.
+
+SOURCE_EVIDENCE_DIR = "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/"
+
+
+def test_is_allowed_accepts_files_inside_the_frozen_source_evidence_directory():
+    assert _is_allowed(SOURCE_EVIDENCE_DIR + "sources.json")
+    assert _is_allowed(SOURCE_EVIDENCE_DIR + "selection-source-export.csv")
+    assert _is_allowed(SOURCE_EVIDENCE_DIR + "paste-format-declarations.txt")
+
+
+def test_is_allowed_rejects_a_similarly_named_sibling_of_the_source_evidence_directory():
+    # The trailing "/" is what makes this a bounded directory prefix. Without it, every sibling
+    # whose name merely STARTS with the allowed one would silently inherit the exemption.
+    evil = SOURCE_EVIDENCE_DIR.rstrip("/") + "-evil/"
+    assert not _is_allowed(evil + "sources.json")
+    assert not _is_allowed(SOURCE_EVIDENCE_DIR.rstrip("/") + "2/sources.json")
+    assert not _is_allowed(SOURCE_EVIDENCE_DIR.rstrip("/") + ".backup")
+
+
+def test_is_allowed_rejects_the_selection_audit_file_next_to_the_evidence_directory():
+    # The selection audit is a sibling FILE in audits/, deliberately outside the exemption:
+    # Amendment A1.2 grants the evidence directory only.
+    assert not _is_allowed(
+        "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-selection.md"
+    )
+
+
+def test_is_allowed_does_not_grant_a_broader_docs_prefix():
+    assert not _is_allowed("docs/projects/champions/audits/some-other-audit.md")
+    assert not _is_allowed("docs/projects/champions/plans/2026-07-21-gate-b-independent-strength-holdout.md")
+    assert not _is_allowed("docs/ROADMAP.md")
+    assert not _is_allowed("docs/projects/champions/audits/2026-07-21-task13-source-evidence/sources.json")
+
+
+def test_source_evidence_exemption_is_exactly_one_directory_prefix():
+    # Guards against a future edit widening the entry (e.g. dropping the trailing slash, or
+    # allowlisting `docs/` wholesale) without a test noticing.
+    from showdown_bot.eval.holdout_leakage_scan import ALLOWED_DIRECTORY_PREFIXES
+
+    docs_prefixes = [p for p in ALLOWED_DIRECTORY_PREFIXES if p.startswith("docs/")]
+    assert docs_prefixes == [SOURCE_EVIDENCE_DIR]
+    assert all(p.endswith("/") for p in ALLOWED_DIRECTORY_PREFIXES)
+
+
+def test_raw_payload_scan_ignores_the_identical_paste_inside_the_source_evidence_directory(tmp_path):
+    """The real shape of the collision: the same bytes in the team file and in its frozen source."""
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n- Protect\n"
+    packed_payload = b"|packed-fixture|"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": packed_payload,
+        # byte-identical frozen source paste -- the whole reason A1.2 exists
+        SOURCE_EVIDENCE_DIR + "pc9999-paste.txt": txt_payload,
+        SOURCE_EVIDENCE_DIR + "sources.json": b'{"note": "' + txt_payload + b'"}',
+    })
+    assert scan_for_raw_payload_leakage(["holdout_0"], cwd=repo) == []
+
+
+def test_raw_payload_scan_still_flags_the_same_payload_in_a_doc_test_or_report(tmp_path):
+    """The exemption must not generalise: identical bytes anywhere else are still a leak."""
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n- Protect\n"
+    packed_payload = b"|packed-fixture|"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": packed_payload,
+        SOURCE_EVIDENCE_DIR + "pc9999-paste.txt": txt_payload,          # allowed
+        # ...and three copies that must all be reported:
+        "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-selection.md": txt_payload,
+        "showdown_bot/tests/test_something.py": b"FIXTURE = " + txt_payload,
+        "reports/champions-strength-holdout.md": packed_payload,
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    flagged = {h.path for h in hits}
+    assert flagged == {
+        "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-selection.md",
+        "showdown_bot/tests/test_something.py",
+        "reports/champions-strength-holdout.md",
+    }
+    assert not any(p.startswith(SOURCE_EVIDENCE_DIR) for p in flagged)
+
+
+def test_the_real_production_scan_is_clean_for_the_six_manifest_ids():
+    """End-to-end against the actual repo, with the ids read from the manifest, never hardcoded."""
+    import json
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    manifest = json.loads(
+        (repo_root / "config/eval/holdout/champions_strength_holdout_v0_manifest.json")
+        .read_text(encoding="utf-8")
+    )
+    teams = sorted(manifest["teams"], key=lambda t: t["selection_index"])
+    team_ids = [t["team_id"] for t in teams]
+    identifiers = team_ids + [t["team_content_hash"] for t in teams]
+    assert len(team_ids) == 6
+
+    assert_no_holdout_leakage(
+        identifiers=identifiers, team_ids=sorted(team_ids), teams_root=str(repo_root)
+    )
