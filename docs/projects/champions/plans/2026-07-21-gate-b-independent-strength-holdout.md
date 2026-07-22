@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 17)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 18)
 
-> **Status: PROPOSED, Rev. 17 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 18 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
@@ -218,16 +218,37 @@
 >   defeating the per-stratum separate-tree requirement the check exists to enforce. Fixed with
 >   `posixpath.normpath` before the containment check (Task 9, §12) -- verified against both a
 >   forward-slash and a backslash traversal payload, standalone, before trusting the plan text.
+> - **Rev. 17 → Rev. 18** (§1q, made Task 4 agent-executable, not a review round): the prior text
+>   said "see the Rev. 1 code" without containing it anywhere. Confirmed, not assumed, that it
+>   never existed: full git-history search for `find_near_duplicate_flags`/`near_duplicate.py`
+>   returns nothing before this round; the earliest commit ever touching this plan document
+>   already carried the same stub. Task 4 (§7) is designed fresh from DESIGN sec 3.3 and this
+>   codebase's own existing `to_id` species-normalization convention (Jaccard overlap, `>= 0.5`
+>   inclusive threshold, self-comparison excluded, deterministic ordering, fail-closed on
+>   malformed input, 13 tests) -- not reconstructed as an assumed historical contract. Task 10's
+>   call site (§13) had the exact bug this round's Auftrag warned about: it iterated
+>   `reference_species` for BOTH the six holdout candidates and the reference set, so every team
+>   was compared against a reference set that included itself, and there was no way to supply the
+>   six holdout teams' own species at all. Fixed with a new required parameter,
+>   `holdout_candidate_species`, genuinely separate from `reference_species`, both now bound to
+>   the real six/nine-team geometry (the former checked against `manifest_a["holdout_teams"]`'s
+>   key set, matching `holdout_content_hashes`'s own precedent). Self-found in the same pass: the
+>   new loop could let a malformed empty species list escape as a raw `ValueError` -- wrapped as
+>   `GateBAbort`, with a new test and exception-audit-table row, matching this plan's established
+>   "catch on introduction, not later" discipline. Task 13's "nine existing Champions-M-A teams"
+>   (§16 item 5) is now traced to a concrete list -- the real on-disk set is 10 files, but "nine"
+>   reconciles exactly once the shared hero is excluded (5 `panel_champions_v0` + 4
+>   `panel_champions_coverage_v0` opponent-side teams).
 >
-> As of Rev. 17: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
+> As of Rev. 18: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
 > guard), and Task 3 (Windows/Kaggle stratum guard, including the Rev. 16/17 anti-spoofing fixes)
 > have been implemented, tested, and committed on branch `feat/champions-gate-b-task-1-schedule`
-> -- not yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a`/`f9e62ee` docs,
-> `3f07ef3` + this round's review-fix commit for Task 3). Tasks 9/10's own Rev. 15/16/17 wiring of
-> `strata_guard.py` remains plan-text only -- Task 3 being implemented does not itself implement
-> its callers. The rest of Tasks 4–13 remain unimplemented as code: no server or battle has
-> touched any worktree beyond Tasks 1-3's own code and tests, and no team file or sealed hash
-> exists.
+> -- not yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a`/`f9e62ee`/`5556adf`
+> docs, `3f07ef3`/`75d437a` code for Task 3). Task 4's plan text is now agent-executable for the
+> first time (§7), and Task 10's near-duplicate wiring / Task 13's "nine teams" wording are
+> corrected to match (§1q) -- none of this is implemented as code yet. The rest of Tasks 4–13
+> remain unimplemented as code: no server or battle has touched any worktree beyond Tasks 1-3's
+> own code and tests, and no team file or sealed hash exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -453,6 +474,7 @@ two full trust-boundary rows in Rev. 8, one in Rev. 9.
 | `LeakageDriftError` | `assert_no_holdout_leakage(...)` → `scan_for_leakage`/`scan_for_raw_payload_leakage` (Rev. 12, §1k, P1 #2: renamed and rebuilt from `scan_for_content_leakage`, now a repo-wide byte-exact scan) | no — deliberate | raw `LeakageDriftError` |
 | `LeakageScanError` (Rev. 8, NF4; Rev. 12 §1k added `_read_git_blob` as a third source) | `assert_no_holdout_leakage(...)` → `_git_tracked_files`/`_grep_identifier`/`_read_git_blob` (git infra failure, or a sealed team's committed blob unreadable, distinct from an actual leak finding) | no — deliberate, same reasoning as `LeakageDriftError` | raw `LeakageScanError` |
 | `StrataPoolingError` / `UnattestedStratumError` | `assert_no_cross_stratum_pooling(...)` | no — deliberate | raw |
+| `ValueError` (Rev. 18, §1q, self-found) | `find_near_duplicate_flags(...)` (Task 4) → `species_set(...)` -- an empty per-team species list on either the candidate or reference side; the key-set checks earlier only prove the right team_ids are present, not that each one's species list is itself non-empty | yes (Rev. 18, same pass the reachability was introduced) | `GateBAbort` |
 
 **What "caught by the CLI" means today, still:** `run_strength_holdout_combine_cli` (Task 11)
 does not call `combine_strength_holdout_arms` for real yet — it unconditionally raises its own
@@ -779,6 +801,83 @@ tables and widened except-tuples from §1n are unaffected -- `UnattestedStratumE
 `ValueError` were already accounted for there; this round changes WHEN they fire, not whether
 they are caught.
 
+## 1q. What changed in Rev. 18 — Task 4 made agent-executable (not a review round)
+
+A "begrenzte Task-4-Planprüfung": Task 4 (§7) plus its mandatory interfaces to Task 10 (§13) and
+Task 13 (§16). Not a review round in the §1a-§1p sense -- there was no prior REAL text to find
+findings against, only a stub claiming to defer to code that turned out not to exist.
+
+**1. "Rev. 1 code" verified absent, not assumed absent.** Before writing anything, searched
+read-only: `git log --all --oneline -S "find_near_duplicate_flags"` (one hit, the commit that
+first introduced this whole plan document, already carrying the same stub);
+`git log --all --oneline --diff-filter=A -- "**/near_duplicate.py" "**/test_near_duplicate.py"`
+(zero hits, ever, in this repository); `git log --follow` on this document itself (8 commits
+total, none before that first one). No reviewer ever had a real, committed artifact to review.
+Documented in §7's own opening paragraph rather than silently assumed and reconstructed.
+
+**2. Task 4 designed fresh from DESIGN sec 3.3 and this codebase's existing conventions (§7).**
+Species-ID normalization reuses this codebase's own already-quadruplicated `to_id` rule
+(`engine.state`/`engine.items`/`engine.moves`/`battle.opponent.SpeciesDex`) rather than inventing
+a new one -- lowercase, strip non-alphanumeric, no forme merging. Overlap formula bound to
+Jaccard similarity (`|A∩B|/|A∪B|`), not the overlap coefficient (`|A∩B|/min(|A|,|B|)`) -- at a
+0.5 threshold the two formulas disagree sharply for 6-species teams (4-of-6 shared vs. 3-of-6),
+and DESIGN's own "near-duplicate," not "somewhat similar," language calls for the stricter one.
+Threshold is inclusive (`>=`) -- a diagnostic-only flag should show borderline cases to a human,
+not silently hide them. Self-comparison excluded inside `find_near_duplicate_flags` itself
+(defense in depth), flags sorted by `reference_team_id` for determinism, every failure mode
+(empty species list, empty reference mapping, empty candidate id) fails closed with `ValueError`,
+and finding a duplicate is always a normal return, never a raised exception -- 13 tests cover all
+of this explicitly, including a dedicated test that a found duplicate never raises.
+
+**3. Task 10's call site had exactly the bug this round's Auftrag anticipated (§13).** The
+pre-existing loop, `for team_id, species in reference_species.items():
+find_near_duplicate_flags(candidate_team_id=team_id, candidate_species=species,
+reference_teams=reference_species)`, used ONE dict as both the six holdout candidates AND the
+reference set to compare them against -- every team was compared against a reference set that
+included itself (only `find_near_duplicate_flags`'s own self-exclusion, added fresh in this same
+round, would have prevented a trivial 1.0 self-match), and there was no parameter carrying the
+six holdout teams' own species at all. Fixed with a new required parameter,
+`holdout_candidate_species: dict[str, list[str]]`, genuinely separate from `reference_species`
+(unchanged meaning: the nine existing Champions-M-A teams). `holdout_candidate_species`'s key set
+is checked against `manifest_a["holdout_teams"]` exactly like `holdout_content_hashes` already
+is, closing the same "caller assertion never bound to the real six teams" gap class this plan has
+now closed three times (Rev. 14's `holdout_teams`, Rev. 15's stratum, this). Threaded through all
+36 existing `combine_strength_holdout_arms` test call sites via a new `_fake_holdout_candidate_species()`
+fixture (keyed by the same six `_six_teams()` ids `_write_arm`'s own default `holdout_teams`
+already uses, so no other fixture needed changing) plus one test-specific fix
+(`test_combine_rejects_empty_reference_species` needed the new kwarg added by hand -- it passes
+`reference_species={}` literally, not via the fixture function, so it did not match the blanket
+substitution). Four new tests: publishes a guaranteed flag without aborting or gating the
+verdict; rejects a `holdout_candidate_species` naming the wrong team_ids; rejects an empty
+`holdout_candidate_species`; rejects malformed (empty-list) species data cleanly.
+
+**4. Self-found in the same pass: a new raw `ValueError` path.** The key-set check proves
+`holdout_candidate_species`/`reference_species` name the right team_ids; it does not prove each
+team's OWN species list is non-empty. An empty list for either side would have made
+`find_near_duplicate_flags` raise `ValueError`, unwrapped, escaping `combine_strength_holdout_arms`
+uncaught by the CLI (Task 11, which only ever catches `GateBAbort`) -- the identical shape NF1/
+NF3 fixed for `_assert_rows_match_manifest`/`BattleResultWriter.write` in earlier rounds, caught
+here on introduction rather than left for a later round to find. Wrapped as `GateBAbort`; new
+exception-audit-table row (§13); new test
+(`test_combine_aborts_cleanly_on_malformed_species_data_not_a_raw_valueerror`).
+
+**5. Task 13's "nine existing Champions-M-A teams" (§16 item 5) traced to a concrete list.** The
+real on-disk `gen9championsvgc2026regma` team set is 10 files, not nine -- one shared hero
+(`showdown_bot/teams/fixed_champions_v0.txt`) plus nine opponent-side teams across two panels
+(`config/eval/panels/panel_champions_v0.yaml`: 5; `config/eval/panels/panel_champions_coverage_v0.yaml`:
+4). "Nine" reconciles exactly once the shared hero is excluded -- consistent with DESIGN sec
+3.3's "touched or coverage TEAM" meaning an opponent already tested against, not the bot's own
+fixed hero (which would trivially "overlap" with every future candidate via the hero side of any
+comparison, which is not what this check exists to catch). Task 13 itself remains blocked on the
+source-proof (§2) regardless; this only makes the "nine" number traceable for whoever eventually
+implements it, rather than a number nobody could reconstruct.
+
+**Downstream, re-checked:** Task 11 (§14) -- unaffected; its combine CLI stub still unconditionally
+`raise`s `GateBAbort` before ever reaching a real `combine_strength_holdout_arms` call, so the new
+required parameter has no stale call site to update there yet. Task 12 (§15) -- unaffected; it
+never touches species data. `uv.lock` -- confirmed untracked and untouched throughout this round,
+per explicit instruction.
+
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
 **Decision (user, this revision):** Option 1 — a published, concluded Reg M-A tournament source.
@@ -817,7 +916,7 @@ showdown_bot/src/showdown_bot/eval/
   strength_holdout_schedule.py   NEW  Task 1  -- 180-key schedule, now with a global seed_index
   holdout_leakage_scan.py        NEW  Task 2  -- identifier grep + repo-wide raw-payload byte scan
   strata_guard.py                NEW  Task 3  -- fail-closed Windows/Kaggle stratum detection
-  near_duplicate.py              NEW  Task 4  -- species-overlap near-duplicate flag (unchanged)
+  near_duplicate.py              NEW  Task 4  -- species-overlap near-duplicate flag
   holdout_disjointness.py        NEW  Task 5  -- exact-hash disjointness vs. frozen coverage (unchanged)
   baseline.py                    MODIFY  Task 6 -- register the new Champions holdout manifest
   strength_holdout_verdict.py    NEW  Task 7+8 -- upstream verification + McNemar/report wiring
@@ -1876,15 +1975,328 @@ git commit -m "fix(champions): reject a Kaggle override off Linux and unknown-st
 
 ---
 
-## 7. Task 4 — Species-overlap near-duplicate flag (unchanged from Rev. 1)
+## 7. Task 4 — Species-overlap near-duplicate flag (made agent-executable, Rev. 18, §1q)
 
-No review finding targeted this task. Implement exactly as Rev. 1 specified: create
-`showdown_bot/src/showdown_bot/eval/near_duplicate.py` and
-`showdown_bot/tests/test_near_duplicate.py` with `species_set`, `overlap_fraction`,
-`find_near_duplicate_flags` (manual-review flag only, never auto-rejects,
-`NEAR_DUPLICATE_REVIEW_THRESHOLD = 0.5` PROPOSED default) — see the Rev. 1 code, which a
-reviewer already had the opportunity to flag and did not. Same 5 RED/GREEN tests, same commit
-message `"feat(champions): species-overlap near-duplicate review flag for holdout sealing"`.
+**"Rev. 1 code" does not exist -- confirmed, not assumed.** This section previously read "see the
+Rev. 1 code, which a reviewer already had the opportunity to flag and did not" without containing
+that code or its claimed "same 5" tests anywhere in this document. Searched, read-only, before
+writing anything below: `git log --all --oneline -S "find_near_duplicate_flags"` returns exactly
+one hit, `16fb5fb` ("freeze Gate B plan Rev. 10..."), which is the commit that FIRST introduced
+this plan document into the repository -- at that commit, Task 4's text was ALREADY this same
+stub. `git log --all --oneline --diff-filter=A -- "**/near_duplicate.py" "**/test_near_duplicate.py"`
+returns nothing -- these files have never been added in this repository's history, in any branch,
+at any commit. `git log --follow` on this plan document itself shows only 8 commits total, none
+before `16fb5fb`. There is no reviewer who "already had the opportunity to flag" code that was
+never committed anywhere this history search can reach -- that claim in the old text was itself
+unverified. This section is therefore designed FRESH here, grounded in DESIGN sec 3.3's own text
+and this codebase's own existing conventions (species-ID normalization, primarily) -- not
+reconstructed as an assumed historical contract.
+
+**Files:**
+- Create: `showdown_bot/src/showdown_bot/eval/near_duplicate.py`
+- Test: `showdown_bot/tests/test_near_duplicate.py`
+
+**Grounded in DESIGN sec 3.3:** "a content-overlap check at sealing flags any holdout team whose
+species set substantially overlaps a touched or coverage team for manual disjointness review
+(near-duplicates are not independent)." Three design decisions this sentence leaves open, closed
+below with explicit reasoning: (1) what "overlap" means mathematically: (2) the exact threshold
+semantics at the boundary; (3) how normalization avoids both false negatives (same species,
+different spelling) and false positives (different formes treated as the same species).
+
+**Species-ID normalization matches this codebase's existing convention exactly, not a new
+invention.** `to_id(name) -> re.sub(r"[^a-z0-9]", "", name.lower())` is already duplicated
+verbatim in `engine/state.py`, `engine/items.py`, and `engine/moves.py`, and wrapped as
+`SpeciesDex.to_id` in `battle/opponent.py` (explicitly documented there as "the same Showdown
+`toID` transform"). This is Pokemon Showdown's own `toID()`: lowercase, then strip everything
+that is not `a-z0-9`. Critically, it does **not** merge formes -- `to_id("Giratina-Origin")` ==
+`"giratinaorigin"`, distinct from `to_id("Giratina")` == `"giratina"`; `to_id("Nidoran-M")` ==
+`"nidoranm"`, distinct from `to_id("Nidoran-F")` == `"nidoranf"`. `near_duplicate.py` reuses this
+exact rule (duplicated as a fifth private copy, matching how the existing three are already
+independent duplicates of the same one-line rule rather than a shared import -- `near_duplicate.py`
+is a pure `eval/`-side utility with no need to depend on `engine/`) so that a near-duplicate check
+never disagrees with how the rest of this codebase already treats species identity: two teams
+differing only by a Pokemon's forme are correctly treated as carrying DIFFERENT species for this
+check, matching how the engine treats them everywhere else.
+
+**Overlap formula: Jaccard similarity, `|A ∩ B| / |A ∪ B|` -- not the overlap coefficient.** Two
+standard set-similarity metrics were considered: Jaccard (`|A ∩ B| / |A ∪ B|`) and the overlap
+coefficient (`|A ∩ B| / min(|A|, |B|)`). Both are symmetric in the two sets' roles (a property
+`overlap_fraction(a, b)` itself should have, since the function does not itself distinguish
+"candidate" from "reference" -- that framing exists only one level up, in
+`find_near_duplicate_flags`). Bound to Jaccard because, for two ordinary 6-species VGC teams, the
+two formulas disagree sharply at the `0.5` threshold: Jaccard `>= 0.5` requires at least 4 of 6
+species shared (`4/8 = 0.5` when the other 2+2 are disjoint); the overlap coefficient `>= 0.5`
+requires only 3 of 6 shared (`3/6 = 0.5`), which is ordinary shared-meta-staple overlap between
+two competent but unrelated teams, not a near-duplicate. DESIGN sec 3.3 calls for a check that
+flags teams that are near-**identical**, not merely similar -- the overlap coefficient would flag
+far too often to stay a useful manual-review signal (this project's `data_gen`/coverage species
+lists already show 3+ staple species recurring across unrelated dev-panel teams, e.g. the Champions
+panel's own dev/heldout roster in `config/eval/panels/panel_champions_v0.yaml`). Jaccard's
+requirement that the UNION also stay small is what makes it track "these two teams are nearly the
+same team," not "these two teams both used a popular Pokemon."
+
+**Threshold semantics at `0.5`: inclusive (`>=`), not exclusive (`>`).** `find_near_duplicate_flags`
+is a manual-review hint, never an automatic reject (DESIGN sec 3.3, and directly enforced by this
+function raising nothing but `ValueError` on malformed input -- there is no "duplicate found"
+exception). Given that, the asymmetry between the two choices is: `>=` at a borderline exact-0.5
+case shows it to a human who can dismiss it in seconds; `>` at that same case hides it, and a
+human never gets the chance to dismiss OR confirm it. For a diagnostic-only signal, the cost of a
+false positive (one extra team a human glances at and clears) is far lower than the cost of a
+false negative (a genuinely borderline pair never surfacing at all) -- so ties resolve toward
+showing the flag.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# showdown_bot/tests/test_near_duplicate.py
+import pytest
+
+from showdown_bot.eval.near_duplicate import (
+    species_set, overlap_fraction, find_near_duplicate_flags,
+    NearDuplicateFlag, NEAR_DUPLICATE_REVIEW_THRESHOLD,
+)
+
+
+def test_species_set_normalizes_case_and_punctuation():
+    # Showdown's own toID rule (matches engine.state.to_id et al.): lowercase, strip everything
+    # outside a-z0-9. "Landorus-Therian" and "landorus therian!!" must collapse to the same id,
+    # so cosmetic spelling differences never cause a false NEGATIVE (a real duplicate missed
+    # because of case/punctuation) -- but a genuine forme difference must NOT collapse, so a
+    # false POSITIVE (two different Pokemon treated as the same) never happens either.
+    assert species_set(["Landorus-Therian"]) == species_set(["landorus therian!!"])
+    assert species_set(["Giratina"]) != species_set(["Giratina-Origin"])
+    assert species_set(["Nidoran-M"]) != species_set(["Nidoran-F"])
+
+
+def test_species_set_collapses_duplicate_entries():
+    # Illegal under Showdown's own species clause for a real team, but this is a generic set
+    # utility, not a team validator -- duplicate entries must not crash it or double-count.
+    assert species_set(["Pikachu", "Pikachu", "Charizard"]) == species_set(["Pikachu", "Charizard"])
+
+
+def test_species_set_rejects_empty_input():
+    # Fail-closed: an empty list is not a valid team's species set (a real team always has 1-6
+    # Pokemon). Silently returning frozenset() would let overlap_fraction treat "no data" as "0%
+    # overlap with everything" -- a confidently wrong answer for what is actually missing data.
+    with pytest.raises(ValueError, match="non-empty"):
+        species_set([])
+
+
+def test_overlap_fraction_is_jaccard_similarity():
+    a = species_set(["A", "B", "C"])
+    b = species_set(["A", "B", "D"])
+    # intersection={A,B}=2, union={A,B,C,D}=4 -> 2/4, not the overlap-coefficient's 2/3.
+    assert overlap_fraction(a, b) == pytest.approx(0.5)
+
+
+def test_overlap_fraction_rejects_empty_sets():
+    # Defense in depth, independent of species_set's own empty-input guard -- this function is
+    # public and may be called directly, not only reached via species_set.
+    with pytest.raises(ValueError, match="non-empty"):
+        overlap_fraction(frozenset(), frozenset({"a"}))
+
+
+def test_find_near_duplicate_flags_flags_identical_species_sets_of_different_team_ids():
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams={"ref_1": ["A", "B", "C"]},
+    )
+    assert len(flags) == 1
+    assert flags[0] == NearDuplicateFlag(
+        candidate_team_id="holdout_0", reference_team_id="ref_1",
+        overlap_fraction=1.0, shared_species=("a", "b", "c"),
+    )
+
+
+def test_find_near_duplicate_flags_never_flags_a_team_against_itself():
+    # reference_teams intentionally includes the candidate's OWN team_id with IDENTICAL species
+    # (which would score 1.0, the maximum possible overlap, if compared) -- it must never appear
+    # in the result. This is defense in depth: Task 10 (§13) keeps the six holdout candidates and
+    # the nine reference teams as two genuinely separate dicts precisely so this should never be
+    # exercised in production, but this function does not trust that from the outside.
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams={"holdout_0": ["A", "B", "C"], "ref_1": ["D", "E", "F"]},
+    )
+    assert flags == []  # ref_1 has zero overlap; holdout_0 (self) is excluded regardless of overlap
+
+
+def test_find_near_duplicate_flags_does_not_flag_below_the_threshold():
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams={"ref_1": ["A", "D", "E"]},  # intersection={A}=1, union=5 -> 0.2
+    )
+    assert flags == []
+
+
+def test_find_near_duplicate_flags_flags_exactly_at_the_threshold():
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams={"ref_1": ["A", "B", "D"]},  # intersection=2, union=4 -> exactly 0.5
+    )
+    assert len(flags) == 1
+    assert flags[0].overlap_fraction == pytest.approx(NEAR_DUPLICATE_REVIEW_THRESHOLD)
+
+
+def test_find_near_duplicate_flags_rejects_an_empty_reference_teams_mapping():
+    with pytest.raises(ValueError, match="non-empty"):
+        find_near_duplicate_flags(
+            candidate_team_id="holdout_0", candidate_species=["A", "B", "C"], reference_teams={},
+        )
+
+
+def test_find_near_duplicate_flags_rejects_an_empty_candidate_team_id():
+    with pytest.raises(ValueError, match="non-empty"):
+        find_near_duplicate_flags(
+            candidate_team_id="", candidate_species=["A", "B", "C"],
+            reference_teams={"ref_1": ["A", "B", "C"]},
+        )
+
+
+def test_find_near_duplicate_flags_returns_a_deterministic_order():
+    # reference_teams is a dict built in a DELIBERATELY non-alphabetical insertion order --
+    # the returned flags must be sorted by reference_team_id regardless, not by whatever order
+    # the caller happened to construct the mapping in.
+    reference_teams = {
+        "ref_z": ["A", "B", "D"], "ref_a": ["A", "B", "E"], "ref_m": ["A", "B", "F"],
+    }
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams=reference_teams,
+    )
+    assert [f.reference_team_id for f in flags] == ["ref_a", "ref_m", "ref_z"]
+
+
+def test_find_near_duplicate_flags_never_raises_for_a_found_duplicate():
+    # DESIGN sec 3.3: manual-review flag only, never an automatic reject. The only exception type
+    # this whole module ever raises is ValueError, and only for malformed input (empty
+    # species/mappings) -- finding a duplicate is a normal return, not an error path. This test
+    # exists so a future change that turns a found flag into a raised exception fails loudly.
+    flags = find_near_duplicate_flags(
+        candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+        reference_teams={"ref_1": ["A", "B", "C"]},  # identical -- guaranteed to flag
+    )
+    assert len(flags) == 1  # returned normally; no exception escaped
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pytest showdown_bot/tests/test_near_duplicate.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'showdown_bot.eval.near_duplicate'`
+
+- [ ] **Step 3: Write the implementation**
+
+```python
+# showdown_bot/src/showdown_bot/eval/near_duplicate.py
+"""Species-overlap near-duplicate flag (DESIGN sec 3.3): "a content-overlap check at sealing
+flags any holdout team whose species set substantially overlaps a touched or coverage team for
+manual disjointness review (near-duplicates are not independent)." Diagnostic ONLY -- a flag is
+never an auto-reject; every flag this module can produce is a normal return value, never a raised
+exception (the only exception type here is ValueError, and only for malformed input). Species
+normalization matches this codebase's own established convention exactly: the same Showdown
+`toID` transform already duplicated in `engine.state.to_id` / `engine.items.to_id` /
+`engine.moves.to_id` and wrapped as `battle.opponent.SpeciesDex.to_id` -- lowercase, strip
+everything outside a-z0-9, no forme merging (`Giratina` and `Giratina-Origin` stay distinct)."""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+NEAR_DUPLICATE_REVIEW_THRESHOLD = 0.5
+
+
+def _to_id(name: str) -> str:
+    """Same one-line rule as engine.state.to_id / engine.items.to_id / engine.moves.to_id /
+    battle.opponent.SpeciesDex.to_id -- duplicated here rather than imported so this eval-side
+    module has no dependency on engine/, matching how those three are already independent
+    duplicates of the same rule rather than a single shared import site."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def species_set(species: list[str]) -> frozenset[str]:
+    """Normalizes a raw list of species name strings into a canonical, hashable set. Duplicate
+    entries collapse naturally via set construction (illegal under Showdown's own species clause
+    for a real team, but this is a generic utility, not a team validator). Fails closed on an
+    empty list -- a real team always has 1-6 Pokemon; silently returning frozenset() would let a
+    later overlap computation treat "no data" as "0% overlap with everything," a confidently
+    wrong answer for what is actually missing data."""
+    if not species:
+        raise ValueError("species must be non-empty -- an empty list is not a valid team")
+    normalized = frozenset(_to_id(name) for name in species)
+    if "" in normalized:
+        raise ValueError(f"species contains a name that normalizes to the empty string: {species!r}")
+    return normalized
+
+
+def overlap_fraction(a: frozenset[str], b: frozenset[str]) -> float:
+    """Jaccard similarity, |A intersect B| / |A union B| -- symmetric in a/b (this function does
+    not itself distinguish "candidate" from "reference"; that framing exists only in
+    find_near_duplicate_flags below). Chosen over the overlap coefficient
+    (|A intersect B| / min(|A|, |B|)) because, for two 6-species teams, Jaccard >= 0.5 requires
+    at least 4 of 6 species shared, while the overlap coefficient's >= 0.5 requires only 3 of 6 --
+    ordinary shared-meta-staple overlap between unrelated competent teams, not a near-duplicate.
+    Fails closed on empty input -- defense in depth independent of species_set's own guard, since
+    this function is public and may be called directly."""
+    if not a or not b:
+        raise ValueError("overlap_fraction requires two non-empty sets")
+    intersection = len(a & b)
+    union = len(a | b)
+    return intersection / union
+
+
+@dataclass(frozen=True)
+class NearDuplicateFlag:
+    candidate_team_id: str
+    reference_team_id: str
+    overlap_fraction: float
+    shared_species: tuple[str, ...]
+
+
+def find_near_duplicate_flags(
+    *, candidate_team_id: str, candidate_species: list[str], reference_teams: dict[str, list[str]],
+) -> list[NearDuplicateFlag]:
+    """Compares ONE candidate team's species set against every team in reference_teams, flagging
+    (never rejecting -- DESIGN sec 3.3, manual-review only) any reference team whose Jaccard
+    overlap with the candidate is >= NEAR_DUPLICATE_REVIEW_THRESHOLD (inclusive: an exact-
+    threshold case is exactly what a human should see, not what should silently pass because the
+    bar is exclusive). candidate_team_id is skipped if it also appears in reference_teams -- a
+    team must never be flagged against itself, independent of whatever a caller's own
+    reference-set construction already guarantees (defense in depth: Task 10, §13, keeps the six
+    holdout candidates and the nine reference teams as two genuinely separate dicts precisely so
+    this should never trigger in practice, but this function does not trust that from the
+    outside). Results are sorted by reference_team_id for a deterministic return order regardless
+    of reference_teams' own dict construction order."""
+    if not candidate_team_id:
+        raise ValueError("candidate_team_id must be non-empty")
+    if not reference_teams:
+        raise ValueError("reference_teams must be non-empty -- an empty mapping makes this check vacuous")
+    candidate_set = species_set(candidate_species)
+    flags = []
+    for reference_team_id in sorted(reference_teams):
+        if reference_team_id == candidate_team_id:
+            continue
+        reference_set = species_set(reference_teams[reference_team_id])
+        fraction = overlap_fraction(candidate_set, reference_set)
+        if fraction >= NEAR_DUPLICATE_REVIEW_THRESHOLD:
+            shared = tuple(sorted(candidate_set & reference_set))
+            flags.append(NearDuplicateFlag(
+                candidate_team_id=candidate_team_id, reference_team_id=reference_team_id,
+                overlap_fraction=fraction, shared_species=shared,
+            ))
+    return flags
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `pytest showdown_bot/tests/test_near_duplicate.py -v`
+Expected: 13 passed
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add showdown_bot/src/showdown_bot/eval/near_duplicate.py showdown_bot/tests/test_near_duplicate.py
+git commit -m "feat(champions): species-overlap near-duplicate review flag for holdout sealing"
+```
 
 ## 8. Task 5 — Hash disjointness against frozen coverage (unchanged from Rev. 1)
 
@@ -3835,6 +4247,18 @@ def _fake_reference_species():
     return {"cov_foe_slot0": ["FixtureMonA", "FixtureMonB"]}
 
 
+def _fake_holdout_candidate_species():
+    # Rev. 18 fix (§1q): the six holdout candidates' OWN species -- genuinely separate from
+    # _fake_reference_species()'s reference-side data. Keyed by _six_teams()'s own six team_ids
+    # so it satisfies the new holdout_candidate_species-vs-manifest_a["holdout_teams"] key-set
+    # check for every test using _write_arm's/_write_holdout_teams_repo's default six-team
+    # holdout_teams mapping, without needing per-test overrides.
+    return {
+        team_id: [f"FixtureCandidateMon{i}A", f"FixtureCandidateMon{i}B"]
+        for i, team_id in enumerate(_six_teams())
+    }
+
+
 def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_path, monkeypatch):
     # P1 fix (Rev. 3): make_candidate_identity hashes hero_agent, so arm A (heuristic) and arm B
     # (max_damage) NEVER share a candidate_identity for any genuine run -- DESIGN sec 5:
@@ -3851,11 +4275,105 @@ def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_p
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
     assert result["verdict"] in ("UNDERPOWERED", "GO", "NO-GO", "SAFETY-FAIL")  # ran to a real verdict, did not abort
+
+
+def test_combine_publishes_near_duplicate_flags_without_aborting_or_gating_the_verdict(tmp_path, monkeypatch):
+    # Rev. 18 fix (§1q) / DESIGN sec 3.3: a near-duplicate flag is a manual-review hint, never an
+    # automatic reject. Constructs a reference team with species IDENTICAL to one holdout
+    # candidate's (guaranteed overlap_fraction == 1.0, Task 4's own "flags identical species
+    # sets" scenario) and confirms combine_strength_holdout_arms still runs to a real verdict --
+    # the flag is recorded in the published bundle (payload["near_duplicate_flags"]), not acted
+    # on to gate PASS/FAIL.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    candidate_species = _fake_holdout_candidate_species()
+    first_candidate_id = sorted(candidate_species)[0]
+    duplicate_reference_species = {"touched_team": list(candidate_species[first_candidate_id])}
+
+    result = combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, holdout_candidate_species=candidate_species,
+        reference_species=duplicate_reference_species,
+        stratum_env_override="windows", teams_root=teams_root,
+        ledger_path=str(tmp_path / "ledger.jsonl"),
+    )
+    assert result["verdict"] in ("UNDERPOWERED", "GO", "NO-GO", "SAFETY-FAIL")  # not aborted
+    flags = result["near_duplicate_flags"]
+    assert len(flags) == 1
+    assert flags[0]["candidate_team_id"] == first_candidate_id
+    assert flags[0]["reference_team_id"] == "touched_team"
+    assert flags[0]["overlap_fraction"] == pytest.approx(1.0)
+
+
+def test_combine_aborts_if_holdout_candidate_species_names_the_wrong_team_ids(tmp_path, monkeypatch):
+    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes's own key-set check -- a
+    # caller-supplied holdout_candidate_species naming a team_id outside the real six (or missing
+    # one of them) must abort before the near-duplicate guard ever runs, not silently compare
+    # species for the wrong teams or skip a scheduled one. holdout_content_hashes must be the
+    # REAL matching hashes here (not the cheap 2-entry _fake_holdout_hashes()) so the earlier
+    # holdout_content_hashes-vs-manifest check passes and this test actually isolates the NEW
+    # holdout_candidate_species check, not the pre-existing one.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    matching_hashes = {team_id: entry["content_hash"] for team_id, entry in _fake_holdout_teams().items()}
+    wrong_species = {"not_a_real_holdout_team": ["A", "B"]}
+
+    with pytest.raises(GateBAbort, match="holdout_candidate_species"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=matching_hashes, holdout_candidate_species=wrong_species,
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_rejects_empty_holdout_candidate_species(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+
+    with pytest.raises(GateBAbort, match="holdout_candidate_species"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species={},
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_cleanly_on_malformed_species_data_not_a_raw_valueerror(tmp_path, monkeypatch):
+    # Rev. 18 fix (§1q, self-found): find_near_duplicate_flags (Task 4) raises ValueError for an
+    # empty per-team species list -- the key-set checks above only prove the right team_ids are
+    # named, never that each one's species list is itself non-empty. Confirm the abort surfaces
+    # as GateBAbort (CLI-handled, Task 11), not a raw ValueError escaping uncaught.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    matching_hashes = {team_id: entry["content_hash"] for team_id, entry in _fake_holdout_teams().items()}
+    malformed_species = _fake_holdout_candidate_species()
+    first_id = sorted(malformed_species)[0]
+    malformed_species[first_id] = []  # empty species list for one otherwise-correctly-named team
+
+    with pytest.raises(GateBAbort, match="near-duplicate check failed"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=matching_hashes, holdout_candidate_species=malformed_species,
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
 
 
 def test_combine_aborts_if_arms_disagree_on_git_sha(tmp_path, monkeypatch):
@@ -3868,7 +4386,7 @@ def test_combine_aborts_if_arms_disagree_on_git_sha(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -3882,7 +4400,7 @@ def test_combine_aborts_if_arm_roles_are_swapped_or_wrong(tmp_path, monkeypatch)
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -3899,7 +4417,7 @@ def test_combine_aborts_without_an_i8d_verdict_path_before_any_pairing_or_publis
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path="", coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -3915,7 +4433,7 @@ def test_combine_aborts_without_a_coverage_verdict_path_before_any_pairing_or_pu
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path="",
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -3943,7 +4461,7 @@ def test_combine_wraps_a_strength_holdout_run_error_from_i8d_verification(tmp_pa
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -3968,7 +4486,7 @@ def test_combine_wraps_a_strength_holdout_run_error_from_coverage_verification(t
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -3985,7 +4503,7 @@ def test_combine_publishes_full_evidence_bundle_not_just_verdict_json(tmp_path, 
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
@@ -4007,7 +4525,7 @@ def test_combine_appends_a_ledger_run_entry_with_all_real_required_fields(tmp_pa
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
@@ -4030,7 +4548,7 @@ def test_combine_refuses_a_repeat_config_hash_without_justification(tmp_path, mo
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined1"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
@@ -4041,7 +4559,7 @@ def test_combine_refuses_a_repeat_config_hash_without_justification(tmp_path, mo
         combine_strength_holdout_arms(
             arm_a_dir=arm_a2, arm_b_dir=arm_b2, out_dir=str(tmp_path / "combined2"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root,
             ledger_path=str(ledger_path),
         )
@@ -4072,7 +4590,7 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4107,7 +4625,7 @@ def test_combine_wraps_a_non_missing_pair_error_too(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=str(tmp_path / "arm_a"), arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4122,7 +4640,7 @@ def test_combine_rejects_empty_holdout_content_hashes(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes={}, reference_species=_fake_reference_species(),
+            holdout_content_hashes={}, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4135,7 +4653,8 @@ def test_combine_rejects_empty_reference_species(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species={},
+            holdout_content_hashes=_fake_holdout_hashes(),
+            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species={},
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4159,7 +4678,7 @@ def test_combine_aborts_if_an_arms_manifest_does_not_match_its_own_rows(tmp_path
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4186,7 +4705,7 @@ def test_combine_aborts_cleanly_on_a_malformed_row_not_a_raw_resultrowerror(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4210,7 +4729,7 @@ def test_combine_aborts_cleanly_on_a_manifest_missing_a_required_key_not_a_raw_k
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4227,7 +4746,7 @@ def test_combine_aborts_cleanly_when_an_arm_directory_is_missing_not_a_raw_oserr
         combine_strength_holdout_arms(
             arm_a_dir=str(tmp_path / "arm_a_never_published"), arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4244,7 +4763,7 @@ def test_combine_aborts_cleanly_on_truncated_json_not_a_raw_jsondecodeerror(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4272,7 +4791,7 @@ def test_combine_does_not_publish_if_the_ledger_append_fails(tmp_path, monkeypat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4292,7 +4811,7 @@ def test_combine_aborts_if_holdout_content_hashes_omits_a_scheduled_team(tmp_pat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes={"holdout_0": "fakehash1111aaaa"}, reference_species=_fake_reference_species(),
+            holdout_content_hashes={"holdout_0": "fakehash1111aaaa"}, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4312,7 +4831,7 @@ def test_combine_aborts_if_holdout_content_hashes_has_a_wrong_value_for_a_correc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=wrong_value_hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=wrong_value_hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4335,7 +4854,7 @@ def test_combine_aborts_if_arms_disagree_on_holdout_teams(tmp_path, monkeypatch)
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in default_teams.items()},
-            reference_species=_fake_reference_species(),
+            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4362,7 +4881,7 @@ def test_combine_aborts_if_both_manifests_claim_wrong_teams_but_rows_are_unchang
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in wrong_teams.items()},
-            reference_species=_fake_reference_species(),
+            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4383,7 +4902,7 @@ def test_combine_aborts_if_a_rows_opp_team_hash_does_not_match_the_manifest(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4404,7 +4923,7 @@ def test_combine_aborts_if_a_manifest_team_path_is_not_canonical(tmp_path, monke
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4426,7 +4945,7 @@ def test_combine_aborts_if_one_row_has_an_unknown_opponent_path(tmp_path, monkey
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4453,7 +4972,7 @@ def test_combine_aborts_if_a_manifest_team_never_appears_in_rows(tmp_path, monke
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in holdout_teams.items()},
-            reference_species=_fake_reference_species(),
+            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4483,7 +5002,7 @@ def test_combine_aborts_if_holdout_teams_has_an_invalid_shape(tmp_path, monkeypa
             combine_strength_holdout_arms(
                 arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{label}"),
                 i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-                holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+                holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
                 stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
             )
 
@@ -4510,7 +5029,7 @@ def test_combine_rejects_mixed_windows_and_kaggle_arms(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4531,7 +5050,7 @@ def test_combine_accepts_two_equally_attested_arms(tmp_path, monkeypatch):
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
         teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
     )
     assert result["stratum"] == "windows"
@@ -4553,7 +5072,7 @@ def test_combine_rejects_a_contradictory_stratum_override(tmp_path, monkeypatch)
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="kaggle", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4572,7 +5091,7 @@ def test_combine_aborts_if_arms_disagree_on_date_stratum_id(tmp_path, monkeypatc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4593,7 +5112,7 @@ def test_combine_aborts_on_an_unknown_stratum_value(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4614,7 +5133,7 @@ def test_combine_aborts_on_a_type_wrong_platform_attestation(tmp_path, monkeypat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 ```
@@ -4906,7 +5425,8 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
 def combine_strength_holdout_arms(
     *, arm_a_dir: str, arm_b_dir: str, out_dir: str,
     i8d_verdict_path: str, coverage_verdict_path: str,
-    holdout_content_hashes: dict[str, str], reference_species: dict[str, list[str]],
+    holdout_content_hashes: dict[str, str],
+    holdout_candidate_species: dict[str, list[str]], reference_species: dict[str, list[str]],
     baseline_manifest_path: str = "config/eval/baselines/champions-strength-holdout-v0.json",
     repo_root: str = ".",
     stratum_env_override: str | None = None,
@@ -4940,6 +5460,20 @@ def combine_strength_holdout_arms(
     real six teams this schedule played, not merely whatever six labels a manifest or a caller
     happened to assert.
 
+    holdout_candidate_species/reference_species (Rev. 18 fix, §1q): two GENUINELY SEPARATE
+    mappings, never one dict doing double duty as both. Before this fix, the near-duplicate loop
+    below iterated `reference_species` to get BOTH the six holdout candidates AND the reference
+    set to compare them against -- passing `reference_teams=reference_species` (the SAME dict)
+    for every team drawn FROM that same dict meant every team was compared against a reference
+    set that included itself, and there was no way to supply the six holdout teams' OWN species
+    at all (only their content hashes/paths were ever threaded through). `holdout_candidate_species`
+    carries the six holdout teams' species sets (DESIGN sec 3.3's "holdout team" side);
+    `reference_species` carries the nine existing Champions-M-A teams' species sets (its "touched
+    or coverage team" side, §16 item 5) -- disjoint by construction now, not merely by caller
+    discipline. `holdout_candidate_species`'s key set is checked against
+    `manifest_a["holdout_teams"]` (below) exactly like `holdout_content_hashes` already is, so a
+    caller cannot silently supply species for the wrong team_ids either.
+
     Candidate identity note (Rev. 3 P1 fix): arm A (hero_agent='heuristic') IS the shared
     candidate identity checked against I8-D/Coverage (DESIGN sec 5: "Candidate A is that shared
     candidate; Baseline B is the reference, not a separately-gated candidate"). Arm B
@@ -4963,6 +5497,8 @@ def combine_strength_holdout_arms(
         raise GateBAbort("coverage_verdict_path is required and must be non-empty -- Gate B may only run after a Coverage PASS on this candidate")
     if not holdout_content_hashes:
         raise GateBAbort("holdout_content_hashes must be non-empty -- an empty mapping makes the disjointness/leakage guards vacuous")
+    if not holdout_candidate_species:
+        raise GateBAbort("holdout_candidate_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
     if not reference_species:
         raise GateBAbort("reference_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
 
@@ -5005,6 +5541,20 @@ def combine_strength_holdout_arms(
             f"actually played (schedule: {expected_hashes}, holdout_content_hashes: "
             f"{holdout_content_hashes}) -- the leakage/disjointness guards must see every "
             "scheduled team with its real hash, not a subset or a wrong value"
+        )
+    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes just above -- a caller-supplied
+    # holdout_candidate_species must name exactly the six teams this schedule actually played, not
+    # a subset, an extra team, or a mislabeled one. Key-set only (not value equality, unlike
+    # holdout_content_hashes): a hash has exactly one correct value to check against; a team's
+    # species list has no independently-derivable "correct" value here for combine to check
+    # against (Task 9's manifest never records species, only path/content_hash) -- species
+    # correctness is instead what the near-duplicate check itself exists to reason about.
+    if set(holdout_candidate_species) != set(manifest_a["holdout_teams"]):
+        raise GateBAbort(
+            f"holdout_candidate_species' team_ids {sorted(holdout_candidate_species)} do not "
+            f"match the six teams this schedule actually played "
+            f"{sorted(manifest_a['holdout_teams'])} -- the near-duplicate guard must see species "
+            "for every scheduled holdout team, not a subset, extra, or mislabeled one"
         )
 
     # NF2 fix (Rev. 7): verify_i8d_verdict_artifact/verify_coverage_verdict_artifact raise
@@ -5066,11 +5616,34 @@ def combine_strength_holdout_arms(
         team_ids=sorted(manifest_a["holdout_teams"]),
         teams_root=teams_root,  # N3 fix: was silently hardcoded to "." inside the scan before
     )
-    near_dup_flags = []
-    for team_id, species in reference_species.items():
-        near_dup_flags.extend(find_near_duplicate_flags(
-            candidate_team_id=team_id, candidate_species=species, reference_teams=reference_species,
-        ))
+    # Rev. 18 fix (§1q): the pre-Rev.-18 version of this loop iterated reference_species for
+    # BOTH the candidates AND the reference set (`for team_id, species in
+    # reference_species.items(): find_near_duplicate_flags(..., reference_teams=reference_species)`)
+    # -- every team was compared against a reference set that included itself, and there was no
+    # way to supply the six holdout teams' own species at all. holdout_candidate_species and
+    # reference_species are now two genuinely separate mappings (validated above); iterating the
+    # CANDIDATES and comparing each against the REFERENCE set is the correct DESIGN sec 3.3
+    # geometry (six holdout teams checked against nine touched/coverage teams), and
+    # find_near_duplicate_flags's own self-exclusion (Task 4) is defense in depth on top of that,
+    # not the only thing preventing self-comparison.
+    # Rev. 18 fix (§1q, self-found while wiring this loop, same pass): find_near_duplicate_flags
+    # (Task 4) raises ValueError for malformed species data (an empty per-team species list, on
+    # either the candidate or the reference side) -- the key-set checks above prove
+    # holdout_candidate_species/reference_species name the RIGHT teams, but never validated that
+    # each team's OWN species list is non-empty. Left unwrapped, a malformed entry would escape
+    # combine_strength_holdout_arms as a raw ValueError, uncaught by the CLI (which only ever
+    # catches GateBAbort, Task 11) -- the same "new guard, new raw exception" shape NF1/NF3 fixed
+    # for _assert_rows_match_manifest/BattleResultWriter.write, applied here on introduction
+    # rather than found later.
+    try:
+        near_dup_flags = []
+        for team_id in sorted(holdout_candidate_species):
+            near_dup_flags.extend(find_near_duplicate_flags(
+                candidate_team_id=team_id, candidate_species=holdout_candidate_species[team_id],
+                reference_teams=reference_species,
+            ))
+    except ValueError as exc:
+        raise GateBAbort(f"near-duplicate check failed on malformed species data: {exc}") from exc
     # DESIGN sec 3.3: manual-review flag, never an auto-abort -- always computed and recorded
     # in the published bundle below (payload["near_duplicate_flags"]), never silently dropped.
 
@@ -5612,8 +6185,25 @@ Unchanged in structure from Rev. 1, with the pre-conditions from §2 now explici
 3. Each sealed via Task 12's `seal_team` (real `.txt`+`.packed` hash), with a specific,
    non-generic `blind_attestation`.
 4. `assert_disjoint_from_coverage` (Task 5) passes against the real six hashes.
-5. `find_near_duplicate_flags` (Task 4) run against all nine existing Champions M-A teams; any
-   flag gets a written disposition before proceeding.
+5. `find_near_duplicate_flags` (Task 4) run, once per holdout candidate, against the nine
+   existing Champions-M-A **opponent-side** teams as `reference_teams` -- disposition (a written
+   note: dismissed as coincidental staple overlap, or escalated) recorded for every flag before
+   proceeding. **"Nine" verified, Rev. 18 (§1q, this round) -- not previously traceable to a
+   concrete list:** the on-disk `gen9championsvgc2026regma` team set is 10 files total, not
+   nine -- one shared hero (`showdown_bot/teams/fixed_champions_v0.txt`) plus nine opponent-side
+   teams across two panels: `config/eval/panels/panel_champions_v0.yaml`'s 3 dev
+   (`goodstuff`/`tailwind_offense`/`trick_room`) + 2 heldout (`rain_offense`/`disruption`) = 5,
+   and `config/eval/panels/panel_champions_coverage_v0.yaml`'s 2 dev
+   (`cov_foe_slot0`/`cov_foe_slot1`) + 2 heldout (`cov_foe_both`/`cov_foe_tie`) = 4. `5 + 4 = 9`
+   reconciles exactly -- "nine" means these nine opponent-side teams, with the shared hero
+   correctly EXCLUDED (DESIGN sec 3.3 flags overlap against a "touched or coverage TEAM," which
+   in context means an opponent this bot has already been tested against, not its own fixed
+   hero -- the hero is the same file across every one of these panels by design, so including it
+   would make every future holdout candidate trivially "overlap" with itself via the hero side of
+   the comparison, which is not what this check exists to catch). Task 13's own sourcing/
+   sealing work still owns deriving these nine teams' actual species lists (parsing the real
+   `.txt`/`.packed` files at these paths into `reference_teams: dict[str, list[str]]`) -- not
+   specified further here, since Task 13 remains blocked on the source-proof (§2) regardless.
 6. `assert_no_holdout_leakage` (Task 2, both the identifier scan and the raw `.txt`/`.packed`
    payload scan, Rev. 12 §1k) returns zero hits outside the allowlist.
 7. Panel YAML, holdout manifest JSON, and the Task 6 baseline manifest all get real content;
