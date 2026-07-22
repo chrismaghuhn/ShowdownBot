@@ -1,13 +1,22 @@
 # Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 21)
 
-> **Status: Rev. 21 — Tasks 1–11 are IMPLEMENTED, reviewed (Codex PASS) and merged on this
-> branch. Task 13 is the active slice -- its source condition is SATISFIED as of 2026-07-22
-> (see 2a); its construction/sealing/wiring work is outstanding. Any live run remains BLOCKED.**
+> **Status: Rev. 21 — Tasks 1–12 are IMPLEMENTED, tested, reviewed (Codex PASS) and COMMITTED on
+> branch `feat/champions-gate-b-task-1-schedule`. Nothing is merged to `main`. Task 13 is the
+> active slice: its source condition is SATISFIED as of 2026-07-22 (§2a), and its
+> construction/sealing/wiring work is outstanding — no team file and no sealed hash exists yet. No
+> server or battle has touched any worktree, and the live Gate B run remains BLOCKED under a
+> separate authorization (§17).**
+>
+> This header, the implementation-status block further down, §16 and §19 are kept in agreement;
+> if they ever disagree, the deepest one (§19) is the one to fix first.
+>
 > - **Rev. 20 → Rev. 21** (§1t, mechanical sync, no new design round): Task 11's embedded code and
->   its argparse instructions are replaced with the flat-CLI implementation actually merged as
+>   its argparse instructions are replaced with the flat-CLI implementation actually committed as
 >   `b71923f`. The removed claim — "register both subparsers … all five `required=True`" — was
 >   false in two ways at once: `cli.py` has no argparse subparsers, and `required=True` on a shared
->   global flag would break every other command. Rev. 9 was the first round with zero findings against it. Eight prior review rounds
+>   global flag would break every other command.
+>
+> Rev. 9 was the first round with zero findings against it. Eight prior review rounds
 > received CHANGES REQUESTED; full per-round findings tables are in §1a–§1i, summarized briefly
 > here so this header stays readable:
 > - **Rev. 19 → Rev. 20** (§1s, mechanical sync, no new design round): Task 10's embedded code was
@@ -931,11 +940,12 @@ required parameter has no stale call site to update there yet. Task 12 (§15) --
 never touches species data. `uv.lock` -- confirmed untracked and untouched throughout this round,
 per explicit instruction.
 
-## 1s. What changed in Rev. 20 — mechanical sync of Task 10 with its merged implementation
+## 1s. What changed in Rev. 20 — mechanical sync of Task 10 with its committed implementation
 
-Not a review round and not a design change: Tasks 1–10 are implemented and merged on this branch,
+Not a review round and not a design change: as of Rev. 20, Tasks 1–10 were implemented and committed
+on this branch (nothing is merged to `main`),
 and Task 10's embedded code here had fallen behind the two review-fix commits that landed after
-it. This revision replaces §13's test and implementation blocks verbatim with the final merged
+it. This revision replaces §13's test and implementation blocks verbatim with the final committed
 source as of `53e6c9c` and updates that task's RED/GREEN/commit records to what was executed.
 
 **Housekeeping note:** Rev. 19's header bullet referenced a `§1r` that was never actually written
@@ -7946,9 +7956,11 @@ Steps 3-6 are explicitly out of scope for this plan.
 
 ## 19. What happens next
 
-**Rev. 21 status.** Tasks 1–11 are implemented, reviewed (Codex PASS), and merged on
-`feat/champions-gate-b-task-1-schedule`; this document's Task 10 and Task 11 sections now mirror
-that merged source rather than a proposal. Task 12 (team sealing/provenance) is the active slice.
+**Rev. 21 status.** Tasks 1–12 are implemented, tested, reviewed (Codex PASS), and **committed on
+`feat/champions-gate-b-task-1-schedule` — nothing is merged to `main`**; this document's Task 10
+and Task 11 sections now mirror that committed source rather than a proposal, and Task 12 (team
+sealing/provenance) shipped with the `.packed`-containment review-fix. **Task 13 is the active
+slice.**
 Task 13's source condition is SATISFIED as of 2026-07-22 (§2a): the six authorized teams are
 frozen, complete, and `validate-team`-legal. What remains for Task 13 is construction, sealing and
 wiring -- the `.txt`/`.packed` artifacts, `seal_team`, the panel/holdout/baseline manifests and the
