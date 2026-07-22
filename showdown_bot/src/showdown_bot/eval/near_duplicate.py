@@ -9,7 +9,7 @@ everything outside a-z0-9, no forme merging (`Giratina` and `Giratina-Origin` st
 
 Every public function in this module validates its argument TYPES strictly, not merely
 emptiness, and raises ONLY `ValueError` for any invalid input -- never a caller-input-triggered
-`TypeError`/`AttributeError`/`FileNotFoundError` escaping uncaught. `load_team_species` derives a
+`TypeError`/`AttributeError`/`OSError` escaping uncaught. `load_team_species` derives a
 team's species from its REAL sealed packed content rather than accepting a caller's bare
 assertion -- the same "prove it from the real bound data, don't trust the caller" discipline this
 whole plan applies everywhere else (arm manifests bound to their own rows, stratum bound to each
@@ -57,13 +57,20 @@ def overlap_fraction(a: frozenset[str], b: frozenset[str]) -> float:
     at least 4 of 6 species shared, while the overlap coefficient's >= 0.5 requires only 3 of 6 --
     ordinary shared-meta-staple overlap between unrelated competent teams, not a near-duplicate.
     Fails closed on a non-frozenset or empty input -- defense in depth independent of
-    species_set's own guard, since this function is public and may be called directly."""
+    species_set's own guard, since this function is public and may be called directly. Also
+    fails closed if either set contains a non-string or empty-string element: species_set's own
+    output can never contain one (it normalizes via _to_id and explicitly rejects an empty
+    result), but this function is public and may be called directly with a hand-built frozenset
+    that bypasses species_set entirely -- e.g. overlap_fraction(frozenset({1}), ...) must not
+    silently compute a numeric answer over the wrong element type."""
     if not isinstance(a, frozenset) or not isinstance(b, frozenset):
         raise ValueError(
             f"overlap_fraction requires two frozensets, got {type(a).__name__} and {type(b).__name__}"
         )
     if not a or not b:
         raise ValueError("overlap_fraction requires two non-empty sets")
+    if not all(isinstance(x, str) and x for x in a) or not all(isinstance(x, str) and x for x in b):
+        raise ValueError("overlap_fraction requires frozensets of non-empty strings")
     intersection = len(a & b)
     union = len(a | b)
     return intersection / union
@@ -89,14 +96,18 @@ def find_near_duplicate_flags(
     deterministic return order regardless of reference_teams' own dict construction order."""
     if not isinstance(candidate_team_id, str):
         raise ValueError(f"candidate_team_id must be a string, got {type(candidate_team_id).__name__}")
-    if not candidate_team_id:
-        raise ValueError("candidate_team_id must be non-empty")
+    if not candidate_team_id.strip():
+        raise ValueError(
+            f"candidate_team_id must be non-empty and not whitespace-only, got {candidate_team_id!r}"
+        )
     if not isinstance(reference_teams, dict):
         raise ValueError(f"reference_teams must be a dict, got {type(reference_teams).__name__}")
     if not reference_teams:
         raise ValueError("reference_teams must be non-empty -- an empty mapping makes this check vacuous")
-    if not all(isinstance(team_id, str) for team_id in reference_teams):
-        raise ValueError(f"reference_teams keys must all be strings, got {reference_teams!r}")
+    if not all(isinstance(team_id, str) and team_id.strip() for team_id in reference_teams):
+        raise ValueError(
+            f"reference_teams keys must all be non-empty, non-whitespace strings, got {reference_teams!r}"
+        )
     candidate_set = species_set(candidate_species)
     flags = []
     for reference_team_id in sorted(reference_teams):
@@ -119,10 +130,11 @@ def load_team_species(team_path: str, *, teams_root: str = ".") -> list[str]:
     (team.spreads.our_spreads_from_packed: split on "]" for per-mon blocks, then "|" for fields,
     species = field[1] or field[0] when blank) rather than inventing a second one, and
     team.pack.load_packed_team for the actual file read (the same function Task 9's own
-    run_strength_holdout_arm uses to load hero/opponent teams). Wraps every failure --
-    FileNotFoundError, a malformed multi-line packed file (both from load_packed_team), or a
-    malformed per-mon block -- as ValueError, matching this module's own single-exception-type
-    contract; no other exception type ever escapes this function."""
+    run_strength_holdout_arm uses to load hero/opponent teams). Wraps every failure -- any
+    OSError (missing file, permission denied, or any other filesystem failure), a malformed
+    multi-line packed file (both from load_packed_team), or a malformed per-mon block -- as
+    ValueError, matching this module's own single-exception-type contract; no other exception
+    type ever escapes this function."""
     if not isinstance(team_path, str) or not team_path:
         raise ValueError(f"team_path must be a non-empty string, got {team_path!r}")
     if not isinstance(teams_root, str):
@@ -130,7 +142,11 @@ def load_team_species(team_path: str, *, teams_root: str = ".") -> list[str]:
     from showdown_bot.team.pack import load_packed_team
     try:
         packed = load_packed_team(os.path.join(teams_root, team_path))
-    except (FileNotFoundError, ValueError) as exc:
+    except (OSError, ValueError) as exc:
+        # OSError (not just FileNotFoundError, one of its subclasses) -- an unreadable-but-
+        # existing .packed file raises PermissionError, a sibling OSError subclass, which the
+        # narrower except clause did not catch and let escape this module's "exclusively
+        # ValueError" contract entirely.
         raise ValueError(
             f"could not load packed team at {team_path!r} under teams_root={teams_root!r}: {exc}"
         ) from exc

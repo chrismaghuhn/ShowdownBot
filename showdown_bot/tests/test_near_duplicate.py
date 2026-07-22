@@ -84,6 +84,16 @@ def test_overlap_fraction_rejects_a_non_frozenset_input():
         overlap_fraction(["a", "b"], frozenset({"a"}))
 
 
+def test_overlap_fraction_rejects_frozensets_containing_non_string_or_empty_elements():
+    # Review-fix P1: overlap_fraction only checked that a/b were frozensets, never that their
+    # ELEMENTS were strings -- overlap_fraction(frozenset({1}), frozenset({"a"})) silently
+    # computed a numeric answer (0.0) over the wrong element type instead of rejecting it.
+    with pytest.raises(ValueError, match="non-empty strings"):
+        overlap_fraction(frozenset({1}), frozenset({"a"}))
+    with pytest.raises(ValueError, match="non-empty strings"):
+        overlap_fraction(frozenset({"a", ""}), frozenset({"b"}))
+
+
 def test_find_near_duplicate_flags_flags_identical_species_sets_of_different_team_ids():
     flags = find_near_duplicate_flags(
         candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
@@ -149,6 +159,24 @@ def test_find_near_duplicate_flags_rejects_a_non_string_candidate_team_id():
         )
 
 
+def test_find_near_duplicate_flags_rejects_empty_or_whitespace_only_team_ids():
+    # Review-fix P1: candidate_team_id was only checked with bare `not candidate_team_id`
+    # (whitespace-only strings are truthy, so "   " slipped through) and reference_teams' keys
+    # were only checked for STRING TYPE, never for being non-empty/non-whitespace --
+    # reference_teams={"": [...]} passed every existing check and, if its species crossed the
+    # threshold, was published as a NearDuplicateFlag with reference_team_id="".
+    with pytest.raises(ValueError, match="non-empty and not whitespace-only"):
+        find_near_duplicate_flags(
+            candidate_team_id="   ", candidate_species=["A", "B", "C"],
+            reference_teams={"ref_1": ["A", "B", "C"]},
+        )
+    with pytest.raises(ValueError, match="non-empty, non-whitespace"):
+        find_near_duplicate_flags(
+            candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
+            reference_teams={"": ["A", "B", "C"], "  ": ["D", "E", "F"]},
+        )
+
+
 def test_find_near_duplicate_flags_rejects_a_non_dict_reference_teams():
     with pytest.raises(ValueError, match="must be a dict"):
         find_near_duplicate_flags(
@@ -158,7 +186,7 @@ def test_find_near_duplicate_flags_rejects_a_non_dict_reference_teams():
 
 
 def test_find_near_duplicate_flags_rejects_reference_teams_with_a_non_string_key():
-    with pytest.raises(ValueError, match="must all be strings"):
+    with pytest.raises(ValueError, match="must all be non-empty"):
         find_near_duplicate_flags(
             candidate_team_id="holdout_0", candidate_species=["A", "B", "C"],
             reference_teams={123: ["A", "B", "C"]},
@@ -239,3 +267,23 @@ def test_load_team_species_rejects_a_packed_file_with_no_pokemon(tmp_path):
 def test_load_team_species_rejects_a_non_string_team_path():
     with pytest.raises(ValueError, match="must be a non-empty string"):
         load_team_species(123, teams_root=".")
+
+
+def test_load_team_species_wraps_a_permission_error_as_valueerror(tmp_path, monkeypatch):
+    # Review-fix P1: only FileNotFoundError/ValueError were wrapped -- an unreadable (but
+    # existing) .packed file raises PermissionError, a sibling OSError subclass, which escaped
+    # this module's "exclusively ValueError" contract entirely. Wrapping OSError (not just
+    # FileNotFoundError) closes this for every OSError subclass, not just the one this test
+    # happens to simulate.
+    team_path = tmp_path / "holdout_0.txt"
+    team_path.write_text("irrelevant\n", encoding="utf-8")
+    packed_path = tmp_path / "holdout_0.packed"
+    packed_path.write_text(_packed_team(["Pikachu"]), encoding="utf-8")
+
+    def _raise_permission_error(self, *a, **kw):
+        raise PermissionError(f"fixture-forced permission denial: {self}")
+
+    monkeypatch.setattr("pathlib.Path.read_text", _raise_permission_error)
+
+    with pytest.raises(ValueError, match="could not load"):
+        load_team_species(str(team_path), teams_root=".")
