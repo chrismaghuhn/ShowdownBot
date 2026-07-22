@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import platform
 import re
+import shutil
 import subprocess
+from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 
 from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
@@ -623,3 +627,705 @@ def run_strength_holdout_arm(
     })
     os.replace(staging_dir, out_dir)
     return {"hero_agent": hero_agent, "rows": rows, "out_dir": out_dir, **provenance}
+
+
+from showdown_bot.eval.result_jsonl import validate_battle_row, ResultRowError
+from showdown_bot.eval.pairing import pair_runs, PairingError
+from showdown_bot.eval.strength_holdout_verdict import (
+    render_strength_holdout_verdict, compute_safety_pass,
+    verify_i8d_verdict_artifact, verify_coverage_verdict_artifact, StrengthHoldoutRunError,
+)
+from showdown_bot.eval.holdout_leakage_scan import assert_no_holdout_leakage
+from showdown_bot.eval.holdout_disjointness import assert_disjoint_from_coverage
+from showdown_bot.eval.near_duplicate import find_near_duplicate_flags
+from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_no_cross_stratum_pooling
+from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
+from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
+from showdown_bot.eval.report import _build_cells, _build_aggregates
+# Rev. 19 note (Task 9 review-fix sync, §1r): _assert_seed_artifact_verified (below) needs
+# `hashlib`, `re`, `Path`, `platform`, `verify_seed_log`, and `SeedLogError` -- all ALREADY
+# imported module-wide at the top of strength_holdout_runner.py by Task 9's own review-fix
+# (`import hashlib`/`import re`/`from pathlib import Path`/`import platform`/`from
+# showdown_bot.eval.seeding import ..., verify_seed_log, SeedLogError`). No new import needed
+# for Task 10 itself.
+
+
+def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
+    # Self-found while building the Rev. 7 exception-audit table (not in NF1's own text, same
+    # function/mechanism/round -- disclosed explicitly in §1f, following the Rev. 2 precedent of
+    # fixing self-found adjacent bugs in the same pass rather than deferring them unmentioned):
+    # open()/json.loads()/json.load() below can raise OSError (missing arm_dir/rows.jsonl/
+    # arm_manifest.json, permissions), UnicodeDecodeError (non-UTF-8 bytes on disk), or
+    # json.JSONDecodeError (truncated/corrupt JSON) -- none is ResultRowError, so the except
+    # clause added for NF1 does not catch them. All three are the same "corrupted or stale arm
+    # directory" scenario this function exists to guard against -- not a caller-contract
+    # violation (e.g. a wrong-typed arm_dir), which stays unguarded per this codebase's own
+    # boundary-only validation convention.
+    try:
+        rows = []
+        with open(os.path.join(arm_dir, "rows.jsonl"), "r", encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip():
+                    row = json.loads(line)
+                    try:
+                        validate_battle_row(row)  # F3 fix (Rev. 6): schema conformance was never checked on read
+                    except ResultRowError as exc:
+                        # NF1 fix (Rev. 7): a corrupted or stale-schema rows.jsonl must produce a
+                        # clean abort, not a traceback -- ResultRowError was never imported or
+                        # caught anywhere in this plan before this fix.
+                        raise GateBAbort(f"malformed row in {arm_dir}/rows.jsonl: {exc}") from exc
+                    rows.append(row)
+        with open(os.path.join(arm_dir, "arm_manifest.json"), "r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise GateBAbort(f"cannot read arm directory {arm_dir!r}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise GateBAbort(f"malformed JSON in arm directory {arm_dir!r}: {exc}") from exc
+    return rows, manifest
+
+
+# NF1 fix (Rev. 7): the exact keys _assert_rows_match_manifest indexes below, checked for
+# PRESENCE before any value comparison. panel_hash is deliberately included on the row side even
+# though result_jsonl.NULLABLE_FIELDS does not require it -- validate_battle_row (called in
+# _read_arm above) does not guarantee its presence, so a row missing it would otherwise crash
+# this function's own row[field] access with a raw KeyError, exactly the N1 bug one level up
+# (see the comment at Task 9's row-building site).
+_MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", "seed_base",
+                          "panel_hash", "hero_agent", "candidate_identity", "holdout_teams",
+                          # Rev. 15 fix (§1n, Task-3-review P1 #1): presence-checked here exactly
+                          # like every other required field -- closed-form validity (unknown
+                          # stratum value; non-string/empty platform_attestation/date_stratum_id)
+                          # is checked separately, by _validate_stratum_fields below.
+                          "stratum", "platform_attestation", "date_stratum_id",
+                          # Rev. 19 fix (Task 9 review-fix sync, §1r): Task 9's own review-fix
+                          # (5 P1s) added calc_backend (derived internally, no longer discarded)
+                          # and replaced the caller-local seed_log_path field with a four-field
+                          # seed PROOF -- seed_log_relpath/seed_log_sha256/seed_log_n_lines/
+                          # seed_log_verified -- so the arm's manifest never again carries a
+                          # machine-local absolute path. Presence-checked here; closed-form
+                          # validity by _validate_seed_proof_fields below.
+                          "calc_backend", "seed_log_relpath", "seed_log_sha256",
+                          "seed_log_n_lines", "seed_log_verified")
+_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
+# Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
+# _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound
+# against holdout_teams (a per-team MAPPING) in a separate function below, not the scalar
+# row[field] != manifest[field] content-match loop just below this constant, which only ever
+# compares a row field against ONE manifest-wide value -- opp_team_path/opp_team_hash vary
+# per row by design (each row is for a DIFFERENT one of the six teams).
+_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING = ("opp_team_path", "opp_team_hash")
+_HOLDOUT_TEAM_ENTRY_FIELDS = frozenset({"team_path", "content_hash"})
+
+
+def _validate_holdout_teams_mapping(holdout_teams, which: str) -> None:
+    """Rev. 14 fix (§1m, third review round P1): holdout_teams must be a CLOSED, unambiguous,
+    deterministic mapping -- Rev. 13's bare team_id LIST only ever ASSERTED which six teams were
+    played; it was never bound to what the rows themselves actually contain, and nothing rejected
+    a malformed shape either. Every structural deviation is rejected fail-closed here, before any
+    row-binding check below even attempts to read it (mirrors panel.py's own
+    missing/unknown-field pattern in _load_team_list)."""
+    if not isinstance(holdout_teams, dict):
+        raise GateBAbort(
+            f"arm {which}: manifest's holdout_teams must be an object/mapping, got "
+            f"{type(holdout_teams).__name__}"
+        )
+    if len(holdout_teams) != 6:
+        raise GateBAbort(
+            f"arm {which}: manifest's holdout_teams must have exactly 6 entries, got "
+            f"{len(holdout_teams)}"
+        )
+    for team_id, entry in holdout_teams.items():
+        if not isinstance(team_id, str) or not team_id:
+            raise GateBAbort(f"arm {which}: holdout_teams has a non-string or empty team_id key: {team_id!r}")
+        if not isinstance(entry, dict):
+            raise GateBAbort(
+                f"arm {which}: holdout_teams[{team_id!r}] must be an object/mapping, got "
+                f"{type(entry).__name__}"
+            )
+        missing = _HOLDOUT_TEAM_ENTRY_FIELDS - set(entry)
+        unknown = set(entry) - _HOLDOUT_TEAM_ENTRY_FIELDS
+        if missing:
+            raise GateBAbort(f"arm {which}: holdout_teams[{team_id!r}] is missing field(s): {sorted(missing)}")
+        if unknown:
+            raise GateBAbort(f"arm {which}: holdout_teams[{team_id!r}] has unknown field(s): {sorted(unknown)}")
+        for field in _HOLDOUT_TEAM_ENTRY_FIELDS:
+            if not isinstance(entry[field], str) or not entry[field]:
+                raise GateBAbort(
+                    f"arm {which}: holdout_teams[{team_id!r}][{field!r}] must be a non-empty "
+                    f"string, got {entry[field]!r}"
+                )
+        expected_path = f"{HOLDOUT_TEAMS_DIR}{team_id}.txt"
+        if entry["team_path"] != expected_path:
+            raise GateBAbort(
+                f"arm {which}: holdout_teams[{team_id!r}]['team_path']={entry['team_path']!r} "
+                f"is not the canonical path for this team_id (expected {expected_path!r})"
+            )
+
+
+def _validate_stratum_fields(manifest: dict, which: str) -> None:
+    """Rev. 15 fix (§1n, Task-3-review P1 #1): stratum/platform_attestation/date_stratum_id are
+    now REQUIRED manifest fields (presence checked by _MANIFEST_REQUIRED_KEYS, same as
+    holdout_teams) -- but presence alone is not closed validation. A stratum value that is
+    present but not one of strata_guard.VALID_STRATA, or a platform_attestation/date_stratum_id
+    that is present but empty or the wrong type, must abort here -- exactly the same
+    "missing, unknown, or type-wrong" standard _validate_holdout_teams_mapping already applies to
+    holdout_teams, now applied to these three fields."""
+    stratum = manifest["stratum"]
+    if not isinstance(stratum, str) or stratum not in VALID_STRATA:
+        raise GateBAbort(
+            f"arm {which}: manifest's stratum={stratum!r} is not one of the known strata "
+            f"{sorted(VALID_STRATA)}"
+        )
+    for field in ("platform_attestation", "date_stratum_id"):
+        value = manifest[field]
+        if not isinstance(value, str) or not value:
+            raise GateBAbort(f"arm {which}: manifest's {field}={value!r} must be a non-empty string")
+
+
+_SUPPORTED_CALC_BACKENDS = frozenset({"oneshot", "persistent"})
+
+
+def _validate_seed_proof_fields(manifest: dict, which: str) -> None:
+    """Rev. 19 fix (Task 9 review-fix sync, §1r): Task 9's own review-fix derives calc_backend
+    internally (never caller-supplied, never discarded) and replaced the caller-local
+    seed_log_path field with a four-field seed PROOF the arm carries in its own manifest --
+    seed_log_relpath/seed_log_sha256/seed_log_n_lines/seed_log_verified. Closed-form validated
+    here, exactly like _validate_stratum_fields already does for
+    stratum/platform_attestation/date_stratum_id, before _assert_seed_artifact_verified (below)
+    ever trusts these values to locate and re-verify the real seed-log bytes."""
+    calc_backend = manifest["calc_backend"]
+    if not isinstance(calc_backend, str) or calc_backend not in _SUPPORTED_CALC_BACKENDS:
+        raise GateBAbort(
+            f"arm {which}: manifest's calc_backend={calc_backend!r} is not a supported backend "
+            f"{sorted(_SUPPORTED_CALC_BACKENDS)}"
+        )
+    seed_log_relpath = manifest["seed_log_relpath"]
+    if seed_log_relpath != "seeds.jsonl":
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_relpath={seed_log_relpath!r} must be exactly "
+            "'seeds.jsonl' -- no absolute path, no subdirectory, no traversal"
+        )
+    seed_log_sha256 = manifest["seed_log_sha256"]
+    if not isinstance(seed_log_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", seed_log_sha256) is None:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_sha256={seed_log_sha256!r} must be a lowercase "
+            "64-character sha256 hex digest"
+        )
+    seed_log_n_lines = manifest["seed_log_n_lines"]
+    if isinstance(seed_log_n_lines, bool) or not isinstance(seed_log_n_lines, int) or seed_log_n_lines < 0:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_n_lines={seed_log_n_lines!r} must be a genuine "
+            "non-negative int"
+        )
+    if manifest["seed_log_verified"] is not True:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_verified={manifest['seed_log_verified']!r} must "
+            "be exactly True"
+        )
+
+
+def _assert_seed_artifact_verified(arm_dir: str, manifest: dict, which: str) -> None:
+    """Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
+    before pairing or any verdict -- never trust Task 9's own seed_log_verified=True claim alone
+    (that is a self-report from a prior, separate process; this function independently
+    reproduces the proof against the bytes actually sitting in THIS arm directory). Both arms are
+    verified independently -- matching manifest values alone are never sufficient, since a
+    doctored manifest could claim agreement without either seed log genuinely verifying.
+
+    Containment is canonical (mirrors run_strength_holdout_arm's own out_dir fix, Task 9): even
+    though _validate_seed_proof_fields above already rejects any seed_log_relpath other than the
+    literal 'seeds.jsonl', this still resolves the real path through the filesystem (following
+    any symlink/junction) and checks by path COMPONENT that it lands inside arm_dir -- defense in
+    depth against a symlink/junction planted at that exact relative location pointing elsewhere.
+    The resolve() call itself is wrapped: on Windows, resolving certain symlink configurations can
+    raise a raw OSError (observed: WinError 267) instead of just following the link -- that must
+    fail closed as GateBAbort too, not escape uncaught."""
+    arm_root = Path(arm_dir).resolve()
+    try:
+        seed_log_path = (arm_root / manifest["seed_log_relpath"]).resolve()
+    except OSError as exc:
+        raise GateBAbort(f"arm {which}: cannot resolve seed log path: {exc}") from exc
+    arm_parts, seed_parts = arm_root.parts, seed_log_path.parts
+    if platform.system() == "Windows":
+        arm_parts = tuple(p.lower() for p in arm_parts)
+        seed_parts = tuple(p.lower() for p in seed_parts)
+    if seed_parts[: len(arm_parts)] != arm_parts:
+        raise GateBAbort(
+            f"arm {which}: seed_log_relpath resolves to {str(seed_log_path)!r}, outside its own "
+            f"arm directory {str(arm_root)!r} -- refusing a symlink/junction escape"
+        )
+    try:
+        with open(seed_log_path, "rb") as fh:
+            seed_log_bytes = fh.read()
+    except OSError as exc:
+        raise GateBAbort(f"arm {which}: cannot read seed log at {str(seed_log_path)!r}: {exc}") from exc
+    fresh_sha256 = hashlib.sha256(seed_log_bytes).hexdigest()
+    if fresh_sha256 != manifest["seed_log_sha256"]:
+        raise GateBAbort(
+            f"arm {which}: seed log at {str(seed_log_path)!r} has sha256={fresh_sha256!r}, does "
+            f"not match manifest's seed_log_sha256={manifest['seed_log_sha256']!r}"
+        )
+    try:
+        seed_records = verify_seed_log(str(seed_log_path), manifest["seed_base"], manifest["n_rows"])
+    except SeedLogError as exc:
+        raise GateBAbort(f"arm {which}: seed-log verification failed: {exc}") from exc
+    if len(seed_records) != manifest["seed_log_n_lines"]:
+        raise GateBAbort(
+            f"arm {which}: verified {len(seed_records)} seed-log record(s), but manifest claims "
+            f"seed_log_n_lines={manifest['seed_log_n_lines']!r}"
+        )
+
+
+def _assert_rows_bind_to_holdout_teams(rows: list[dict], holdout_teams: dict, which: str) -> None:
+    """Rev. 14 fix (§1m, third review round P1): a structurally-valid holdout_teams mapping is
+    still just an ASSERTION until checked against what the rows themselves actually played.
+    opp_team_path/opp_team_hash are the row-level ground truth -- Task 9's own _capture closure
+    stamps them from the real per-battle key and the real sealed content hash -- so
+    holdout_teams must agree with THAT, not the other way around. Requires every row to resolve
+    to one of the declared six teams by path AND by hash, and every declared team to actually
+    appear at least once."""
+    allowed_paths = {entry["team_path"] for entry in holdout_teams.values()}
+    path_to_team_id = {entry["team_path"]: team_id for team_id, entry in holdout_teams.items()}
+    seen_paths = set()
+    for i, row in enumerate(rows):
+        opp_team_path = row["opp_team_path"]
+        if opp_team_path not in allowed_paths:
+            raise GateBAbort(
+                f"arm {which}: row {i} has opp_team_path={opp_team_path!r}, not one of the six "
+                "teams declared in holdout_teams"
+            )
+        team_id = path_to_team_id[opp_team_path]
+        expected_hash = holdout_teams[team_id]["content_hash"]
+        if row["opp_team_hash"] != expected_hash:
+            raise GateBAbort(
+                f"arm {which}: row {i} (team {team_id!r}) has "
+                f"opp_team_hash={row['opp_team_hash']!r}, does not match holdout_teams's "
+                f"content_hash={expected_hash!r} for this team"
+            )
+        seen_paths.add(opp_team_path)
+    missing_teams = allowed_paths - seen_paths
+    if missing_teams:
+        missing_ids = sorted(path_to_team_id[p] for p in missing_teams)
+        raise GateBAbort(
+            f"arm {which}: holdout_teams declares team(s) {missing_ids} that never appear in "
+            "rows -- manifest and rows.jsonl do not agree on which teams were actually played"
+        )
+
+
+def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) -> None:
+    """F3 fix (Rev. 6): every downstream check in combine_strength_holdout_arms -- the two
+    upstream-verdict checks, the ledger entry, the published verdict.json -- trusts
+    manifest_a's identity fields (candidate_identity, git_sha, config_hash, ...) without ever
+    proving they actually describe the rows sitting next to it. An arm directory assembled from
+    two different runs (a stale or swapped arm_manifest.json) would pass every existing check
+    silently. Never trust the pairing of a manifest with a rows.jsonl just because they share a
+    directory -- prove it, the same way this plan already refuses to trust an upstream verdict's
+    opaque candidate_identity alone (Task 7).
+
+    NF1 fix (Rev. 7): a malformed or truncated manifest/row -- exactly the kind of bad input
+    this function exists to catch -- must never crash it with a raw KeyError instead of
+    producing the GateBAbort it was written to produce. Every expected key is checked for
+    presence FIRST, before any indexed access.
+
+    Rev. 14 fix (§1m, third review round P1): presence and internal shape are not enough for
+    holdout_teams specifically -- it is validated structurally (_validate_holdout_teams_mapping)
+    and then bound to what these SAME rows actually contain
+    (_assert_rows_bind_to_holdout_teams), both before the scalar per-field checks below, so a
+    manifest that lies about which teams were played is caught here, not three call sites
+    downstream where the leakage/disjointness guards would have silently trusted it.
+
+    Rev. 15 fix (§1n, Task-3-review P1 #1): the same standard now applies to
+    stratum/platform_attestation/date_stratum_id (_validate_stratum_fields) -- presence via
+    _MANIFEST_REQUIRED_KEYS, closed-form validity (unknown stratum, non-string/empty attestation
+    or date-stratum id) here, before combine_strength_holdout_arms ever compares the two arms'
+    values against each other."""
+    missing_manifest_keys = set(_MANIFEST_REQUIRED_KEYS) - set(manifest)
+    if missing_manifest_keys:
+        raise GateBAbort(
+            f"arm {which}: manifest is missing required key(s): {sorted(missing_manifest_keys)} "
+            "-- malformed or truncated arm_manifest.json"
+        )
+    _validate_holdout_teams_mapping(manifest["holdout_teams"], which)
+    _validate_stratum_fields(manifest, which)
+    _validate_seed_proof_fields(manifest, which)
+    for i, row in enumerate(rows):
+        missing_row_keys = (
+            set(_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK) | set(_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING)
+        ) - set(row)
+        if missing_row_keys:
+            raise GateBAbort(
+                f"arm {which}: row {i} is missing required key(s): {sorted(missing_row_keys)} "
+                "-- panel_hash in particular is NULLABLE per result_jsonl's own schema, so "
+                "validate_battle_row alone does not guarantee it is present here"
+            )
+
+    if len(rows) != manifest["n_rows"]:
+        raise GateBAbort(
+            f"arm {which}: manifest claims n_rows={manifest['n_rows']!r} but rows.jsonl has "
+            f"{len(rows)} row(s) -- manifest and rows.jsonl do not belong together"
+        )
+    for field in _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK:
+        mismatched = sorted({row[field] for row in rows if row[field] != manifest[field]})
+        if mismatched:
+            raise GateBAbort(
+                f"arm {which}: row field {field!r} disagrees with the manifest's "
+                f"{field}={manifest[field]!r} (found: {mismatched}) -- manifest and rows.jsonl "
+                f"do not belong together"
+            )
+    _assert_rows_bind_to_holdout_teams(rows, manifest["holdout_teams"], which)
+    fresh_identity = make_candidate_identity(
+        hero_agent=manifest["hero_agent"], git_sha=manifest["git_sha"], config_hash=manifest["config_hash"],
+    )
+    if fresh_identity != manifest["candidate_identity"]:
+        raise GateBAbort(
+            f"arm {which}: manifest's candidate_identity={manifest['candidate_identity']!r} "
+            f"does not match the identity re-derived from its own hero_agent/git_sha/config_hash "
+            f"({fresh_identity!r}) -- the manifest is internally inconsistent"
+        )
+
+
+def combine_strength_holdout_arms(
+    *, arm_a_dir: str, arm_b_dir: str, out_dir: str,
+    i8d_verdict_path: str, coverage_verdict_path: str,
+    holdout_content_hashes: dict[str, str],
+    holdout_candidate_species: dict[str, list[str]], reference_species: dict[str, list[str]],
+    baseline_manifest_path: str = "config/eval/baselines/champions-strength-holdout-v0.json",
+    repo_root: str = ".",
+    stratum_env_override: str | None = None,
+    ledger_path: str = "config/eval/heldout_ledger.jsonl",
+    teams_root: str = ".",
+) -> dict:
+    """Reads both already-published arms, verifies the two upstream gates, checks baseline
+    drift, pairs the arms, runs EVERY guard, renders the verdict via the real report.py
+    pipeline, and publishes the full evidence bundle atomically.
+
+    i8d_verdict_path/coverage_verdict_path are REQUIRED and non-empty -- Gate B may only run
+    after an I8-D PASS and a Coverage PASS on this candidate (DESIGN sec 5); there is no
+    optional/skip path (Rev. 3 P1 fix -- Rev. 2's `= ""` defaults let a caller silently omit
+    both checks).
+
+    holdout_content_hashes/reference_species are REQUIRED and must be non-empty (Rev. 4 P2 fix
+    -- Rev. 3 allowed a legitimate-looking `{}` here, but nothing distinguished a deliberate
+    test scenario from a production caller that just never wired real data through; an empty
+    mapping makes the disjointness/leakage/near-duplicate guards vacuous in EITHER case, so
+    production now refuses it unconditionally. Tests use small non-empty fake maps instead
+    of `{}` -- see Task 10's test fixtures). NON-EMPTY alone does not prove
+    holdout_content_hashes covers every scheduled team WITH the right hashes, though -- Rev. 13
+    (§1l) closed the key-set-only version of this gap (a partial map) but not the value-wrong
+    version (right keys, wrong hash for one), and neither Rev. 12 nor Rev. 13 checked it against
+    the rows actually played, only against a bare team_id list the manifest itself never proved.
+    Rev. 14 (§1m) closes both: `holdout_content_hashes` is checked for full dict equality
+    (keys AND values) against each arm's own `holdout_teams` mapping (Task 9), which
+    `_assert_rows_match_manifest` has already bound to that arm's OWN rows
+    (`_assert_rows_bind_to_holdout_teams`) before this function ever reaches this check --
+    so by the time the leakage guard's `team_ids=` argument below is built, it is provably the
+    real six teams this schedule played, not merely whatever six labels a manifest or a caller
+    happened to assert.
+
+    holdout_candidate_species/reference_species (Rev. 18 fix, §1q): two GENUINELY SEPARATE
+    mappings, never one dict doing double duty as both. Before this fix, the near-duplicate loop
+    below iterated `reference_species` to get BOTH the six holdout candidates AND the reference
+    set to compare them against -- passing `reference_teams=reference_species` (the SAME dict)
+    for every team drawn FROM that same dict meant every team was compared against a reference
+    set that included itself, and there was no way to supply the six holdout teams' OWN species
+    at all (only their content hashes/paths were ever threaded through). `holdout_candidate_species`
+    carries the six holdout teams' species sets (DESIGN sec 3.3's "holdout team" side);
+    `reference_species` carries the nine existing Champions-M-A teams' species sets (its "touched
+    or coverage team" side, §16 item 5) -- disjoint by construction now, not merely by caller
+    discipline. `holdout_candidate_species`'s key set is checked against
+    `manifest_a["holdout_teams"]` (below) exactly like `holdout_content_hashes` already is, so a
+    caller cannot silently supply species for the wrong team_ids either.
+
+    Candidate identity note (Rev. 3 P1 fix): arm A (hero_agent='heuristic') IS the shared
+    candidate identity checked against I8-D/Coverage (DESIGN sec 5: "Candidate A is that shared
+    candidate; Baseline B is the reference, not a separately-gated candidate"). Arm B
+    (hero_agent='max_damage') is NEVER required to share candidate_identity with arm A --
+    make_candidate_identity hashes hero_agent itself, so the two arms' identities differ by
+    construction for every genuine run. What arm B must share with arm A is git_sha (same
+    commit) and schedule_hash/panel_hash/seed_base (same battle conditions) -- checked explicitly
+    below, and re-verified independently by pair_runs's own cross-run checks.
+
+    stratum_env_override (Rev. 15 fix, §1n): NOT a source of truth -- this function never calls
+    detect_stratum() itself, since the machine running combine_strength_holdout_arms need not be
+    either arm's play machine. If given, it is an optional caller EXPECTATION, checked against
+    what the two arms' own manifests actually recorded (already proven to agree with each other by
+    the arm-vs-arm loop below); a mismatch aborts as a contradictory override, before the arms are
+    ever compared to each other for pooling.
+
+    Order: cheapest checks first, matching coverage_runner.py."""
+    if not i8d_verdict_path:
+        raise GateBAbort("i8d_verdict_path is required and must be non-empty -- Gate B may only run after an I8-D PASS on this candidate")
+    if not coverage_verdict_path:
+        raise GateBAbort("coverage_verdict_path is required and must be non-empty -- Gate B may only run after a Coverage PASS on this candidate")
+    if not holdout_content_hashes:
+        raise GateBAbort("holdout_content_hashes must be non-empty -- an empty mapping makes the disjointness/leakage guards vacuous")
+    if not holdout_candidate_species:
+        raise GateBAbort("holdout_candidate_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
+    if not reference_species:
+        raise GateBAbort("reference_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
+
+    rows_a, manifest_a = _read_arm(arm_a_dir)
+    rows_b, manifest_b = _read_arm(arm_b_dir)
+    _assert_rows_match_manifest(rows_a, manifest_a, "A")
+    _assert_rows_match_manifest(rows_b, manifest_b, "B")
+    # Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
+    # before pairing or any verdict -- both arms independently, never relying on matching
+    # manifest values alone (a doctored manifest could claim agreement without either seed log
+    # genuinely verifying).
+    _assert_seed_artifact_verified(arm_a_dir, manifest_a, "A")
+    _assert_seed_artifact_verified(arm_b_dir, manifest_b, "B")
+
+    if manifest_a["hero_agent"] != "heuristic":
+        raise GateBAbort(f"arm A must be hero_agent='heuristic' (Candidate A per DESIGN sec 3.2), got {manifest_a['hero_agent']!r}")
+    if manifest_b["hero_agent"] != "max_damage":
+        raise GateBAbort(f"arm B must be hero_agent='max_damage' (Baseline B per DESIGN sec 3.2), got {manifest_b['hero_agent']!r}")
+    if manifest_a["git_sha"] != manifest_b["git_sha"]:
+        raise GateBAbort("arms disagree on git_sha -- they were not played on the same commit")
+    # Rev. 15 fix (§1n, Task-3-review P1 #2): date_stratum_id added -- "different... date-strata
+    # must abort" (stratum ITSELF is compared separately below, via assert_no_cross_stratum_
+    # pooling, so its StrataPoolingError stays distinct from this loop's GateBAbort, matching the
+    # exception-audit table's existing, deliberate separation of guard-specific exception types
+    # from this trust-chain's single GateBAbort class -- see the comment above the upstream-
+    # verdict try/except further down). platform_attestation is NOT compared here: two arms
+    # legitimately played on the same physical box can report different platform.platform()
+    # strings (e.g. an OS patch between arm A and arm B's runs) without that meaning anything --
+    # only its non-empty presence is required (_validate_stratum_fields), not byte-equality.
+    # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend added -- oneshot vs persistent
+    # produce the SAME config_hash/candidate_identity (make_config_hash's manifest does not
+    # include calc_backend), so without this check two arms could silently run under different
+    # backends while every OTHER identity field still matched.
+    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id", "calc_backend"):
+        if manifest_a[field] != manifest_b[field]:
+            raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
+
+    # Rev. 14 fix (§1m, third review round P1): Rev. 13's key-set-only check missed a caller
+    # supplying every right team_id with a WRONG hash for one of them. manifest_a["holdout_teams"]
+    # is now a real per-team {team_path, content_hash} mapping, independently proven (just above,
+    # via _assert_rows_match_manifest -> _assert_rows_bind_to_holdout_teams) to describe what
+    # THIS arm's rows actually played -- and proven identical to manifest_b's by the loop just
+    # above. Require FULL dict equality (keys AND values) against holdout_content_hashes, not a
+    # key-set check -- missing, extra, or value-wrong team_ids all abort here, before any guard
+    # below ever runs.
+    expected_hashes = {team_id: entry["content_hash"] for team_id, entry in manifest_a["holdout_teams"].items()}
+    if holdout_content_hashes != expected_hashes:
+        raise GateBAbort(
+            "holdout_content_hashes does not match the six teams' content hashes this schedule "
+            f"actually played (schedule: {expected_hashes}, holdout_content_hashes: "
+            f"{holdout_content_hashes}) -- the leakage/disjointness guards must see every "
+            "scheduled team with its real hash, not a subset or a wrong value"
+        )
+    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes just above -- a caller-supplied
+    # holdout_candidate_species must name exactly the six teams this schedule actually played, not
+    # a subset, an extra team, or a mislabeled one. Key-set only (not value equality, unlike
+    # holdout_content_hashes): a hash has exactly one correct value to check against; a team's
+    # species list has no independently-derivable "correct" value here for combine to check
+    # against (Task 9's manifest never records species, only path/content_hash) -- species
+    # correctness is instead what the near-duplicate check itself exists to reason about.
+    if set(holdout_candidate_species) != set(manifest_a["holdout_teams"]):
+        raise GateBAbort(
+            f"holdout_candidate_species' team_ids {sorted(holdout_candidate_species)} do not "
+            f"match the six teams this schedule actually played "
+            f"{sorted(manifest_a['holdout_teams'])} -- the near-duplicate guard must see species "
+            "for every scheduled holdout team, not a subset, extra, or mislabeled one"
+        )
+
+    # NF2 fix (Rev. 7): verify_i8d_verdict_artifact/verify_coverage_verdict_artifact raise
+    # StrengthHoldoutRunError, not GateBAbort -- this plan's own documentation (§1a, and the
+    # comment on the PairingError fix below) claimed the CLI catches
+    # `except (GateBAbort, StrengthHoldoutRunError)`, but the actual CLI handlers (Task 11) only
+    # ever caught `GateBAbort`. Rather than widen the CLI's except tuple to two abort classes,
+    # normalize at the source: this is the ONLY place StrengthHoldoutRunError can cross into
+    # combine_strength_holdout_arms, so catching it here folds it into GateBAbort -- the same
+    # choice already made below for BaselineDriftError, PairingError, and LedgerError, and in
+    # _read_arm above for ResultRowError/OSError/UnicodeDecodeError/json.JSONDecodeError. This is
+    # NOT true of every guard failure in this function, though:
+    # check_access/assert_disjoint_from_coverage/assert_no_holdout_leakage/
+    # assert_no_cross_stratum_pooling below are deliberately left UNwrapped -- their
+    # AccessBudgetError/HoldoutNotDisjointError/LeakageDriftError/StrataPoolingError/
+    # UnattestedStratumError propagate raw by design (see the exception-audit table, §1f), not
+    # by oversight. "One abort class" describes the upstream-verdict/pairing/ledger/row-schema
+    # trust chain specifically, not this whole function's entire exception surface -- an earlier
+    # draft of this exact comment claimed the broader, false version of this sentence.
+    try:
+        # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend is now the manifest-bound value
+        # Task 9 actually derived for this run (arm A and arm B already proven equal above) --
+        # never the hardcoded literal "oneshot", which would silently pass an unverified backend
+        # claim through to both upstream verifiers regardless of what the run actually used.
+        verify_i8d_verdict_artifact(
+            verdict_path=i8d_verdict_path, teams_root=teams_root,
+            candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
+            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
+            calc_backend=manifest_a["calc_backend"],
+        )
+        verify_coverage_verdict_artifact(
+            verdict_path=coverage_verdict_path, teams_root=teams_root,
+            candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
+            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
+            calc_backend=manifest_a["calc_backend"],
+        )
+    except StrengthHoldoutRunError as exc:
+        raise GateBAbort(f"upstream verdict verification failed: {exc}") from exc
+
+    check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=None)
+
+    # Baseline-drift guard (Rev. 4 P1 fix): Task 6 creates/loads the manifest, but nothing
+    # previously called verify_baseline from the live combine flow -- "every guard wired" was
+    # false for this specific guard. Wired here, before pairing/verdict, same as every other
+    # provenance check.
+    baseline = load_baseline(baseline_manifest_path)
+    try:
+        verify_baseline(baseline, repo_root=repo_root, teams_root=teams_root)
+    except BaselineDriftError as exc:
+        raise GateBAbort(f"baseline drift: {exc}") from exc
+
+    assert_disjoint_from_coverage(holdout_content_hashes)
+    assert_no_holdout_leakage(
+        identifiers=list(holdout_content_hashes.values()) + list(holdout_content_hashes.keys()),
+        # Rev. 12 P1 #2 fix (§1k): the leakage guard's content leg now reads each sealed team's
+        # OWN committed .txt/.packed blob directly (scan_for_raw_payload_leakage), keyed by
+        # team_id -- it no longer takes a hash mapping. holdout_content_hashes itself is
+        # unchanged above (still required, still feeds assert_disjoint_from_coverage).
+        # Rev. 14 fix (§1m): team_ids now comes from manifest_a["holdout_teams"] -- the VALIDATED,
+        # ROW-BOUND mapping (_assert_rows_match_manifest, above) -- not from
+        # holdout_content_hashes.keys() directly. By this point the two are already proven
+        # dict-equal (the check just above), so the VALUES are identical either way; sourcing
+        # from the bound manifest data is the structurally-safer choice regardless of any future
+        # reordering of these checks.
+        team_ids=sorted(manifest_a["holdout_teams"]),
+        teams_root=teams_root,  # N3 fix: was silently hardcoded to "." inside the scan before
+    )
+    # Rev. 18 fix (§1q): the pre-Rev.-18 version of this loop iterated reference_species for
+    # BOTH the candidates AND the reference set (`for team_id, species in
+    # reference_species.items(): find_near_duplicate_flags(..., reference_teams=reference_species)`)
+    # -- every team was compared against a reference set that included itself, and there was no
+    # way to supply the six holdout teams' own species at all. holdout_candidate_species and
+    # reference_species are now two genuinely separate mappings (validated above); iterating the
+    # CANDIDATES and comparing each against the REFERENCE set is the correct DESIGN sec 3.3
+    # geometry (six holdout teams checked against nine touched/coverage teams), and
+    # find_near_duplicate_flags's own self-exclusion (Task 4) is defense in depth on top of that,
+    # not the only thing preventing self-comparison.
+    # Rev. 18 fix (§1q, self-found while wiring this loop, same pass): find_near_duplicate_flags
+    # (Task 4) raises ValueError for malformed species data (an empty per-team species list, on
+    # either the candidate or the reference side) -- the key-set checks above prove
+    # holdout_candidate_species/reference_species name the RIGHT teams, but never validated that
+    # each team's OWN species list is non-empty. Left unwrapped, a malformed entry would escape
+    # combine_strength_holdout_arms as a raw ValueError, uncaught by the CLI (which only ever
+    # catches GateBAbort, Task 11) -- the same "new guard, new raw exception" shape NF1/NF3 fixed
+    # for _assert_rows_match_manifest/BattleResultWriter.write, applied here on introduction
+    # rather than found later.
+    try:
+        near_dup_flags = []
+        for team_id in sorted(holdout_candidate_species):
+            near_dup_flags.extend(find_near_duplicate_flags(
+                candidate_team_id=team_id, candidate_species=holdout_candidate_species[team_id],
+                reference_teams=reference_species,
+            ))
+    except ValueError as exc:
+        raise GateBAbort(f"near-duplicate check failed on malformed species data: {exc}") from exc
+    # DESIGN sec 3.3: manual-review flag, never an auto-abort -- always computed and recorded
+    # in the published bundle below (payload["near_duplicate_flags"]), never silently dropped.
+
+    # Rev. 15 fix (§1n, Task-3-review P1 #2/#3): the combiner must not RE-DETERMINE stratum from
+    # its own machine -- detect_stratum() reflects whatever box happens to run
+    # combine_strength_holdout_arms, which need not be either arm's PLAY machine. Each arm's own
+    # manifest already carries what Task 9 (its own Rev. 15 fix) recorded at play time, already
+    # proven present/well-formed by _validate_stratum_fields above; compare the two ACTUAL arm
+    # records instead of a freshly-detected third value.
+    #
+    # stratum_env_override is repurposed accordingly: no longer a source of truth fed into
+    # detect_stratum, it is now an optional caller-supplied EXPECTATION checked against what the
+    # arms actually recorded. A caller who expects e.g. a Windows-stratum combine and gets
+    # Kaggle-stratum arms (or the reverse) gets a clear "contradictory override" abort instead of
+    # silently combining the wrong stratum's arms.
+    if stratum_env_override is not None and stratum_env_override != manifest_a["stratum"]:
+        raise GateBAbort(
+            f"stratum_env_override={stratum_env_override!r} contradicts the arms' own recorded "
+            f"stratum={manifest_a['stratum']!r} -- the override must match what the arms actually "
+            "recorded, not silently force a different stratum onto them"
+        )
+    assert_no_cross_stratum_pooling([
+        StratumRecord(stratum=manifest_a["stratum"], platform_string=manifest_a["platform_attestation"], output_dir=arm_a_dir),
+        StratumRecord(stratum=manifest_b["stratum"], platform_string=manifest_b["platform_attestation"], output_dir=arm_b_dir),
+    ])
+
+    try:
+        # "Zwei Reste" fix (Rev. 6): expected_rows=len(rows_a) was tautological -- true by
+        # construction for A, and redundant with _assert_rows_match_manifest's own n_rows check
+        # for B. manifest_a["n_rows"] is the independently-sourced expectation (now itself
+        # proven to match rows_a by the check above), so RowCountError becomes reachable again.
+        pairs = pair_runs(rows_a, rows_b, expected_rows=manifest_a["n_rows"])
+    except PairingError as exc:
+        # Rev. 4 P2 fix: pair_runs can raise several PairingError subclasses (MissingPairError,
+        # RunMismatchError, SelfComparisonError, DuplicateRowError, PairSeedMismatchError,
+        # RowCountError) -- Rev. 3 only caught MissingPairError, letting the others escape raw
+        # (uncaught by the CLI, which only ever catches GateBAbort -- corrected, Rev. 7 NF2: this
+        # comment previously and incorrectly claimed the CLI also caught StrengthHoldoutRunError).
+        # Catch the base class so every pairing failure becomes a uniform, CLI-handled abort.
+        raise GateBAbort(f"pairing failed: {exc}") from exc
+
+    safety_pass = compute_safety_pass(rows_a, rows_b)
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=safety_pass)
+
+    staging_dir = f"{out_dir}.staging"
+    for label, p in (("output", out_dir), ("staging", staging_dir)):
+        if os.path.exists(p):
+            raise GateBAbort(f"{label} directory {p} already exists")
+    os.makedirs(staging_dir)
+    shutil.copytree(arm_a_dir, os.path.join(staging_dir, "arm_a"))
+    shutil.copytree(arm_b_dir, os.path.join(staging_dir, "arm_b"))
+
+    cells_a = _build_cells(rows_a, {})
+    cells_b = _build_cells(rows_b, {})
+    _write_json_atomic(os.path.join(staging_dir, "cells.json"), {
+        "cells_a": cells_a, "cells_b": cells_b, "aggregates_a": _build_aggregates(cells_a),
+        "aggregates_b": _build_aggregates(cells_b),
+    })
+
+    payload = {
+        "verdict": verdict.verdict, "reasons": verdict.reasons, "n_discordant": verdict.n_discordant,
+        "n_total": verdict.n_total, "delta": verdict.delta, "exact_p": verdict.exact_p,
+        "strength_delta": verdict.strength_delta, "cell_flips": verdict.cell_flips,
+        "safety_pass": safety_pass, "candidate_identity": manifest_a["candidate_identity"],
+        "git_sha": manifest_a["git_sha"], "config_hash_a": manifest_a["config_hash"],
+        "config_hash_b": manifest_b["config_hash"], "schedule_hash": manifest_a["schedule_hash"],
+        "panel_hash": manifest_a["panel_hash"], "stratum": manifest_a["stratum"],
+        "near_duplicate_flags": [asdict(f) for f in near_dup_flags],
+        "report_banner": "HELD-OUT RUN -- these numbers must never inform tuning.",
+    }
+    # N2 fix: result_sha256 must hash the EXACT bytes that land on disk, not a second,
+    # independently-formatted json.dumps call -- _write_json_atomic (i8d_runner.py:106-112)
+    # writes `json.dumps(obj, sort_keys=True, indent=2) + "\n"`; hashing a differently-formatted
+    # re-serialization (no indent, no trailing newline, default separators) produces a DIFFERENT
+    # digest than `sha256sum verdict.json` on the published file, making the ledger's
+    # result_sha256 field decorative rather than verifiable. Compute the canonical text ONCE and
+    # write it directly (single source of truth) instead of calling _write_json_atomic
+    # separately and trusting the two calls stay byte-identical.
+    verdict_text = json.dumps(payload, sort_keys=True, indent=2) + "\n"
+    result_sha256 = hashlib.sha256(verdict_text.encode("utf-8")).hexdigest()
+    verdict_tmp = os.path.join(staging_dir, "verdict.json.tmp")
+    with open(verdict_tmp, "w", encoding="utf-8", newline="") as fh:
+        fh.write(verdict_text)
+    os.replace(verdict_tmp, os.path.join(staging_dir, "verdict.json"))
+
+    # F6 fix (Rev. 6): ledger entry BEFORE publish, not after. Deliberately asymmetric, not
+    # arbitrary ordering: a ledger `run` entry with no published bundle is a visible, auditable
+    # failure (check_access sees the attempt was recorded and correctly refuses a retry without
+    # justification, even though this specific run produced no evidence -- the budget is spent
+    # slightly too eagerly, but that failure is loud). A published bundle with NO ledger entry is
+    # the opposite: silent, and lets a subsequent run against the same config_hash slip straight
+    # past check_access's one-attempt budget unnoticed -- exactly the held-out-data-reuse path
+    # the ledger exists to prevent. If append_entry raises (e.g. LedgerError on a malformed
+    # entry), os.replace(staging_dir, out_dir) below must never run, so a failed ledger write can
+    # never coexist with a "successful"-looking published bundle.
+    try:
+        append_entry(ledger_path, {
+            "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
+            "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
+            "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
+            "result_sha256": result_sha256, "justification": None,
+        })
+    except LedgerError as exc:
+        raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
+
+    os.replace(staging_dir, out_dir)
+    return payload
