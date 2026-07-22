@@ -199,13 +199,14 @@
 >   mistakes. Fixed with a separator-normalized, slash-bounded substring check (Task 9, §12),
 >   matching Task 2's own `_normalize_path` precedent (§5) for the identical class of bug.
 >
-> As of Rev. 16: Task 1 (including Rev. 11's `panel_hash` fix) and Task 2 (repo-wide leakage-drift
-> guard) have been implemented, tested, and committed on branch
-> `feat/champions-gate-b-task-1-schedule` -- not yet merged to `main` (`c4aa94b` docs, `7cdc661`
-> code). Task 3's plan text is corrected through this revision (§1n, §1o) and is about to be
-> implemented for real in this same session; the rest of Tasks 4–13 remain unimplemented as code:
-> no server or battle has touched any worktree beyond Task 1/2's own code and tests, and no team
-> file or sealed hash exists.
+> As of Rev. 16: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
+> guard), and Task 3 (Windows/Kaggle stratum guard, including the Rev. 16 anti-spoofing fix) have
+> been implemented, tested, and committed on branch `feat/champions-gate-b-task-1-schedule` -- not
+> yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a` docs, `3f07ef3` code for Task
+> 3). Tasks 9/10's own Rev. 15/16 wiring of `strata_guard.py` remains plan-text only -- Task 3
+> being implemented does not itself implement its callers. The rest of Tasks 4–13 remain
+> unimplemented as code: no server or battle has touched any worktree beyond Tasks 1-3's own code
+> and tests, and no team file or sealed hash exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
