@@ -927,6 +927,20 @@ impact: §1k.
 rejects an empty `team_ids` list itself (`ValueError`), fail-closed, independent of Task 10's own
 caller-side cross-check (§13) — an empty list previously made the whole scan a silent no-op.
 
+**Found during real implementation (not a review round — Codex gave Task 2 FINAL REVIEW: PASS
+on the text below; these two surfaced only once the code actually ran):** (1) `_grep_identifier`
+passed the caller's complete tracked-file list as individual `git grep` argv entries; against
+this repo's own 2038 tracked files (131 KB of path text) that overflows Windows'
+`CreateProcess` command-line length limit (`WinError 206`). Fixed by omitting the file list
+entirely — `git grep` with no explicit pathspec already searches every tracked file by default,
+so the search scope is unchanged; only how it's expressed is. (2) The RED test asserting a
+fabricated identifier string has zero hits repo-wide used the default `cwd="."` (the real
+ambient repo) — but that fabricated string is quoted in the RED test's own source, which is
+itself embedded as a worked example in *this plan document*, now committed. The moment Rev. 14
+landed, the "absent" identifier stopped being absent. Fixed by moving that one test onto an
+isolated `_init_repo` fixture, matching every other test in this file, instead of relying on the
+real repo never happening to contain the literal fixture string.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
@@ -1003,8 +1017,14 @@ def test_is_allowed_normalizes_backslashes_before_comparing():
     assert not _is_allowed("config\\eval\\heldout_ledger.jsonl.evil")
 
 
-def test_scan_for_leakage_finds_no_hits_for_an_identifier_absent_from_the_repo():
-    assert scan_for_leakage(["definitely-not-a-real-identifier-zzz-9f8e7d"]) == []
+def test_scan_for_leakage_finds_no_hits_for_an_identifier_absent_from_the_repo(tmp_path):
+    # Found running for real (implementation time, not a review round): this can't default to
+    # cwd="." (the real ambient repo) -- this very plan document embeds this whole test file as
+    # a worked example and is itself committed, so the "absent" identifier string literally
+    # appears in a tracked file the moment the plan lands. An isolated fixture repo has no such
+    # self-reference risk.
+    repo = _init_repo(tmp_path, {"README.md": b"unrelated content"})
+    assert scan_for_leakage(["definitely-not-a-real-identifier-zzz-9f8e7d"], cwd=repo) == []
 
 
 def test_scan_for_leakage_rejects_empty_identifier():
@@ -1316,9 +1336,17 @@ def _grep_identifier(identifier: str, files: list[str], cwd: str = ".") -> list[
     # exit is already handled below via the manual returncode check. But subprocess.run raises
     # FileNotFoundError (git missing from PATH) regardless of check=, and that path was still
     # unguarded -- self-found while fixing NF4's sibling gap in the same module, same pass.
+    #
+    # Found running the real test suite against this repo's own 2038 tracked files (131 KB of
+    # path text): passing `files` as individual argv entries overflows Windows' CreateProcess
+    # command-line length limit (WinError 206, "filename or extension too long") well before
+    # 32K chars. `files` is always the caller's complete _git_tracked_files() list (never a
+    # narrower subset), and `git grep` with no explicit pathspec already searches every tracked
+    # file by default -- so omitting the file list changes nothing about what gets searched,
+    # only how the scope is expressed, and removes the argv-length ceiling entirely.
     try:
         result = subprocess.run(
-            ["git", "grep", "-n", "-F", identifier, "--"] + files, capture_output=True, text=True, cwd=cwd,
+            ["git", "grep", "-n", "-F", identifier], capture_output=True, text=True, cwd=cwd,
         )
     except FileNotFoundError as exc:
         raise LeakageScanError(f"could not run git grep under cwd={cwd!r}: {exc}") from exc
