@@ -1,7 +1,12 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 20)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 21)
 
-> **Status: Rev. 20 — Tasks 1–10 are IMPLEMENTED and merged on this branch; Tasks 11–13 remain
-> PROPOSED.** Rev. 9 was the first round with zero findings against it. Eight prior review rounds
+> **Status: Rev. 21 — Tasks 1–11 are IMPLEMENTED, reviewed (Codex PASS) and merged on this
+> branch. Task 12 is the active slice; Task 13 and any live run remain BLOCKED.**
+> - **Rev. 20 → Rev. 21** (§1t, mechanical sync, no new design round): Task 11's embedded code and
+>   its argparse instructions are replaced with the flat-CLI implementation actually merged as
+>   `b71923f`. The removed claim — "register both subparsers … all five `required=True`" — was
+>   false in two ways at once: `cli.py` has no argparse subparsers, and `required=True` on a shared
+>   global flag would break every other command. Rev. 9 was the first round with zero findings against it. Eight prior review rounds
 > received CHANGES REQUESTED; full per-round findings tables are in §1a–§1i, summarized briefly
 > here so this header stays readable:
 > - **Rev. 19 → Rev. 20** (§1s, mechanical sync, no new design round): Task 10's embedded code was
@@ -939,6 +944,21 @@ since the header's own cross-reference is what a later reader would chase.
 | P2 | A syntactically valid but non-object JSON row or manifest (`null`, a list, a scalar) escaped as a raw `TypeError` rather than `GateBAbort`. | `isinstance(..., dict)` checks in `_read_arm`, before any field access. |
 | P2 | `check_access` read the ledger early and `append_entry` wrote it much later; two concurrent combines could both observe a free budget and both publish. | `_ledger_lock` (`O_CREAT\|O_EXCL`) spans the authoritative re-check, the append, and the publish. The early `check_access` remains, explicitly documented as a non-authoritative fail-fast. |
 | P1 | Covering the `(seed_index, opp_policy, opp_team_path)` grid proved the right battle SLOTS existed, not that each slot held the battle it scheduled. `seeds.jsonl` proved the canonical seeds existed but was never tied to the rows, so both arms could carry identical, uniformly wrong values — `pair_runs` only detects variance WITHIN an arm. The positive fixture wrote `battle_id="b0"` and `run_id="r"` and passed. | Per-key re-derivation of `seed` and `battle_id`, plus `format_id`, `config_id`, `run_id`, `hero_team_path`, and `dirty` required to be exactly `False`. Fixtures emit real canonical values; a parametrized regression sets each field wrong uniformly across every row of both arms. |
+
+## 1t. What changed in Rev. 21 — mechanical sync of Task 11 with the flat CLI
+
+Not a review round. Task 11 is implemented and review-PASS as `b71923f`; this revision replaces
+§14's embedded test and implementation code with that merged source and corrects the argparse
+instructions it had been carrying.
+
+| Item | Plan said (through Rev. 20) | Reality in `cli.py`, and what §14 now says |
+| --- | --- | --- |
+| Parser shape | "register both subparsers" | There are no argparse subparsers anywhere in `cli.py`. A single flat `command` positional with a `choices` list; both command names were added to it. |
+| Required flags | "all five `required=True`" | Impossible: the options are GLOBAL and shared, so `required=True` would make `ladder`/`smoke`/`gauntlet`/… refuse to start. The pre-existing `--i8d-verdict-path` already documents exactly this. The five new flags use `default=""`, and `main()` enforces per-command required-ness via `parser.error(...)` — argparse's own error path (usage on stderr, exit 2), matching `generalisation-plan`/`-analyze`. |
+| Test count | 9 | 14. The 9 plan tests, plus a second verdict-path case, a `LeakageScanError`-vs-`LeakageDriftError` separation test, two end-to-end handler regressions, and an empty-defaults test pinning the flat-CLI contract. |
+| Two plan tests | asserted only `returncode != 0` + flag name in stderr | Vacuous: an *invalid choice* prints the full usage line, which already contains `--out-dir`, so they passed before the subcommands existed. Both now also assert `"invalid choice" not in stderr`. |
+| Exit codes | described in prose | Implemented and unit-tested: `GateBAbort` 1, `AccessBudgetError` 2, the four holdout-integrity guards 3, `LeakageScanError` 4 (checked *before* the drift branch so "could not check" never reads as "checked, found a leak"), unrecognized type → `TypeError`. |
+| Blocker honesty | asserted | Proven end-to-end: a full arm invocation and a full combine invocation each reach the named Task 13 blocker, exit 1, print no traceback, and publish no output directory — with no teams, server, or battles involved. |
 
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
@@ -7079,44 +7099,80 @@ segment).
 in the CLI path itself. The only thing genuinely deferred behind D-1b is *which team files exist
 on disk* — the CLI wiring, argument parsing, and orchestration calls are all real and tested now.
 
-**Fix vs. Rev. 2 (§1b, P1):** `--i8d-verdict-path`/`--coverage-verdict-path` are now
-`required=True` in argparse, plus a handler-side non-empty check as a second layer — mirroring
-`combine_strength_holdout_arms` itself now requiring them (Task 10).
+**Fix vs. Rev. 2 (§1b, P1):** `--i8d-verdict-path`/`--coverage-verdict-path` are now genuinely
+required for the combine command — enforced in `main()` via `parser.error(...)` because this CLI
+has no subparsers (see the corrected note below Step 3) — mirroring `combine_strength_holdout_arms`
+itself now requiring them (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# showdown_bot/tests/test_cli_strength_holdout_gate.py
+"""Gate B (Independent Strength Holdout) CLI subcommands — Task 11, plan §14.
+
+Both subcommands are deliberately, honestly blocked until Task 13 seals the six holdout teams:
+they name that blocker and exit non-zero rather than raising NotImplementedError, printing a
+traceback, or (worse) silently "succeeding" against empty inputs. Nothing here starts a server,
+plays a battle, or needs a team file.
+"""
+from __future__ import annotations
+
 import subprocess
 import sys
 
 import pytest
 
 
+def _run_cli(*argv):
+    return subprocess.run(
+        [sys.executable, "-m", "showdown_bot.cli", *argv], capture_output=True, text=True,
+    )
+
+
 def test_cli_exposes_both_strength_holdout_subcommands():
-    result = subprocess.run([sys.executable, "-m", "showdown_bot.cli", "--help"], capture_output=True, text=True)
+    result = _run_cli("--help")
     assert "champions-strength-holdout-arm" in result.stdout
     assert "champions-strength-holdout-combine" in result.stdout
 
 
 def test_arm_subcommand_requires_hero_agent_and_out_dir():
-    result = subprocess.run([sys.executable, "-m", "showdown_bot.cli", "champions-strength-holdout-arm"], capture_output=True, text=True)
+    result = _run_cli("champions-strength-holdout-arm")
     assert result.returncode != 0
+    # Without this the assertion below is vacuous: an UNKNOWN command makes argparse print the
+    # full usage line, which already contains "--out-dir" -- so the test would pass just as well
+    # against a CLI that has never heard of this subcommand (verified: it did, before Task 11).
+    assert "invalid choice" not in result.stderr
     assert "--hero-agent" in result.stderr or "--out-dir" in result.stderr
 
 
 def test_combine_subcommand_requires_both_arm_dirs():
-    result = subprocess.run([sys.executable, "-m", "showdown_bot.cli", "champions-strength-holdout-combine"], capture_output=True, text=True)
+    result = _run_cli("champions-strength-holdout-combine")
     assert result.returncode != 0
     assert "--arm-a-dir" in result.stderr or "--arm-b-dir" in result.stderr
 
 
 def test_combine_subcommand_requires_both_upstream_verdict_paths():
-    # Rev. 3 fix: these must be required, not silently optional (Task 10's core-function bug,
-    # mirrored here at the CLI layer).
-    result = subprocess.run([sys.executable, "-m", "showdown_bot.cli", "champions-strength-holdout-combine"], capture_output=True, text=True)
+    # Rev. 3 fix: these must be genuinely required, not silently optional (Task 10's core-function
+    # bug, mirrored here at the CLI layer). Supplying everything EXCEPT the two verdict paths is
+    # what isolates this check -- the bare invocation above would already fail on the arm dirs.
+    result = _run_cli(
+        "champions-strength-holdout-combine",
+        "--arm-a-dir", "a", "--arm-b-dir", "b", "--out-dir", "out",
+    )
     assert result.returncode != 0
+    assert "invalid choice" not in result.stderr  # see the arm test above for why
     assert "--i8d-verdict-path" in result.stderr or "--coverage-verdict-path" in result.stderr
+
+
+def test_combine_still_requires_the_coverage_verdict_path_when_only_i8d_is_given():
+    # Guards against a check that stops at the first missing path: the coverage verdict is not
+    # optional just because the I8-D one was supplied.
+    result = _run_cli(
+        "champions-strength-holdout-combine",
+        "--arm-a-dir", "a", "--arm-b-dir", "b", "--out-dir", "out",
+        "--i8d-verdict-path", "i8d.json",
+    )
+    assert result.returncode != 0
+    assert "--coverage-verdict-path" in result.stderr
 
 
 # NF4 fix (Rev. 8): _describe_strength_holdout_combine_error is a pure function, fully testable
@@ -7163,109 +7219,180 @@ def test_describe_combine_error_refuses_to_mislabel_an_unrecognized_exception_ty
     from showdown_bot.cli import _describe_strength_holdout_combine_error
     with pytest.raises(TypeError, match="unrecognized"):
         _describe_strength_holdout_combine_error(ValueError("not a Gate B exception"))
+
+
+def test_leakage_scan_error_is_not_swallowed_by_the_leakage_drift_branch():
+    # LeakageScanError and LeakageDriftError live in the same module and are easy to collapse into
+    # one isinstance tuple. If they ever share a branch this test fails, because "the scan could
+    # not run" (4) and "the scan ran and found a leak" (3) are different operator decisions.
+    from showdown_bot.cli import _describe_strength_holdout_combine_error
+    from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
+    _, drift_code = _describe_strength_holdout_combine_error(LeakageDriftError("x"))
+    _, scan_code = _describe_strength_holdout_combine_error(LeakageScanError("x"))
+    assert (drift_code, scan_code) == (3, 4)
+
+
+# --- End-to-end handler regressions: the honest Task-13 blocker, no teams/server/battles -------
+
+
+def test_full_arm_invocation_reaches_the_named_task13_blocker_without_a_traceback(tmp_path):
+    result = _run_cli(
+        "champions-strength-holdout-arm",
+        "--hero-agent", "heuristic",
+        "--out-dir", str(tmp_path / "arm_out"),
+        "--seed-log-path", str(tmp_path / "seeds.jsonl"),
+        "--teams-root", str(tmp_path),
+    )
+    assert result.returncode == 1, result.stderr
+    assert "Traceback" not in result.stderr
+    assert "NotImplementedError" not in result.stderr
+    assert "champions-strength-holdout-arm:" in result.stderr
+    assert "Task 13" in result.stderr
+    # Nothing was published: an honest stop must not leave a half-built artifact behind.
+    assert not (tmp_path / "arm_out").exists()
+
+
+def test_full_combine_invocation_reaches_the_named_task13_blocker_without_a_traceback(tmp_path):
+    result = _run_cli(
+        "champions-strength-holdout-combine",
+        "--arm-a-dir", str(tmp_path / "arm_a"),
+        "--arm-b-dir", str(tmp_path / "arm_b"),
+        "--out-dir", str(tmp_path / "combined"),
+        "--i8d-verdict-path", str(tmp_path / "i8d.json"),
+        "--coverage-verdict-path", str(tmp_path / "cov.json"),
+    )
+    assert result.returncode == 1, result.stderr
+    assert "Traceback" not in result.stderr
+    assert "NotImplementedError" not in result.stderr
+    assert "champions-strength-holdout-combine:" in result.stderr
+    assert "Task 13" in result.stderr
+    assert not (tmp_path / "combined").exists()
+
+
+def test_existing_commands_still_parse_without_the_new_gate_b_flags():
+    # The new flags are global (this CLI has no subparsers), so they must keep an empty default --
+    # marking any of them required=True would break every other command's invocation.
+    from showdown_bot.cli import _build_parser
+    args = _build_parser().parse_args(["smoke"])
+    assert args.command == "smoke"
+    for flag in ("hero_agent", "seed_log_path", "arm_a_dir", "arm_b_dir", "coverage_verdict_path"):
+        assert getattr(args, flag) == ""
+
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `pytest showdown_bot/tests/test_cli_strength_holdout_gate.py -v`
-Expected: FAIL — the first 4 tests fail because the subcommands don't exist; the 5 new
+Expected: FAIL — the subcommand tests fail because the commands don't exist; the
 `test_describe_combine_error_*` tests fail with `ImportError: cannot import name
 '_describe_strength_holdout_combine_error'` (Rev. 8's new function, not written until Step 3)
+
+**As executed (Rev. 21):** 14/14 RED. The two headline errors were `ImportError: cannot import
+name '_describe_strength_holdout_combine_error' from 'showdown_bot.cli'` and
+`AttributeError: 'Namespace' object has no attribute 'hero_agent'`.
+
+Two of the original plan tests were found to be **vacuous** and were strengthened rather than
+carried over as written: asserting only `returncode != 0` and `"--out-dir" in stderr` passes
+against a CLI that has never heard of the subcommand, because an *invalid choice* makes argparse
+print the full usage line — which already contains `--out-dir`. Both now also assert
+`"invalid choice" not in result.stderr`.
 
 - [ ] **Step 3: Write the implementation**
 
 Following `run_coverage_gate_cli`'s exact shape, add two handlers and subparsers to `cli.py`:
 
 ```python
+# --- cli.py: the three new module-level functions (verbatim, b71923f) ------------------
 def run_strength_holdout_arm_cli(args) -> int:
-    from showdown_bot.eval.strength_holdout_runner import run_strength_holdout_arm, GateBAbort
-    from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
+    """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11).
+
+    Deliberately blocked today: a real ``holdout_teams`` mapping (team_id ->
+    {team_path, content_hash}) only exists once Task 13 seals the six teams. This raises a clear,
+    NAMED error rather than accepting an empty or invented mapping and failing confusingly deeper
+    in the call stack -- ``run_strength_holdout_arm`` itself is fully implemented and tested
+    (Task 9); only this handler's ability to SOURCE real teams is pending D-1b.
+    """
+    import sys
+
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
     from showdown_bot.eval.strata_guard import UnattestedStratumError
+
     try:
-        # Team-dependent: a real holdout_teams mapping (Rev. 14, §1m -- team_id ->
-        # {team_path, content_hash}) only exists once Task 13 seals the six teams and Task 9
-        # derives it from the real schedule. This raises a clear, named error rather than
-        # silently accepting an empty/fake mapping -- deliberately deferred behind D-1b, not a
-        # hidden gap.
         raise GateBAbort(
             "no sealed holdout team IDs available yet -- Task 13 (blocked on the D-1b "
             "source-proof) must seal six teams and register their IDs before this subcommand "
             "can build a real schedule; this is a deliberate, named stop, not a bug"
         )
     except (GateBAbort, UnattestedStratumError) as exc:
-        # Verified sufficient, Rev. 9 (§1h's audit table, correcting Rev. 8's unqualified
-        # version of this same comment -- NF5): every exception reachable from
-        # run_strength_holdout_arm's own call graph -- including the NF3 (BattleResultWriter.write),
-        # NF4 (_git_is_dirty/_git_sha), and NF5 (gauntlet_runner boundary wrap) fixes -- is
-        # GateBAbort, with ONE still-untraced trust boundary (_derive_config_hash ->
-        # resolve_coverage_provenance, pre-existing, disclosed since Rev. 1/2, not re-verified
-        # this round -- see §1g/§1h).
-        #
-        # Rev. 15 fix (§1n, self-found while fixing the Task-3-review P1s): this function now
-        # calls detect_stratum() (Task 9's own Rev. 15 fix), which -- like Task 10's four guards
-        # below -- deliberately raises its OWN distinct exception (UnattestedStratumError) rather
-        # than GateBAbort (§1g: "their exception types stay distinct by design"). Unlike those
-        # four, this one IS reachable from this function's call graph, so the earlier claim that
-        # "this handler does not need widening for that reason" no longer holds -- widened here,
-        # in the same pass the reachability was introduced, not deferred to a future round.
+        # Verified sufficient, Rev. 9 (§1h's audit table): every exception reachable from
+        # run_strength_holdout_arm's own call graph is GateBAbort, with one still-untraced trust
+        # boundary (_derive_config_hash -> resolve_coverage_provenance, disclosed since Rev. 1/2).
+        # Rev. 15 (§1n) added detect_stratum() to that call graph, which raises its OWN
+        # UnattestedStratumError rather than GateBAbort -- hence the two-class tuple.
         print(f"champions-strength-holdout-arm: {exc}", file=sys.stderr)
         return 1
 
 
 def _describe_strength_holdout_combine_error(exc: BaseException) -> tuple[str, int]:
-    """NF4 fix (Rev. 8): combine_strength_holdout_arms can raise 7 exception CLASSES across 4
+    """NF4 fix (Rev. 8): ``combine_strength_holdout_arms`` can raise 7 exception CLASSES across 4
     meaningfully DISTINCT message/exit-code CATEGORIES (§1f/§1g's audit table) -- Task 10
-    deliberately keeps these distinct rather than folding all of them into GateBAbort (§19):
-    (1) GateBAbort -- the row-schema/manifest/upstream-verdict/pairing/ledger/git-infra trust
-    chain, exit 1; (2) AccessBudgetError -- a policy refusal with a defined override (pass
-    justification= to combine_strength_holdout_arms directly), not a technical failure, and
-    collapsing it would hide the one exception an operator may legitimately overrule, exit 2;
-    (3) HoldoutNotDisjointError/LeakageDriftError/StrataPoolingError/UnattestedStratumError --
-    four DIFFERENT classes, ONE category: integrity judgments about the holdout itself, exit 3;
-    (4) LeakageScanError (Rev. 8, NF4's own leakage-scan-infra fix) -- the scan could not even
-    run, neither a policy refusal nor an integrity judgment, exit 4. Catching only GateBAbort
-    (Rev. 4-7's shape) turned every one of the other 6 classes into an unhandled traceback
-    regardless of intent -- this is the documented, unit-tested mapping from exception identity
-    to a labeled message and a distinct exit code, so the CLI handler below never has to guess.
-    Returns (message, exit_code); deliberately does not recognize anything outside the 7 classes
-    named here -- an unrecognized type re-raises rather than being mislabeled."""
-    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    deliberately keeps these distinct rather than folding all of them into ``GateBAbort``:
+
+    1. ``GateBAbort`` -- the row-schema/manifest/upstream-verdict/pairing/ledger/git-infra trust
+       chain, exit 1.
+    2. ``AccessBudgetError`` -- a policy refusal with a defined override (pass a justification),
+       not a technical failure; collapsing it would hide the one exception an operator may
+       legitimately overrule, exit 2.
+    3. ``HoldoutNotDisjointError``/``LeakageDriftError``/``StrataPoolingError``/
+       ``UnattestedStratumError`` -- four DIFFERENT classes, ONE category: integrity judgments
+       about the holdout itself, exit 3.
+    4. ``LeakageScanError`` -- the scan could not even run; neither a policy refusal nor an
+       integrity judgment, exit 4. Checked BEFORE ``LeakageDriftError`` would be reached, because
+       "couldn't check" must never read as "checked, found a problem".
+
+    Returns ``(message, exit_code)``. Deliberately does not recognize anything outside those 7
+    classes -- an unrecognized type raises ``TypeError`` rather than being mislabeled.
+    """
     from showdown_bot.eval.heldout_ledger import AccessBudgetError
     from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
     from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
     from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
 
     if isinstance(exc, AccessBudgetError):
         return (
             f"ledger budget refused: {exc} (this is a policy decision, not a technical failure "
             "-- pass a justification to override it if that override is warranted)", 2,
         )
-    if isinstance(exc, (HoldoutNotDisjointError, LeakageDriftError, StrataPoolingError, UnattestedStratumError)):
-        return (f"holdout integrity check failed: {exc}", 3)
     if isinstance(exc, LeakageScanError):
         return (f"leakage scan could not be completed: {exc}", 4)
+    if isinstance(exc, (HoldoutNotDisjointError, LeakageDriftError, StrataPoolingError, UnattestedStratumError)):
+        return (f"holdout integrity check failed: {exc}", 3)
     if isinstance(exc, GateBAbort):
         return (str(exc), 1)
-    raise TypeError(f"unrecognized exception type for the strength-holdout combine CLI: {type(exc).__name__}") from exc
+    raise TypeError(
+        f"unrecognized exception type for the strength-holdout combine CLI: {type(exc).__name__}"
+    ) from exc
 
 
 def run_strength_holdout_combine_cli(args) -> int:
-    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    """Gate B, combine the two published arms into a verdict (plan §14, Task 11).
+
+    Blocked today for the same reason as the arm handler: ``holdout_content_hashes`` needs Task
+    13's six sealed teams. Note the species side is NOT a CLI concern -- Task 10's review-fix
+    removed the ``holdout_candidate_species``/``reference_species`` parameters and derives both
+    mappings from the real sealed ``.packed`` files. Passing ``{}`` here (Rev. 3's shape) would
+    now abort anyway, and doing so silently is exactly the vacuous-guard trust shape this plan
+    exists to eliminate.
+    """
+    import sys
+
     from showdown_bot.eval.heldout_ledger import AccessBudgetError
     from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
     from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
     from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
-    # Rev. 4 P2 fix: combine_strength_holdout_arms REJECTS an empty holdout_content_hashes
-    # unconditionally (Task 10) -- Rev. 3's CLI wiring passed {} for it, which would now always
-    # abort anyway, and doing so silently (dressed up as "PROPOSED, not wired yet") is exactly
-    # the vacuous-guard trust shape being eliminated. This subcommand is therefore explicitly
-    # blocked pending Task 13, matching run_strength_holdout_arm_cli's already-established
-    # honest-stop pattern exactly, rather than passing empty maps that would now fail anyway for
-    # a less obvious reason.
-    # Rev. 20 (mechanical sync): the species side is no longer a CLI concern at all -- Task 10's
-    # review-fix removed the holdout_candidate_species/reference_species parameters and derives
-    # both mappings from the real sealed .packed files. What this handler still cannot source is
-    # holdout_content_hashes, which needs Task 13's six sealed teams.
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+
     try:
         raise GateBAbort(
             "no sealed holdout team hashes available yet -- Task 13 (blocked on the D-1b "
@@ -7276,22 +7403,113 @@ def run_strength_holdout_combine_cli(args) -> int:
         )
     except (GateBAbort, AccessBudgetError, HoldoutNotDisjointError, LeakageDriftError,
             LeakageScanError, StrataPoolingError, UnattestedStratumError) as exc:
-        # NF4 fix (Rev. 8): widened from `except GateBAbort` alone -- that shape let the other 6
-        # classes escape this handler as raw tracebacks the moment Task 13 unblocks a real
-        # combine_strength_holdout_arms call beneath this still-deliberate early stop. The early
-        # stop itself is unchanged; only the boundary is now honest about what it must eventually
-        # handle.
+        # NF4 fix (Rev. 8): widened from `except GateBAbort` alone -- that shape let the other six
+        # classes escape as raw tracebacks the moment Task 13 unblocks a real combine call beneath
+        # this still-deliberate early stop. The stop is unchanged; only the boundary is now honest
+        # about what it must eventually handle.
         message, code = _describe_strength_holdout_combine_error(exc)
         print(f"champions-strength-holdout-combine: {message}", file=sys.stderr)
         return code
+
+
+
+
+# --- cli.py, inside _build_parser(): the five new GLOBAL flags -------------------------
+# (shown at their real indentation; `parser` is the ArgumentParser built above them)
+    # Gate B (strength holdout, Task 11). All five are GLOBAL flags with an empty default, like
+    # --i8d-verdict-path above and for the same reason: this CLI has a single flat `command`
+    # positional, not argparse subparsers, so `required=True` on any of them would make EVERY
+    # other command (ladder, smoke, gauntlet, ...) refuse to start. Per-command required-ness is
+    # enforced in main() via parser.error(), exactly as generalisation-plan/-analyze already do.
+    parser.add_argument(
+        "--hero-agent",
+        dest="hero_agent",
+        default="",
+        help="Which arm to play for champions-strength-holdout-arm (required for it): "
+        "'heuristic' is Candidate A, 'max_damage' is Baseline B.",
+    )
+    parser.add_argument(
+        "--seed-log-path",
+        dest="seed_log_path",
+        default="",
+        help="Path the server's seed log is written to (champions-strength-holdout-arm, "
+        "required): the arm refuses to run unless the log is built during this very run.",
+    )
+    parser.add_argument(
+        "--arm-a-dir",
+        dest="arm_a_dir",
+        default="",
+        help="Published Candidate-A arm directory (champions-strength-holdout-combine, required).",
+    )
+    parser.add_argument(
+        "--arm-b-dir",
+        dest="arm_b_dir",
+        default="",
+        help="Published Baseline-B arm directory (champions-strength-holdout-combine, required).",
+    )
+    parser.add_argument(
+        "--coverage-verdict-path",
+        dest="coverage_verdict_path",
+        default="",
+        help="Path to the Coverage gate's verdict.json for the SAME candidate "
+        "(champions-strength-holdout-combine, required): Gate B may only run after an I8-D PASS "
+        "AND a Coverage PASS. Global default is empty so other commands are unaffected.",
+    )
+
+
+# --- cli.py, inside main(): the two dispatch branches ----------------------------------
+    if args.command == "champions-strength-holdout-arm":
+        # parser.error() (not argparse `required=True`) because these are shared GLOBAL flags --
+        # see the Gate B block in _build_parser. It is still argparse's own error path: usage to
+        # stderr, exit 2, same as generalisation-plan's existing check.
+        missing = [
+            flag for flag, value in (
+                ("--hero-agent", args.hero_agent), ("--out-dir", args.out_dir),
+                ("--seed-log-path", args.seed_log_path), ("--teams-root", args.teams_root),
+            ) if not value
+        ]
+        if missing:
+            parser.error(f"champions-strength-holdout-arm requires {', '.join(missing)}")
+        raise SystemExit(run_strength_holdout_arm_cli(args))
+
+    if args.command == "champions-strength-holdout-combine":
+        missing = [
+            flag for flag, value in (
+                ("--arm-a-dir", args.arm_a_dir), ("--arm-b-dir", args.arm_b_dir),
+                ("--out-dir", args.out_dir), ("--i8d-verdict-path", args.i8d_verdict_path),
+                ("--coverage-verdict-path", args.coverage_verdict_path),
+            ) if not value
+        ]
+        if missing:
+            parser.error(f"champions-strength-holdout-combine requires {', '.join(missing)}")
+        raise SystemExit(run_strength_holdout_combine_cli(args))
 ```
 
-register both subparsers with `--hero-agent`/`--out-dir`/`--seed-log-path`/`--teams-root` (arm)
-and `--arm-a-dir`/`--arm-b-dir`/`--out-dir`/`--i8d-verdict-path`/`--coverage-verdict-path`
-(combine, all five `required=True`), mirroring `champions-coverage-gate`'s existing argparse
-block exactly. `--i8d-verdict-path`/`--coverage-verdict-path` being `required=True` is itself
-part of the Rev. 3 fix — Rev. 2's argparse sketch never marked them required, matching the
-core-function bug.
+**Corrected, Rev. 21 (mechanical sync against `b71923f`):** earlier revisions of this paragraph
+said to "register both subparsers … all five `required=True`, mirroring `champions-coverage-gate`'s
+existing argparse block exactly." Those two instructions contradict each other, and the first is
+simply false about this CLI: **`cli.py` has no argparse subparsers at all.** It has a single flat
+`command` positional with a `choices` list, and every option is a GLOBAL flag shared by every
+command. `required=True` on any shared flag would make `ladder`, `smoke`, `gauntlet` and every
+other command refuse to start — which is exactly why the pre-existing `--i8d-verdict-path` carries
+the comment "Global default is empty so other commands are unaffected; only
+champions-coverage-gate's own handler requires it."
+
+What was actually implemented, and what this plan now specifies:
+
+- Both command names are added to the `choices` list of the flat `command` positional.
+- The five new flags (`--hero-agent`, `--seed-log-path`, `--arm-a-dir`, `--arm-b-dir`,
+  `--coverage-verdict-path`) are registered as GLOBAL flags with `default=""`, alongside the
+  already-existing `--out-dir`, `--teams-root` and `--i8d-verdict-path`.
+- Per-command required-ness is enforced in `main()` via `parser.error(...)`, naming every missing
+  flag at once. This is still argparse's own error path — usage on stderr, exit 2 — and it is the
+  convention this codebase already uses for `generalisation-plan`/`generalisation-analyze`.
+- A dedicated test (`test_existing_commands_still_parse_without_the_new_gate_b_flags`) pins the
+  empty defaults, so a later `required=True` cannot be reintroduced without a failing test.
+
+The Rev. 3 intent is unchanged and fully met: `--i8d-verdict-path`/`--coverage-verdict-path` are
+genuinely required for `champions-strength-holdout-combine` and refuse the run before any work
+happens; only the enforcement mechanism differs from the (impossible) sketch.
 
 **Note on both CLI handlers (updated, Rev. 8):** both `run_strength_holdout_arm_cli` and
 `run_strength_holdout_combine_cli` always raise `GateBAbort` themselves today, by design — honest
@@ -7310,13 +7528,19 @@ already satisfies them.
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest showdown_bot/tests/test_cli_strength_holdout_gate.py -v`
-Expected: 9 passed (4 from Rev. 1/3 + 5 new error-mapping tests, Rev. 8)
+Expected: 14 passed — the 9 plan tests (4 CLI-surface + 5 error-mapping), plus a second
+verdict-path case proving the coverage path is not optional once the I8-D one is supplied, a
+LeakageScanError-vs-LeakageDriftError separation test, the two end-to-end handler regressions
+(full arm and full combine invocation each reaching the named Task 13 blocker with exit 1 and no
+traceback, needing no teams/server/battles), and the empty-defaults test that pins the flat-CLI
+contract. Proportional: 347 passed across all nine CLI test files plus the runner/verdict/strata
+surface; 3357 collected repo-wide.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/cli.py showdown_bot/tests/test_cli_strength_holdout_gate.py
-git commit -m "feat(champions): champions-strength-holdout-arm/-combine CLI subcommands"
+git commit -m "feat(champions): add Gate B arm and combine CLI subcommands"
 ```
 
 ---
@@ -7649,10 +7873,11 @@ Steps 3-6 are explicitly out of scope for this plan.
 
 ## 19. What happens next
 
-**Rev. 20 status.** Tasks 1–10 are implemented, reviewed, and merged on
-`feat/champions-gate-b-task-1-schedule`; this document's Task 10 section now mirrors that merged
-source rather than a proposal. Task 11 (CLI subcommands) is the active slice. Tasks 12–13 remain
-PROPOSED, and Task 13 stays blocked behind the §2 source-proof.
+**Rev. 21 status.** Tasks 1–11 are implemented, reviewed (Codex PASS), and merged on
+`feat/champions-gate-b-task-1-schedule`; this document's Task 10 and Task 11 sections now mirror
+that merged source rather than a proposal. Task 12 (team sealing/provenance) is the active slice.
+Task 13 remains BLOCKED behind the §2 source-proof, and no live Gate B run is authorized: both CLI
+subcommands stop honestly at that same blocker today.
 
 Every finding raised across all prior review rounds is fixed with real, verified code, and the one
 item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`
