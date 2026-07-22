@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from pathlib import Path
 
 STRENGTH_HOLDOUT_PANEL_PATH = "config/eval/panels/panel_champions_strength_holdout_v0.yaml"
 STRENGTH_HOLDOUT_MANIFEST_PATH = "config/eval/holdout/champions_strength_holdout_v0_manifest.json"
@@ -14,12 +15,46 @@ STRENGTH_HOLDOUT_OPPONENT_POLICIES = ("heuristic", "max_damage")
 # PROPOSED (grounding report sec 3): reuses I8-D/Coverage's standing Champions hero team.
 STRENGTH_HOLDOUT_HERO_TEAM_PATH = "showdown_bot/teams/fixed_champions_v0.txt"
 
-STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH = ""    # frozen once Task 13 seals the six teams
-STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH = ""
+# Frozen at Task 13 step 3 from the real sealed six teams, panel, and manifest -- derived via the
+# production functions (load_panel(...).panel_hash and strength_holdout_manifest_hash), never
+# hand-entered. test_strength_holdout_freeze.py re-derives both and pins these constants to them.
+STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH = "122764211b6db3ba"
+STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH = "6c37277bd1bd2a71"
 
 
 def _sha16(s: str) -> str:
     return hashlib.sha1(s.encode("utf-8")).hexdigest()[:16]
+
+
+def strength_holdout_manifest_hash(manifest_path: str) -> str:
+    """Content identity of the holdout manifest's authoritative team set (Task 13 hash-freeze).
+
+    Hashes exactly the sorted ``(team_id, team_path, team_content_hash)`` projection -- the same
+    triple ``verify_strength_holdout_baseline`` binds panel/baseline/on-disk against -- with this
+    module's own ``_sha16`` + canonical-JSON convention. Deliberately independent of the manifest's
+    incidental fields (source URLs, ranks, formatting) and of key order, so a provenance-only edit
+    does not move it while any change to WHICH six teams are registered, their paths, or their
+    sealed content does. Raises ``ValueError`` on a manifest that is not an object with a ``teams``
+    list of the closed triple shape -- never a raw ``KeyError``/``OSError`` escaping to the caller.
+    """
+    try:
+        man = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"holdout manifest at {manifest_path!r} could not be read: {exc}") from exc
+    if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
+        raise ValueError("holdout manifest must be an object with a 'teams' list")
+    projection = []
+    for i, t in enumerate(man["teams"]):
+        if not isinstance(t, dict):
+            raise ValueError(f"holdout manifest teams[{i}] must be an object")
+        try:
+            triple = (t["team_id"], t["team_path"], t["team_content_hash"])
+        except KeyError as exc:
+            raise ValueError(f"holdout manifest teams[{i}] missing field {exc}") from exc
+        if not all(isinstance(v, str) and v.strip() for v in triple):
+            raise ValueError(f"holdout manifest teams[{i}] has a blank/non-string id/path/hash")
+        projection.append(list(triple))
+    return _sha16(json.dumps(sorted(projection), sort_keys=True, separators=(",", ":")))
 
 
 @dataclass(frozen=True)

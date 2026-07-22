@@ -1,12 +1,12 @@
 # showdown_bot/tests/test_baseline_strength_holdout.py
-"""Gate B (Champions strength-holdout) baseline manifest -- Task 6.
+"""Gate B (Champions strength-holdout) baseline manifest -- Task 6 + Task 13 step-3 freeze.
 
-This manifest is deliberately a schema-loadable PLACEHOLDER, not a frozen baseline proof and
-not a strength result: every hash/path field that depends on real panel/schedule/team/reference
-content is an intentional empty string (or an empty ``opp_team_hashes`` mapping) until Task 13
-seals the six holdout teams, builds the real panel/schedule, and records real reference data.
-``load_baseline`` must accept it (the schema is satisfied); ``verify_baseline`` must refuse it
-(fail-closed) for exactly that reason -- there is nothing real yet to verify against.
+The committed manifest is now the CLOSED A1.3 contract with REAL frozen values (Task 13 step 3),
+loaded/verified ONLY by ``load_strength_holdout_baseline`` / ``verify_strength_holdout_baseline``
+(the additive Gate B loader below). The generic T6 ``load_baseline`` must REFUSE it -- the two
+contracts never cross-load (§A1.3). The real committed manifest's clean load + verify against the
+real tree is exercised in ``test_strength_holdout_freeze.py``; this file covers the closed loader/
+verifier contract on synthetic tmp_path repos.
 """
 from __future__ import annotations
 
@@ -15,63 +15,29 @@ from pathlib import Path
 
 import pytest
 
-from showdown_bot.eval.baseline import BaselineDriftError, BaselineError, load_baseline, verify_baseline
+from showdown_bot.eval.baseline import BaselineDriftError, BaselineError, load_baseline
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # tests/ -> showdown_bot/ -> <repo>
 _MANIFEST_PATH = _REPO_ROOT / "config" / "eval" / "baselines" / "champions-strength-holdout-v0.json"
 
 
-def test_manifest_has_every_required_field():
-    # load_baseline itself enforces the full required-field set (BaselineError on any missing
-    # field) -- a successful load is the proof, not a duplicated field list here.
-    baseline = load_baseline(str(_MANIFEST_PATH))
-    assert "hero_team_path" in baseline
-
-
-def test_manifest_baseline_id_identifies_this_gate():
-    baseline = load_baseline(str(_MANIFEST_PATH))
-    assert baseline["baseline_id"] == "champions-strength-holdout-v0"
-
-
-def test_manifest_uses_the_champions_hero_path():
-    # Task 6 grounding P1: the Reg-I default hero ("teams/fixed_team.txt") is the WRONG hero for
-    # Gate B -- Champions plays "teams/fixed_champions_v0.txt". This manifest must carry that
-    # explicit override, or a future verify_baseline run (once Task 13 fills in the rest) would
-    # hash the wrong team entirely.
-    baseline = load_baseline(str(_MANIFEST_PATH))
-    assert baseline["hero_team_path"] == "teams/fixed_champions_v0.txt"
-
-
-def test_manifest_is_distinct_from_the_reg_i_manifest():
-    reg_i_path = _REPO_ROOT / "config" / "eval" / "baselines" / "heuristic-v1.json"
-    champions_baseline = load_baseline(str(_MANIFEST_PATH))
-    reg_i_baseline = load_baseline(str(reg_i_path))
-    assert champions_baseline["baseline_id"] != reg_i_baseline["baseline_id"]
-    assert champions_baseline != reg_i_baseline
-
-
-def test_load_baseline_rejects_a_manifest_missing_a_required_field(tmp_path):
-    with open(_MANIFEST_PATH, encoding="utf-8") as fh:
-        data = json.load(fh)
-    del data["config_hash"]
-    incomplete_path = tmp_path / "incomplete.json"
-    incomplete_path.write_text(json.dumps(data), encoding="utf-8")
+def test_generic_load_baseline_refuses_the_gate_b_closed_manifest():
+    # A1.3 separation: the committed Gate B manifest is the CLOSED contract (frozen at step 3), not
+    # a generic T6 result-baseline. The generic load_baseline must refuse it rather than silently
+    # accept a manifest lacking config_hash/dev_schedule_hash/reference_jsonl -- the two contracts
+    # never cross-load. The Gate B loader/verifier are exercised on this same file, and pass, in
+    # test_strength_holdout_freeze.py.
     with pytest.raises(BaselineError):
-        load_baseline(str(incomplete_path))
+        load_baseline(str(_MANIFEST_PATH))
 
 
-def test_placeholder_manifest_refuses_verification_fail_closed():
-    # THIS IS NOT A FROZEN BASELINE PROOF AND NOT A STRENGTH RESULT. Every hash/path field that
-    # depends on real content (panel_hash, hero_team_hash, dev_schedule_hash/dev_schedule_path,
-    # showdown_commit, server_patch_hash, reference_sha256/reference_jsonl) is a deliberate empty
-    # placeholder -- load_baseline succeeds (the manifest is schema-loadable), but
-    # verify_baseline must refuse, fail-closed, against the REAL repo tree. Multiple fields are
-    # deliberately invalid at once, so no single specific drift cause is asserted here -- only
-    # that verification refuses, exactly as it must until Task 13 lands real panel/schedule/team/
-    # reference content and this placeholder is superseded by a real, frozen manifest.
-    baseline = load_baseline(str(_MANIFEST_PATH))
-    with pytest.raises(BaselineDriftError):
-        verify_baseline(baseline, repo_root=str(_REPO_ROOT))
+def test_gate_b_manifest_is_distinct_from_the_reg_i_manifest():
+    # The Reg-I heuristic-v1 manifest stays a valid GENERIC manifest; the Gate B one is the closed
+    # contract. They are different files with different identities and different loaders.
+    reg_i_path = _REPO_ROOT / "config" / "eval" / "baselines" / "heuristic-v1.json"
+    reg_i = load_baseline(str(reg_i_path))  # generic still loads its own manifest
+    gate_b = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert reg_i["baseline_id"] != gate_b["baseline_id"]
 
 
 # =================================================================================================
@@ -531,9 +497,13 @@ def test_the_generic_required_fields_are_unchanged_by_the_specific_contract():
     })
 
 
-def test_the_committed_placeholder_manifest_never_yields_a_false_pass():
-    with pytest.raises(BaselineError):
-        load_strength_holdout_baseline(str(_MANIFEST_PATH))
+def test_the_committed_manifest_loads_under_the_closed_loader():
+    # Task 13 step 3: the committed manifest is now the REAL closed-schema baseline, so the closed
+    # loader accepts it (the generic loader refuses it -- see the top of this file). Its clean
+    # verify against the real repo tree is in test_strength_holdout_freeze.py.
+    loaded = load_strength_holdout_baseline(str(_MANIFEST_PATH))
+    assert loaded["baseline_id"] == "champions-strength-holdout-v0"
+    assert loaded["hero_agent"] == "max_damage"
 
 
 # --- review-fix round 2 ------------------------------------------------------------------------
