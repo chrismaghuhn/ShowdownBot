@@ -30,6 +30,7 @@ import platform
 import re
 import shutil
 import subprocess
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -54,6 +55,28 @@ from showdown_bot.team.pack import load_packed_team
 # with no allowlist change needed.
 STRENGTH_HOLDOUT_OUTPUT_BASE = "data/eval/champions-panel-v0/strength-holdout-v0"
 
+# Task-10 review-fix, P1 #3: the NINE existing Champions M-A teams the six holdout candidates are
+# compared against by the near-duplicate guard (DESIGN sec 3.3 / plan §16 item 5) -- five
+# panel_champions_v0 teams plus the four frozen coverage opponents. Pinned here as PATHS, not as a
+# caller-supplied species mapping: before this fix both sides of that comparison were bare caller
+# assertions (`holdout_candidate_species`/`reference_species`), so a caller could hand combine any
+# species lists it liked -- including ones that trivially never overlap -- and the guard would
+# happily "pass". near_duplicate.load_team_species already existed to derive species from a team's
+# REAL sealed .packed content and was verified by its own tests, but had no production call site
+# at all. Both sides are now derived through it, from these pinned paths and from the arm's own
+# row-bound holdout_teams mapping respectively.
+CANONICAL_REFERENCE_TEAM_PATHS = {
+    "disruption": "showdown_bot/teams/panel_champions_v0/disruption.txt",
+    "goodstuff": "showdown_bot/teams/panel_champions_v0/goodstuff.txt",
+    "rain_offense": "showdown_bot/teams/panel_champions_v0/rain_offense.txt",
+    "tailwind_offense": "showdown_bot/teams/panel_champions_v0/tailwind_offense.txt",
+    "trick_room": "showdown_bot/teams/panel_champions_v0/trick_room.txt",
+    "cov_foe_slot0": "showdown_bot/teams/panel_champions_coverage_v0/cov_foe_slot0.txt",
+    "cov_foe_slot1": "showdown_bot/teams/panel_champions_coverage_v0/cov_foe_slot1.txt",
+    "cov_foe_both": "showdown_bot/teams/panel_champions_coverage_v0/cov_foe_both.txt",
+    "cov_foe_tie": "showdown_bot/teams/panel_champions_coverage_v0/cov_foe_tie.txt",
+}
+
 _VALID_HERO_AGENTS = frozenset({"heuristic", "max_damage"})
 _SAFE_TEAM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 # The exact, closed field set gauntlet.py's real on_battle_result(record) callback always
@@ -73,7 +96,11 @@ class GateBAbort(Exception):
     dedicated section -- grounding report sec 2)."""
 
 
-def _git_is_dirty() -> bool:
+def _git_is_dirty(cwd: str | None = None) -> bool:
+    # Task-10 review-fix, P1 #2: `cwd` added so combine_strength_holdout_arms can ask about the
+    # SAME checkout its repo-dependent guards (verify_baseline, the leakage scan's `git show
+    # HEAD:<path>`) actually read, rather than whatever directory the process happens to sit in.
+    # Defaults to None -- unchanged behaviour for Task 9's own callers.
     # NF4 fix (Rev. 8): check=True raises subprocess.CalledProcessError outside a git checkout;
     # a missing git executable raises FileNotFoundError regardless of check=. Both were unguarded
     # and would escape resolve_strength_holdout_provenance -> run_strength_holdout_arm as a raw
@@ -81,17 +108,21 @@ def _git_is_dirty() -> bool:
     # catches GateBAbort. Defined in this module (unlike the leakage-scan git calls), so the fix
     # can fold directly into GateBAbort with no cross-module dependency.
     try:
-        result = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True, cwd=cwd,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
         raise GateBAbort(f"cannot determine git dirty-state: {exc}") from exc
     return bool(result.stdout.strip())
 
 
-def _git_sha() -> str:
-    # NF4 fix (Rev. 8): same as _git_is_dirty above.
+def _git_sha(cwd: str | None = None) -> str:
+    # NF4 fix (Rev. 8): same as _git_is_dirty above. Task-10 review-fix, P1 #2: same `cwd`.
     try:
-        result = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True, cwd=cwd,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
         raise GateBAbort(f"cannot determine git sha: {exc}") from exc
     return result.stdout.strip()
 
@@ -637,7 +668,7 @@ from showdown_bot.eval.strength_holdout_verdict import (
 )
 from showdown_bot.eval.holdout_leakage_scan import assert_no_holdout_leakage
 from showdown_bot.eval.holdout_disjointness import assert_disjoint_from_coverage
-from showdown_bot.eval.near_duplicate import find_near_duplicate_flags
+from showdown_bot.eval.near_duplicate import find_near_duplicate_flags, load_team_species
 from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_no_cross_stratum_pooling
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
 from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
@@ -667,6 +698,17 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
             for line in fh:
                 if line.strip():
                     row = json.loads(line)
+                    # Task-10 review-fix, P2 #4: syntactically valid JSON that is not an OBJECT
+                    # (`null`, a bare number, a list) used to reach validate_battle_row, whose
+                    # `field in row` membership test raises a raw TypeError for None -- escaping
+                    # this function's own GateBAbort contract that the CLI depends on. Checked
+                    # here, before any field access, for exactly the same reason the manifest is
+                    # checked below.
+                    if not isinstance(row, dict):
+                        raise GateBAbort(
+                            f"malformed row in {arm_dir}/rows.jsonl: expected a JSON object, got "
+                            f"{type(row).__name__}"
+                        )
                     try:
                         validate_battle_row(row)  # F3 fix (Rev. 6): schema conformance was never checked on read
                     except ResultRowError as exc:
@@ -677,6 +719,14 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
                     rows.append(row)
         with open(os.path.join(arm_dir, "arm_manifest.json"), "r", encoding="utf-8") as fh:
             manifest = json.load(fh)
+        # Task-10 review-fix, P2 #4: same as the row check above -- a `null` manifest reached
+        # `set(manifest)` in _assert_rows_match_manifest and raised a raw TypeError ("'NoneType'
+        # object is not iterable") instead of aborting cleanly.
+        if not isinstance(manifest, dict):
+            raise GateBAbort(
+                f"malformed arm_manifest.json in {arm_dir!r}: expected a JSON object, got "
+                f"{type(manifest).__name__}"
+            )
     except (OSError, UnicodeDecodeError) as exc:
         raise GateBAbort(f"cannot read arm directory {arm_dir!r}: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -984,11 +1034,157 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
         )
 
 
+_ROW_REQUIRED_KEYS_FOR_SCHEDULE_BINDING = ("seed_index", "opp_policy")
+
+
+def _assert_rows_cover_canonical_schedule(rows: list[dict], manifest: dict, which: str) -> None:
+    """Task-10 review-fix, P1 #1: an arm must be the WHOLE canonical 180-battle-key schedule, and
+    every row must be one of its keys.
+
+    Before this fix nothing in the combiner ever rebuilt the schedule. ``n_rows`` was only ever
+    compared against ``len(rows)`` (self-consistent by construction for a truncated arm) and
+    ``schedule_hash`` was compared row-vs-manifest -- also self-consistent, because the writer
+    stamps the same string on both. Two *matching*, *internally consistent*, 12-row arms
+    therefore combined to a published "strength" verdict over 12 battles, and the fixtures that
+    were supposed to prove otherwise were themselves 12-row. A short or reshaped arm is not a
+    weaker strength result, it is not a strength result at all, so this is fail-closed.
+
+    The rebuild is the same one Task 9's ``_assert_schedule_is_genuine`` performs on the write
+    side, driven here from what the arm itself recorded: its own six team_ids, its own
+    panel_hash, its own seed_base. ``seed_base`` is checked separately against the pinned
+    namespace FIRST, for the reason Task 9 documents at its own call site -- feeding a forged
+    seed_base into the rebuild and then comparing against that same forged value proves nothing.
+    """
+    if manifest["seed_base"] != STRENGTH_HOLDOUT_SEED_BASE:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_base={manifest['seed_base']!r} != the pinned seed "
+            f"namespace {STRENGTH_HOLDOUT_SEED_BASE!r} -- refusing an unpinned seed namespace"
+        )
+    try:
+        schedule = build_strength_holdout_schedule(
+            holdout_team_ids=sorted(manifest["holdout_teams"]),
+            panel_hash=manifest["panel_hash"], seed_base=manifest["seed_base"],
+        )
+    except ValueError as exc:
+        raise GateBAbort(
+            f"arm {which}: its own holdout_teams/panel_hash/seed_base do not rebuild a genuine "
+            f"canonical strength-holdout schedule: {exc}"
+        ) from exc
+    if schedule.schedule_hash != manifest["schedule_hash"]:
+        raise GateBAbort(
+            f"arm {which}: manifest's schedule_hash={manifest['schedule_hash']!r} is not the "
+            f"canonical rebuild from its own team_ids/panel_hash/seed_base "
+            f"({schedule.schedule_hash!r}) -- refusing a forged or stale schedule label"
+        )
+    if len(rows) != len(schedule.battle_keys):
+        raise GateBAbort(
+            f"arm {which}: has {len(rows)} row(s) but the canonical schedule has "
+            f"{len(schedule.battle_keys)} battle key(s) -- a partial arm is not a strength result"
+        )
+    expected = {
+        (key.seed_index, key.opponent_policy, f"{HOLDOUT_TEAMS_DIR}{key.holdout_team_id}.txt")
+        for key in schedule.battle_keys
+    }
+    played = []
+    for i, row in enumerate(rows):
+        missing = set(_ROW_REQUIRED_KEYS_FOR_SCHEDULE_BINDING) - set(row)
+        if missing:
+            raise GateBAbort(
+                f"arm {which}: row {i} is missing required key(s): {sorted(missing)} -- every row "
+                "must identify the canonical battle key it played"
+            )
+        played.append((row["seed_index"], row["opp_policy"], row["opp_team_path"]))
+    if len(set(played)) != len(played):
+        raise GateBAbort(
+            f"arm {which}: two or more rows claim the SAME canonical battle key -- one battle key "
+            "must be played exactly once"
+        )
+    if set(played) != expected:
+        unexpected = sorted(set(played) - expected)[:3]
+        unplayed = sorted(expected - set(played))[:3]
+        raise GateBAbort(
+            f"arm {which}: its rows do not cover the canonical schedule exactly once -- "
+            f"battle key(s) played but not scheduled: {unexpected}; scheduled but not played: "
+            f"{unplayed}"
+        )
+
+
+def _derive_species_from_sealed_files(holdout_teams: dict, teams_root: str) -> tuple[dict, dict]:
+    """Task-10 review-fix, P1 #3: derive BOTH sides of the near-duplicate comparison from real
+    sealed ``.packed`` content instead of trusting caller-supplied species mappings.
+
+    ``holdout_candidate_species`` and ``reference_species`` were plain caller assertions: combine
+    only ever checked that the candidate mapping's KEY SET matched the six scheduled teams, never
+    that any listed species had anything to do with the team it was filed under. A caller could
+    hand over six species lists that trivially overlap nothing and the guard would "pass".
+    ``near_duplicate.load_team_species`` -- which derives species from a team's real packed file,
+    and has its own tests -- existed already but had no production call site anywhere.
+
+    The candidate side is keyed off ``manifest_a["holdout_teams"]``, which by this point is
+    already proven to describe the rows actually played; the reference side is the pinned
+    ``CANONICAL_REFERENCE_TEAM_PATHS``, not caller input. Any unreadable or malformed team file
+    is a fail-closed abort -- a silently smaller comparison set would quietly weaken the guard.
+    """
+    try:
+        candidates = {
+            team_id: load_team_species(holdout_teams[team_id]["team_path"], teams_root=teams_root)
+            for team_id in sorted(holdout_teams)
+        }
+        references = {
+            ref_id: load_team_species(CANONICAL_REFERENCE_TEAM_PATHS[ref_id], teams_root=teams_root)
+            for ref_id in sorted(CANONICAL_REFERENCE_TEAM_PATHS)
+        }
+    except ValueError as exc:
+        raise GateBAbort(
+            f"cannot derive team species from the real sealed team files under "
+            f"teams_root={teams_root!r}: {exc}"
+        ) from exc
+    return candidates, references
+
+
+@contextmanager
+def _ledger_lock(ledger_path: str):
+    """Task-10 review-fix, P2 #5: make the held-out access budget's check-then-reserve atomic.
+
+    ``check_access`` reads the ledger early and ``append_entry`` writes it much later, with the
+    whole guard/pairing/verdict computation in between. Two combines started concurrently could
+    both observe a free budget in that window and both go on to append and publish -- exactly the
+    held-out-data-reuse the ledger exists to prevent, and invisible afterwards because both
+    entries look legitimate. An exclusive ``O_CREAT|O_EXCL`` lock file held across the entire
+    section closes it: the second process cannot even begin.
+
+    Deliberately fail-closed with no timeout or steal: a stale lock (left by a crashed combine)
+    blocks further runs until a human removes it. For a once-per-candidate held-out gate that is
+    the correct trade -- silently breaking a lock is how the budget gets spent twice.
+    """
+    lock_path = ledger_path + ".lock"
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise GateBAbort(
+            f"ledger lock {lock_path!r} is already held -- another combine is inside its "
+            "held-out access-budget section, or a previous run crashed and left the lock behind "
+            "(remove it by hand after confirming no combine is running)"
+        ) from exc
+    except OSError as exc:
+        raise GateBAbort(f"cannot acquire ledger lock {lock_path!r}: {exc}") from exc
+    try:
+        try:
+            os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        finally:
+            os.close(fd)
+        yield
+    finally:
+        try:
+            os.unlink(lock_path)
+        except OSError:
+            pass
+
+
 def combine_strength_holdout_arms(
     *, arm_a_dir: str, arm_b_dir: str, out_dir: str,
     i8d_verdict_path: str, coverage_verdict_path: str,
     holdout_content_hashes: dict[str, str],
-    holdout_candidate_species: dict[str, list[str]], reference_species: dict[str, list[str]],
     baseline_manifest_path: str = "config/eval/baselines/champions-strength-holdout-v0.json",
     repo_root: str = ".",
     stratum_env_override: str | None = None,
@@ -1059,15 +1255,16 @@ def combine_strength_holdout_arms(
         raise GateBAbort("coverage_verdict_path is required and must be non-empty -- Gate B may only run after a Coverage PASS on this candidate")
     if not holdout_content_hashes:
         raise GateBAbort("holdout_content_hashes must be non-empty -- an empty mapping makes the disjointness/leakage guards vacuous")
-    if not holdout_candidate_species:
-        raise GateBAbort("holdout_candidate_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
-    if not reference_species:
-        raise GateBAbort("reference_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
 
     rows_a, manifest_a = _read_arm(arm_a_dir)
     rows_b, manifest_b = _read_arm(arm_b_dir)
     _assert_rows_match_manifest(rows_a, manifest_a, "A")
     _assert_rows_match_manifest(rows_b, manifest_b, "B")
+    # Task-10 review-fix, P1 #1: each arm must BE the canonical 180-battle-key schedule, rebuilt
+    # from its own recorded team_ids/panel_hash/seed_base -- the manifest-vs-rows checks above are
+    # all self-consistency checks and cannot detect a truncated or reshaped arm on their own.
+    _assert_rows_cover_canonical_schedule(rows_a, manifest_a, "A")
+    _assert_rows_cover_canonical_schedule(rows_b, manifest_b, "B")
     # Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
     # before pairing or any verdict -- both arms independently, never relying on matching
     # manifest values alone (a doctored manifest could claim agreement without either seed log
@@ -1081,6 +1278,25 @@ def combine_strength_holdout_arms(
         raise GateBAbort(f"arm B must be hero_agent='max_damage' (Baseline B per DESIGN sec 3.2), got {manifest_b['hero_agent']!r}")
     if manifest_a["git_sha"] != manifest_b["git_sha"]:
         raise GateBAbort("arms disagree on git_sha -- they were not played on the same commit")
+    # Task-10 review-fix, P1 #2: bind the COMBINE to the same commit the arms were played on,
+    # before any repo-dependent guard runs. verify_baseline reads the working tree,
+    # assert_no_holdout_leakage reads committed blobs via `git show HEAD:<path>`, and the
+    # published bundle is stamped with manifest_a["git_sha"] -- so combining from a dirty tree, or
+    # from a checkout sitting on a different commit, silently evaluates one commit's content and
+    # labels the evidence with another's. Both conditions are technical aborts, not verdicts.
+    if _git_is_dirty(cwd=repo_root):
+        raise GateBAbort(
+            f"refusing to combine from a dirty working tree at repo_root={repo_root!r} -- the "
+            "baseline/leakage guards read this checkout, so uncommitted changes would be "
+            "evaluated but never recorded in the published evidence"
+        )
+    head_sha = _git_sha(cwd=repo_root)
+    if head_sha != manifest_a["git_sha"]:
+        raise GateBAbort(
+            f"HEAD at repo_root={repo_root!r} is {head_sha!r} but both arms were played at "
+            f"git_sha={manifest_a['git_sha']!r} -- the repo-dependent guards would run against a "
+            "different commit than the one this evidence claims"
+        )
     # Rev. 15 fix (§1n, Task-3-review P1 #2): date_stratum_id added -- "different... date-strata
     # must abort" (stratum ITSELF is compared separately below, via assert_no_cross_stratum_
     # pooling, so its StrataPoolingError stays distinct from this loop's GateBAbort, matching the
@@ -1094,7 +1310,11 @@ def combine_strength_holdout_arms(
     # produce the SAME config_hash/candidate_identity (make_config_hash's manifest does not
     # include calc_backend), so without this check two arms could silently run under different
     # backends while every OTHER identity field still matched.
-    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id", "calc_backend"):
+    # Task-10 review-fix, P1 #1 (ordering consequence): holdout_teams is compared FIRST. Now that
+    # schedule_hash is the canonical rebuild over the arm's own team_ids, two arms that played
+    # different team sets necessarily disagree on schedule_hash too -- reporting the derived
+    # symptom before the cause would be strictly less useful than naming the team-set mismatch.
+    for field in ("holdout_teams", "schedule_hash", "panel_hash", "seed_base", "date_stratum_id", "calc_backend"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
 
@@ -1114,20 +1334,11 @@ def combine_strength_holdout_arms(
             f"{holdout_content_hashes}) -- the leakage/disjointness guards must see every "
             "scheduled team with its real hash, not a subset or a wrong value"
         )
-    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes just above -- a caller-supplied
-    # holdout_candidate_species must name exactly the six teams this schedule actually played, not
-    # a subset, an extra team, or a mislabeled one. Key-set only (not value equality, unlike
-    # holdout_content_hashes): a hash has exactly one correct value to check against; a team's
-    # species list has no independently-derivable "correct" value here for combine to check
-    # against (Task 9's manifest never records species, only path/content_hash) -- species
-    # correctness is instead what the near-duplicate check itself exists to reason about.
-    if set(holdout_candidate_species) != set(manifest_a["holdout_teams"]):
-        raise GateBAbort(
-            f"holdout_candidate_species' team_ids {sorted(holdout_candidate_species)} do not "
-            f"match the six teams this schedule actually played "
-            f"{sorted(manifest_a['holdout_teams'])} -- the near-duplicate guard must see species "
-            "for every scheduled holdout team, not a subset, extra, or mislabeled one"
-        )
+    # Task-10 review-fix, P1 #3: Rev. 18's key-set check on a caller-supplied
+    # holdout_candidate_species is gone -- there is no caller-supplied species mapping to check
+    # any more. Both sides of the near-duplicate comparison are derived below from the real
+    # sealed .packed files, the candidate side keyed off manifest_a["holdout_teams"], which the
+    # checks above have already bound to the rows actually played.
 
     # NF2 fix (Rev. 7): verify_i8d_verdict_artifact/verify_coverage_verdict_artifact raise
     # StrengthHoldoutRunError, not GateBAbort -- this plan's own documentation (§1a, and the
@@ -1166,6 +1377,10 @@ def combine_strength_holdout_arms(
     except StrengthHoldoutRunError as exc:
         raise GateBAbort(f"upstream verdict verification failed: {exc}") from exc
 
+    # Early, UNLOCKED budget check: fail fast, before 180 rows of pairing/verdict work, exactly as
+    # the "cheapest checks first" ordering intends. Task-10 review-fix, P2 #5: this one is an
+    # optimisation only -- it is NOT the authoritative check any more. The check that actually
+    # gates the reservation runs again under the ledger lock, immediately before append_entry.
     check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=None)
 
     # Baseline-drift guard (Rev. 4 P1 fix): Task 6 creates/loads the manifest, but nothing
@@ -1213,6 +1428,12 @@ def combine_strength_holdout_arms(
     # catches GateBAbort, Task 11) -- the same "new guard, new raw exception" shape NF1/NF3 fixed
     # for _assert_rows_match_manifest/BattleResultWriter.write, applied here on introduction
     # rather than found later.
+    # Task-10 review-fix, P1 #3: both mappings are now DERIVED from the real sealed team files
+    # (see _derive_species_from_sealed_files) rather than taken from the caller, so the geometry
+    # below is unchanged but the DATA is no longer an assertion anyone could shape at will.
+    holdout_candidate_species, reference_species = _derive_species_from_sealed_files(
+        manifest_a["holdout_teams"], teams_root,
+    )
     try:
         near_dup_flags = []
         for team_id in sorted(holdout_candidate_species):
@@ -1317,15 +1538,29 @@ def combine_strength_holdout_arms(
     # the ledger exists to prevent. If append_entry raises (e.g. LedgerError on a malformed
     # entry), os.replace(staging_dir, out_dir) below must never run, so a failed ledger write can
     # never coexist with a "successful"-looking published bundle.
-    try:
-        append_entry(ledger_path, {
-            "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
-            "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
-            "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
-            "result_sha256": result_sha256, "justification": None,
-        })
-    except LedgerError as exc:
-        raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
+    #
+    # Task-10 review-fix, P2 #5: the budget CHECK and the reservation it authorises now happen
+    # inside one exclusive lock. The early check_access far above is only a fail-fast; on its own
+    # it left a very wide window (all of the guard/pairing/verdict work) in which a second combine
+    # could read the same still-empty ledger, conclude the budget was free, and append and publish
+    # too -- two "first" held-out runs against the same config_hash, both looking legitimate
+    # afterwards. Re-reading the ledger here, under the lock, is what makes the decision
+    # authoritative; the publish stays inside the lock as well so a reservation can never be
+    # observed without the bundle it belongs to being on its way.
+    with _ledger_lock(ledger_path):
+        check_access(
+            read_ledger(ledger_path) if os.path.exists(ledger_path) else [],
+            manifest_a["config_hash"], justification=None,
+        )
+        try:
+            append_entry(ledger_path, {
+                "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
+                "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
+                "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
+                "result_sha256": result_sha256, "justification": None,
+            })
+        except LedgerError as exc:
+            raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
 
-    os.replace(staging_dir, out_dir)
+        os.replace(staging_dir, out_dir)
     return payload
