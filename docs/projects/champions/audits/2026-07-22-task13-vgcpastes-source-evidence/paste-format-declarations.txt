@@ -1,0 +1,51 @@
+Format declarations captured from each PokePaste's own page, 2026-07-22.
+
+Method: browser accessibility-tree read (read_page, depth 1) of each paste's HTML page -- the
+per-paste metadata block (an <aside>) that carries the paste title, the uploading account, and the
+declared format. The /raw endpoint frozen as pc*-paste.txt deliberately contains ONLY the team text
+and therefore carries no format line; this file is the evidence for the "declared format" half of
+the selection rule. Text below is transcribed from that block; it is a transcription of rendered
+text, not a byte capture of the HTTP response.
+
+Note on the uploading account: five of the six were uploaded by the "VGCPastes" account; PC1098 was
+uploaded by "Guest 20026542". This is recorded as-observed. It does not affect the selection rule,
+which keys on the sheet row, nor legality, which validate-team decides.
+
+--------------------------------------------------------------------------------
+PC1102  https://pokepast.es/c17e51b1dee42c8c
+  title:   cona's PJCS 2026 Champion Team 42TTHSSH9V
+  by:      VGCPastes
+  Format: gen9championsvgc2026regma
+
+PC1101  https://pokepast.es/1f7d6d16d171d672
+  title:   ryu_poke197's PJCS 2026 Champion Team (Seniors)
+  by:      VGCPastes
+  Format: gen9championsvgc2026regma
+
+PC1100  https://pokepast.es/34cb00fce368cd94
+  title:   alaninepoke's PJCS 2026 Runner Up Team G8JVKBFKXA
+  by:      VGCPastes
+  Format: gen9championsvgc2026regma
+
+PC1099  https://pokepast.es/879641da13859e2f
+  title:   vdmd8olfjy68698's PJCS 2026 Runner Up Tean (Seniors)
+  by:      VGCPastes
+  Format: gen9championsvgc2026regma
+
+PC1098  https://pokepast.es/8bcfc47c2d206318
+  title:   hiyu000000's PJCS 2026 Top 4 Team (Seniors)
+  by:      Guest 20026542
+  Format: gen9championsvgc2026regma
+
+PC1097  https://pokepast.es/25efa05b579532c4
+  title:   nm_k_'s PJCS 2026 Top 4 Team (Seniors) BVUSEPP67B
+  by:      VGCPastes
+  Format: gen9championsvgc2026regma
+--------------------------------------------------------------------------------
+
+All six declare gen9championsvgc2026regma. The selection rule's format predicate is therefore
+satisfied by the source's own declaration, independently of the separate validate-team legality
+check (which is the authority for legality, not for what the source declares).
+
+The "Tean" spelling in PC1099's title is the source's own typo, reproduced here unaltered; it
+matches the sheet's Team Description for that row.

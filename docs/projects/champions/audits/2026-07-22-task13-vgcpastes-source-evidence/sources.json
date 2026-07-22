@@ -34,7 +34,8 @@
       "size_bytes": 937,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     },
     {
       "selection_index": 2,
@@ -53,7 +54,8 @@
       "size_bytes": 934,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     },
     {
       "selection_index": 3,
@@ -72,7 +74,8 @@
       "size_bytes": 899,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     },
     {
       "selection_index": 4,
@@ -91,7 +94,8 @@
       "size_bytes": 908,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     },
     {
       "selection_index": 5,
@@ -110,7 +114,8 @@
       "size_bytes": 927,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     },
     {
       "selection_index": 6,
@@ -129,7 +134,8 @@
       "size_bytes": 902,
       "line_count": 59,
       "pokemon_count": 6,
-      "declared_format": "gen9championsvgc2026regma"
+      "declared_format": "gen9championsvgc2026regma",
+      "declared_format_evidence": "paste-format-declarations.txt"
     }
   ],
   "not_yet_done": [
@@ -154,5 +160,15 @@
     "verifiable_basis": "The rule is reproducible from selection-source-export.csv alone: anyone re-running the documented parse gets the same six IDs in the same order, without reference to any bot artifact. Independence therefore does not rest on the selecting party's own assurance.",
     "what_it_does_not_claim": "It does not claim archetype-disjointness from the existing panel, nor that the six are unlike teams the bot was tuned against. That is a separate, narrower property; exact hash disjointness and the reference near-duplicate flags are computed later, in Task 13 step 3.",
     "spec_basis": "APPROVED spec sec 3.4 -- 'the six teams come from a source or curation process that is blind to the bot's own results' and 'the sourcing rationale ... is fixed before any team is ever exposed to the bot'."
+  },
+  "format_declaration_proof": {
+    "file": "paste-format-declarations.txt",
+    "sha256": "6efc4f0b56309314222ab42e6ed43f521b71d3fffc349a1afec75fa76d3603b8",
+    "size_bytes": 2435,
+    "why": "The frozen pc*-paste.txt files come from each paste's /raw endpoint, which carries ONLY the team text and no format line -- so `declared_format` in entries[] had no frozen evidence behind it. This file supplies it: the per-paste metadata block (title, uploading account, declared format) read from each paste's own HTML page.",
+    "method": "Browser accessibility-tree read (read_page, depth 1) of each paste page's <aside> metadata block. This is a transcription of rendered text, not a byte capture of the HTTP response body.",
+    "result": "All six declare Format: gen9championsvgc2026regma.",
+    "observed_uploader_variation": "Five pastes are uploaded by the 'VGCPastes' account; PC1098 by 'Guest 20026542'. Recorded as observed; it affects neither the selection rule (which keys on the sheet row) nor legality (which validate-team decides).",
+    "relationship_to_legality": "This proves what the SOURCE DECLARES, which is the selection rule's format predicate. It is not a legality result -- validate-team remains the sole legality authority and is reported separately."
   }
 }

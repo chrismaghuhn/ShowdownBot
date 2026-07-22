@@ -76,9 +76,19 @@ and have been corrected against the real bytes.
 | 6 | PC1097 | Top 4 (Seniors) | PJCS 2026 | nm_k_ | `pokepast.es/25efa05b579532c4` | `pc1097-paste.txt` | `bb350a90ff9c0381` | 902 |
 
 Full digests are in `sources.json`. Manifest verified in both directions: every registered file
-exists with a matching digest and byte size; no unregistered file is present; all files are UTF-8,
-LF-only, with a single trailing newline; no local path, username, or hostname appears anywhere in
-the committed directory.
+exists with a matching digest and byte size, and no unregistered file is present.
+
+Two properties are scoped deliberately, because they do not hold uniformly across the directory:
+
+- **UTF-8, LF-only, single trailing newline** — verified for the six `.txt` pastes, the format
+  declarations file, and `sources.json`. The frozen `selection-source-export.csv` is exempt: it is
+  a third-party export frozen exactly as served, and normalizing it would defeat the point of
+  freezing it. (It happens to contain no CR bytes, but it is not held to this rule.)
+- **No local path, username, or hostname** — verified across *all* files in the directory,
+  including the CSV. An earlier revision of this audit asserted this for "the committed directory"
+  while the check had actually skipped the CSV; the CSV has since been scanned explicitly for
+  Windows drive paths, `/Users/`, the operator's username, `Downloads`, `AppData`, `localhost`,
+  loopback addresses and e-mail addresses — zero hits for each.
 
 **On "frozen": these `.txt` files are normalized, not byte-identical to the served response.**
 Per-line trailing whitespace (a renderer artifact of the text extraction) was stripped, and the
@@ -130,6 +140,14 @@ species/items/abilities/moves with synthetic spreads" — **does not apply here*
 | PC1099 | **0** | (empty) |
 | PC1098 | **0** | (empty) |
 | PC1097 | **0** | (empty) |
+
+**Declared format, frozen separately from legality.** The selection rule also requires the source
+to *declare* `gen9championsvgc2026regma`. The `/raw` endpoint carries only team text, so that
+declaration is captured from each paste's own metadata block and frozen as
+`paste-format-declarations.txt`: all six declare it. Five pastes were uploaded by the "VGCPastes"
+account and PC1098 by "Guest 20026542" — recorded as observed; it changes neither the selection
+(which keys on the sheet row) nor legality. What the source *declares* and what `validate-team`
+*decides* are kept as two separate claims.
 
 This is the independent legality authority. It is deliberately **not** derived from
 `speciesdata.json`/`itemdata.json` — finding H4 of the independent review noted those snapshots

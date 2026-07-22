@@ -288,20 +288,25 @@
 >   reconciles exactly once the shared hero is excluded (5 `panel_champions_v0` + 4
 >   `panel_champions_coverage_v0` opponent-side teams).
 >
-> As of Rev. 18: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
-> guard), and Task 3 (Windows/Kaggle stratum guard, including the Rev. 16/17 anti-spoofing fixes)
-> have been implemented, tested, and committed on branch `feat/champions-gate-b-task-1-schedule`
-> -- not yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a`/`f9e62ee`/`5556adf`
-> docs, `3f07ef3`/`75d437a` code for Task 3). Task 4's plan text is now agent-executable for the
-> first time (§7), and Task 10's near-duplicate wiring / Task 13's "nine teams" wording are
-> corrected to match (§1q) -- none of this is implemented as code yet. The rest of Tasks 4–13
-> remain unimplemented as code: no server or battle has touched any worktree beyond Tasks 1-3's
-> own code and tests, and no team file or sealed hash exists.
+> ~~As of Rev. 18: Task 1 ... Tasks 4–13 remain unimplemented as code ... and no team file or
+> sealed hash exists.~~ **Superseded — see the current status immediately below.** That paragraph
+> described the branch as of Rev. 18 and is kept only so the progression is traceable.
 >
-> **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
+> **Implementation status as of Rev. 21 (2026-07-22).** **Tasks 1–12 are implemented, tested,
+> reviewed (Codex PASS) and committed** on branch `feat/champions-gate-b-task-1-schedule` — not yet
+> merged to `main`. **Task 13 is the active slice:** its source condition is **SATISFIED** (§2a —
+> the six VGCPastes teams are frozen, complete, and `validate-team`-legal), and what remains is its
+> construction/sealing/wiring work: the `.txt`/`.packed` artifacts, `seal_team`, the panel/holdout/
+> baseline manifests, and the CLI data wiring. **No team file or sealed hash exists yet**, and **no
+> server or battle has touched any worktree** — every task so far is code, tests, docs and frozen
+> source evidence only.
+>
+> **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
-> checkbox (`- [ ]`) syntax for tracking. **Task 13 is BLOCKED** — do not start it until the
-> Task-13 source-proof (§2) succeeds. Tasks 1–12 have no such dependency.
+> checkbox (`- [ ]`) syntax for tracking. **Task 13 is no longer blocked on the source-proof** —
+> that condition is met (§2a). The **live Gate B run remains BLOCKED** and is a separate
+> authorization (§17); nothing in Task 13 starts a server, plays a battle, or produces a strength
+> claim.
 
 **Goal:** build the code, tests, and (pending source-proof) sealed team data for Gate B to the
 point where it is reviewable and mergeable, with **no live run** of any kind included.
