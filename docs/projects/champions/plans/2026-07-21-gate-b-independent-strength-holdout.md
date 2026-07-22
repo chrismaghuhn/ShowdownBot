@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 21)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 22)
 
-> **Status: Rev. 21 — Tasks 1–12 are IMPLEMENTED, tested, reviewed (Codex PASS) and COMMITTED on
+> **Status: Rev. 22 — Tasks 1–12 are IMPLEMENTED, tested, reviewed (Codex PASS) and COMMITTED on
 > branch `feat/champions-gate-b-task-1-schedule`. Nothing is merged to `main`. Task 13 is the
 > active slice: its source condition is SATISFIED as of 2026-07-22 (§2a), and its
 > construction/sealing/wiring work is outstanding — no team file and no sealed hash exists yet. No
@@ -10,6 +10,12 @@
 > This header, the implementation-status block further down, §16 and §19 are kept in agreement;
 > if they ever disagree, the deepest one (§19) is the one to fix first.
 >
+> - **Rev. 21 → Rev. 22** (mechanical execution-status sync, no new design round, no findings):
+>   the source condition for Task 13 is satisfied (§2a), so the Goal sentence no longer says
+>   "pending source-proof"; the two remaining "merged source" phrasings are corrected to
+>   "committed source" (nothing is merged to `main`); revision surfaces move to Rev. 22. The
+>   historical §2 blockers stay exactly as written — they are marked superseded by §2a, not
+>   rewritten.
 > - **Rev. 20 → Rev. 21** (§1t, mechanical sync, no new design round): Task 11's embedded code and
 >   its argparse instructions are replaced with the flat-CLI implementation actually committed as
 >   `b71923f`. The removed claim — "register both subparsers … all five `required=True`" — was
@@ -21,7 +27,7 @@
 > here so this header stays readable:
 > - **Rev. 19 → Rev. 20** (§1s, mechanical sync, no new design round): Task 10's embedded code was
 >   stale relative to the two review-fix commits that landed after it. This revision replaces the
->   Task 10 test and implementation blocks with the FINAL merged source as of `53e6c9c`, and
+>   Task 10 test and implementation blocks with the FINAL committed source as of `53e6c9c`, and
 >   updates that task's RED/GREEN/commit records to what was actually executed. The substantive
 >   deltas the sync carries in: (1) `_assert_rows_cover_canonical_schedule` rebuilds the canonical
 >   180-battle-key schedule from each arm's own team_ids/panel_hash/seed_base, checks `seed_base`
@@ -301,7 +307,7 @@
 > sealed hash exists.~~ **Superseded — see the current status immediately below.** That paragraph
 > described the branch as of Rev. 18 and is kept only so the progression is traceable.
 >
-> **Implementation status as of Rev. 21 (2026-07-22).** **Tasks 1–12 are implemented, tested,
+> **Implementation status as of Rev. 22 (2026-07-22).** **Tasks 1–12 are implemented, tested,
 > reviewed (Codex PASS) and committed** on branch `feat/champions-gate-b-task-1-schedule` — not yet
 > merged to `main`. **Task 13 is the active slice:** its source condition is **SATISFIED** (§2a —
 > the six VGCPastes teams are frozen, complete, and `validate-team`-legal), and what remains is its
@@ -317,7 +323,7 @@
 > authorization (§17); nothing in Task 13 starts a server, plays a battle, or produces a strength
 > claim.
 
-**Goal:** build the code, tests, and (pending source-proof) sealed team data for Gate B to the
+**Goal:** build the code, tests, and sealed team data for Gate B to the
 point where it is reviewable and mergeable, with **no live run** of any kind included.
 
 **Architecture (revised in Rev. 2):** Gate B is now **two runner entry points, not one**:
@@ -964,7 +970,7 @@ since the header's own cross-reference is what a later reader would chase.
 ## 1t. What changed in Rev. 21 — mechanical sync of Task 11 with the flat CLI
 
 Not a review round. Task 11 is implemented and review-PASS as `b71923f`; this revision replaces
-§14's embedded test and implementation code with that merged source and corrects the argparse
+§14's embedded test and implementation code with that committed source and corrects the argparse
 instructions it had been carrying.
 
 | Item | Plan said (through Rev. 20) | Reality in `cli.py`, and what §14 now says |
@@ -7956,7 +7962,7 @@ Steps 3-6 are explicitly out of scope for this plan.
 
 ## 19. What happens next
 
-**Rev. 21 status.** Tasks 1–12 are implemented, tested, reviewed (Codex PASS), and **committed on
+**Rev. 22 status.** Tasks 1–12 are implemented, tested, reviewed (Codex PASS), and **committed on
 `feat/champions-gate-b-task-1-schedule` — nothing is merged to `main`**; this document's Task 10
 and Task 11 sections now mirror that committed source rather than a proposal, and Task 12 (team
 sealing/provenance) shipped with the `.packed`-containment review-fix. **Task 13 is the active
