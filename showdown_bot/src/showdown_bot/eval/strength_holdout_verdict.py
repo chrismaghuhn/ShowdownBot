@@ -493,13 +493,13 @@ def verify_coverage_verdict_artifact(
 @dataclass(frozen=True)
 class GateBVerdict:
     verdict: str
-    reasons: list
+    reasons: tuple
     n_discordant: int
     n_total: int
     delta: float
-    exact_p: float
+    exact_p: float | None
     strength_delta: float
-    cell_flips: list
+    cell_flips: tuple
 
 
 def render_strength_holdout_verdict(pairs: list[Pair], *, safety_pass: bool) -> GateBVerdict:
@@ -523,9 +523,22 @@ def render_strength_holdout_verdict(pairs: list[Pair], *, safety_pass: bool) -> 
     verdict, reasons = _paired_verdict(counts, exact_p, cell_flips, strength_delta, safety_pass)
 
     return GateBVerdict(
-        verdict=verdict, reasons=reasons, n_discordant=counts.n_discordant, n_total=counts.total,
-        delta=counts.delta, exact_p=exact_p, strength_delta=strength_delta, cell_flips=cell_flips,
+        verdict=verdict, reasons=tuple(reasons), n_discordant=counts.n_discordant,
+        n_total=counts.total, delta=counts.delta,
+        # A SAFETY-FAIL makes no strength claim on any axis, including the p-value -- mirrors
+        # report.py._build_paired_stats's own `exact_p if safety_pass else None` exactly.
+        exact_p=(exact_p if safety_pass else None),
+        strength_delta=strength_delta,
+        cell_flips=tuple(tuple(c) for c in cell_flips),
     )
+
+
+def _is_clean_safety_counter(value) -> bool:
+    """True only for a genuine non-negative int that equals exactly 0. bool is explicitly
+    excluded (Python's == treats False as 0, so an unguarded `!= 0` check would silently accept
+    a type-wrong flag as a clean counter) -- a missing (None, via dict.get) or otherwise
+    malformed value is never clean."""
+    return isinstance(value, int) and not isinstance(value, bool) and value == 0
 
 
 def compute_safety_pass(rows_a: list[dict], rows_b: list[dict]) -> bool:
@@ -533,9 +546,16 @@ def compute_safety_pass(rows_a: list[dict], rows_b: list[dict]) -> bool:
     (invalid_choices==0, crashes==0, end_reason=='normal') across BOTH arms -- not the full
     RunBundle-based safety table, which needs machinery (schedule_row_count, panel hashes,
     manifest, ...) Gate B's simpler two-row-list shape does not produce. Disclosed narrowing,
-    not a silent one."""
+    not a silent one.
+
+    invalid_choices/crashes must be genuine non-negative ints, never bool -- a missing or
+    type-wrong counter is treated as unsafe, never as passing."""
     for rows in (rows_a, rows_b):
         for row in rows:
-            if row["invalid_choices"] != 0 or row["crashes"] != 0 or row["end_reason"] != "normal":
+            if not _is_clean_safety_counter(row.get("invalid_choices")):
+                return False
+            if not _is_clean_safety_counter(row.get("crashes")):
+                return False
+            if row["end_reason"] != "normal":
                 return False
     return True

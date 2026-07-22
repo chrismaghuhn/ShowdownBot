@@ -707,3 +707,85 @@ def test_compute_safety_pass_false_on_a_non_normal_end_reason():
     rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", end_reason="crash")]
     rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
     assert compute_safety_pass(rows_a, rows_b) is False
+
+
+# --- Task 8 review-fix: type-unsafe safety counters must never pass as clean -----------------
+# Python's `==`/`!=` treats False as 0 and 0.0 as 0, so a type-wrong invalid_choices/crashes
+# value that happens to compare equal to 0 must not silently be accepted as "clean".
+
+def test_compute_safety_pass_false_on_a_bool_invalid_choices():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=False)]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_bool_crashes():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero")]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain", crashes=False)]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_float_invalid_choices():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=0.0)]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_float_crashes():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero")]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain", crashes=0.0)]
+    assert compute_safety_pass(rows_a, rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_missing_invalid_choices():
+    row_a = _row("cfgA", 0, "heuristic", "t1", "hero")
+    del row_a["invalid_choices"]
+    rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
+    assert compute_safety_pass([row_a], rows_b) is False
+
+
+def test_compute_safety_pass_false_on_a_missing_crashes():
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero")]
+    row_b = _row("cfgB", 0, "heuristic", "t1", "villain")
+    del row_b["crashes"]
+    assert compute_safety_pass(rows_a, [row_b]) is False
+
+
+# --- Task 8 review-fix: exact_p must never be published on SAFETY-FAIL -----------------------
+# report.py's own _build_paired_stats withholds exact_p (None) whenever safety_pass is False --
+# a SAFETY-FAIL makes no strength claim on any axis, including the p-value.
+
+def test_render_verdict_withholds_exact_p_on_safety_fail():
+    pairs = [_pair(True, False, i) for i in range(12)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=False)
+    assert verdict.exact_p is None
+
+
+def test_render_verdict_reports_exact_p_when_safety_passes():
+    pairs = [_pair(True, False, i) for i in range(12)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert verdict.exact_p is not None
+
+
+# --- Task 8 review-fix: GateBVerdict's reasons/cell_flips must be genuinely immutable ---------
+# frozen=True only blocks reassigning a field; it does not stop mutating the list object a
+# field points to. reasons/cell_flips must be tuples all the way down.
+
+def test_gate_b_verdict_reasons_is_an_immutable_tuple():
+    pairs = [_pair(True, False, i) for i in range(12)]
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert isinstance(verdict.reasons, tuple)
+    with pytest.raises(AttributeError):
+        verdict.reasons.append("mutated")
+
+
+def test_gate_b_verdict_cell_flips_is_an_immutable_tuple_of_tuples():
+    winning_cell_pairs = [_pair(True, False, i, opp_policy="heuristic", opp_team_hash="t1") for i in range(8)]
+    flipped_cell_pairs = [_pair(False, True, i, opp_policy="max_damage", opp_team_hash="t2") for i in range(8, 10)]
+    pairs = winning_cell_pairs + flipped_cell_pairs
+    verdict = render_strength_holdout_verdict(pairs, safety_pass=True)
+    assert verdict.cell_flips == (("max_damage", "t2"),)
+    assert isinstance(verdict.cell_flips, tuple)
+    assert isinstance(verdict.cell_flips[0], tuple)
+    with pytest.raises(AttributeError):
+        verdict.cell_flips.append(("x", "y"))
