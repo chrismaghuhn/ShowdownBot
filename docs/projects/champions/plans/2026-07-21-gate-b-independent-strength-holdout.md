@@ -4,7 +4,8 @@
 > branch `feat/champions-gate-b-task-1-schedule`. Nothing is merged to `main`. Task 13 is the
 > active slice, partly done: its source condition is SATISFIED (§2a) and the six `.txt`/`.packed` team artifacts exist, are sealed, are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the holdout manifest exists and is the single home of the public-to-internal ID mapping.
 > **Still outstanding:** the Gate B baseline contract, the panel YAML, the hash freeze, the CLI data wiring, the near-duplicate audit against the nine reference teams, and the whole-suite verification. No
-> server or battle has touched any worktree, and the live Gate B run remains BLOCKED under a
+> Gate-B server has been started and no Gate-B battle has been played, and the live Gate B run
+> remains BLOCKED under a
 > separate authorization (§17).**
 >
 > This header, the implementation-status block further down, §16 and §19 are kept in agreement;
@@ -323,7 +324,7 @@
 > freeze into `strength_holdout_schedule.py`'s empty constants, the CLI data wiring that removes
 > both named Task-13 blockers, the near-duplicate audit against the nine reference teams with a
 > written disposition per flag, and the whole-suite verification. **No `.packed` or sealed hash is
-> claimed beyond what is committed**, and **no server or battle has touched any worktree** — every task so far is code, tests, docs and frozen
+> claimed beyond what is committed**, and **no Gate-B server has been started and no Gate-B battle has been played** — every task so far is code, tests, docs and frozen
 > source evidence only.
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
