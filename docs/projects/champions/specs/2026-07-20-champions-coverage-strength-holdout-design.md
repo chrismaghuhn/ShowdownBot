@@ -437,3 +437,59 @@ carrying the v3 telemetry, §5), separate authorization, and it must **PASS** �
 + report → only then evaluate Champions Strength **GO / NO-GO**. Strength stays **NO-GO** until **all
 three** gates — latency (re-run), coverage, and independent holdout — pass for the **same candidate
 identity**.
+
+
+---
+
+# Amendment A1 — 2026-07-22 — APPROVED (owner decision)
+
+**Scope: narrow, Gate B only.** Nothing above changes; no other gate is affected.
+
+## A1.1 Opaque internal holdout team IDs
+
+The six holdout teams carry **opaque internal IDs** — a fixed `gbh_*` set, assigned in the frozen
+selection order (selection index 1 first). The concrete IDs and their mapping to the public `PC…`
+source IDs are **deliberately not written here**: they live only in the holdout's own allowlisted
+manifest (`config/eval/holdout/champions_strength_holdout_v0_manifest.json`). Documents may name
+the public source IDs; they must not spell the internal ones, and tests read both from the
+manifest.
+
+*Why opaque, and why not the obvious choices:* §3.3's leakage guard exists so a holdout identifier
+appears nowhere but the holdout's own operational artifacts. Source-derived IDs (`pc…`) would put
+them in every document describing the source. A `holdout_N` scheme was measured against the real
+scanner and produced **121 identifier hits across 7 files** — it collides with this repo's
+long-standing *fixture* vocabulary in the plan and six existing test files. The adopted scheme
+measures **zero**.
+
+## A1.2 One additional allowlisted directory
+
+§3.3's allowlist gains **exactly one** entry:
+`docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/`.
+
+*Why this is necessary, not a loosening:* the six sealed `.txt` files are **deliberately
+byte-identical** to the pastes frozen there — that equality is the evidence nothing was altered
+between published source and sealed artifact. The raw-payload leg uses those bytes as its needle,
+so without this entry the guard reports the holdout's own authoritative provenance as a leak.
+Renaming cannot avoid it: the needle is content, not name.
+
+**Deliberately NOT allowlisted**, each of which must keep failing the scan: any broader `docs/`
+prefix; the sibling selection-audit file; any test file; any report, dataset, schedule, panel or
+team file elsewhere. The entry is a slash-terminated prefix, so a similarly-named sibling directory
+does not inherit the exemption.
+
+## A1.3 The Gate B baseline manifest is a pre-run static definition
+
+Gate B's baseline manifest defines **Baseline B (`max_damage`) and its static environment**, frozen
+*before* the run. Baseline B's *result* does not exist until the separately-authorized arm-B run.
+
+- `reference_jsonl` / `reference_sha256` are **not** part of this contract: a result file cannot
+  exist before the run, and committing one afterwards would change the candidate SHA the gate is
+  bound to.
+- There is **no** `dev_schedule_path` — Gate B's schedule is canonically **re-derived from code**
+  (`build_strength_holdout_schedule`), not loaded from YAML.
+- The generic T6 contract (`load_baseline`/`verify_baseline`) and every existing Reg-I manifest
+  stay **byte- and behaviour-identical**. Gate B gets an **additive** loader/verifier; the generic
+  one is not relaxed, reinterpreted, or given optional dummy fields.
+
+The Gate B verifier re-derives panel hash, hero and opponent team content hashes, the canonical
+schedule hash, and the server/seed pins from the current clean checkout, failing closed on drift.

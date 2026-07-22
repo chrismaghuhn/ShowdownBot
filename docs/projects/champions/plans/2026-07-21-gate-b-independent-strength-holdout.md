@@ -1069,6 +1069,23 @@ holdout teams against each other, and this amendment does not change that. PC109
 an identical species set (with different items/moves/spreads); that is recorded as audit information
 in the selection audit, not as a gate input.
 
+### 2b. AMENDMENT A1 sync, 2026-07-22 — opaque IDs, one allowlist entry, static baseline
+
+Mirrors **Amendment A1** of the APPROVED spec (owner decision, narrow). §2a's source selection is
+unchanged.
+
+1. **Opaque internal team IDs** (a fixed `gbh_*` set, frozen selection order). The concrete IDs and
+   their mapping to the public `PC…` IDs live **only** in the holdout manifest and are not restated
+   in any document or test — a document that spelled them would itself become a leakage hit. Tests
+   read them from the manifest.
+2. **One allowlist entry**, exactly the frozen source-evidence directory, because the sealed `.txt`
+   files are intentionally byte-identical to the frozen pastes. No broader `docs/` exemption, none
+   for the selection audit, none for tests.
+3. **Static Gate B baseline**: no `reference_jsonl`/`reference_sha256`, no `dev_schedule_path`;
+   schedule re-derived from code; additive loader/verifier, generic T6 contract untouched.
+
+This closes the two STOPs reported after `1c2a31b` by amendment, not by weakening a guard.
+
 ## 3. File structure (updated)
 
 ```
