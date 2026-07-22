@@ -195,6 +195,69 @@ def test_seal_team_rejects_a_team_path_that_escapes_teams_root_via_link(tmp_path
         _seal(tmp_path, teams_root=str(root), team_path="link/secret.txt")
 
 
+def test_seal_team_rejects_a_packed_sibling_that_escapes_teams_root(tmp_path):
+    """Review P1: containment was only ever checked for the `.txt` path.
+
+    ``panel._team_content_hash`` derives the second file as ``txt.with_suffix(".packed")`` and
+    reads it too, so a `.packed` symlink pointing outside ``teams_root`` put foreign bytes into
+    the sealed hash while the `.txt` itself looked perfectly contained.
+    """
+    root = tmp_path / "root"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.packed").write_text("|SECRET-OUTSIDE-CONTENT|", encoding="utf-8")
+    (root / "fixture_team.txt").write_text("Fixture Mon @ Focus Sash\n", encoding="utf-8")
+    try:
+        os.symlink(str(outside / "secret.packed"), str(root / "fixture_team.packed"))
+    except (OSError, NotImplementedError) as exc:  # pragma: no cover - platform dependent
+        # A FILE symlink needs SeCreateSymbolicLinkPrivilege on Windows (verified here: WinError
+        # 1314). `mklink /J` is no substitute -- a junction is directory-level, and .txt/.packed
+        # are siblings in one directory, so a junction would move both or neither. The
+        # monkeypatched test below covers the same guard without needing the privilege.
+        pytest.skip(f"cannot create a file symlink on this platform/account: {exc}")
+    with pytest.raises(SealingError, match=r"packed.*outside|outside.*packed"):
+        _seal(tmp_path, teams_root=str(root))
+
+
+def test_seal_team_checks_containment_of_the_packed_sibling_not_just_the_txt(tmp_path, monkeypatch):
+    """The privilege-free half of the P1 above: proves the guard is applied to the `.packed`
+    path at all, by making only that path resolve outside ``teams_root``."""
+    _write_fixture_team(tmp_path)
+    escaped = tmp_path.parent / "elsewhere" / "fixture_team.packed"
+    real_resolve = Path.resolve
+
+    def _resolve(self, *args, **kwargs):
+        if self.suffix == ".packed":
+            return escaped
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", _resolve)
+    with pytest.raises(SealingError, match=r"packed.*outside|outside.*packed"):
+        _seal(tmp_path)
+
+
+def test_seal_team_checks_containment_of_the_txt_independently_of_the_packed(tmp_path, monkeypatch):
+    """Mirror of the test above, so BOTH containment checks are independently load-bearing.
+
+    Without it the `.txt` entry could be deleted with every test still green (found by mutation
+    testing): in every realistic escape the two siblings travel together, so the `.packed` check
+    alone happened to cover them. Here only the `.txt` resolves outside.
+    """
+    _write_fixture_team(tmp_path)
+    escaped = tmp_path.parent / "elsewhere" / "fixture_team.txt"
+    real_resolve = Path.resolve
+
+    def _resolve(self, *args, **kwargs):
+        if self.suffix == ".txt":
+            return escaped
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", _resolve)
+    with pytest.raises(SealingError, match=r"team_path.*outside|outside.*team_path"):
+        _seal(tmp_path)
+
+
 def test_seal_team_rejects_a_non_txt_team_path(tmp_path):
     _write_fixture_team(tmp_path)
     with pytest.raises(SealingError, match=r"\.txt"):

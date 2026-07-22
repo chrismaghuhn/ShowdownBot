@@ -102,20 +102,34 @@ def _assert_contained(teams_root: str, team_path: str) -> None:
         )
     try:
         root = Path(teams_root).resolve()
-        target = (root / team_path).resolve()
+        # BOTH halves of the pair are checked, not just the .txt (review P1). The canonical hash
+        # derives its second file exactly this way -- panel._team_content_hash does
+        # `txt.with_suffix(".packed")` and reads it too -- so a `.packed` symlink pointing out of
+        # teams_root would otherwise feed foreign bytes into the sealed hash while the `.txt`
+        # beside it looked perfectly contained. The `.packed` sibling is built from the SAME
+        # unresolved join panel uses, then resolved, so this checks the very path that will be
+        # read rather than a reconstruction of it.
+        unresolved_txt = root / team_path
+        targets = {
+            "team_path": unresolved_txt.resolve(),
+            "its .packed sibling": unresolved_txt.with_suffix(".packed").resolve(),
+        }
     except OSError as exc:
         raise SealingError(
             f"cannot resolve team_path {team_path!r} under teams_root {teams_root!r}: {exc}"
         ) from exc
-    root_parts, target_parts = root.parts, target.parts
+    root_parts = root.parts
     if platform.system() == "Windows":
         root_parts = tuple(p.lower() for p in root_parts)
-        target_parts = tuple(p.lower() for p in target_parts)
-    if target_parts[: len(root_parts)] != root_parts:
-        raise SealingError(
-            f"team_path {team_path!r} resolves to {str(target)!r}, outside teams_root "
-            f"{str(root)!r} -- refusing to seal a file from outside the team root"
-        )
+    for label, target in targets.items():
+        target_parts = target.parts
+        if platform.system() == "Windows":
+            target_parts = tuple(p.lower() for p in target_parts)
+        if target_parts[: len(root_parts)] != root_parts:
+            raise SealingError(
+                f"{label} for {team_path!r} resolves to {str(target)!r}, outside teams_root "
+                f"{str(root)!r} -- refusing to seal a file from outside the team root"
+            )
 
 
 def seal_team(
