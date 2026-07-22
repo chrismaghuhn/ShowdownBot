@@ -19,6 +19,18 @@ ALLOWED_EXACT_PATHS = (
 ALLOWED_DIRECTORY_PREFIXES = (
     "showdown_bot/teams/panel_champions_strength_holdout_v0/",
     "data/eval/champions-panel-v0/strength-holdout-v0/",
+    # Spec Amendment A1.2 (APPROVED, 2026-07-22): the holdout's own frozen provenance directory.
+    # The six sealed .txt team files are DELIBERATELY byte-identical to the pastes frozen here --
+    # that byte-equality is the evidence nothing was altered between the published source and the
+    # sealed artifact. scan_for_raw_payload_leakage uses those bytes as its needle, so without this
+    # entry the guard reports the holdout's own authoritative source as a leak. Renaming the teams
+    # cannot avoid it: the needle is the file's content, not its name.
+    #
+    # Scope is exactly this directory. The sibling selection-audit file, any broader docs/ prefix,
+    # and every test file stay OUTSIDE the allowlist and must keep failing the scan. The trailing
+    # "/" makes this a bounded directory prefix, so a similarly-named sibling directory does not
+    # inherit the exemption (see _is_allowed).
+    "docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/",
 )
 HOLDOUT_TEAMS_DIR = "showdown_bot/teams/panel_champions_strength_holdout_v0/"
 

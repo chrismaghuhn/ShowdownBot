@@ -24,17 +24,25 @@ TEAM_DIR = REPO / "showdown_bot/teams/panel_champions_strength_holdout_v0"
 FORMAT_ID = "gen9championsvgc2026regma"
 PINNED_SHOWDOWN = Path.home() / ".cache/showdownbot/pokemon-showdown/pokemon-showdown"
 
-# The frozen selection order (sources.json selection_index 1..6) and its canonical team IDs.
-# Lowercase because Task 9's own _SAFE_TEAM_ID_PATTERN is [A-Za-z0-9_-]+ and the id doubles as a
-# filename on Windows, where case is not a distinguishing feature.
-SOURCE_TO_TEAM_ID = [
-    ("PC1102", "pc1102"),
-    ("PC1101", "pc1101"),
-    ("PC1100", "pc1100"),
-    ("PC1099", "pc1099"),
-    ("PC1098", "pc1098"),
-    ("PC1097", "pc1097"),
-]
+HOLDOUT_MANIFEST = REPO / "config/eval/holdout/champions_strength_holdout_v0_manifest.json"
+
+
+def _manifest() -> dict:
+    return json.loads(HOLDOUT_MANIFEST.read_text(encoding="utf-8"))
+
+
+def _mapping() -> list[tuple[str, str]]:
+    """(public source id, opaque internal id) pairs, in frozen selection order.
+
+    Read from the holdout manifest and never restated here: spec Amendment A1.1 makes that manifest
+    the ONLY artifact allowed to carry the internal ids, so a test that spelled them would itself
+    become a leakage hit -- exactly the property the amendment exists to protect.
+    """
+    teams = sorted(_manifest()["teams"], key=lambda t: t["selection_index"])
+    return [(t["source_team_id"], t["team_id"]) for t in teams]
+
+
+SOURCE_TO_TEAM_ID = _mapping()
 
 
 def _sources() -> dict:
@@ -66,6 +74,9 @@ def _load_repo_packer():
 def test_source_id_to_team_id_mapping_is_closed_and_matches_the_frozen_selection():
     entries = _sources()["entries"]
     assert [e["team_id"] for e in entries] == [s for s, _ in SOURCE_TO_TEAM_ID]
+    # the manifest is the single source of the mapping, and it is complete
+    assert len(_mapping()) == 6
+    assert len({t for _, t in _mapping()}) == 6
     assert [e["selection_index"] for e in entries] == [1, 2, 3, 4, 5, 6]
     # every mapped team has both artifacts, and the directory holds nothing else
     expected_files = set()
@@ -79,6 +90,11 @@ def test_team_id_is_safe_for_the_schedule_and_for_a_windows_filename(team_id):
     # Task 9 builds an on-disk path from the team_id, so it must satisfy that pattern exactly.
     assert re.fullmatch(r"[A-Za-z0-9_-]+", team_id)
     assert team_id == team_id.lower()
+    # And it must be OPAQUE: no digit of any public source id may appear in it, or the identifier
+    # leg would flag every document that legitimately describes the source (Amendment A1.1).
+    for source_id, _ in _mapping():
+        assert source_id.lower() not in team_id
+        assert source_id.lower().lstrip("pc") not in team_id
 
 
 # --- the final .txt IS the frozen source ------------------------------------------------------
@@ -146,10 +162,11 @@ def test_validate_team_passes_against_the_pinned_showdown(team_id):
         pytest.skip(f"pinned pokemon-showdown checkout not present at {PINNED_SHOWDOWN}")
     if shutil.which("node") is None:  # pragma: no cover
         pytest.skip("node is not available")
-    result = subprocess.run(
-        ["node", str(PINNED_SHOWDOWN), "validate-team", FORMAT_ID],
-        stdin=open(TEAM_DIR / f"{team_id}.txt", "rb"), capture_output=True, text=True,
-    )
+    with open(TEAM_DIR / f"{team_id}.txt", "rb") as team_file:
+        result = subprocess.run(
+            ["node", str(PINNED_SHOWDOWN), "validate-team", FORMAT_ID],
+            stdin=team_file, capture_output=True, text=True,
+        )
     assert result.returncode == 0, f"{team_id}: {result.stdout} {result.stderr}"
 
 
