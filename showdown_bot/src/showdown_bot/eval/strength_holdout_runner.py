@@ -671,7 +671,10 @@ from showdown_bot.eval.holdout_disjointness import assert_disjoint_from_coverage
 from showdown_bot.eval.near_duplicate import find_near_duplicate_flags, load_team_species
 from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_no_cross_stratum_pooling
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
-from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
+from showdown_bot.eval.baseline import (
+    load_strength_holdout_baseline, verify_strength_holdout_baseline,
+    BaselineError, BaselineDriftError,
+)
 from showdown_bot.eval.report import _build_cells, _build_aggregates
 # Rev. 19 note (Task 9 review-fix sync, §1r): _assert_seed_artifact_verified (below) needs
 # `hashlib`, `re`, `Path`, `platform`, `verify_seed_log`, and `SeedLogError` -- all ALREADY
@@ -1430,14 +1433,20 @@ def combine_strength_holdout_arms(
     # gates the reservation runs again under the ledger lock, immediately before append_entry.
     check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=None)
 
-    # Baseline-drift guard (Rev. 4 P1 fix): Task 6 creates/loads the manifest, but nothing
-    # previously called verify_baseline from the live combine flow -- "every guard wired" was
-    # false for this specific guard. Wired here, before pairing/verdict, same as every other
-    # provenance check.
-    baseline = load_baseline(baseline_manifest_path)
+    # Baseline-drift guard. Task 13 step 2 (spec Amendment A1.3): Gate B uses its OWN static
+    # baseline contract, NOT the generic T6 result-baseline. The generic load_baseline/
+    # verify_baseline require reference_jsonl/reference_sha256 and a loadable YAML dev_schedule_path
+    # -- none of which Gate B can have (a result file cannot predate its run; the schedule is
+    # code-generated) -- so wiring the generic verifier here would mean this guard could only ever
+    # pass against a faked result file. load_strength_holdout_baseline enforces the closed static
+    # schema; verify_strength_holdout_baseline re-derives panel/hero/opponent hashes, the rebuilt
+    # canonical schedule hash, and the server/seed pins from the current checkout. Both a schema
+    # violation (BaselineError) and drift (BaselineDriftError) become a clean GateBAbort here,
+    # before pairing, the ledger reservation, or any publish.
     try:
-        verify_baseline(baseline, repo_root=repo_root, teams_root=teams_root)
-    except BaselineDriftError as exc:
+        baseline = load_strength_holdout_baseline(baseline_manifest_path)
+        verify_strength_holdout_baseline(baseline, repo_root=repo_root, teams_root=teams_root)
+    except BaselineError as exc:
         raise GateBAbort(f"baseline drift: {exc}") from exc
 
     assert_disjoint_from_coverage(holdout_content_hashes)

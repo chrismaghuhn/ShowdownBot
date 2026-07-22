@@ -1165,8 +1165,8 @@ def _patch_upstream_verdicts_as_pass(monkeypatch):
     # implementation) -- load_baseline/verify_baseline are existing, independently-tested
     # eval/baseline.py functions (not reimplemented here), so orchestration tests patch them
     # the same way as the two verdict-artifact functions above, for the same reason.
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
     # Review-fix (Task-10 review P1 #2): combine now refuses a dirty tree and requires
     # HEAD == the arms' git_sha. _git_is_dirty/_git_sha are subprocess boundary calls into git --
     # the same category as the two upstream verdict verifiers patched above -- and the ambient
@@ -1437,14 +1437,14 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
     # and reacts to a BaselineDriftError, rather than assuming it via the umbrella patch.
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
 
     from showdown_bot.eval.baseline import BaselineDriftError
 
     def _raise_drift(baseline, **kw):
         raise BaselineDriftError("fixture-forced drift")
 
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", _raise_drift)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", _raise_drift)
     # Review-fix (Task-10 review P1 #2): this test patches the baseline functions directly rather
     # than via the umbrella helper, so it must patch the two git helpers itself as well -- the
     # HEAD-binding guard now runs before verify_baseline and would otherwise abort on the ambient
@@ -2048,8 +2048,8 @@ def test_combine_passes_the_manifest_bound_calc_backend_to_both_upstream_verifie
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", _capture_i8d)
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", _capture_coverage)
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
     # Review-fix (Task-10 review P1 #2): this test installs its own capturing verifiers instead of
     # the umbrella helper, so it must stub the two git helpers itself -- the HEAD-binding guard
     # runs before the verifiers and would otherwise abort on the ambient dirty worktree.
@@ -2444,8 +2444,8 @@ def _patch_non_git_dependencies(monkeypatch):
     isolated git repo instead of a stub."""
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
 
 
 def test_combine_accepts_a_clean_repo_whose_head_matches_the_arms(tmp_path, monkeypatch):
@@ -2796,3 +2796,92 @@ def test_combine_success_path_carries_real_canonical_battle_identity(tmp_path, m
 
     result = combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
     assert result["n_total"] == 180
+
+
+# --- Task 13 step 2: Gate B uses its OWN static baseline contract (Amendment A1.3) -------------
+
+
+def test_combine_uses_the_strength_holdout_specific_baseline_contract(tmp_path, monkeypatch):
+    """The generic T6 result-baseline contract must not be reachable from Gate B any more.
+
+    It requires reference_jsonl/reference_sha256 and a loadable YAML dev_schedule_path -- neither
+    of which Gate B can have -- so leaving it wired would mean Gate B's baseline guard could only
+    ever be satisfied by a faked result file.
+    """
+    from showdown_bot.eval import strength_holdout_runner as mod
+
+    called = {"specific_load": 0, "specific_verify": 0, "generic_load": 0, "generic_verify": 0}
+    monkeypatch.setattr(mod, "load_strength_holdout_baseline",
+                        lambda path: called.__setitem__("specific_load", called["specific_load"] + 1) or {"baseline_id": "fixture"})
+    monkeypatch.setattr(mod, "verify_strength_holdout_baseline",
+                        lambda baseline, **kw: called.__setitem__("specific_verify", called["specific_verify"] + 1) or [])
+    for name in ("load_baseline", "verify_baseline"):
+        if hasattr(mod, name):
+            key = "generic_load" if name == "load_baseline" else "generic_verify"
+            monkeypatch.setattr(mod, name,
+                                lambda *a, _k=key, **kw: called.__setitem__(_k, called[_k] + 1) or {})
+
+    monkeypatch.setattr(mod, "verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
+    monkeypatch.setattr(mod, "verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
+    monkeypatch.setattr(mod, "_git_is_dirty", lambda cwd=None: False)
+    monkeypatch.setattr(mod, "_git_sha", lambda cwd=None: "abc123")
+
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+    assert called["specific_load"] == 1 and called["specific_verify"] == 1
+    assert called["generic_load"] == 0 and called["generic_verify"] == 0
+
+
+def test_combine_aborts_cleanly_on_a_malformed_specific_baseline_manifest(tmp_path, monkeypatch):
+    from showdown_bot.eval.baseline import BaselineError
+
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    from showdown_bot.eval import strength_holdout_runner as mod
+
+    def _raise_malformed(path):
+        raise BaselineError("closed schema violated: unknown field(s) ['reference_jsonl']")
+
+    monkeypatch.setattr(mod, "load_strength_holdout_baseline", _raise_malformed)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    with pytest.raises(GateBAbort, match="baseline"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+def test_combine_aborts_on_specific_baseline_drift_before_pairing_ledger_and_publish(tmp_path, monkeypatch):
+    from showdown_bot.eval.baseline import BaselineDriftError
+
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    from showdown_bot.eval import strength_holdout_runner as mod
+
+    reached = {"pair": False, "ledger": False}
+    monkeypatch.setattr(mod, "load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+
+    def _drift(baseline, **kw):
+        raise BaselineDriftError("strength-holdout baseline drift -> refuse: failed check(s): ['panel_hash']")
+
+    monkeypatch.setattr(mod, "verify_strength_holdout_baseline", _drift)
+    monkeypatch.setattr(mod, "pair_runs", lambda *a, **kw: reached.__setitem__("pair", True))
+    monkeypatch.setattr(mod, "append_entry", lambda *a, **kw: reached.__setitem__("ledger", True))
+
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    ledger_path = str(tmp_path / "ledger.jsonl")
+
+    with pytest.raises(GateBAbort, match="baseline drift"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, ledger_path=ledger_path))
+    assert reached == {"pair": False, "ledger": False}
+    assert not os.path.exists(str(tmp_path / "combined"))
+    assert not os.path.exists(ledger_path)
