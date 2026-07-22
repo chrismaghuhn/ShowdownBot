@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 16)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 17)
 
-> **Status: PROPOSED, Rev. 16 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 17 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
@@ -198,15 +198,36 @@
 >   forward-slash `expected_root` string -- rejecting the plan's own tests, not just genuine
 >   mistakes. Fixed with a separator-normalized, slash-bounded substring check (Task 9, §12),
 >   matching Task 2's own `_normalize_path` precedent (§5) for the identical class of bug.
+> - **Rev. 16 → Rev. 17** (§1p, 3 P1, code review on Task 3's real implementation): a focused
+>   code review on the just-committed `strata_guard.py`, live-reproduced against the real module
+>   (not just read), plus one more plan-text gap in Task 9's own Rev. 16 fix. **P1:** the Rev. 16
+>   override-consistency check only tested "is this platform Windows or not" -- Darwin (macOS) is
+>   also not Windows, but it is not the approved Kaggle environment (Linux) either, so
+>   `env_override="kaggle"` on a Mac laptop still succeeded, reintroducing P2-1's own "non-Windows
+>   silently trusted as Kaggle" failure mode through the override path specifically. Fixed:
+>   checked against Linux specifically, not merely "not Windows" (Task 3, §6). **P1:**
+>   `assert_no_cross_stratum_pooling` never validated that each record's `.stratum` is even a
+>   known value -- two records that AGREE with each other on an unrecognized stratum (e.g.
+>   `"colab"`) passed silently, since the mixed-strata check only compares records against EACH
+>   OTHER, never against `VALID_STRATA`. Fixed: every record's stratum is checked against
+>   `VALID_STRATA` before the agreement check runs (Task 3, §6) -- defense in depth, independent
+>   of whatever an upstream caller may already validate. **P1:** Task 9's Rev. 16 out_dir fix
+>   normalized separators but never collapsed `.`/`..` segments before the containment check --
+>   `out_dir=f"{expected_root}/../../../elsewhere"` still contained `expected_root` as a literal
+>   substring while resolving somewhere else entirely once the OS processed the `..` segments,
+>   defeating the per-stratum separate-tree requirement the check exists to enforce. Fixed with
+>   `posixpath.normpath` before the containment check (Task 9, §12) -- verified against both a
+>   forward-slash and a backslash traversal payload, standalone, before trusting the plan text.
 >
-> As of Rev. 16: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
-> guard), and Task 3 (Windows/Kaggle stratum guard, including the Rev. 16 anti-spoofing fix) have
-> been implemented, tested, and committed on branch `feat/champions-gate-b-task-1-schedule` -- not
-> yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a` docs, `3f07ef3` code for Task
-> 3). Tasks 9/10's own Rev. 15/16 wiring of `strata_guard.py` remains plan-text only -- Task 3
-> being implemented does not itself implement its callers. The rest of Tasks 4–13 remain
-> unimplemented as code: no server or battle has touched any worktree beyond Tasks 1-3's own code
-> and tests, and no team file or sealed hash exists.
+> As of Rev. 17: Task 1 (including Rev. 11's `panel_hash` fix), Task 2 (repo-wide leakage-drift
+> guard), and Task 3 (Windows/Kaggle stratum guard, including the Rev. 16/17 anti-spoofing fixes)
+> have been implemented, tested, and committed on branch `feat/champions-gate-b-task-1-schedule`
+> -- not yet merged to `main` (`c4aa94b`/`7cdc661` for Tasks 1-2; `a70119a`/`f9e62ee` docs,
+> `3f07ef3` + this round's review-fix commit for Task 3). Tasks 9/10's own Rev. 15/16/17 wiring of
+> `strata_guard.py` remains plan-text only -- Task 3 being implemented does not itself implement
+> its callers. The rest of Tasks 4–13 remain unimplemented as code: no server or battle has
+> touched any worktree beyond Tasks 1-3's own code and tests, and no team file or sealed hash
+> exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -734,6 +755,29 @@ are all unaffected, no change. Task 9's own tests (§12) needed no change: every
 passes `stratum_env_override="windows"` under the real, unpatched ambient platform (this dev/CI
 box is genuinely Windows), which is consistent under the new `detect_stratum` check exactly as it
 was under the old one.
+
+## 1p. What changed in Rev. 17 — a code review on Task 3's real implementation, live-reproduced
+
+A focused CODE review (not a plan round) on the just-committed `strata_guard.py`/
+`test_strata_guard.py` (`3f07ef3`), plus one more plan-text gap in Task 9's own Rev. 16 fix found
+in the same pass. Two of the three findings were **live-reproduced** against the real module, not
+merely read -- confirmed by re-tracing `detect_stratum`/`assert_no_cross_stratum_pooling`'s actual
+bodies line by line and by standalone-executing the exact scenarios before touching anything.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| P1 (Rev. 17) | `detect_stratum`'s Rev. 16 override-consistency check used a single boolean, `is_windows = platform.system() == "Windows"`, and only ever tested `env_override == KAGGLE_STRATUM and is_windows` / `env_override == WINDOWS_STRATUM and not is_windows`. This collapses every non-Windows platform into one bucket -- Darwin (macOS) is `not is_windows`, exactly like Linux, so `env_override="kaggle"` on a Mac laptop passed both checks unobstructed and returned `"kaggle"`. This reintroduces P2-1's own original failure mode ("a bare non-Windows box is NOT assumed to be the approved Kaggle environment -- it could be any unattested machine") through the override path specifically -- the no-override branch still correctly refuses to guess, but the override branch, added in Rev. 16, never carried the same discipline forward for the Kaggle direction. | Read `detect_stratum`'s literal body (real file, not the plan) line by line; confirmed `is_windows` is a boolean with no memory of WHICH non-Windows platform it came from. Live-reproduced: called `detect_stratum(env_override="kaggle")` with `platform.system` monkeypatched to return `"Darwin"` -- returned `"kaggle"`, no exception, against the actual Rev. 16 code before any fix. | `detect_stratum` (real file) now checks `env_override == KAGGLE_STRATUM and system != "Linux"` (was `and is_windows`) -- Kaggle's actual documented environment is Linux, so the override must match THAT specifically, not merely differ from Windows. The Windows-direction check (`env_override == WINDOWS_STRATUM and system != "Windows"`) is unchanged and was never wrong. New test `test_detect_stratum_rejects_a_kaggle_override_on_a_non_linux_platform` (monkeypatches `Darwin`) proves the fix; written RED first, confirmed it failed with `DID NOT RAISE` against the pre-fix code, then made to pass. Net test count: 9 -> 11 (this row + the next). |
+| P1 (Rev. 17) | `assert_no_cross_stratum_pooling` computed `strata = {r.stratum for r in records}` and only ever checked `len(strata) > 1` -- it never checked that any individual `r.stratum` is a member of `VALID_STRATA`. Two records that AGREE with each other but share an unrecognized value (e.g. a corrupted or hand-edited `"colab"`) produce `strata = {"colab"}`, `len(strata) == 1`, and the function returns normally -- an inconsistency within Task 3's own module, since its sibling functions `detect_stratum` and `stratum_output_root` both already validate against `VALID_STRATA` and this one alone did not. | Read the function's literal body; confirmed the membership check exists nowhere in it. Live-reproduced: called `assert_no_cross_stratum_pooling` with two `StratumRecord`s both carrying `stratum="colab"` -- returned `None` (no exception) against the actual Rev. 16 code before any fix. | Added a membership check (`r.stratum not in VALID_STRATA` for every record, `ValueError` on the first offender -- matching `stratum_output_root`'s own "unknown stratum" `ValueError` convention, kept distinct from `StrataPoolingError` (genuine cross-stratum disagreement) and `UnattestedStratumError` (`detect_stratum`'s own could-not-attest case)) before the existing agreement check. Defense in depth, independent of whatever an upstream caller (Task 10's `_validate_stratum_fields`) may or may not already have validated -- the same principle `scan_for_raw_payload_leakage`'s own empty-`team_ids` check already applies (Task 2, §5). New test `test_assert_no_cross_stratum_pooling_rejects_records_with_an_unknown_stratum`; written RED first, confirmed `DID NOT RAISE` against the pre-fix code. |
+| P1 (Rev. 17) | Task 9's Rev. 16 out_dir fix (§12) normalized separators (`out_dir.replace("\\", "/")`) but never collapsed `.`/`..` path segments before the slash-bounded substring containment check. `out_dir=f"{expected_root}/../../../elsewhere"` still contains `expected_root` as a literal SUBSTRING even though it resolves somewhere else entirely once the OS actually processes the `..` segments (`os.makedirs`, `open`, etc. all resolve them) -- defeating the exact invariant this check exists to enforce (DESIGN sec 3.5: each stratum publishes under its own separate tree). A string-substring check operating on unresolved text is not the same claim as "this path is under that root." | Re-read the Rev. 16 comparison line by line against what `posixpath`/`os.path` actually do with `.`/`..` segments -- confirmed `.replace("\\", "/")` is a pure character substitution, it does not interpret path semantics at all. Verified standalone (not just by inspection): ran the exact traversal payload, both forward-slash and backslash forms, through the literal pre-fix comparison logic in an isolated script -- both wrongly returned "accepted." | Replaced `out_dir.replace("\\", "/")` with `posixpath.normpath(out_dir.replace("\\", "/"))` before the containment check (§12) -- `posixpath.normpath` collapses `.`/`..` lexically (no filesystem access, no dependence on `out_dir` existing yet, which it doesn't at this point in the function) using forward-slash semantics regardless of host OS. Re-verified standalone against 7 cases (the 5 already covered in §1o's own record, plus both traversal payloads) -- all 7 now behave correctly, including both traversal payloads now correctly rejected. `posixpath` added to the module's import list. |
+
+**Downstream, re-checked:** No test-fixture change needed anywhere -- `_arm_out_dir` (§12) and
+every existing `strata_guard` test that predates this round pass unchanged (11 total now, up from
+9; re-run in full, not just the two new ones). Task 10 (§13) is untouched: it never calls
+`detect_stratum` or `assert_no_cross_stratum_pooling` directly with anything but
+already-manifest-validated data, so neither fix changes its behavior. The CLI exception-audit
+tables and widened except-tuples from §1n are unaffected -- `UnattestedStratumError` and
+`ValueError` were already accounted for there; this round changes WHEN they fire, not whether
+they are caught.
 
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
@@ -1584,6 +1628,13 @@ git commit -m "feat(champions): repo-wide leakage guard -- identifier grep + raw
 **Fix vs. Rev. 1 (P2-1):** `detect_stratum` no longer treats "not Windows" as "must be Kaggle."
 Any environment that isn't explicitly attested aborts.
 
+**Found during code review, after real implementation (Rev. 17, §1p):** Task 3 was implemented
+and committed (`3f07ef3`) at the end of the Rev. 16 round; a focused code review on that real
+module found two further P1s (a "not Windows" check is not the same as "is really Kaggle," so
+Darwin could still claim the Kaggle override; two records sharing an unrecognized stratum passed
+the pooling guard silently) -- both live-reproduced against the actual file before being fixed,
+and folded into this section below so the plan text matches the real, now-fixed code exactly.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
@@ -1622,6 +1673,18 @@ def test_detect_stratum_rejects_an_override_that_contradicts_the_platform(monkey
         detect_stratum(env_override="windows")
 
 
+def test_detect_stratum_rejects_a_kaggle_override_on_a_non_linux_platform(monkeypatch):
+    # Rev. 17 fix (§1p): Rev. 16's fix only checked "is this platform Windows or not" -- Darwin
+    # (macOS) is also not Windows, but it is NOT the approved Kaggle environment either (which
+    # runs Linux). A "not Windows" consistency check is not the same as a "this is really Kaggle"
+    # consistency check; without this, env_override="kaggle" on a developer's Mac laptop would
+    # succeed, exactly the "non-Windows box silently trusted as Kaggle" failure mode this whole
+    # module exists to prevent (P2-1), reintroduced through the override path specifically.
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    with pytest.raises(UnattestedStratumError, match="Linux"):
+        detect_stratum(env_override="kaggle")
+
+
 def test_detect_stratum_rejects_unknown_override():
     with pytest.raises(ValueError, match="unknown stratum"):
         detect_stratum(env_override="colab")
@@ -1657,6 +1720,23 @@ def test_assert_no_cross_stratum_pooling_rejects_mixed_strata():
         assert_no_cross_stratum_pooling(records)
 
 
+def test_assert_no_cross_stratum_pooling_rejects_records_with_an_unknown_stratum():
+    # Rev. 17 fix (§1p): two records that AGREE with each other but share an unrecognized stratum
+    # value (e.g. a corrupted or hand-edited "colab") previously passed silently --
+    # len({"colab"}) == 1, so the mixed-strata check alone never fires. Defense in depth: this
+    # function's own contract requires every record to represent a REAL, recognized stratum, not
+    # merely agree with its neighbors -- independent of whatever validation an upstream caller
+    # (Task 10's _validate_stratum_fields) may or may not already have done, matching how
+    # scan_for_raw_payload_leakage independently rejects an empty team_ids list rather than
+    # relying solely on its own caller's check.
+    records = [
+        StratumRecord(stratum="colab", platform_string="Colab", output_dir="a"),
+        StratumRecord(stratum="colab", platform_string="Colab", output_dir="b"),
+    ]
+    with pytest.raises(ValueError, match="unknown stratum"):
+        assert_no_cross_stratum_pooling(records)
+
+
 def test_stratum_output_root_separates_strata():
     assert stratum_output_root("windows", "d") != stratum_output_root("kaggle", "d")
 
@@ -1681,7 +1761,10 @@ non-Windows box is NOT assumed to be the approved Kaggle environment -- it could
 unattested machine, and DESIGN requires Kaggle to be a deliberate, separately pre-registered
 stratum, not a default. An env_override may only CONFIRM what platform.system() can prove, never
 CONTRADICT it (Rev. 16, §1o, P1 #1) -- it selects between platform-consistent choices, it does
-not let a caller relabel whatever machine is actually running as a different stratum."""
+not let a caller relabel whatever machine is actually running as a different stratum. "Consistent"
+is checked against the specific platform each stratum actually runs on (Windows / Linux), not
+merely "is or isn't Windows" (review-fix P1) -- a Mac laptop is not Windows, but it is also not
+the approved Kaggle environment, and must not be able to claim it via the override either."""
 from __future__ import annotations
 
 import platform
@@ -1708,7 +1791,7 @@ class StratumRecord:
 
 
 def detect_stratum(*, env_override: str | None = None) -> str:
-    is_windows = platform.system() == "Windows"
+    system = platform.system()
     if env_override is not None:
         if env_override not in VALID_STRATA:
             raise ValueError(f"unknown stratum {env_override!r}, expected one of {VALID_STRATA}")
@@ -1716,23 +1799,30 @@ def detect_stratum(*, env_override: str | None = None) -> str:
         # entirely -- env_override="kaggle" on the real, fixed Windows measurement host (or the
         # reverse on a non-Windows box) succeeded silently. The override may only select between
         # platform-CONSISTENT choices, never contradict what platform.system() can already prove.
-        if env_override == KAGGLE_STRATUM and is_windows:
-            raise UnattestedStratumError(
-                f"env_override={env_override!r} claims the Kaggle stratum, but this machine's "
-                "platform.system() is Windows -- the fixed Windows measurement host must never "
-                "be relabeled as Kaggle"
-            )
-        if env_override == WINDOWS_STRATUM and not is_windows:
+        #
+        # Rev. 17 fix (§1p): a "is this platform Windows or not" check is NOT the same as "is this
+        # platform really Kaggle": Darwin (macOS) is also not Windows, but it is not the approved
+        # Kaggle environment (Linux) either. Checked against Linux specifically, not merely "not
+        # Windows", or a developer's Mac laptop could claim Kaggle -- exactly the P2-1 failure mode
+        # this module exists to prevent, reintroduced through the override path.
+        if env_override == WINDOWS_STRATUM and system != "Windows":
             raise UnattestedStratumError(
                 f"env_override={env_override!r} claims the Windows stratum, but "
-                f"platform.system()={platform.system()!r} is not Windows -- the override may "
+                f"platform.system()={system!r} is not Windows -- the override may "
                 "not contradict what the platform can already prove"
             )
+        if env_override == KAGGLE_STRATUM and system != "Linux":
+            raise UnattestedStratumError(
+                f"env_override={env_override!r} claims the Kaggle stratum, but "
+                f"platform.system()={system!r} is not Linux -- the approved Kaggle "
+                "environment runs Linux, and the override may not contradict what "
+                "the platform can already prove"
+            )
         return env_override
-    if is_windows:
+    if system == "Windows":
         return WINDOWS_STRATUM
     raise UnattestedStratumError(
-        f"platform.system()={platform.system()!r} is not Windows and no env_override was given "
+        f"platform.system()={system!r} is not Windows and no env_override was given "
         "-- pass env_override='kaggle' explicitly on the approved Kaggle environment; a bare "
         "non-Windows host is never assumed to be Kaggle"
     )
@@ -1741,6 +1831,18 @@ def detect_stratum(*, env_override: str | None = None) -> str:
 def assert_no_cross_stratum_pooling(records: list[StratumRecord]) -> None:
     if not records:
         raise ValueError("assert_no_cross_stratum_pooling requires at least one record")
+    # Rev. 17 fix (§1p): two (or more) records that AGREE with each other but share an
+    # unrecognized stratum value (e.g. a corrupted or hand-edited "colab") previously passed
+    # silently -- len({"colab"}) == 1, so the mixed-strata check below alone never catches it.
+    # Every record must represent a REAL, recognized stratum before the agreement check even
+    # runs -- defense in depth, independent of whatever validation an upstream caller has done.
+    for r in records:
+        if r.stratum not in VALID_STRATA:
+            raise ValueError(
+                f"record for output_dir={r.output_dir!r} has an unknown stratum "
+                f"{r.stratum!r}, expected one of {VALID_STRATA} -- refusing to pool records "
+                "that do not even represent a recognized stratum"
+            )
     strata = {r.stratum for r in records}
     if len(strata) > 1:
         detail = ", ".join(f"{r.output_dir} ({r.stratum})" for r in records)
@@ -1758,13 +1860,18 @@ def stratum_output_root(stratum: str, base_dir: str) -> str:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest showdown_bot/tests/test_strata_guard.py -v`
-Expected: 9 passed
+Expected: 11 passed
 
 - [ ] **Step 5: Commit**
 
+Original implementation: `3f07ef3` (`git commit -m "fix(champions): stratum detection fails
+closed and rejects a platform-inconsistent override"`). The Rev. 17 review-fix lands as its own
+commit on top, per this round's own explicit instruction (a separate review-fix commit, not an
+amend):
+
 ```bash
 git add showdown_bot/src/showdown_bot/eval/strata_guard.py showdown_bot/tests/test_strata_guard.py
-git commit -m "fix(champions): stratum detection fails closed and rejects a platform-inconsistent override"
+git commit -m "fix(champions): reject a Kaggle override off Linux and unknown-stratum record pooling"
 ```
 
 ---
@@ -3087,6 +3194,7 @@ import asyncio
 import json
 import os
 import platform
+import posixpath
 import subprocess
 
 from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
@@ -3286,7 +3394,15 @@ def run_strength_holdout_arm(
     # SEGMENT -- not a bare prefix -- accepts both the relative (production, repo-root CWD) and
     # absolute (tests, or a fully-resolved real caller) shapes the same way, without requiring
     # out_dir to be one specific form.
-    normalized_out_dir = out_dir.replace("\\", "/")
+    #
+    # Review-fix P1: separator-translation alone does not collapse "."/".." segments --
+    # out_dir=f"{expected_root}/../../../elsewhere" still contains expected_root as a literal
+    # SUBSTRING even though it resolves somewhere completely different once the OS processes the
+    # ".." segments, defeating the entire per-stratum separate-tree requirement this check exists
+    # to enforce. posixpath.normpath collapses "."/".." lexically -- no filesystem access, no
+    # dependence on out_dir existing yet (it doesn't, at this point) -- before the containment
+    # check runs, so a traversal attempt no longer looks like it is under the stratum root.
+    normalized_out_dir = posixpath.normpath(out_dir.replace("\\", "/"))
     if f"/{expected_root}/" not in f"/{normalized_out_dir}/":
         raise GateBAbort(
             f"out_dir={out_dir!r} must be {expected_root!r} or a path under it for "
