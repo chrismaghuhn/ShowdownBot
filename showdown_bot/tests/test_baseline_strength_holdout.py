@@ -74,71 +74,83 @@ def test_placeholder_manifest_refuses_verification_fail_closed():
         verify_baseline(baseline, repo_root=str(_REPO_ROOT))
 
 
-# =============================================================================================
-# Gate-B-specific STATIC baseline contract (spec Amendment A1.3).
+# =================================================================================================
+# Gate-B-specific STATIC baseline contract (spec Amendment A1.3), review-fix round.
 #
-# The generic T6 contract freezes a heuristic policy's *reference run*: it requires
-# reference_jsonl/reference_sha256 and a loadable YAML dev_schedule_path. Neither can exist for
-# Gate B -- a result file cannot predate the run it describes, and Gate B's schedule is generated
-# from code, not YAML. This contract instead freezes Baseline B (max_damage) and its STATIC
-# environment, before the run. The generic loader/verifier are untouched.
-# =============================================================================================
+# Path geometry (Task 9 contract): teams_root for Gate B is the REPO ROOT, and every path is
+# repo-root-relative -- the hero is exactly STRENGTH_HOLDOUT_HERO_TEAM_PATH and each opponent is
+# exactly HOLDOUT_TEAMS_DIR + team_id + ".txt". The verifier also binds the authoritative holdout
+# manifest at STRENGTH_HOLDOUT_MANIFEST_PATH, not just the panel.
+# =================================================================================================
 import copy
-import subprocess
 
 from showdown_bot.eval.baseline import (
     load_strength_holdout_baseline, verify_strength_holdout_baseline,
+    SH_BASELINE_PYTHONHASHSEED,
 )
+from showdown_bot.eval.strength_holdout_schedule import (
+    STRENGTH_HOLDOUT_HERO_TEAM_PATH, STRENGTH_HOLDOUT_MANIFEST_PATH,
+)
+from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 
-HERO = "teams/fixed_champions_v0.txt"
 FORMAT_ID = "gen9championsvgc2026regma"
 SEED_BASE = "champions-strength-holdout-v0"
-
-
-def _packed_for(txt: str) -> str:
-    return txt[:-4] + ".packed"
+# Synthetic fixture team ids -- NOT the real gbh_* ids (never hardcode those in a test); these
+# live only in a throwaway tmp_path repo and its own holdout manifest.
+FIX_IDS = [f"sh{i}" for i in range(6)]
 
 
 def _fixture_repo(tmp_path):
-    """An isolated repo with a panel, a hero team and six opponent teams -- no live data."""
+    """An isolated repo in repo-root geometry: hero + six opponents + panel + holdout manifest."""
     import yaml
     from showdown_bot.eval.panel import team_content_hash
 
     repo = tmp_path / "repo"
-    teams = repo / "showdown_bot" / "teams"
-    holdout_dir = teams / "panel_champions_strength_holdout_v0"
-    holdout_dir.mkdir(parents=True)
-    (teams / "fixed_champions_v0.txt").write_text("Hero Mon @ Leftovers\n", encoding="utf-8")
-    (teams / "fixed_champions_v0.packed").write_text("|HeroMon|||||||||", encoding="utf-8")
+    (repo / "showdown_bot" / "teams" / "panel_champions_strength_holdout_v0").mkdir(parents=True)
+    hero_abs = repo / STRENGTH_HOLDOUT_HERO_TEAM_PATH
+    hero_abs.write_text("Hero Mon @ Leftovers\n", encoding="utf-8")
+    hero_abs.with_suffix(".packed").write_text("|HeroMon|||||||||", encoding="utf-8")
 
-    ids = [f"t{i}" for i in range(6)]
-    for i, tid in enumerate(ids):
-        (holdout_dir / f"{tid}.txt").write_text(f"Mon{i} @ Focus Sash\n", encoding="utf-8")
-        (holdout_dir / f"{tid}.packed").write_text(f"|Mon{i}A|||||||||]|Mon{i}B|||||||||", encoding="utf-8")
+    for i, tid in enumerate(FIX_IDS):
+        base = repo / f"{HOLDOUT_TEAMS_DIR}{tid}"
+        base.with_suffix(".txt").write_text(f"Mon{i} @ Focus Sash\n", encoding="utf-8")
+        base.with_suffix(".packed").write_text(f"|Mon{i}A|||||||||]|Mon{i}B|||||||||", encoding="utf-8")
 
+    def _hash(rel):
+        return team_content_hash(str(repo), rel)
+
+    # panel: repo-root-relative team_paths, loaded with teams_root=repo_root
     panel_dir = repo / "config" / "eval" / "panels"
     panel_dir.mkdir(parents=True)
     panel = {
         "version": "champions_strength_holdout_v0",
         "policies": ["heuristic", "max_damage"],
-        "dev_teams": [
-            {"team_id": t, "team_path": f"teams/panel_champions_strength_holdout_v0/{t}.txt",
-             "archetype": f"a{i}"} for i, t in enumerate(ids[:3])
-        ],
-        "heldout_teams": [
-            {"team_id": t, "team_path": f"teams/panel_champions_strength_holdout_v0/{t}.txt",
-             "archetype": f"a{i}"} for i, t in enumerate(ids[3:], start=3)
-        ],
+        "dev_teams": [{"team_id": t, "team_path": f"{HOLDOUT_TEAMS_DIR}{t}.txt",
+                       "archetype": f"a{i}"} for i, t in enumerate(FIX_IDS[:3])],
+        "heldout_teams": [{"team_id": t, "team_path": f"{HOLDOUT_TEAMS_DIR}{t}.txt",
+                           "archetype": f"a{i}"} for i, t in enumerate(FIX_IDS[3:], start=3)],
     }
     (panel_dir / "panel_champions_strength_holdout_v0.yaml").write_text(
         yaml.safe_dump(panel, sort_keys=False), encoding="utf-8")
+
+    # holdout manifest: the authoritative id/path/hash source
+    holdout = {
+        "manifest_id": "champions_strength_holdout_v0",
+        "teams": [{"selection_index": i + 1, "team_id": t,
+                   "team_path": f"{HOLDOUT_TEAMS_DIR}{t}.txt",
+                   "team_content_hash": _hash(f"{HOLDOUT_TEAMS_DIR}{t}.txt")}
+                  for i, t in enumerate(FIX_IDS)],
+    }
+    man_dir = repo / "config" / "eval" / "holdout"
+    man_dir.mkdir(parents=True)
+    (repo / STRENGTH_HOLDOUT_MANIFEST_PATH).write_text(json.dumps(holdout, indent=2), encoding="utf-8")
 
     prov = repo / "config" / "eval"
     (prov / "provenance.yaml").write_text("showdown_commit: abc123def456\n", encoding="utf-8")
     patch_dir = repo / "tools" / "eval" / "patches"
     patch_dir.mkdir(parents=True)
     (patch_dir / "pokemon-showdown-seeded-battle.patch").write_text("--- fixture patch ---\n", encoding="utf-8")
-    return repo, ids
+    return repo, FIX_IDS
 
 
 def _good_manifest(repo, ids):
@@ -146,9 +158,8 @@ def _good_manifest(repo, ids):
     from showdown_bot.eval.run_manifest import load_showdown_commit, server_patch_hash
     from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
 
-    teams_root = str(repo / "showdown_bot")
     panel = load_panel(str(repo / "config/eval/panels/panel_champions_strength_holdout_v0.yaml"),
-                       teams_root=teams_root)
+                       teams_root=str(repo))
     schedule = build_strength_holdout_schedule(
         holdout_team_ids=sorted(ids), panel_hash=panel.panel_hash, seed_base=SEED_BASE)
     return {
@@ -158,13 +169,11 @@ def _good_manifest(repo, ids):
         "format_id": FORMAT_ID,
         "panel_version": "champions_strength_holdout_v0",
         "panel_hash": panel.panel_hash,
-        "hero_team_path": HERO,
-        "hero_team_hash": team_content_hash(teams_root, HERO),
+        "hero_team_path": STRENGTH_HOLDOUT_HERO_TEAM_PATH,
+        "hero_team_hash": team_content_hash(str(repo), STRENGTH_HOLDOUT_HERO_TEAM_PATH),
         "opponent_teams": [
-            {"team_id": t,
-             "team_path": f"teams/panel_champions_strength_holdout_v0/{t}.txt",
-             "team_content_hash": team_content_hash(
-                 teams_root, f"teams/panel_champions_strength_holdout_v0/{t}.txt")}
+            {"team_id": t, "team_path": f"{HOLDOUT_TEAMS_DIR}{t}.txt",
+             "team_content_hash": team_content_hash(str(repo), f"{HOLDOUT_TEAMS_DIR}{t}.txt")}
             for t in sorted(ids)
         ],
         "schedule_hash": schedule.schedule_hash,
@@ -172,7 +181,7 @@ def _good_manifest(repo, ids):
         "showdown_commit": load_showdown_commit(str(repo / "config/eval/provenance.yaml")),
         "server_patch_hash": server_patch_hash(
             str(repo / "tools/eval/patches/pokemon-showdown-seeded-battle.patch")),
-        "pythonhashseed": "0",
+        "pythonhashseed": SH_BASELINE_PYTHONHASHSEED,
     }
 
 
@@ -182,14 +191,11 @@ def _write(tmp_path, manifest, name="baseline.json"):
     return str(p)
 
 
+def _verify(repo, manifest):
+    return verify_strength_holdout_baseline(manifest, repo_root=str(repo))
+
+
 # --- loader: closed schema ---------------------------------------------------------------------
-
-
-def test_specific_loader_rejects_non_object_json(tmp_path):
-    p = tmp_path / "b.json"
-    p.write_text("[]", encoding="utf-8")
-    with pytest.raises(BaselineError, match="object"):
-        load_strength_holdout_baseline(str(p))
 
 
 def test_specific_loader_accepts_a_well_formed_manifest(tmp_path):
@@ -197,6 +203,13 @@ def test_specific_loader_accepts_a_well_formed_manifest(tmp_path):
     loaded = load_strength_holdout_baseline(_write(tmp_path, _good_manifest(repo, ids)))
     assert loaded["hero_agent"] == "max_damage"
     assert len(loaded["opponent_teams"]) == 6
+
+
+def test_specific_loader_rejects_non_object_json(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text("[]", encoding="utf-8")
+    with pytest.raises(BaselineError, match="object"):
+        load_strength_holdout_baseline(str(p))
 
 
 @pytest.mark.parametrize("field", [
@@ -223,7 +236,6 @@ def test_specific_loader_rejects_an_unknown_top_level_field(tmp_path):
 @pytest.mark.parametrize("banned", ["reference_jsonl", "reference_sha256", "dev_schedule_path",
                                     "git_sha", "candidate_identity"])
 def test_specific_loader_refuses_result_and_caller_supplied_identity_fields(tmp_path, banned):
-    """A1.3: this contract is static pre-run data only -- no result artifact, no caller SHA."""
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
     m[banned] = "x"
@@ -243,7 +255,7 @@ def test_specific_loader_rejects_a_wrong_field_type(tmp_path, field, value):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
 
-@pytest.mark.parametrize("field", ["baseline_id", "panel_hash", "hero_team_path", "schedule_hash"])
+@pytest.mark.parametrize("field", ["baseline_id", "panel_hash", "hero_team_hash", "schedule_hash"])
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_specific_loader_rejects_blank_ids_paths_and_hashes(tmp_path, field, blank):
     repo, ids = _fixture_repo(tmp_path)
@@ -277,14 +289,43 @@ def test_specific_loader_requires_the_pinned_seed_namespace(tmp_path):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
 
+def test_specific_loader_requires_the_canonical_hero_path(tmp_path):
+    """P1 (review): the hero path is pinned, not caller-controlled. A different existing hero file
+    with a correctly co-updated hash must be refused, because it is not the canonical hero."""
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    m["hero_team_path"] = "showdown_bot/teams/fixed_team.txt"  # a real, different hero
+    with pytest.raises(BaselineError, match="hero_team_path"):
+        load_strength_holdout_baseline(_write(tmp_path, m))
+
+
+def test_specific_loader_requires_each_opponent_path_under_the_canonical_holdout_dir(tmp_path):
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    tid = m["opponent_teams"][0]["team_id"]
+    m["opponent_teams"][0]["team_path"] = f"showdown_bot/teams/panel_champions_v0/{tid}.txt"
+    with pytest.raises(BaselineError, match="team_path|holdout"):
+        load_strength_holdout_baseline(_write(tmp_path, m))
+
+
+def test_specific_loader_requires_pythonhashseed_zero(tmp_path):
+    """P1 (review): pythonhashseed was a dead field -- loaded as a non-empty string, never checked."""
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    m["pythonhashseed"] = "not-zero"
+    with pytest.raises(BaselineError, match="pythonhashseed"):
+        load_strength_holdout_baseline(_write(tmp_path, m))
+
+
 @pytest.mark.parametrize("count", [5, 7])
 def test_specific_loader_requires_exactly_six_opponent_teams(tmp_path, count):
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
-    entry = m["opponent_teams"][0]
-    m["opponent_teams"] = (m["opponent_teams"] * 2)[:count] if count > 6 else m["opponent_teams"][:count]
-    if count > 6:
-        m["opponent_teams"] = m["opponent_teams"][:6] + [dict(entry, team_id="extra")]
+    if count < 6:
+        m["opponent_teams"] = m["opponent_teams"][:count]
+    else:
+        m["opponent_teams"] = m["opponent_teams"] + [dict(m["opponent_teams"][0], team_id="extra",
+                                                          team_path=f"{HOLDOUT_TEAMS_DIR}extra.txt")]
     with pytest.raises(BaselineError, match="six|6"):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
@@ -297,28 +338,52 @@ def test_specific_loader_rejects_an_unknown_field_inside_a_team_entry(tmp_path):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
 
-def test_specific_loader_rejects_duplicate_team_ids(tmp_path):
+def test_specific_loader_rejects_a_duplicated_team_entry(tmp_path):
+    # With paths pinned to HOLDOUT_TEAMS_DIR + team_id, a duplicate path can only arise from a
+    # duplicate id, so a genuine duplicate is a fully-copied entry -- caught by the id check.
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
-    m["opponent_teams"][1]["team_id"] = m["opponent_teams"][0]["team_id"]
+    m["opponent_teams"][1] = dict(m["opponent_teams"][0])
     with pytest.raises(BaselineError, match="duplicate"):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
 
-def test_specific_loader_rejects_duplicate_team_paths(tmp_path):
+def test_specific_loader_still_guards_duplicate_ids_independently_of_path_geometry(tmp_path):
+    # The duplicate-id check must not silently depend on the path check: even if a future edit
+    # relaxed the path pin, two teams sharing an id must still be rejected. Force that by giving
+    # the collided entry a geometry-valid path for ITS (duplicated) id.
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
-    m["opponent_teams"][1]["team_path"] = m["opponent_teams"][0]["team_path"]
+    dup_id = m["opponent_teams"][0]["team_id"]
+    m["opponent_teams"][1]["team_id"] = dup_id
+    m["opponent_teams"][1]["team_path"] = f"{HOLDOUT_TEAMS_DIR}{dup_id}.txt"
     with pytest.raises(BaselineError, match="duplicate"):
         load_strength_holdout_baseline(_write(tmp_path, m))
 
 
-# --- verifier: every static pin re-derived from the checkout -----------------------------------
+# --- loader: load-error wrapping (P1 review) ---------------------------------------------------
 
 
-def _verify(repo, manifest):
-    return verify_strength_holdout_baseline(
-        manifest, repo_root=str(repo), teams_root=str(repo / "showdown_bot"))
+def test_specific_loader_wraps_a_missing_file_as_baseline_error(tmp_path):
+    with pytest.raises(BaselineError, match="not.*read|No such|cannot"):
+        load_strength_holdout_baseline(str(tmp_path / "does_not_exist.json"))
+
+
+def test_specific_loader_wraps_broken_json_as_baseline_error(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text('{"schema_version": 1,', encoding="utf-8")  # truncated
+    with pytest.raises(BaselineError, match="JSON|json"):
+        load_strength_holdout_baseline(str(p))
+
+
+def test_specific_loader_wraps_invalid_utf8_as_baseline_error(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_bytes(b"\xff\xfe not utf-8")
+    with pytest.raises(BaselineError, match="utf-8|decode|encoding"):
+        load_strength_holdout_baseline(str(p))
+
+
+# --- verifier: static pins re-derived from the checkout ----------------------------------------
 
 
 def test_specific_verifier_passes_against_a_matching_checkout(tmp_path):
@@ -327,7 +392,8 @@ def test_specific_verifier_passes_against_a_matching_checkout(tmp_path):
     assert checks and all(c.ok for c in checks)
     names = {c.name for c in checks}
     for expected in ("panel_hash", "hero_team_hash", "opponent_team_hashes", "schedule_hash",
-                     "seed_base", "format_id", "showdown_commit", "server_patch_hash"):
+                     "seed_base", "format_id", "showdown_commit", "server_patch_hash",
+                     "holdout_manifest"):
         assert expected in names, expected
 
 
@@ -347,27 +413,11 @@ def test_specific_verifier_detects_hero_team_hash_drift(tmp_path):
         _verify(repo, m)
 
 
-def test_specific_verifier_detects_a_hero_path_that_does_not_exist(tmp_path):
-    repo, ids = _fixture_repo(tmp_path)
-    m = _good_manifest(repo, ids)
-    m["hero_team_path"] = "teams/not_a_real_hero.txt"
-    with pytest.raises(BaselineDriftError, match="hero"):
-        _verify(repo, m)
-
-
 def test_specific_verifier_detects_a_wrongly_hashed_opponent_team(tmp_path):
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
     m["opponent_teams"][2]["team_content_hash"] = "0" * 16
-    with pytest.raises(BaselineDriftError, match="opponent_team_hashes"):
-        _verify(repo, m)
-
-
-def test_specific_verifier_detects_an_opponent_team_absent_from_the_panel(tmp_path):
-    repo, ids = _fixture_repo(tmp_path)
-    m = _good_manifest(repo, ids)
-    m["opponent_teams"][0]["team_id"] = "not_in_panel"
-    with pytest.raises(BaselineDriftError, match="opponent_team_hashes"):
+    with pytest.raises(BaselineDriftError, match="opponent_team_hashes|holdout_manifest"):
         _verify(repo, m)
 
 
@@ -380,14 +430,13 @@ def test_specific_verifier_detects_schedule_hash_drift(tmp_path):
 
 
 def test_specific_verifier_rebuilds_the_canonical_180_key_schedule(tmp_path):
-    """The schedule hash must be REBUILT from the panel's six teams, not trusted."""
     from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
     from showdown_bot.eval.panel import load_panel
 
     repo, ids = _fixture_repo(tmp_path)
     m = _good_manifest(repo, ids)
     panel = load_panel(str(repo / "config/eval/panels/panel_champions_strength_holdout_v0.yaml"),
-                       teams_root=str(repo / "showdown_bot"))
+                       teams_root=str(repo))
     rebuilt = build_strength_holdout_schedule(
         holdout_team_ids=sorted(ids), panel_hash=panel.panel_hash, seed_base=SEED_BASE)
     assert len(rebuilt.battle_keys) == 180
@@ -424,6 +473,50 @@ def test_specific_verifier_reports_every_failed_check_not_just_the_first(tmp_pat
         assert name in message
 
 
+# --- verifier: holdout-manifest binding (P1 review) --------------------------------------------
+
+
+def test_specific_verifier_binds_the_authoritative_holdout_manifest(tmp_path):
+    """Baseline + panel agreeing is not enough -- both could be changed together to a DIFFERENT
+    six teams while the authoritative holdout manifest is unchanged. The verifier must catch that.
+    """
+    from showdown_bot.eval.panel import team_content_hash
+
+    repo, ids = _fixture_repo(tmp_path)
+    # Add a seventh committed team and repoint BOTH baseline and panel opponent[0] at it, leaving
+    # the holdout manifest untouched.
+    other = repo / f"{HOLDOUT_TEAMS_DIR}other"
+    other.with_suffix(".txt").write_text("Other Mon @ Sitrus Berry\n", encoding="utf-8")
+    other.with_suffix(".packed").write_text("|OtherA|||||||||]|OtherB|||||||||", encoding="utf-8")
+    other_hash = team_content_hash(str(repo), f"{HOLDOUT_TEAMS_DIR}other.txt")
+
+    import yaml
+    panel_path = repo / "config/eval/panels/panel_champions_strength_holdout_v0.yaml"
+    panel = yaml.safe_load(panel_path.read_text(encoding="utf-8"))
+    panel["dev_teams"][0] = {"team_id": "other", "team_path": f"{HOLDOUT_TEAMS_DIR}other.txt", "archetype": "x"}
+    panel_path.write_text(yaml.safe_dump(panel, sort_keys=False), encoding="utf-8")
+
+    m = _good_manifest(repo, ids)  # rebuilt against the mutated panel -> panel/schedule self-consistent
+    with pytest.raises(BaselineDriftError, match="holdout_manifest"):
+        _verify(repo, m)
+
+
+def test_specific_verifier_fails_when_the_holdout_manifest_is_missing(tmp_path):
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    (repo / STRENGTH_HOLDOUT_MANIFEST_PATH).unlink()
+    with pytest.raises(BaselineDriftError, match="holdout_manifest"):
+        _verify(repo, m)
+
+
+def test_specific_verifier_fails_when_the_holdout_manifest_is_malformed(tmp_path):
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    (repo / STRENGTH_HOLDOUT_MANIFEST_PATH).write_text("{ broken", encoding="utf-8")
+    with pytest.raises(BaselineDriftError, match="holdout_manifest"):
+        _verify(repo, m)
+
+
 # --- the generic contract is untouched ----------------------------------------------------------
 
 
@@ -439,6 +532,5 @@ def test_the_generic_required_fields_are_unchanged_by_the_specific_contract():
 
 
 def test_the_committed_placeholder_manifest_never_yields_a_false_pass():
-    """Until Step 3 fills it with real values it must be REFUSED, not quietly accepted."""
     with pytest.raises(BaselineError):
         load_strength_holdout_baseline(str(_MANIFEST_PATH))

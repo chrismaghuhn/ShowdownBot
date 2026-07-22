@@ -26,7 +26,10 @@ from pathlib import Path
 from showdown_bot.eval.panel import load_panel, team_content_hash
 from showdown_bot.eval.run_manifest import load_showdown_commit, server_patch_hash
 from showdown_bot.eval.schedule import load_schedule
-from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
+from showdown_bot.eval.strength_holdout_schedule import (
+    build_strength_holdout_schedule, STRENGTH_HOLDOUT_HERO_TEAM_PATH, STRENGTH_HOLDOUT_MANIFEST_PATH,
+)
+from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 
 # The hero team is fixed repo-wide (every dev/held-out schedule pairs it against panel
 # opponents) -- there is no per-manifest field for it, matching how every committed schedule
@@ -258,6 +261,10 @@ SH_BASELINE_FORMAT_ID = "gen9championsvgc2026regma"
 SH_BASELINE_SEED_BASE = "champions-strength-holdout-v0"
 SH_BASELINE_PANEL_VERSION = "champions_strength_holdout_v0"
 SH_OPPONENT_TEAM_COUNT = 6
+# The one pinned reproducibility value, defined once here (review-fix): the loader requires this
+# literal, the runner checks the live PYTHONHASHSEED against it before battle 1, and the combiner
+# compares both arms' recorded value to it. No second derivation anywhere.
+SH_BASELINE_PYTHONHASHSEED = "0"
 
 # Closed schema: exactly these keys, no more, no less.
 _SH_REQUIRED_FIELDS = (
@@ -290,8 +297,21 @@ def load_strength_holdout_baseline(path) -> dict:
     `reference_sha256` or `dev_schedule_path` is rejected outright rather than silently ignored,
     so a generic manifest can never be loaded here by mistake (or vice versa).
     """
-    with open(path, encoding="utf-8") as fh:
-        data = json.load(fh)
+    # Review-fix P1 #3: every real load failure -- missing file, unreadable, non-UTF-8 bytes, or
+    # truncated/corrupt JSON -- becomes a BaselineError with the path, never a raw OSError/
+    # UnicodeDecodeError/JSONDecodeError. The combiner catches BaselineError, so wrapping here is
+    # what makes "malformed baseline manifest" a clean GateBAbort instead of an escaping traceback.
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BaselineError(
+            f"strength-holdout baseline manifest at {str(path)!r} could not be read: {exc}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise BaselineError(
+            f"strength-holdout baseline manifest at {str(path)!r} is not valid JSON: {exc}"
+        ) from exc
     if not isinstance(data, dict):
         raise BaselineError("strength-holdout baseline manifest must be a JSON object")
 
@@ -346,6 +366,20 @@ def load_strength_holdout_baseline(path) -> dict:
             f"strength-holdout baseline 'panel_version' must be {SH_BASELINE_PANEL_VERSION!r}, "
             f"got {data['panel_version']!r}"
         )
+    # Review-fix P1 #2: the hero path is PINNED, not caller-controlled -- a different existing hero
+    # file with a correctly co-updated hash must be refused, because it is not THE canonical hero.
+    if data["hero_team_path"] != STRENGTH_HOLDOUT_HERO_TEAM_PATH:
+        raise BaselineError(
+            f"strength-holdout baseline 'hero_team_path' must be the canonical hero "
+            f"{STRENGTH_HOLDOUT_HERO_TEAM_PATH!r}, got {data['hero_team_path']!r}"
+        )
+    # Review-fix P1 #2: pythonhashseed was a dead field (loaded as a non-empty string, never
+    # checked). Pin it to the one canonical value.
+    if data["pythonhashseed"] != SH_BASELINE_PYTHONHASHSEED:
+        raise BaselineError(
+            f"strength-holdout baseline 'pythonhashseed' must be {SH_BASELINE_PYTHONHASHSEED!r}, "
+            f"got {data['pythonhashseed']!r}"
+        )
 
     teams = data["opponent_teams"]
     if not isinstance(teams, list):
@@ -383,6 +417,15 @@ def load_strength_holdout_baseline(path) -> dict:
                     f"strength-holdout baseline opponent_teams[{i}][{field!r}] must be a "
                     f"non-empty string, got {entry[field]!r}"
                 )
+        # Review-fix P1 #2: each opponent path is PINNED to the canonical holdout team directory --
+        # HOLDOUT_TEAMS_DIR + team_id + ".txt" -- so it cannot silently point at a team elsewhere.
+        expected_path = f"{HOLDOUT_TEAMS_DIR}{entry['team_id']}.txt"
+        if entry["team_path"] != expected_path:
+            raise BaselineError(
+                f"strength-holdout baseline opponent_teams[{i}] 'team_path' must be "
+                f"{expected_path!r} (HOLDOUT_TEAMS_DIR + team_id + '.txt'), got "
+                f"{entry['team_path']!r}"
+            )
     for field in ("team_id", "team_path"):
         seen = [t[field] for t in teams]
         if len(set(seen)) != len(seen):
@@ -402,7 +445,10 @@ def verify_strength_holdout_baseline(baseline: dict, *, repo_root, teams_root=No
     result artifact anywhere.
     """
     repo_root = Path(repo_root)
-    teams_root = Path(teams_root) if teams_root is not None else repo_root / "showdown_bot"
+    # Gate B path geometry (Task 9 contract, review-fix): teams_root is the REPO ROOT, not
+    # repo_root/showdown_bot -- every Gate B path (hero, opponents, panel team_paths) is
+    # repo-root-relative and carries the showdown_bot/ prefix, exactly as the runner resolves them.
+    teams_root = Path(teams_root) if teams_root is not None else repo_root
     checks: list[BaselineCheck] = []
 
     def _panel():
@@ -412,6 +458,49 @@ def verify_strength_holdout_baseline(baseline: dict, *, repo_root, teams_root=No
 
     _add_check(checks, "panel_hash",
                lambda: (_panel().panel_hash, _panel().panel_hash == baseline["panel_hash"]))
+
+    def _holdout_manifest_check():
+        # Review-fix P1 #1: bind the AUTHORITATIVE holdout manifest, not just the panel. Panel and
+        # baseline could be changed together to a different six teams while this manifest -- the
+        # single source of the id/path/hash truth -- stays put. Read it fresh, validate its shape,
+        # and require the baseline's opponent projection, the panel's projection, AND the real file
+        # hashes to all equal the manifest's {team_id, team_path, team_content_hash} projection.
+        man_path = repo_root / STRENGTH_HOLDOUT_MANIFEST_PATH
+        try:
+            man = json.loads(man_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            return f"unreadable: {exc}", False
+        except json.JSONDecodeError as exc:
+            return f"malformed JSON: {exc}", False
+        if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
+            return "manifest is not an object with a 'teams' list", False
+        man_teams = man["teams"]
+        if len(man_teams) != SH_OPPONENT_TEAM_COUNT:
+            return f"manifest has {len(man_teams)} teams, expected {SH_OPPONENT_TEAM_COUNT}", False
+        for key in ("selection_index", "team_id", "team_path"):
+            seen = [t.get(key) for t in man_teams]
+            if len(set(map(str, seen))) != len(seen):
+                return f"manifest has duplicate {key}", False
+        for t in man_teams:
+            for key in ("team_id", "team_path", "team_content_hash"):
+                if not isinstance(t.get(key), str) or not t[key].strip():
+                    return f"manifest team missing/blank {key}", False
+        proj = lambda src: sorted(
+            (t["team_id"], t["team_path"], t["team_content_hash"]) for t in src)
+        manifest_proj = proj(man_teams)
+        baseline_proj = proj(baseline["opponent_teams"])
+        panel = _panel()
+        panel_teams = [*panel.dev_teams, *panel.heldout_teams]
+        panel_proj = sorted(
+            (t.team_id, t.team_path, t.team_hash) for t in panel_teams)
+        real_proj = sorted(
+            (t["team_id"], t["team_path"], team_content_hash(str(teams_root), t["team_path"]))
+            for t in man_teams)
+        ok = (manifest_proj == baseline_proj == panel_proj == real_proj)
+        return {"manifest": manifest_proj, "baseline": baseline_proj,
+                "panel": panel_proj, "on_disk": real_proj}, ok
+
+    _add_check(checks, "holdout_manifest", _holdout_manifest_check)
 
     def _hero_check():
         measured = team_content_hash(str(teams_root), baseline["hero_team_path"])

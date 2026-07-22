@@ -2511,13 +2511,46 @@ No review finding targeted this task. Implement exactly as Rev. 1 specified: cre
 
 ---
 
-## 9. Task 6 — Champions strength-holdout baseline manifest (real `baseline.py` API)
+## 9. Task 6 — Champions strength-holdout baseline manifest
+
+> **SUPERSEDED by Amendment A1.3 (APPROVED) and its implementation. Read this box for the active
+> contract; everything below the box is retained only as the historical Rev. 1–6 record and no
+> longer prescribes execution.**
+>
+> **As implemented (Step 2 + its review-fix):** Gate B does **not** use the generic T6
+> result-baseline contract. It has its OWN additive contract in `eval/baseline.py`:
+> `load_strength_holdout_baseline(path) -> dict` and
+> `verify_strength_holdout_baseline(baseline, *, repo_root, teams_root=None) -> list[BaselineCheck]`.
+> The generic `load_baseline`/`verify_baseline`, `_REQUIRED_FIELDS`, and every Reg-I manifest are
+> byte- and behaviour-unchanged.
+>
+> The specific manifest is a **closed static schema** of pre-run data only:
+> `schema_version`, `baseline_id`, `hero_agent == "max_damage"`,
+> `format_id == "gen9championsvgc2026regma"`, `panel_version`, `panel_hash`, the canonical
+> `hero_team_path` (exactly `STRENGTH_HOLDOUT_HERO_TEAM_PATH`) + `hero_team_hash`, exactly six
+> `opponent_teams` (each `{team_id, team_path == HOLDOUT_TEAMS_DIR+id+".txt", team_content_hash}`),
+> the code-rebuilt `schedule_hash`, `seed_base`, `showdown_commit`, `server_patch_hash`, and
+> `pythonhashseed == "0"`. It **rejects** any unknown field, so `reference_jsonl`,
+> `reference_sha256`, `dev_schedule_path`, a caller `git_sha`, or a `candidate_identity` cannot
+> appear — there is no result artifact and no YAML schedule.
+>
+> The verifier re-derives from the current checkout: panel hash; hero and six opponent content
+> hashes; the **authoritative holdout manifest** at `STRENGTH_HOLDOUT_MANIFEST_PATH` (baseline,
+> panel, on-disk and manifest projections must all agree); the rebuilt canonical 180-key schedule
+> hash; and the server/seed/format/`pythonhashseed` pins. Any drift is a named `BaselineCheck`
+> aggregated into `BaselineDriftError`. Load failures (missing/unreadable/non-UTF-8/broken JSON)
+> raise `BaselineError`. `combine_strength_holdout_arms` calls only this pair and normalises both
+> `BaselineError` and `BaselineDriftError` to `GateBAbort`; `run_strength_holdout_arm` refuses to
+> play unless `PYTHONHASHSEED == "0"` and records it, and combine binds both arms' recorded value
+> to the baseline. Files: `eval/baseline.py`, `config/eval/baselines/champions-strength-holdout-v0.json`,
+> `config/eval/holdout/champions_strength_holdout_v0_manifest.json`,
+> `showdown_bot/tests/test_baseline_strength_holdout.py`, `test_strength_holdout_runner.py`.
 
 **Files:**
 - Create: `config/eval/baselines/champions-strength-holdout-v0.json`
 - Test: `showdown_bot/tests/test_baseline_strength_holdout.py`
-- (No modification to `eval/baseline.py` needed — Rev. 2 finding: the real generic API already
-  supports a new manifest without any code change, only a new JSON file.)
+
+_The historical Rev. 1–6 text below is retained for provenance; the box above is authoritative._
 
 **Fix vs. Rev. 1 (P1-8):** `load_baseline_manifest` never existed. The real functions are
 `load_baseline(path) -> dict` (schema-only validation, raises `BaselineError`) and
