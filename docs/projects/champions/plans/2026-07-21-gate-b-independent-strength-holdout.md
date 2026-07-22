@@ -2,8 +2,8 @@
 
 > **Status: Rev. 22 — Tasks 1–12 are IMPLEMENTED, tested, reviewed (Codex PASS) and COMMITTED on
 > branch `feat/champions-gate-b-task-1-schedule`. Nothing is merged to `main`. Task 13 is the
-> active slice: its source condition is SATISFIED as of 2026-07-22 (§2a), and its
-> construction/sealing/wiring work is outstanding — no team file and no sealed hash exists yet. No
+> active slice, partly done: its source condition is SATISFIED (§2a) and the six `.txt`/`.packed` team artifacts exist, are sealed, are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the holdout manifest exists and is the single home of the public-to-internal ID mapping.
+> **Still outstanding:** the Gate B baseline contract, the panel YAML, the hash freeze, the CLI data wiring, the near-duplicate audit against the nine reference teams, and the whole-suite verification. No
 > server or battle has touched any worktree, and the live Gate B run remains BLOCKED under a
 > separate authorization (§17).**
 >
@@ -309,11 +309,21 @@
 >
 > **Implementation status as of Rev. 22 (2026-07-22).** **Tasks 1–12 are implemented, tested,
 > reviewed (Codex PASS) and committed** on branch `feat/champions-gate-b-task-1-schedule` — not yet
-> merged to `main`. **Task 13 is the active slice:** its source condition is **SATISFIED** (§2a —
-> the six VGCPastes teams are frozen, complete, and `validate-team`-legal), and what remains is its
-> construction/sealing/wiring work: the `.txt`/`.packed` artifacts, `seal_team`, the panel/holdout/
-> baseline manifests, and the CLI data wiring. **No team file or sealed hash exists yet**, and **no
-> server or battle has touched any worktree** — every task so far is code, tests, docs and frozen
+> merged to `main`. **Task 13 is the active slice and is partly complete.** Its source condition is
+> **SATISFIED** (§2a — the six VGCPastes teams are frozen, complete, and `validate-team`-legal).
+>
+> **Done:** the six `.txt`/`.packed` artifacts exist under the canonical holdout team directory,
+> byte-identical to their frozen sources; every team is sealed via `seal_team` with its
+> `content_hash` proven equal to `panel.team_content_hash`; all six return exit 0 from the pinned
+> `validate-team`; the holdout manifest exists and is the single home of the public-to-internal ID
+> mapping (Amendment A1.1); the real leakage scan (identifier **and** raw-payload legs) reports zero
+> hits outside the allowlisted artifacts, and `assert_disjoint_from_coverage` passes.
+>
+> **Outstanding:** the Gate-B-specific static baseline contract (A1.3), the panel YAML, the hash
+> freeze into `strength_holdout_schedule.py`'s empty constants, the CLI data wiring that removes
+> both named Task-13 blockers, the near-duplicate audit against the nine reference teams with a
+> written disposition per flag, and the whole-suite verification. **No `.packed` or sealed hash is
+> claimed beyond what is committed**, and **no server or battle has touched any worktree** — every task so far is code, tests, docs and frozen
 > source evidence only.
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
@@ -7998,11 +8008,13 @@ Steps 3-6 are explicitly out of scope for this plan.
 and Task 11 sections now mirror that committed source rather than a proposal, and Task 12 (team
 sealing/provenance) shipped with the `.packed`-containment review-fix. **Task 13 is the active
 slice.**
-Task 13's source condition is SATISFIED as of 2026-07-22 (§2a): the six authorized teams are
-frozen, complete, and `validate-team`-legal. What remains for Task 13 is construction, sealing and
-wiring -- the `.txt`/`.packed` artifacts, `seal_team`, the panel/holdout/baseline manifests and the
-CLI data wiring -- after which both CLI subcommands stop naming a Task 13 blocker. **No live Gate B
-run is authorized regardless**; that is a separate decision (§17).
+Task 13's source condition is SATISFIED as of 2026-07-22 (§2a), and its team-artifact half is
+done: the six `.txt`/`.packed` team artifacts exist, are sealed, are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the holdout manifest exists and is the single home of the public-to-internal ID mapping, with the real leakage and disjointness
+scans green.
+
+What remains for Task 13 is the Gate B baseline contract, the panel YAML, the hash freeze, the CLI data wiring, the near-duplicate audit against the nine reference teams, and the whole-suite verification --
+after which both CLI subcommands stop naming a Task 13 blocker. **No live Gate B run is authorized
+regardless**; that is a separate decision (§17).
 
 Every finding raised across all prior review rounds is fixed with real, verified code, and the one
 item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`
