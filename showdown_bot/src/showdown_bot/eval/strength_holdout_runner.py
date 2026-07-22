@@ -30,6 +30,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date
@@ -94,6 +95,16 @@ class GateBAbort(Exception):
     """A technical abort -- dirty tree, hash mismatch, infra failure, or zero-battle timeout.
     NOT a verdict (ports Gate A's DESIGN sec 2.6 taxonomy, since Gate B has no equivalent
     dedicated section -- grounding report sec 2)."""
+
+
+def _hash_randomization_enabled() -> bool:
+    # Review-fix (Step 2 round 2, P1): the AUTHORITATIVE reproducibility signal. Whether string
+    # hashing is randomized this run is fixed at interpreter startup and exposed read-only as
+    # sys.flags.hash_randomization (0 == PYTHONHASHSEED was 0/disabled at start; 1 == randomized).
+    # Assigning os.environ["PYTHONHASHSEED"] mid-process does NOT change it -- that is exactly the
+    # hole the env-only check left open. Wrapped in this seam so unit tests can force the
+    # on-state without spawning a differently-seeded interpreter.
+    return bool(sys.flags.hash_randomization)
 
 
 def _git_is_dirty(cwd: str | None = None) -> bool:
@@ -479,10 +490,21 @@ def run_strength_holdout_arm(
         if os.path.exists(p):
             raise GateBAbort(f"{label} directory {p} already exists; restart runs from a fresh directory")
 
-    # Review-fix (Step 2, P1 #2): PYTHONHASHSEED is a pinned reproducibility input, so it must be
-    # correct on the box actually about to play, before battle 1 -- not merely recorded. A hash
-    # seed other than the pinned value would make this run irreproducible, so refuse fail-closed.
+    # Review-fix (Step 2 round 2, P1): PYTHONHASHSEED must be correct AT INTERPRETER START, not
+    # merely present in os.environ. Setting os.environ["PYTHONHASHSEED"]="0" mid-process does NOT
+    # disable hash randomization -- the env string reads "0" while sys.flags.hash_randomization
+    # stays 1 and hashes still vary run-to-run. The authoritative, load-bearing signal is
+    # sys.flags.hash_randomization (via the _hash_randomization_enabled seam, so tests can drive
+    # it); the env string is checked too so the recorded value is meaningful and matches the pin,
+    # but it is NOT sufficient on its own. Both must agree, before battle 1, fail-closed.
     live_pythonhashseed = os.environ.get("PYTHONHASHSEED")
+    if _hash_randomization_enabled():
+        raise GateBAbort(
+            "hash randomization is ON (sys.flags.hash_randomization == 1) -- this interpreter was "
+            f"not started with PYTHONHASHSEED={SH_BASELINE_PYTHONHASHSEED!r}, so hashes vary "
+            f"run-to-run (os.environ says {live_pythonhashseed!r}, which is not enough: it only "
+            "takes effect at interpreter start). Refusing to play an irreproducible Gate B arm."
+        )
     if live_pythonhashseed != SH_BASELINE_PYTHONHASHSEED:
         raise GateBAbort(
             f"PYTHONHASHSEED must be {SH_BASELINE_PYTHONHASHSEED!r} for a reproducible Gate B arm, "

@@ -260,6 +260,12 @@ def _setup_common(monkeypatch, tmp_path, schedule, *, calc_backend="oneshot"):
     )
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", schedule.seed_base)
     monkeypatch.setenv("PYTHONHASHSEED", "0")
+    # The pytest interpreter itself is normally started WITH hash randomization on, so the real
+    # sys.flags.hash_randomization guard (Step 2 round 2, P1) would abort every arm-playing test
+    # before battle 1. Simulate a properly-seeded interpreter via the seam; tests that mean to
+    # exercise the guard's on-state patch it back to True themselves.
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner._hash_randomization_enabled", lambda: False)
     monkeypatch.chdir(tmp_path)
     _write_fixture_team_files(tmp_path)
     seed_log_path = tmp_path / "seeds.jsonl"
@@ -2964,3 +2970,41 @@ def test_combine_aborts_if_an_arm_is_missing_pythonhashseed(tmp_path, monkeypatc
     man_path.write_text(json.dumps(man), encoding="utf-8")
     with pytest.raises(GateBAbort, match="pythonhashseed"):
         combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_arm_aborts_when_hash_randomization_is_on_even_if_env_says_zero(tmp_path, monkeypatch):
+    """P1 (review): PYTHONHASHSEED set to '0' AFTER the interpreter started does NOT disable hash
+    randomization -- os.environ says '0' while sys.flags.hash_randomization stays 1. The guard must
+    read the interpreter's real state, not the env string."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)  # sets env PYTHONHASHSEED=0
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner._hash_randomization_enabled", lambda: True)
+    with pytest.raises(GateBAbort, match="hash randomization|PYTHONHASHSEED"):
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
+            seed_log_path=seed_log_path, teams_root=str(tmp_path),
+            gauntlet_runner=lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no battle")),
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+
+
+def test_hash_randomization_seam_reflects_the_real_interpreter_state():
+    """The reviewer's own reproduction, end-to-end: the guard's verdict differs between an
+    interpreter started with PYTHONHASHSEED=0 (randomization off) and =1 (on)."""
+    import subprocess, sys
+    probe = (
+        "from showdown_bot.eval.strength_holdout_runner import _hash_randomization_enabled;"
+        "import sys; print(int(_hash_randomization_enabled()), sys.flags.hash_randomization)"
+    )
+    # Give the child the SAME import path this interpreter resolved the package from, so the probe
+    # works whether the package is installed editable or only on sys.path -- PYTHONHASHSEED is the
+    # only variable we mean to change between the two runs.
+    base_env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+    env0 = dict(base_env, PYTHONHASHSEED="0")
+    env1 = dict(base_env, PYTHONHASHSEED="1")
+    run0 = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env0)
+    run1 = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env1)
+    assert run0.stdout.strip() == "0 0", run0.stderr   # started with =0: randomization OFF
+    assert run1.stdout.strip() == "1 1", run1.stderr   # started with =1: randomization ON

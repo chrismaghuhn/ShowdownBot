@@ -534,3 +534,20 @@ def test_the_generic_required_fields_are_unchanged_by_the_specific_contract():
 def test_the_committed_placeholder_manifest_never_yields_a_false_pass():
     with pytest.raises(BaselineError):
         load_strength_holdout_baseline(str(_MANIFEST_PATH))
+
+
+# --- review-fix round 2 ------------------------------------------------------------------------
+
+
+def test_specific_verifier_requires_a_closed_1_to_6_selection_order(tmp_path):
+    """P2: unique selection_index is not enough -- it must be exactly {1..6}, so the frozen
+    selection order is fully pinned and no index can be dropped, repeated by value, or renumbered."""
+    repo, ids = _fixture_repo(tmp_path)
+    m = _good_manifest(repo, ids)
+    man_path = repo / STRENGTH_HOLDOUT_MANIFEST_PATH
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    man["teams"] = sorted(man["teams"], key=lambda t: t["selection_index"])
+    man["teams"][5]["selection_index"] = 99  # unique, but not a closed 1..6 set
+    man_path.write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(BaselineDriftError, match="holdout_manifest"):
+        _verify(repo, m)

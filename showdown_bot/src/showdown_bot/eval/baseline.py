@@ -481,6 +481,16 @@ def verify_strength_holdout_baseline(baseline: dict, *, repo_root, teams_root=No
             seen = [t.get(key) for t in man_teams]
             if len(set(map(str, seen))) != len(seen):
                 return f"manifest has duplicate {key}", False
+        # Review-fix (Step 2 round 2, P2): selection_index must be the CLOSED set {1..6}, not merely
+        # unique. Uniqueness alone accepts {1,2,3,4,5,99} -- six distinct values that silently drop
+        # a real place and smuggle in an out-of-range one. Require exactly the sorted 1..6 sequence.
+        # bool is an int subclass, so exclude it explicitly; a non-int (str/None/float) also fails.
+        selection = [t.get("selection_index") for t in man_teams]
+        if any(not isinstance(s, int) or isinstance(s, bool) for s in selection):
+            return f"manifest selection_index values are not all integers: {selection}", False
+        if sorted(selection) != list(range(1, SH_OPPONENT_TEAM_COUNT + 1)):
+            return (f"manifest selection_index is not the closed 1..{SH_OPPONENT_TEAM_COUNT} "
+                    f"set: {sorted(selection)}"), False
         for t in man_teams:
             for key in ("team_id", "team_path", "team_content_hash"):
                 if not isinstance(t.get(key), str) or not t[key].strip():
