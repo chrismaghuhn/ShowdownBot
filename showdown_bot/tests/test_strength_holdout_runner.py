@@ -49,7 +49,9 @@ from showdown_bot.eval.strength_holdout_runner import (
 )
 from showdown_bot.eval.strength_holdout_schedule import (
     build_strength_holdout_schedule, STRENGTH_HOLDOUT_FORMAT_ID, STRENGTH_HOLDOUT_SEED_BASE,
+    STRENGTH_HOLDOUT_HERO_TEAM_PATH,
 )
+from showdown_bot.eval.result_jsonl import make_battle_id
 
 
 def _six_teams():
@@ -970,18 +972,25 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         real_schedule_hash = _schedule.schedule_hash if schedule_hash is None else schedule_hash
         for key in keys:
             team_entry = holdout_teams[key.holdout_team_id]
+            # Review-fix (Task-10 second review, P1): every identity field is now the REAL
+            # canonical value Task 9's own row builder derives, not a stand-in. The previous
+            # fixture wrote battle_id=f"b{seed_index}" and run_id="r" and still passed -- which is
+            # precisely how the missing row-to-battle-key binding stayed invisible.
+            row_seed = _seed_for(seed_base, key.seed_index)
             rows.append({
-                "battle_id": f"b{key.seed_index}", "run_id": "r", "config_id": hero_agent,
-                "format_id": "gen9championsvgc2026regma",
+                "battle_id": make_battle_id(real_schedule_hash, key.seed_index, row_seed),
+                "run_id": f"{candidate_identity}-{hero_agent}", "config_id": hero_agent,
+                "format_id": STRENGTH_HOLDOUT_FORMAT_ID,
                 "config_hash": config_hash, "schedule_hash": real_schedule_hash,
                 "seed_index": key.seed_index,
                 # opp_policy now comes from the battle key itself (real schedules alternate
                 # heuristic/max_damage across the 12 (team, policy) cells) -- a fixture that
                 # hardcoded "heuristic" for every row could never satisfy the canonical-schedule
                 # binding this arm is supposed to demonstrate.
-                "opp_policy": key.opponent_policy, "hero_team_path": "h.txt",
+                "opp_policy": key.opponent_policy,
+                "hero_team_path": STRENGTH_HOLDOUT_HERO_TEAM_PATH,
                 "opp_team_path": team_entry["team_path"],
-                "seed": _seed_for(seed_base, key.seed_index), "seed_base": seed_base,
+                "seed": row_seed, "seed_base": seed_base,
                 "winner": winner, "turns": 5,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
                 "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
@@ -2653,3 +2662,137 @@ def test_combine_refuses_to_start_while_another_combine_holds_the_ledger_lock(tm
             **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, ledger_path=ledger_path)
         )
     assert not os.path.exists(str(tmp_path / "combined"))
+
+
+# ---------------------------------------------------------------------------
+# Task-10 second review round, P1: result rows must be bound to CANONICAL BATTLE
+# IDENTITY, not just to the (seed_index, opp_policy, opp_team_path) grid.
+# ---------------------------------------------------------------------------
+
+
+def _corrupt_field_in_both_arms(arm_a, arm_b, field, make_bad):
+    """Set a wrong value for `field` on EVERY row of BOTH arms.
+
+    Deliberately not "corrupt one row": a single bad row introduces intra-arm variance that
+    pair_runs' own constant-field check already notices, which would make these tests pass for a
+    reason that has nothing to do with canonical binding (verified -- the format_id case passed
+    exactly that way before this helper was widened). The scenario under test is the one that
+    genuinely slipped through: both arms internally consistent, in agreement with each other and
+    with their own manifests, and uniformly carrying values no genuine run could have produced.
+
+    `make_bad` takes the row and returns the replacement, so a case can stay per-row DISTINCT
+    (a wrong seed derivation) rather than collapsing 180 rows onto one repeated value.
+    """
+    for arm in (arm_a, arm_b):
+        rows_path = Path(arm) / "rows.jsonl"
+        rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        for row in rows:
+            row[field] = make_bad(row)
+        with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+@pytest.mark.parametrize("field,make_bad", [
+    # A real derive_battle_seed value, but for the WRONG index: still distinct per row, still
+    # correctly formatted, just not the seed this battle key scheduled. seeds.jsonl continues to
+    # verify -- it proves the canonical seeds exist, never that these rows were played under them.
+    ("seed", lambda row: derive_battle_seed(STRENGTH_HOLDOUT_SEED_BASE, row["seed_index"] + 1)),
+    # battle_id is the pairing key, sha1(schedule_hash, seed_index, seed)[:16]; here it is a real
+    # digest over a FORGED schedule_hash. The old fixture wrote "b0" here and passed -- which is
+    # exactly how this gap escaped 98 green tests.
+    ("battle_id", lambda row: make_battle_id("forged_schedule", row["seed_index"], row["seed"])),
+    ("format_id", lambda row: "gen9vgc2024regulationh"),
+    ("config_id", lambda row: "some_other_agent"),
+    ("run_id", lambda row: "forged-run-id"),
+    ("hero_team_path", lambda row: "showdown_bot/teams/fixed_team.txt"),
+    # A row produced from a dirty tree can never be part of sealed evidence.
+    ("dirty", lambda row: True),
+])
+def test_combine_aborts_when_both_arms_carry_the_same_wrong_canonical_field(
+    tmp_path, monkeypatch, field, make_bad,
+):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    _corrupt_field_in_both_arms(arm_a, arm_b, field, make_bad)
+
+    with pytest.raises(GateBAbort, match=field):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+def test_combine_aborts_if_a_row_is_missing_a_canonical_identity_field(tmp_path, monkeypatch):
+    """Presence is checked before any value comparison, so a stripped field aborts cleanly
+    instead of raising a raw KeyError out of the new binding loop."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    rows_path = Path(arm_a) / "rows.jsonl"
+    rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    del rows[0]["run_id"]
+    with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(GateBAbort, match="run_id"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_derives_the_expected_seed_and_battle_id_per_canonical_key(tmp_path, monkeypatch):
+    """The binding must be a fresh DERIVATION per battle key, not a self-consistency check: a row
+    whose seed and battle_id agree with each other -- but belong to a DIFFERENT seed_index -- is
+    still not the battle that key scheduled. Here rows 0 and 1 swap their whole identity pair, so
+    every value present is individually 'real', just filed under the wrong key."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    for arm in (arm_a, arm_b):
+        rows_path = Path(arm) / "rows.jsonl"
+        rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        rows[0]["seed"], rows[1]["seed"] = rows[1]["seed"], rows[0]["seed"]
+        rows[0]["battle_id"], rows[1]["battle_id"] = rows[1]["battle_id"], rows[0]["battle_id"]
+        with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(GateBAbort, match="seed|battle_id"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_success_path_carries_real_canonical_battle_identity(tmp_path, monkeypatch):
+    """The positive fixture must itself be canonical -- otherwise the guard above would be
+    proven only by negative cases, and the success path would silently depend on the guard NOT
+    looking at these fields (which is how the gap survived the previous round)."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    with open(Path(arm_a) / "arm_manifest.json", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    rows = [json.loads(l) for l in (Path(arm_a) / "rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    schedule = build_strength_holdout_schedule(
+        holdout_team_ids=sorted(holdout_teams), panel_hash=manifest["panel_hash"],
+        seed_base=manifest["seed_base"],
+    )
+    by_index = {row["seed_index"]: row for row in rows}
+    for key in schedule.battle_keys:
+        row = by_index[key.seed_index]
+        expected_seed = derive_battle_seed(manifest["seed_base"], key.seed_index)
+        assert row["seed"] == expected_seed
+        assert row["battle_id"] == make_battle_id(manifest["schedule_hash"], key.seed_index, expected_seed)
+        assert row["run_id"] == f"{manifest['candidate_identity']}-{manifest['hero_agent']}"
+        assert row["hero_team_path"] == STRENGTH_HOLDOUT_HERO_TEAM_PATH
+        assert row["format_id"] == STRENGTH_HOLDOUT_FORMAT_ID
+        assert row["dirty"] is False
+
+    result = combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert result["n_total"] == 180

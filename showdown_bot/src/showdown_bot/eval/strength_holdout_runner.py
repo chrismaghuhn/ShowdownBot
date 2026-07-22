@@ -1035,6 +1035,12 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
 
 
 _ROW_REQUIRED_KEYS_FOR_SCHEDULE_BINDING = ("seed_index", "opp_policy")
+# Task-10 second review round, P1: the fields that make a row the battle its key scheduled, all
+# of them re-derivable here from the manifest alone -- so a value is never merely "present and
+# consistent", it is the one canonical value.
+_ROW_REQUIRED_KEYS_FOR_CANONICAL_IDENTITY = (
+    "seed", "battle_id", "format_id", "config_id", "run_id", "hero_team_path", "dirty",
+)
 
 
 def _assert_rows_cover_canonical_schedule(rows: list[dict], manifest: dict, which: str) -> None:
@@ -1107,6 +1113,47 @@ def _assert_rows_cover_canonical_schedule(rows: list[dict], manifest: dict, whic
             f"battle key(s) played but not scheduled: {unexpected}; scheduled but not played: "
             f"{unplayed}"
         )
+
+    # Task-10 second review round, P1: covering the (seed_index, opp_policy, opp_team_path) grid
+    # says the right SLOTS are present; it says nothing about whether the result in each slot is
+    # the battle that slot scheduled. seeds.jsonl proves the canonical seeds exist, but nothing
+    # tied the ROWS to those seeds -- so two arms could carry identical, uniformly wrong seeds,
+    # battle_ids, format, agent or hero team and still pair cleanly (pair_runs only notices
+    # variance WITHIN an arm, which uniform corruption does not produce). Every field below is
+    # re-derived here from the manifest and the canonical key, never merely compared for internal
+    # consistency.
+    keys_by_index = {key.seed_index: key for key in schedule.battle_keys}
+    expected_run_id = f"{manifest['candidate_identity']}-{manifest['hero_agent']}"
+    for i, row in enumerate(rows):
+        missing = set(_ROW_REQUIRED_KEYS_FOR_CANONICAL_IDENTITY) - set(row)
+        if missing:
+            raise GateBAbort(
+                f"arm {which}: row {i} is missing required key(s): {sorted(missing)} -- every row "
+                "must carry the full canonical battle identity"
+            )
+        key = keys_by_index[row["seed_index"]]
+        expected_seed = derive_battle_seed(manifest["seed_base"], key.seed_index)
+        for field, expected_value in (
+            ("seed", expected_seed),
+            ("battle_id", make_battle_id(manifest["schedule_hash"], key.seed_index, expected_seed)),
+            ("format_id", STRENGTH_HOLDOUT_FORMAT_ID),
+            ("config_id", manifest["hero_agent"]),
+            ("run_id", expected_run_id),
+            ("hero_team_path", STRENGTH_HOLDOUT_HERO_TEAM_PATH),
+        ):
+            if row[field] != expected_value:
+                raise GateBAbort(
+                    f"arm {which}: row {i} (seed_index {key.seed_index}) has "
+                    f"{field}={row[field]!r}, but the canonical battle key derives "
+                    f"{field}={expected_value!r} -- this row is not the battle its key scheduled"
+                )
+        # `is not False` on purpose, not `if row["dirty"]`: a truthy-but-not-True value (or a
+        # string "false") must fail here rather than be quietly accepted as clean.
+        if row["dirty"] is not False:
+            raise GateBAbort(
+                f"arm {which}: row {i} (seed_index {key.seed_index}) has dirty={row['dirty']!r} "
+                "-- a battle played from a dirty tree can never be part of sealed evidence"
+            )
 
 
 def _derive_species_from_sealed_files(holdout_teams: dict, teams_root: str) -> tuple[dict, dict]:
