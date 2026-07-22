@@ -72,6 +72,18 @@ def build_strength_holdout_schedule(
         {
             "keys": [[k.holdout_team_id, k.opponent_policy, k.seed, k.seed_index] for k in keys],
             "seed_base": seed_base, "format_id": STRENGTH_HOLDOUT_FORMAT_ID,
+            # panel_hash binds panel identity into schedule identity, matching every other gate's
+            # convention: coverage_schedule/i8d_schedule/panel_schedule/generalisation-planner and
+            # schedule.py's own loader all bind it via compute_schedule_hash(version, rows) --
+            # without this, two schedules built from the same six team IDs but different panel
+            # content (different team files behind those IDs) would collide on schedule_hash.
+            # compute_schedule_hash itself is not reusable here, and that is a deliberate,
+            # disclosed divergence, not an oversight: its rows carry real hero_team_path/
+            # opp_team_path strings, which change if a team's file content changes under a fixed
+            # path. BattleKey has no such field -- only holdout_team_id -- because team files do
+            # not exist until Task 13 seals them. Hashing panel_hash directly closes the same gap
+            # without depending on paths that do not exist yet.
+            "panel_hash": panel_hash,
         },
         sort_keys=True, separators=(",", ":"),
     ))

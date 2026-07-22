@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 10)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 11)
 
-> **Status: PROPOSED, Rev. 10 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 11 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
@@ -85,9 +85,23 @@
 >   itself plays under. Inert today (all three constants match), but the failure direction would
 >   have been a SILENT false provenance certification, not a loud abort. `format_id` is now
 >   passed explicitly; the test gained the third comparison that closes the triangle.
+> - **Rev. 10 → Rev. 11** (§1j, 1 user-found): not a new Codex review round -- the user's own
+>   direct comparison of Task 1's shipped `schedule_hash` against the other five
+>   `compute_schedule_hash(version, rows)` call sites, after Task 1 itself had already been
+>   implemented and merged onto its own branch. `build_strength_holdout_schedule` hashed `keys`,
+>   `seed_base`, and `format_id` -- never `panel_hash`, despite receiving it as a required
+>   parameter and storing it on the returned dataclass. Two schedules built from the same six
+>   team IDs but different panel content collided on `schedule_hash`. The bug was in this
+>   document's own §4 code block, present since Rev. 1 and carried forward unchanged through
+>   ten revisions and the Task 1 implementation itself, which correctly implemented what §4
+>   specified. Fixed by hashing `panel_hash` directly, not by adopting `compute_schedule_hash` --
+>   `BattleKey` has no `hero_team_path`/`opp_team_path` fields to give that function, since team
+>   files do not exist before Task 13.
 >
-> No task in this document has been executed. Nothing has been run, no server or battle has
-> touched this worktree, and nothing is committed.
+> As of Rev. 11: Task 1 (including this revision's `panel_hash` fix) has been implemented,
+> tested, and committed on branch `feat/champions-gate-b-task-1-schedule` -- not yet merged to
+> `main`. Tasks 2–13 remain unexecuted: nothing has been run, no server or battle has touched
+> any worktree beyond Task 1's own code and tests, and no team file or sealed hash exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -441,6 +455,24 @@ this round: `format_id=STRENGTH_HOLDOUT_FORMAT_ID` is now passed explicitly at t
 comparison left open. Not treated as a new revision: the user explicitly framed this as completing
 the same proof, not a finding against already-shipped Rev. 10 content.
 
+## 1j. What changed in Rev. 11 — panel_hash never entered schedule_hash
+
+Not from a new Codex review round -- the user's own direct comparison of Task 1's shipped code
+against `compute_schedule_hash`'s other five call sites, made possible only once Task 1 existed as
+real, committed code to compare against, not just plan text. The bug was in this document's own
+§4 code block, present since Rev. 1 and carried unchanged through ten revisions and the Task 1
+implementation itself -- which correctly implemented what §4 specified.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| U1 — user-found | `build_strength_holdout_schedule`'s `schedule_hash` hashed `keys`, `seed_base`, and `format_id` -- never `panel_hash`, despite receiving it as a required parameter and storing it on the returned `StrengthHoldoutSchedule`. Two schedules built from the same six team IDs but different panel content (different teams behind those IDs) collide on `schedule_hash`. Demonstrated directly, not just argued: a RED test with `panel_hash="a"*16` vs. `"b"*16` and identical team IDs produced the same `schedule_hash` value on both sides before the fix. | Read `eval/schedule.py:69`'s `compute_schedule_hash(version, rows)` and confirmed all five of its call sites (`coverage_schedule.py:179`, `i8d_schedule.py:114`, `panel_schedule.py:134` and `:197`, `generalisation/planner.py:117`, `schedule.py:151`'s own loader) bind panel identity through it. Read `panel.py:126-127`: `version` is one of `panel_hash`'s own hashed inputs, and each row's real `hero_team_path`/`opp_team_path` additionally catches a same-path content change that `version` alone would miss. `i8d_schedule.py:14`'s docstring states the binding explicitly. Read `pairing.py:22-25`: `panel_hash` is independently one of the five `_CONSTANT_FIELDS` "that identify 'the same evaluation conditions'" -- confirming `schedule_hash` is expected to carry that same identity, not a narrower one. Structurally the same shape as P1-7 (§1a): a hash function with the right name and call site but a narrower actual scope than its role implies -- there, `.txt`-only instead of `.txt`+`.packed`; here, team-identity-only instead of team-identity+panel-identity. | This revision: `panel_hash` added to the hashed payload directly, with a comment recording why `compute_schedule_hash` itself isn't reused -- `BattleKey` carries `holdout_team_id`, not `hero_team_path`/`opp_team_path`, since team files don't exist before Task 13. New test `test_schedule_hash_changes_if_panel_hash_changes`; the nine original Task 1 tests are unchanged and still pass, since none of them vary `panel_hash` across two schedules being compared. |
+
+**Why this couldn't wait:** from Task 9 on, `schedule_hash` is written into every battle row; from
+Task 10 on, it's one of `pairing._CONSTANT_FIELDS` -- part of what "the same evaluation conditions"
+means when pairing candidate and baseline rows for McNemar. Changing the hash formula after either
+point would invalidate every row and frozen constant already produced under the old formula. Task
+1 is the last point in the plan's own sequencing where this fix is free.
+
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
 **Decision (user, this revision):** Option 1 — a published, concluded Reg M-A tournament source.
@@ -599,6 +631,12 @@ def test_schedule_hash_changes_if_a_team_changes():
 def test_format_id_is_the_current_champions_regulation():
     schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
     assert schedule.format_id == "gen9championsvgc2026regma" == STRENGTH_HOLDOUT_FORMAT_ID
+
+
+def test_schedule_hash_changes_if_panel_hash_changes():
+    a = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    b = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="b" * 16)
+    assert a.schedule_hash != b.schedule_hash
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -684,6 +722,18 @@ def build_strength_holdout_schedule(
         {
             "keys": [[k.holdout_team_id, k.opponent_policy, k.seed, k.seed_index] for k in keys],
             "seed_base": seed_base, "format_id": STRENGTH_HOLDOUT_FORMAT_ID,
+            # panel_hash binds panel identity into schedule identity, matching every other gate's
+            # convention: coverage_schedule/i8d_schedule/panel_schedule/generalisation-planner and
+            # schedule.py's own loader all bind it via compute_schedule_hash(version, rows) --
+            # without this, two schedules built from the same six team IDs but different panel
+            # content (different team files behind those IDs) would collide on schedule_hash.
+            # compute_schedule_hash itself is not reusable here, and that is a deliberate,
+            # disclosed divergence, not an oversight: its rows carry real hero_team_path/
+            # opp_team_path strings, which change if a team's file content changes under a fixed
+            # path. BattleKey has no such field -- only holdout_team_id -- because team files do
+            # not exist until Task 13 seals them. Hashing panel_hash directly closes the same gap
+            # without depending on paths that do not exist yet.
+            "panel_hash": panel_hash,
         },
         sort_keys=True, separators=(",", ":"),
     ))
@@ -696,7 +746,7 @@ def build_strength_holdout_schedule(
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest showdown_bot/tests/test_strength_holdout_schedule.py -v`
-Expected: 9 passed
+Expected: 10 passed
 
 - [ ] **Step 5: Commit**
 

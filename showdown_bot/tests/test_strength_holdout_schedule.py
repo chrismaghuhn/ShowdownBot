@@ -67,3 +67,9 @@ def test_schedule_hash_changes_if_a_team_changes():
 def test_format_id_is_the_current_champions_regulation():
     schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
     assert schedule.format_id == "gen9championsvgc2026regma" == STRENGTH_HOLDOUT_FORMAT_ID
+
+
+def test_schedule_hash_changes_if_panel_hash_changes():
+    a = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    b = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="b" * 16)
+    assert a.schedule_hash != b.schedule_hash
