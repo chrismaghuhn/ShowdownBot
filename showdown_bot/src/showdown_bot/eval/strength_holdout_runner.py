@@ -479,6 +479,16 @@ def run_strength_holdout_arm(
         if os.path.exists(p):
             raise GateBAbort(f"{label} directory {p} already exists; restart runs from a fresh directory")
 
+    # Review-fix (Step 2, P1 #2): PYTHONHASHSEED is a pinned reproducibility input, so it must be
+    # correct on the box actually about to play, before battle 1 -- not merely recorded. A hash
+    # seed other than the pinned value would make this run irreproducible, so refuse fail-closed.
+    live_pythonhashseed = os.environ.get("PYTHONHASHSEED")
+    if live_pythonhashseed != SH_BASELINE_PYTHONHASHSEED:
+        raise GateBAbort(
+            f"PYTHONHASHSEED must be {SH_BASELINE_PYTHONHASHSEED!r} for a reproducible Gate B arm, "
+            f"got {live_pythonhashseed!r} -- refusing to play before battle 1"
+        )
+
     # Review-fix P1 #1 (recompute half): every hero/opponent file checked and hash-verified ONCE
     # here, before any directory is created -- not lazily, once per battle, inside the loop.
     _assert_hero_and_opponent_teams_are_valid(
@@ -649,6 +659,10 @@ def run_strength_holdout_arm(
         # calling detect_stratum() itself.
         "stratum": stratum, "platform_attestation": platform_attestation,
         "date_stratum_id": date_stratum_id,
+        # Review-fix (Step 2): record the pinned reproducibility seed this arm actually ran under
+        # (already asserted == SH_BASELINE_PYTHONHASHSEED before battle 1). Task 10 compares the two
+        # arms' values against each other and against the static baseline.
+        "pythonhashseed": live_pythonhashseed,
         # **provenance now also carries calc_backend (review-fix P1 #5) -- Task 10 must compare
         # this manifest value and pass it on to the upstream verifiers, never hardcode "oneshot".
         **provenance,
@@ -673,7 +687,7 @@ from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_n
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
 from showdown_bot.eval.baseline import (
     load_strength_holdout_baseline, verify_strength_holdout_baseline,
-    BaselineError, BaselineDriftError,
+    BaselineError, BaselineDriftError, SH_BASELINE_PYTHONHASHSEED,
 )
 from showdown_bot.eval.report import _build_cells, _build_aggregates
 # Rev. 19 note (Task 9 review-fix sync, §1r): _assert_seed_artifact_verified (below) needs
@@ -758,7 +772,9 @@ _MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", 
                           # machine-local absolute path. Presence-checked here; closed-form
                           # validity by _validate_seed_proof_fields below.
                           "calc_backend", "seed_log_relpath", "seed_log_sha256",
-                          "seed_log_n_lines", "seed_log_verified")
+                          "seed_log_n_lines", "seed_log_verified",
+                          # Review-fix (Step 2): the pinned reproducibility seed each arm ran under.
+                          "pythonhashseed")
 _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
 # Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
 # _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound
@@ -1364,7 +1380,7 @@ def combine_strength_holdout_arms(
     # schedule_hash is the canonical rebuild over the arm's own team_ids, two arms that played
     # different team sets necessarily disagree on schedule_hash too -- reporting the derived
     # symptom before the cause would be strictly less useful than naming the team-set mismatch.
-    for field in ("holdout_teams", "schedule_hash", "panel_hash", "seed_base", "date_stratum_id", "calc_backend"):
+    for field in ("holdout_teams", "schedule_hash", "panel_hash", "seed_base", "date_stratum_id", "calc_backend", "pythonhashseed"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
 
@@ -1448,6 +1464,15 @@ def combine_strength_holdout_arms(
         verify_strength_holdout_baseline(baseline, repo_root=repo_root, teams_root=teams_root)
     except BaselineError as exc:
         raise GateBAbort(f"baseline drift: {exc}") from exc
+    # Review-fix (Step 2): both arms must have run under the baseline's pinned PYTHONHASHSEED. The
+    # arm-vs-arm loop above already proved the two arms agree with each other; this binds that
+    # shared value to the static baseline as well, so a run under a different (but internally
+    # consistent) seed cannot slip through.
+    if manifest_a["pythonhashseed"] != baseline["pythonhashseed"]:
+        raise GateBAbort(
+            f"baseline drift: arms ran under pythonhashseed={manifest_a['pythonhashseed']!r} but "
+            f"the baseline pins {baseline['pythonhashseed']!r}"
+        )
 
     assert_disjoint_from_coverage(holdout_content_hashes)
     assert_no_holdout_leakage(

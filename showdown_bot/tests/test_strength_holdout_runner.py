@@ -259,6 +259,7 @@ def _setup_common(monkeypatch, tmp_path, schedule, *, calc_backend="oneshot"):
         lambda hero_agent: {"config_hash": f"cfg-{hero_agent}", "calc_backend": calc_backend},
     )
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", schedule.seed_base)
+    monkeypatch.setenv("PYTHONHASHSEED", "0")
     monkeypatch.chdir(tmp_path)
     _write_fixture_team_files(tmp_path)
     seed_log_path = tmp_path / "seeds.jsonl"
@@ -925,7 +926,7 @@ def _holdout_teams_mapping(hashes: dict) -> dict:
 
 def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=None,
                 holdout_teams=None, stratum="windows", platform_attestation="Fixture-Platform-1",
-                date_stratum_id="fixture-date-stratum-0", calc_backend="oneshot",
+                date_stratum_id="fixture-date-stratum-0", calc_backend="oneshot", pythonhashseed="0",
                 seed_base="champions-strength-holdout-v0", panel_hash="panel1",
                 schedule_hash=None):
     # Rev. 3 fix: candidate_identity is DERIVED via the real formula, never hardcoded the same
@@ -1057,6 +1058,7 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend + the four-field seed proof,
         # replacing the old caller-local seed_log_path field Task 9's own review-fix removed.
         "calc_backend": calc_backend,
+        "pythonhashseed": pythonhashseed,
         "seed_log_relpath": "seeds.jsonl", "seed_log_sha256": seed_log_sha256,
         "seed_log_n_lines": n, "seed_log_verified": True,
     }
@@ -1165,7 +1167,7 @@ def _patch_upstream_verdicts_as_pass(monkeypatch):
     # implementation) -- load_baseline/verify_baseline are existing, independently-tested
     # eval/baseline.py functions (not reimplemented here), so orchestration tests patch them
     # the same way as the two verdict-artifact functions above, for the same reason.
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture", "pythonhashseed": "0"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
     # Review-fix (Task-10 review P1 #2): combine now refuses a dirty tree and requires
     # HEAD == the arms' git_sha. _git_is_dirty/_git_sha are subprocess boundary calls into git --
@@ -1437,7 +1439,7 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
     # and reacts to a BaselineDriftError, rather than assuming it via the umbrella patch.
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture", "pythonhashseed": "0"})
 
     from showdown_bot.eval.baseline import BaselineDriftError
 
@@ -2048,7 +2050,7 @@ def test_combine_passes_the_manifest_bound_calc_backend_to_both_upstream_verifie
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", _capture_i8d)
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", _capture_coverage)
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture", "pythonhashseed": "0"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
     # Review-fix (Task-10 review P1 #2): this test installs its own capturing verifiers instead of
     # the umbrella helper, so it must stub the two git helpers itself -- the HEAD-binding guard
@@ -2444,7 +2446,7 @@ def _patch_non_git_dependencies(monkeypatch):
     isolated git repo instead of a stub."""
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
-    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture", "pythonhashseed": "0"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_strength_holdout_baseline", lambda baseline, **kw: [])
 
 
@@ -2812,7 +2814,7 @@ def test_combine_uses_the_strength_holdout_specific_baseline_contract(tmp_path, 
 
     called = {"specific_load": 0, "specific_verify": 0, "generic_load": 0, "generic_verify": 0}
     monkeypatch.setattr(mod, "load_strength_holdout_baseline",
-                        lambda path: called.__setitem__("specific_load", called["specific_load"] + 1) or {"baseline_id": "fixture"})
+                        lambda path: called.__setitem__("specific_load", called["specific_load"] + 1) or {"baseline_id": "fixture", "pythonhashseed": "0"})
     monkeypatch.setattr(mod, "verify_strength_holdout_baseline",
                         lambda baseline, **kw: called.__setitem__("specific_verify", called["specific_verify"] + 1) or [])
     for name in ("load_baseline", "verify_baseline"):
@@ -2864,7 +2866,7 @@ def test_combine_aborts_on_specific_baseline_drift_before_pairing_ledger_and_pub
     from showdown_bot.eval import strength_holdout_runner as mod
 
     reached = {"pair": False, "ledger": False}
-    monkeypatch.setattr(mod, "load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr(mod, "load_strength_holdout_baseline", lambda path: {"baseline_id": "fixture", "pythonhashseed": "0"})
 
     def _drift(baseline, **kw):
         raise BaselineDriftError("strength-holdout baseline drift -> refuse: failed check(s): ['panel_hash']")
@@ -2885,3 +2887,80 @@ def test_combine_aborts_on_specific_baseline_drift_before_pairing_ledger_and_pub
     assert reached == {"pair": False, "ledger": False}
     assert not os.path.exists(str(tmp_path / "combined"))
     assert not os.path.exists(ledger_path)
+
+
+# --- Task 13 step 2 review-fix: PYTHONHASHSEED is really bound ---------------------------------
+
+
+def test_arm_aborts_before_battle_1_if_pythonhashseed_is_not_zero(tmp_path, monkeypatch):
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    monkeypatch.setenv("PYTHONHASHSEED", "1")  # override the setup default
+    played = {"n": 0}
+
+    def _counting_runner(*a, **kw):
+        played["n"] += 1
+        raise AssertionError("must not reach the gauntlet")
+
+    with pytest.raises(GateBAbort, match="PYTHONHASHSEED"):
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
+            seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=_counting_runner,
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+    assert played["n"] == 0
+
+
+def test_arm_aborts_before_battle_1_if_pythonhashseed_is_unset(tmp_path, monkeypatch):
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    monkeypatch.delenv("PYTHONHASHSEED", raising=False)
+    with pytest.raises(GateBAbort, match="PYTHONHASHSEED"):
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
+            seed_log_path=seed_log_path, teams_root=str(tmp_path),
+            gauntlet_runner=lambda *a, **kw: (_ for _ in ()).throw(AssertionError("no battle")),
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+
+
+def test_arm_manifest_records_the_pythonhashseed(tmp_path, monkeypatch):
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    fake_runner = _fake_gauntlet_runner_factory(winner="hero", seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+    out = _arm_out_dir(tmp_path, "arm_a")
+    run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out), seed_log_path=seed_log_path,
+        teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+    manifest = json.loads((out / "arm_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["pythonhashseed"] == "0"
+
+
+def test_combine_aborts_if_arms_disagree_on_pythonhashseed(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=holdout_teams, pythonhashseed="1")
+    with pytest.raises(GateBAbort, match="pythonhashseed"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_aborts_if_an_arm_is_missing_pythonhashseed(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    man_path = Path(arm_b) / "arm_manifest.json"
+    man = json.loads(man_path.read_text(encoding="utf-8"))
+    del man["pythonhashseed"]
+    man_path.write_text(json.dumps(man), encoding="utf-8")
+    with pytest.raises(GateBAbort, match="pythonhashseed"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
