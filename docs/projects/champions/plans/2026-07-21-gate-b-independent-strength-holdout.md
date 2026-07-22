@@ -1,8 +1,32 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 19)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 20)
 
-> **Status: PROPOSED, Rev. 19 — for Codex review, not execution.** Rev. 9 was the first round
-> with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
-> per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
+> **Status: Rev. 20 — Tasks 1–10 are IMPLEMENTED and merged on this branch; Tasks 11–13 remain
+> PROPOSED.** Rev. 9 was the first round with zero findings against it. Eight prior review rounds
+> received CHANGES REQUESTED; full per-round findings tables are in §1a–§1i, summarized briefly
+> here so this header stays readable:
+> - **Rev. 19 → Rev. 20** (§1s, mechanical sync, no new design round): Task 10's embedded code was
+>   stale relative to the two review-fix commits that landed after it. This revision replaces the
+>   Task 10 test and implementation blocks with the FINAL merged source as of `53e6c9c`, and
+>   updates that task's RED/GREEN/commit records to what was actually executed. The substantive
+>   deltas the sync carries in: (1) `_assert_rows_cover_canonical_schedule` rebuilds the canonical
+>   180-battle-key schedule from each arm's own team_ids/panel_hash/seed_base, checks `seed_base`
+>   separately against the pinned namespace, and requires the rows to cover the canonical grid
+>   exactly once — two agreeing 12-row arms previously combined to a published verdict; (2) combine
+>   refuses a dirty tree and requires `HEAD == manifest git_sha` before any repo-dependent guard,
+>   with `_git_is_dirty`/`_git_sha` gaining a `cwd` parameter so they interrogate the same checkout
+>   those guards read; (3) both sides of the near-duplicate comparison are DERIVED via
+>   `near_duplicate.load_team_species` from real sealed `.packed` files — the
+>   `holdout_candidate_species`/`reference_species` parameters are removed entirely and the nine
+>   canonical reference teams are pinned in `CANONICAL_REFERENCE_TEAM_PATHS`; (4) a non-object
+>   (`null`, list, scalar) row or manifest aborts as `GateBAbort` instead of raising a raw
+>   `TypeError`; (5) the held-out access-budget check and its reservation now run inside one
+>   exclusive `_ledger_lock` (`O_CREAT|O_EXCL`), the early `check_access` being an explicitly
+>   non-authoritative fail-fast; (6) every row is bound to its canonical battle identity —
+>   `seed` and `battle_id` re-derived per battle key, plus `format_id`, `config_id`, `run_id`,
+>   `hero_team_path`, and `dirty` required to be exactly `False`. Task 10's test count is 108
+>   (Tasks 9 + 10 together in `test_strength_holdout_runner.py`). No Task 11/12/13 contract point
+>   changes as a result of this sync — Task 11's CLI wiring is checked against the final combine
+>   signature below and needs no text change beyond what §14 already specifies.
 > - **Rev. 18 → Rev. 19** (§1r, mechanical contract sync, no new design round): Task 9's own
 >   review-fix (implemented and merged as commit `6658625`, five P1s) shipped after this plan's
 >   Task 10 text was written, and changed the arm manifest shape Task 10 reads: `calc_backend` is
@@ -895,6 +919,26 @@ implements it, rather than a number nobody could reconstruct.
 required parameter has no stale call site to update there yet. Task 12 (§15) -- unaffected; it
 never touches species data. `uv.lock` -- confirmed untracked and untouched throughout this round,
 per explicit instruction.
+
+## 1s. What changed in Rev. 20 — mechanical sync of Task 10 with its merged implementation
+
+Not a review round and not a design change: Tasks 1–10 are implemented and merged on this branch,
+and Task 10's embedded code here had fallen behind the two review-fix commits that landed after
+it. This revision replaces §13's test and implementation blocks verbatim with the final merged
+source as of `53e6c9c` and updates that task's RED/GREEN/commit records to what was executed.
+
+**Housekeeping note:** Rev. 19's header bullet referenced a `§1r` that was never actually written
+— its content exists only in that header bullet. Recorded here rather than silently renumbering,
+since the header's own cross-reference is what a later reader would chase.
+
+| Round | Finding | Closed by |
+| --- | --- | --- |
+| P1 | Two arms that agreed with each other and with their own manifests, but carried only 12 of the canonical 180 battle keys, combined to a published verdict. Nothing ever rebuilt the schedule; `n_rows == len(rows)` and row-vs-manifest `schedule_hash` are both self-consistency checks a truncated arm satisfies trivially. The fixtures meant to prove otherwise were themselves 12-row. | `_assert_rows_cover_canonical_schedule`: rebuilds from the arm's own team_ids/panel_hash/seed_base, checks `seed_base` separately against the pinned namespace (feeding a forged one into the rebuild would be vacuous), compares `schedule_hash`, key count, and the exact played grid. Fixtures now emit real 180-key arms. |
+| P1 | `verify_baseline` reads the working tree and the leakage scan reads committed blobs via `git show HEAD:<path>`, but the bundle was stamped with the arms' `git_sha` — a dirty tree or a different checkout evaluated one commit and labelled it another. | Dirty-tree refusal plus `HEAD == manifest git_sha`, before every repo-dependent guard. `_git_is_dirty`/`_git_sha` gained `cwd` so they interrogate the checkout those guards actually read. |
+| P1 | `holdout_candidate_species`/`reference_species` were caller assertions; only the candidate key set was checked, never that any species belonged to the team it was filed under. `near_duplicate.load_team_species` existed and was tested but had no production call site at all. | Both parameters removed. Candidates derive from the row-bound `holdout_teams`; references from the pinned nine-team `CANONICAL_REFERENCE_TEAM_PATHS`; every unreadable or malformed sealed file is a fail-closed abort. |
+| P2 | A syntactically valid but non-object JSON row or manifest (`null`, a list, a scalar) escaped as a raw `TypeError` rather than `GateBAbort`. | `isinstance(..., dict)` checks in `_read_arm`, before any field access. |
+| P2 | `check_access` read the ledger early and `append_entry` wrote it much later; two concurrent combines could both observe a free budget and both publish. | `_ledger_lock` (`O_CREAT\|O_EXCL`) spans the authoritative re-check, the append, and the publish. The early `check_access` remains, explicitly documented as a non-authoritative fail-fast. |
+| P1 | Covering the `(seed_index, opp_policy, opp_team_path)` grid proved the right battle SLOTS existed, not that each slot held the battle it scheduled. `seeds.jsonl` proved the canonical seeds existed but was never tied to the rows, so both arms could carry identical, uniformly wrong values — `pair_runs` only detects variance WITHIN an arm. The positive fixture wrote `battle_id="b0"` and `run_id="r"` and passed. | Per-key re-derivation of `seed` and `battle_id`, plus `format_id`, `config_id`, `run_id`, `hero_team_path`, and `dirty` required to be exactly `False`. Fixtures emit real canonical values; a parametrized regression sets each field wrong uniformly across every row of both arms. |
 
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
@@ -4087,14 +4131,6 @@ leakage guard's `team_ids=` argument is sourced from the validated, row-bound
 - [ ] **Step 1: Write the failing tests**
 
 ```python
-# append to showdown_bot/tests/test_strength_holdout_runner.py
-import shutil
-import subprocess
-# Rev. 19 note (Task 9 review-fix sync, §1r): `hashlib`, `json`, `platform`, and `Path` are
-# already imported module-wide at the top of test_strength_holdout_runner.py (Task 9's own
-# review-fix) -- _write_arm's new real-seed-log writing and the new seed-proof tests below reuse
-# those, no new import needed for Task 10 itself.
-
 from showdown_bot.eval.heldout_ledger import AccessBudgetError, read_ledger
 from showdown_bot.eval.strength_holdout_runner import combine_strength_holdout_arms
 from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError
@@ -4131,10 +4167,11 @@ def _holdout_teams_mapping(hashes: dict) -> dict:
     }
 
 
-def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=12,
+def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=None,
                 holdout_teams=None, stratum="windows", platform_attestation="Fixture-Platform-1",
                 date_stratum_id="fixture-date-stratum-0", calc_backend="oneshot",
-                seed_base="champions-strength-holdout-v0"):
+                seed_base="champions-strength-holdout-v0", panel_hash="panel1",
+                schedule_hash=None):
     # Rev. 3 fix: candidate_identity is DERIVED via the real formula, never hardcoded the same
     # for both arms -- hero_agent is a hash input, so heuristic vs max_damage always produces
     # different identities. A test that hardcodes one shared value can't catch a broken equality
@@ -4152,31 +4189,79 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
     # arm, or corrupts the written manifest/rows afterward (see the binding-mismatch tests below).
     if holdout_teams is None:
         holdout_teams = _fake_holdout_teams()
-    team_ids_cycle = sorted(holdout_teams)  # deterministic order; real schedules are 6 teams x 2
-                                             # policies x 15 seeds, so cycling covers all of them
-                                             # whenever n is a multiple of len(holdout_teams)
+    # Review-fix (Task-10 review P1 #1): the arm this fixture writes must be a REAL canonical
+    # 180-battle-key arm by default, not a 12-row stand-in. combine_strength_holdout_arms now
+    # rebuilds the canonical schedule from the manifest's own team_ids/panel_hash/seed_base and
+    # binds every row to exactly one battle key, so a fixture that emits an arbitrary row count
+    # with a made-up "sched1" hash can no longer prove the success path -- and, worse, could not
+    # have caught the truncated-arm hole the review found (two matching 12-row arms passed).
+    # The rows below are therefore generated FROM build_strength_holdout_schedule itself.
+    #
+    # Fixtures that deliberately supply a structurally INVALID holdout_teams mapping (wrong
+    # entry shape, wrong count, non-string ids) still need to reach combine's own shape
+    # validation rather than exploding inside this helper, so a failed rebuild falls back to the
+    # pre-review cycling behaviour with a placeholder hash -- those tests abort long before the
+    # canonical-schedule guard runs.
+    try:
+        _schedule = build_strength_holdout_schedule(
+            holdout_team_ids=sorted(holdout_teams), panel_hash=panel_hash, seed_base=seed_base,
+        )
+    except (ValueError, TypeError, AttributeError):
+        _schedule = None
     arm_dir = tmp_path / name
     arm_dir.mkdir()
     rows = []
-    for i in range(n):
-        team_id = team_ids_cycle[i % len(team_ids_cycle)]
-        team_entry = holdout_teams[team_id]
-        rows.append({
-            "battle_id": f"b{i}", "run_id": "r", "config_id": hero_agent, "format_id": "gen9championsvgc2026regma",
-            "config_hash": config_hash, "schedule_hash": "sched1", "seed_index": i,
-            # opp_team_path/opp_team_hash are now team-specific (Rev. 14), not a flat placeholder
-            # -- combine_strength_holdout_arms's new row-binding check (§13) requires every row to
-            # resolve to one of holdout_teams' own declared teams, by path AND by hash.
-            "opp_policy": "heuristic", "hero_team_path": "h.txt", "opp_team_path": team_entry["team_path"],
-            "seed": _seed_for(seed_base, i), "seed_base": seed_base,
-            "winner": winner, "turns": 5,
-            "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
-            "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
-            # panel_hash: required by pairing.py's _check_constant_fields (direct row[field]
-            # index, pairing.py:105) even though result_jsonl.py's schema treats it as nullable
-            # -- omitting it here reproduces the exact bug this fixture exists to catch.
-            "panel_hash": "panel1",
-        })
+    if _schedule is not None:
+        keys = _schedule.battle_keys if n is None else _schedule.battle_keys[:n]
+        real_schedule_hash = _schedule.schedule_hash if schedule_hash is None else schedule_hash
+        for key in keys:
+            team_entry = holdout_teams[key.holdout_team_id]
+            # Review-fix (Task-10 second review, P1): every identity field is now the REAL
+            # canonical value Task 9's own row builder derives, not a stand-in. The previous
+            # fixture wrote battle_id=f"b{seed_index}" and run_id="r" and still passed -- which is
+            # precisely how the missing row-to-battle-key binding stayed invisible.
+            row_seed = _seed_for(seed_base, key.seed_index)
+            rows.append({
+                "battle_id": make_battle_id(real_schedule_hash, key.seed_index, row_seed),
+                "run_id": f"{candidate_identity}-{hero_agent}", "config_id": hero_agent,
+                "format_id": STRENGTH_HOLDOUT_FORMAT_ID,
+                "config_hash": config_hash, "schedule_hash": real_schedule_hash,
+                "seed_index": key.seed_index,
+                # opp_policy now comes from the battle key itself (real schedules alternate
+                # heuristic/max_damage across the 12 (team, policy) cells) -- a fixture that
+                # hardcoded "heuristic" for every row could never satisfy the canonical-schedule
+                # binding this arm is supposed to demonstrate.
+                "opp_policy": key.opponent_policy,
+                "hero_team_path": STRENGTH_HOLDOUT_HERO_TEAM_PATH,
+                "opp_team_path": team_entry["team_path"],
+                "seed": row_seed, "seed_base": seed_base,
+                "winner": winner, "turns": 5,
+                "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
+                "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
+                # panel_hash: required by pairing.py's _check_constant_fields (direct row[field]
+                # index, pairing.py:105) even though result_jsonl.py's schema treats it as nullable
+                # -- omitting it here reproduces the exact bug this fixture exists to catch.
+                "panel_hash": panel_hash,
+            })
+    else:
+        team_ids_cycle = sorted(holdout_teams)
+        real_schedule_hash = "sched1" if schedule_hash is None else schedule_hash
+        for i in range(12 if n is None else n):
+            team_id = team_ids_cycle[i % len(team_ids_cycle)]
+            team_entry = holdout_teams[team_id]
+            rows.append({
+                "battle_id": f"b{i}", "run_id": "r", "config_id": hero_agent,
+                "format_id": "gen9championsvgc2026regma",
+                "config_hash": config_hash, "schedule_hash": real_schedule_hash, "seed_index": i,
+                "opp_policy": "heuristic", "hero_team_path": "h.txt",
+                "opp_team_path": team_entry["team_path"],
+                "seed": _seed_for(seed_base, i), "seed_base": seed_base,
+                "winner": winner, "turns": 5,
+                "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
+                "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
+                "panel_hash": panel_hash,
+            })
+    n = len(rows)
     # newline="" + separators=(",", ":") mirrors the canonical eval.result_jsonl.to_jsonl_line/
     # BattleResultWriter format (compact separators, LF only, no CRLF-on-Windows translation) --
     # a fixture that writes differently-formatted-but-equivalent JSON isn't wrong today (json.loads
@@ -4201,8 +4286,8 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
     seed_log_sha256 = hashlib.sha256(seed_log_text.encode("utf-8")).hexdigest()
 
     manifest = {
-        "hero_agent": hero_agent, "schedule_hash": "sched1", "seed_base": seed_base,
-        "panel_hash": "panel1", "git_sha": git_sha, "config_hash": config_hash,
+        "hero_agent": hero_agent, "schedule_hash": real_schedule_hash, "seed_base": seed_base,
+        "panel_hash": panel_hash, "git_sha": git_sha, "config_hash": config_hash,
         "candidate_identity": candidate_identity, "n_rows": n,
         "holdout_teams": holdout_teams,
         # Rev. 15 fix (§1n, Task-3-review P1 #1): both arms default to the SAME stratum/
@@ -4234,6 +4319,12 @@ def _fake_holdout_hashes():
     return {"holdout_0": "aaaa1111bbbb2222", "holdout_1": "cccc3333dddd4444"}
 
 
+def _candidate_packed(index: int) -> str:
+    """The packed content for holdout candidate #index -- two species, named by INDEX only (see
+    _write_holdout_teams_repo for why the team_id must never appear in a species name)."""
+    return f"|FixtureCandidate{index}A|||||||||]|FixtureCandidate{index}B|||||||||"
+
+
 def _write_holdout_teams_repo(tmp_path):
     """A real, isolated git repo seeded with six committed, allowlist-conformant sealed team
     files. Rev. 13 fix (§1l, second review round P1): the leakage guard (Task 2) now reads
@@ -4257,9 +4348,33 @@ def _write_holdout_teams_repo(tmp_path):
     subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=repo, check=True)
     subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True)
 
-    for team_id in _six_teams():
+    for i, team_id in enumerate(_six_teams()):
         (team_dir / f"{team_id}.txt").write_text(f"Fixture Mon {team_id} @ Focus Sash\n", encoding="utf-8")
-        (team_dir / f"{team_id}.packed").write_text(f"|packed-{team_id}|", encoding="utf-8")
+        # Review-fix (Task-10 review P1 #3): combine now DERIVES each holdout team's species from
+        # this real .packed file via load_team_species, instead of trusting a caller-supplied
+        # species mapping -- so the packed content has to be genuinely parseable, with per-team
+        # distinct species, not an inert placeholder.
+        #
+        # Species are keyed by INDEX, never by team_id: a species name containing the team_id
+        # would, the moment a test copies it onto a reference team's packed file (see the
+        # near-duplicate test), read to the leakage scanner as a real holdout identifier leaking
+        # outside the allowlist -- a true positive from that guard, but about the fixture rather
+        # than the code under test.
+        (team_dir / f"{team_id}.packed").write_text(
+            _candidate_packed(i), encoding="utf-8",
+        )
+    # Review-fix (Task-10 review P1 #3): the NINE canonical reference teams (five
+    # panel_champions_v0 + four coverage foes) are no longer a caller-supplied species mapping
+    # either -- combine reads them from their own real committed .packed files at the pinned
+    # canonical paths. Any test that reaches the near-duplicate guard therefore needs them to
+    # exist under this same teams_root, exactly like the six holdout teams above.
+    for ref_id, ref_path in CANONICAL_REFERENCE_TEAM_PATHS.items():
+        ref_file = repo / ref_path
+        ref_file.parent.mkdir(parents=True, exist_ok=True)
+        ref_file.write_text(f"Reference Mon {ref_id} @ Leftovers\n", encoding="utf-8")
+        ref_file.with_suffix(".packed").write_text(
+            f"|ReferenceMon{ref_id}A|||||||||]|ReferenceMon{ref_id}B|||||||||", encoding="utf-8",
+        )
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "fixture holdout teams"], cwd=repo, check=True)
 
@@ -4268,6 +4383,18 @@ def _write_holdout_teams_repo(tmp_path):
         for team_id in _six_teams()
     }
     return str(repo), hashes
+
+
+def _repo_head_sha(repo_root: str) -> str:
+    """Review-fix (Task-10 review P1 #2): combine now refuses to run against a dirty tree and
+    requires HEAD to equal the arms' recorded git_sha, so any test that reaches that guard for
+    real needs the actual HEAD of the isolated fixture repo -- not the fixture's default
+    "abc123" placeholder. Kept as its own helper so _write_holdout_teams_repo's existing
+    two-value return contract (used by ~20 call sites) stays unchanged."""
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, text=True, check=True,
+    )
+    return result.stdout.strip()
 
 
 def _patch_upstream_verdicts_as_pass(monkeypatch):
@@ -4284,22 +4411,17 @@ def _patch_upstream_verdicts_as_pass(monkeypatch):
     # the same way as the two verdict-artifact functions above, for the same reason.
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
-
-
-def _fake_reference_species():
-    return {"cov_foe_slot0": ["FixtureMonA", "FixtureMonB"]}
-
-
-def _fake_holdout_candidate_species():
-    # Rev. 18 fix (§1q): the six holdout candidates' OWN species -- genuinely separate from
-    # _fake_reference_species()'s reference-side data. Keyed by _six_teams()'s own six team_ids
-    # so it satisfies the new holdout_candidate_species-vs-manifest_a["holdout_teams"] key-set
-    # check for every test using _write_arm's/_write_holdout_teams_repo's default six-team
-    # holdout_teams mapping, without needing per-test overrides.
-    return {
-        team_id: [f"FixtureCandidateMon{i}A", f"FixtureCandidateMon{i}B"]
-        for i, team_id in enumerate(_six_teams())
-    }
+    # Review-fix (Task-10 review P1 #2): combine now refuses a dirty tree and requires
+    # HEAD == the arms' git_sha. _git_is_dirty/_git_sha are subprocess boundary calls into git --
+    # the same category as the two upstream verdict verifiers patched above -- and the ambient
+    # worktree these tests run in is legitimately dirty (untracked local artifacts), so leaving
+    # them live would make every orchestration test abort on an irrelevant, environment-dependent
+    # condition. Patched here to the fixture's own default git_sha, and separately proven against
+    # a REAL, clean, isolated git repo by the three dedicated tests at the end of this file
+    # (clean+matching HEAD passes, dirty aborts, HEAD mismatch aborts) -- which deliberately do
+    # NOT call this helper, so the guard itself is never mocked away from its own coverage.
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_is_dirty", lambda cwd=None: False)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_sha", lambda cwd=None: "abc123")
 
 
 def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_path, monkeypatch):
@@ -4318,7 +4440,7 @@ def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_p
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
@@ -4327,25 +4449,31 @@ def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_p
 
 def test_combine_publishes_near_duplicate_flags_without_aborting_or_gating_the_verdict(tmp_path, monkeypatch):
     # Rev. 18 fix (§1q) / DESIGN sec 3.3: a near-duplicate flag is a manual-review hint, never an
-    # automatic reject. Constructs a reference team with species IDENTICAL to one holdout
-    # candidate's (guaranteed overlap_fraction == 1.0, Task 4's own "flags identical species
-    # sets" scenario) and confirms combine_strength_holdout_arms still runs to a real verdict --
-    # the flag is recorded in the published bundle (payload["near_duplicate_flags"]), not acted
-    # on to gate PASS/FAIL.
+    # automatic reject.
+    #
+    # Review-fix (Task-10 review P1 #3): the overlap is now created in the REAL .packed files
+    # both sides are derived from, not by handing combine two caller-built species dicts. One
+    # canonical reference team's packed content is rewritten to carry the exact species of one
+    # holdout candidate, so load_team_species independently derives overlap_fraction == 1.0 for
+    # that pair -- the same "flags identical species sets" scenario as before, but now proving
+    # the derivation path rather than a caller's assertion.
     _patch_upstream_verdicts_as_pass(monkeypatch)
     teams_root, hashes = _write_holdout_teams_repo(tmp_path)
     holdout_teams = _holdout_teams_mapping(hashes)
     arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
     arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
-    candidate_species = _fake_holdout_candidate_species()
-    first_candidate_id = sorted(candidate_species)[0]
-    duplicate_reference_species = {"touched_team": list(candidate_species[first_candidate_id])}
+    first_candidate_id = sorted(holdout_teams)[0]
+    duplicated_ref_id = sorted(CANONICAL_REFERENCE_TEAM_PATHS)[0]
+    # Copy holdout candidate #0's exact species pair onto one reference team's packed file, so
+    # load_team_species derives overlap_fraction == 1.0 for that pair from real content.
+    Path(teams_root, CANONICAL_REFERENCE_TEAM_PATHS[duplicated_ref_id]).with_suffix(".packed").write_text(
+        _candidate_packed(sorted(holdout_teams).index(first_candidate_id)), encoding="utf-8",
+    )
 
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=candidate_species,
-        reference_species=duplicate_reference_species,
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
@@ -4353,70 +4481,8 @@ def test_combine_publishes_near_duplicate_flags_without_aborting_or_gating_the_v
     flags = result["near_duplicate_flags"]
     assert len(flags) == 1
     assert flags[0]["candidate_team_id"] == first_candidate_id
-    assert flags[0]["reference_team_id"] == "touched_team"
+    assert flags[0]["reference_team_id"] == duplicated_ref_id
     assert flags[0]["overlap_fraction"] == pytest.approx(1.0)
-
-
-def test_combine_aborts_if_holdout_candidate_species_names_the_wrong_team_ids(tmp_path, monkeypatch):
-    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes's own key-set check -- a
-    # caller-supplied holdout_candidate_species naming a team_id outside the real six (or missing
-    # one of them) must abort before the near-duplicate guard ever runs, not silently compare
-    # species for the wrong teams or skip a scheduled one. holdout_content_hashes must be the
-    # REAL matching hashes here (not the cheap 2-entry _fake_holdout_hashes()) so the earlier
-    # holdout_content_hashes-vs-manifest check passes and this test actually isolates the NEW
-    # holdout_candidate_species check, not the pre-existing one.
-    _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
-    matching_hashes = {team_id: entry["content_hash"] for team_id, entry in _fake_holdout_teams().items()}
-    wrong_species = {"not_a_real_holdout_team": ["A", "B"]}
-
-    with pytest.raises(GateBAbort, match="holdout_candidate_species"):
-        combine_strength_holdout_arms(
-            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
-            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=matching_hashes, holdout_candidate_species=wrong_species,
-            reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
-        )
-
-
-def test_combine_rejects_empty_holdout_candidate_species(tmp_path, monkeypatch):
-    _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
-
-    with pytest.raises(GateBAbort, match="holdout_candidate_species"):
-        combine_strength_holdout_arms(
-            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
-            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species={},
-            reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
-        )
-
-
-def test_combine_aborts_cleanly_on_malformed_species_data_not_a_raw_valueerror(tmp_path, monkeypatch):
-    # Rev. 18 fix (§1q, self-found): find_near_duplicate_flags (Task 4) raises ValueError for an
-    # empty per-team species list -- the key-set checks above only prove the right team_ids are
-    # named, never that each one's species list is itself non-empty. Confirm the abort surfaces
-    # as GateBAbort (CLI-handled, Task 11), not a raw ValueError escaping uncaught.
-    _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
-    matching_hashes = {team_id: entry["content_hash"] for team_id, entry in _fake_holdout_teams().items()}
-    malformed_species = _fake_holdout_candidate_species()
-    first_id = sorted(malformed_species)[0]
-    malformed_species[first_id] = []  # empty species list for one otherwise-correctly-named team
-
-    with pytest.raises(GateBAbort, match="near-duplicate check failed"):
-        combine_strength_holdout_arms(
-            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
-            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=matching_hashes, holdout_candidate_species=malformed_species,
-            reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
-        )
 
 
 def test_combine_aborts_if_arms_disagree_on_git_sha(tmp_path, monkeypatch):
@@ -4429,7 +4495,7 @@ def test_combine_aborts_if_arms_disagree_on_git_sha(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -4443,7 +4509,7 @@ def test_combine_aborts_if_arm_roles_are_swapped_or_wrong(tmp_path, monkeypatch)
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -4460,7 +4526,7 @@ def test_combine_aborts_without_an_i8d_verdict_path_before_any_pairing_or_publis
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path="", coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -4476,7 +4542,7 @@ def test_combine_aborts_without_a_coverage_verdict_path_before_any_pairing_or_pu
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path="",
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
         stratum_env_override="windows",
             ledger_path=str(tmp_path / "ledger.jsonl"),
         )
@@ -4504,7 +4570,7 @@ def test_combine_wraps_a_strength_holdout_run_error_from_i8d_verification(tmp_pa
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4529,7 +4595,7 @@ def test_combine_wraps_a_strength_holdout_run_error_from_coverage_verification(t
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4546,7 +4612,7 @@ def test_combine_publishes_full_evidence_bundle_not_just_verdict_json(tmp_path, 
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
@@ -4568,7 +4634,7 @@ def test_combine_appends_a_ledger_run_entry_with_all_real_required_fields(tmp_pa
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
@@ -4591,7 +4657,7 @@ def test_combine_refuses_a_repeat_config_hash_without_justification(tmp_path, mo
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined1"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
@@ -4602,7 +4668,7 @@ def test_combine_refuses_a_repeat_config_hash_without_justification(tmp_path, mo
         combine_strength_holdout_arms(
             arm_a_dir=arm_a2, arm_b_dir=arm_b2, out_dir=str(tmp_path / "combined2"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root,
             ledger_path=str(ledger_path),
         )
@@ -4623,6 +4689,12 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
         raise BaselineDriftError("fixture-forced drift")
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", _raise_drift)
+    # Review-fix (Task-10 review P1 #2): this test patches the baseline functions directly rather
+    # than via the umbrella helper, so it must patch the two git helpers itself as well -- the
+    # HEAD-binding guard now runs before verify_baseline and would otherwise abort on the ambient
+    # worktree being dirty, masking the baseline-drift path this test exists to prove.
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_is_dirty", lambda cwd=None: False)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_sha", lambda cwd=None: "abc123")
     teams_root, hashes = _write_holdout_teams_repo(tmp_path)
     holdout_teams = _holdout_teams_mapping(hashes)
     arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
@@ -4633,7 +4705,7 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4646,29 +4718,26 @@ def test_combine_wraps_a_non_missing_pair_error_too(tmp_path, monkeypatch):
     _patch_upstream_verdicts_as_pass(monkeypatch)
     teams_root, hashes = _write_holdout_teams_repo(tmp_path)
     holdout_teams = _holdout_teams_mapping(hashes)
-    # Rev. 14 fix (§1m): n=12 (not the old n=2) so all six teams are naturally represented twice
-    # each (row i's team is team_ids_cycle[i % 6]) BEFORE any corruption -- required now that
-    # _assert_rows_bind_to_holdout_teams demands every declared team actually appear in rows.
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12, holdout_teams=holdout_teams)
-    # Corrupt arm A's rows.jsonl: overwrite row 6 (already, by construction, the SAME team as
-    # row 0 -- n=12 cycling 6 teams means team_ids_cycle[6 % 6] == team_ids_cycle[0 % 6]) with an
-    # EXACT copy of row 0. This creates a genuine (battle_id, config_hash) duplicate for
-    # pair_runs to catch WITHOUT losing any team's representation: team 0 already appeared at
-    # both positions by construction, so making the two occurrences byte-identical (rather than
-    # two distinct battles) doesn't remove either team 0's or any other team's presence -- unlike
-    # replacing the whole file with two copies of row 0 (the old n=2 approach), which would have
-    # left five of the six declared teams with zero rows.
-    rows_path = tmp_path / "arm_a" / "rows.jsonl"
-    lines = rows_path.read_text(encoding="utf-8").splitlines()
-    lines[6] = lines[0]
-    rows_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12, holdout_teams=holdout_teams)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    # Review-fix (Task-10 review P1 #1): this test used to duplicate a row inside arm A to force
+    # a DuplicateRowError out of the real pair_runs. That is no longer reachable -- the new
+    # canonical-schedule guard rejects "two rows claim the same battle key" strictly earlier, by
+    # design. The behaviour under test here is the EXCEPT clause (every PairingError subclass,
+    # not just MissingPairError, is folded into GateBAbort), so the error is now injected at the
+    # pair_runs seam directly, with two otherwise-valid canonical arms.
+    from showdown_bot.eval.pairing import DuplicateRowError
+
+    def _raise_duplicate(rows_a, rows_b, *, expected_rows):
+        raise DuplicateRowError("fixture-forced duplicate row")
+
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.pair_runs", _raise_duplicate)
 
     with pytest.raises(GateBAbort, match="pairing failed"):
         combine_strength_holdout_arms(
-            arm_a_dir=str(tmp_path / "arm_a"), arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined2"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4683,21 +4752,7 @@ def test_combine_rejects_empty_holdout_content_hashes(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes={}, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
-        )
-
-
-def test_combine_rejects_empty_reference_species(tmp_path, monkeypatch):
-    _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
-    with pytest.raises(GateBAbort, match="reference_species"):
-        combine_strength_holdout_arms(
-            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
-            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(),
-            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species={},
+            holdout_content_hashes={},
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4721,7 +4776,7 @@ def test_combine_aborts_if_an_arms_manifest_does_not_match_its_own_rows(tmp_path
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4748,7 +4803,7 @@ def test_combine_aborts_cleanly_on_a_malformed_row_not_a_raw_resultrowerror(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4772,7 +4827,7 @@ def test_combine_aborts_cleanly_on_a_manifest_missing_a_required_key_not_a_raw_k
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4789,7 +4844,7 @@ def test_combine_aborts_cleanly_when_an_arm_directory_is_missing_not_a_raw_oserr
         combine_strength_holdout_arms(
             arm_a_dir=str(tmp_path / "arm_a_never_published"), arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4806,7 +4861,7 @@ def test_combine_aborts_cleanly_on_truncated_json_not_a_raw_jsondecodeerror(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4834,7 +4889,7 @@ def test_combine_does_not_publish_if_the_ledger_append_fails(tmp_path, monkeypat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
@@ -4854,7 +4909,7 @@ def test_combine_aborts_if_holdout_content_hashes_omits_a_scheduled_team(tmp_pat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes={"holdout_0": "fakehash1111aaaa"}, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes={"holdout_0": "fakehash1111aaaa"},
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4874,7 +4929,7 @@ def test_combine_aborts_if_holdout_content_hashes_has_a_wrong_value_for_a_correc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=wrong_value_hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=wrong_value_hashes,
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4897,7 +4952,7 @@ def test_combine_aborts_if_arms_disagree_on_holdout_teams(tmp_path, monkeypatch)
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in default_teams.items()},
-            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4924,7 +4979,7 @@ def test_combine_aborts_if_both_manifests_claim_wrong_teams_but_rows_are_unchang
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in wrong_teams.items()},
-            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4945,7 +5000,7 @@ def test_combine_aborts_if_a_rows_opp_team_hash_does_not_match_the_manifest(tmp_
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4966,7 +5021,7 @@ def test_combine_aborts_if_a_manifest_team_path_is_not_canonical(tmp_path, monke
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -4988,7 +5043,7 @@ def test_combine_aborts_if_one_row_has_an_unknown_opponent_path(tmp_path, monkey
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5015,7 +5070,7 @@ def test_combine_aborts_if_a_manifest_team_never_appears_in_rows(tmp_path, monke
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes={t: e["content_hash"] for t, e in holdout_teams.items()},
-            holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5045,7 +5100,7 @@ def test_combine_aborts_if_holdout_teams_has_an_invalid_shape(tmp_path, monkeypa
             combine_strength_holdout_arms(
                 arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{label}"),
                 i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-                holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+                holdout_content_hashes=_fake_holdout_hashes(),
                 stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
             )
 
@@ -5072,7 +5127,7 @@ def test_combine_rejects_mixed_windows_and_kaggle_arms(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5093,7 +5148,7 @@ def test_combine_accepts_two_equally_attested_arms(tmp_path, monkeypatch):
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
     )
     assert result["stratum"] == "windows"
@@ -5115,7 +5170,7 @@ def test_combine_rejects_a_contradictory_stratum_override(tmp_path, monkeypatch)
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="kaggle", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5134,7 +5189,7 @@ def test_combine_aborts_if_arms_disagree_on_date_stratum_id(tmp_path, monkeypatc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5155,7 +5210,7 @@ def test_combine_aborts_on_an_unknown_stratum_value(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5176,7 +5231,7 @@ def test_combine_aborts_on_a_type_wrong_platform_attestation(tmp_path, monkeypat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5202,7 +5257,7 @@ def test_combine_aborts_if_manifest_is_missing_calc_backend(tmp_path, monkeypatc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5216,7 +5271,7 @@ def test_combine_aborts_if_arms_disagree_on_calc_backend(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5239,6 +5294,11 @@ def test_combine_passes_the_manifest_bound_calc_backend_to_both_upstream_verifie
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", _capture_coverage)
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+    # Review-fix (Task-10 review P1 #2): this test installs its own capturing verifiers instead of
+    # the umbrella helper, so it must stub the two git helpers itself -- the HEAD-binding guard
+    # runs before the verifiers and would otherwise abort on the ambient dirty worktree.
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_is_dirty", lambda cwd=None: False)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner._git_sha", lambda cwd=None: "abc123")
     teams_root, hashes = _write_holdout_teams_repo(tmp_path)
     holdout_teams = _holdout_teams_mapping(hashes)
     arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
@@ -5249,7 +5309,7 @@ def test_combine_passes_the_manifest_bound_calc_backend_to_both_upstream_verifie
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        holdout_content_hashes=hashes,
         stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
     )
     assert calls["i8d"]["calc_backend"] == "persistent"
@@ -5270,7 +5330,7 @@ def test_combine_aborts_if_manifest_is_missing_a_seed_proof_field(tmp_path, monk
             combine_strength_holdout_arms(
                 arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{field}"),
                 i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-                holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+                holdout_content_hashes=_fake_holdout_hashes(),
                 stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
             )
 
@@ -5288,7 +5348,7 @@ def test_combine_aborts_if_seed_log_verified_is_not_true(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5306,7 +5366,7 @@ def test_combine_aborts_on_an_absolute_seed_log_relpath(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5324,7 +5384,7 @@ def test_combine_aborts_on_a_traversing_seed_log_relpath(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5339,7 +5399,7 @@ def test_combine_aborts_if_the_seed_log_file_is_missing(tmp_path, monkeypatch):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5357,7 +5417,7 @@ def test_combine_aborts_if_the_seed_log_sha256_does_not_match(tmp_path, monkeypa
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5384,7 +5444,7 @@ def test_combine_aborts_if_the_seed_log_content_fails_verify_seed_log(tmp_path, 
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5395,18 +5455,18 @@ def test_combine_aborts_if_seed_log_n_lines_does_not_match_the_verified_count(tm
     # seed_log_n_lines-vs-verified-count check from the n_rows-bound expected_count check inside
     # verify_seed_log itself.
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12)
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
     manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["seed_log_n_lines"] = 11
+    manifest["seed_log_n_lines"] = 179
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(GateBAbort, match="seed_log_n_lines"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5416,26 +5476,26 @@ def test_combine_aborts_if_the_seed_log_line_count_does_not_match_n_rows(tmp_pat
     # n_rows -- verify_seed_log's own expected_count=manifest["n_rows"] parameter must catch this
     # (SeedLogError, wrapped as GateBAbort), not just the separate seed_log_n_lines check.
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12)
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
     from showdown_bot.eval.seeding import derive_battle_seed as _dbs
-    # 11 lines (not 12) -- still genuinely verifiable seeds, just the wrong count vs n_rows=12.
+    # 179 lines (not 180) -- still genuinely verifiable seeds, just the wrong count vs n_rows.
     short_text = "".join(
         json.dumps({"battle_index": i, "seed": _dbs("champions-strength-holdout-v0", i), "seed_base": "champions-strength-holdout-v0"}) + "\n"
-        for i in range(11)
+        for i in range(179)
     )
     (tmp_path / "arm_a" / "seeds.jsonl").write_text(short_text, encoding="utf-8", newline="\n")
     manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["seed_log_sha256"] = hashlib.sha256(short_text.encode("utf-8")).hexdigest()
-    manifest["seed_log_n_lines"] = 11
+    manifest["seed_log_n_lines"] = 179
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(GateBAbort, match="seed-log verification failed"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5458,7 +5518,7 @@ def test_combine_verifies_both_arms_seed_logs_independently(tmp_path, monkeypatc
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=hashes,
             stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
@@ -5499,14 +5559,488 @@ def test_combine_rejects_a_seed_log_symlink_escape_from_the_arm_directory(tmp_pa
             )
 
     # The symlink points to a byte-identical copy, so sha256/verify_seed_log both still pass --
-    # the containment check must fire regardless, on the resolved location alone.
-    with pytest.raises(GateBAbort, match="outside its own arm directory"):
+    # the containment check must fire regardless, on the resolved location alone. Self-found:
+    # Windows can raise a raw OSError (WinError 267) while RESOLVING certain symlink
+    # configurations, before the containment comparison itself ever runs -- both outcomes are
+    # an acceptable, fail-closed rejection of the escape attempt (never a raw traceback, never a
+    # silent accept), so the match covers either message.
+    with pytest.raises(GateBAbort, match="outside its own arm directory|cannot resolve seed log path"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            holdout_content_hashes=_fake_holdout_hashes(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Task-10 review-fix (three P1s + two P2s). Every test below goes RED against
+# 24ada4b and closes exactly one reviewed finding.
+# ---------------------------------------------------------------------------
+
+
+def _combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, **overrides):
+    """The full valid argument set for a far-reaching combine call, so the review-fix tests
+    below differ only in the ONE thing each is about."""
+    kwargs = dict(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, stratum_env_override="windows", teams_root=teams_root,
+        ledger_path=str(tmp_path / "ledger.jsonl"),
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+# --- P1 #1: the canonical 180-battle-key schedule must be rebuilt and bound ------------------
+
+
+def test_combine_accepts_two_real_canonical_180_key_arms(tmp_path, monkeypatch):
+    """P1 #1 baseline: the DEFAULT fixture arm is now a real 180-row canonical arm, and the
+    success path still runs to a real verdict through the new schedule guard."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    # The fixture really did emit the full canonical schedule, not a 12-row stand-in.
+    with open(Path(arm_a) / "arm_manifest.json", encoding="utf-8") as fh:
+        assert json.load(fh)["n_rows"] == 180
+
+    result = combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert result["n_total"] == 180
+
+
+def test_combine_aborts_on_a_truncated_arm_that_omits_battle_keys(tmp_path, monkeypatch):
+    """P1 #1, the exact hole the review found: two arms that AGREE with each other and with
+    their own manifests, but only carry 12 of the canonical 180 battle keys, were accepted.
+    A short arm is not a strength result at all -- it must abort."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams, n=179)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams, n=179)
+
+    with pytest.raises(GateBAbort, match="canonical|180|battle key"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+def test_combine_aborts_if_the_manifest_schedule_hash_is_not_the_canonical_rebuild(tmp_path, monkeypatch):
+    """P1 #1: schedule_hash must be the value build_strength_holdout_schedule itself derives from
+    the manifest's own team_ids/panel_hash/seed_base -- a self-consistent but forged label
+    (stamped identically on the manifest AND every row of BOTH arms) must not pass."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                       holdout_teams=holdout_teams, schedule_hash="0123456789abcdef")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                       holdout_teams=holdout_teams, schedule_hash="0123456789abcdef")
+
+    with pytest.raises(GateBAbort, match="schedule_hash"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_aborts_on_an_unpinned_seed_base(tmp_path, monkeypatch):
+    """P1 #1: the rebuild is fed the manifest's OWN seed_base, so that one field must be checked
+    separately against the pinned namespace -- otherwise a foreign seed_base rebuilds
+    self-consistently and the check is vacuous (Task 9's _assert_schedule_is_genuine makes the
+    same distinction for the same reason)."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                       holdout_teams=holdout_teams, seed_base="not-the-pinned-namespace")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                       holdout_teams=holdout_teams, seed_base="not-the-pinned-namespace")
+
+    with pytest.raises(GateBAbort, match="seed_base"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_aborts_if_a_row_does_not_match_its_canonical_battle_key(tmp_path, monkeypatch):
+    """P1 #1: the right NUMBER of rows is not enough -- each row must correspond to exactly one
+    real battle key. Here one row's opp_policy is flipped, so the played set no longer covers
+    the canonical (team, policy, seed_index) grid even though the count still says 180."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    rows_path = Path(arm_a) / "rows.jsonl"
+    rows = [json.loads(line) for line in rows_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows[0]["opp_policy"] = "max_damage" if rows[0]["opp_policy"] == "heuristic" else "heuristic"
+    with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(GateBAbort, match="battle key|canonical"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+# --- P1 #2: the combine result must be bound to a clean, matching HEAD -----------------------
+
+
+def _patch_non_git_dependencies(monkeypatch):
+    """Everything _patch_upstream_verdicts_as_pass patches EXCEPT the two git helpers -- so the
+    three HEAD-binding tests below exercise the real _git_is_dirty/_git_sha against a real,
+    isolated git repo instead of a stub."""
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", lambda **kw: {"verdict": "PASS"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", lambda **kw: {"verdict": "PASS"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+
+
+def test_combine_accepts_a_clean_repo_whose_head_matches_the_arms(tmp_path, monkeypatch):
+    """P1 #2, positive half -- deliberately does NOT patch _git_is_dirty/_git_sha: the REAL git
+    calls run against the real, clean, isolated fixture repo, whose real HEAD is what both arms
+    recorded."""
+    _patch_non_git_dependencies(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    head = _repo_head_sha(teams_root)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams, git_sha=head)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams, git_sha=head)
+
+    result = combine_strength_holdout_arms(
+        **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, repo_root=teams_root)
+    )
+    assert result["git_sha"] == head
+
+
+def test_combine_refuses_a_dirty_working_tree(tmp_path, monkeypatch):
+    """P1 #2: baseline/leakage/report checks read the CURRENT checkout, so an uncommitted change
+    can silently alter what those guards see while the published bundle is still labelled with
+    the arms' old git_sha. Real git, real dirty repo, no patching of the guard itself."""
+    _patch_non_git_dependencies(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    head = _repo_head_sha(teams_root)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams, git_sha=head)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams, git_sha=head)
+    Path(teams_root, "uncommitted_change.txt").write_text("dirty\n", encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="dirty"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, repo_root=teams_root)
+        )
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+def test_combine_refuses_when_head_does_not_match_the_arms_git_sha(tmp_path, monkeypatch):
+    """P1 #2: a clean tree is not enough -- combining arms played at commit X while the checkout
+    sits at commit Y would run the repo-dependent guards against Y and label the result X."""
+    _patch_non_git_dependencies(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    # Both arms claim a DIFFERENT commit than the repo's real HEAD.
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams, git_sha="f" * 40)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams, git_sha="f" * 40)
+
+    with pytest.raises(GateBAbort, match="HEAD"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, repo_root=teams_root)
+        )
+
+
+# --- P1 #3: species evidence must come from the real .packed files ---------------------------
+
+
+def test_combine_derives_both_species_sides_from_real_packed_files(tmp_path, monkeypatch):
+    """P1 #3: holdout_candidate_species/reference_species were caller assertions and
+    load_team_species had no production call site at all. Both sides are now derived from real
+    sealed files -- proven here by recording every path load_team_species is asked for and
+    checking it is exactly the six row-bound holdout teams plus the nine canonical references."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    from showdown_bot.eval import strength_holdout_runner as mod
+    real_loader = mod.load_team_species
+    asked = []
+
+    def _recording_loader(team_path, *, teams_root):
+        asked.append(team_path)
+        return real_loader(team_path, teams_root=teams_root)
+
+    monkeypatch.setattr(mod, "load_team_species", _recording_loader)
+
+    combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+    expected_holdout = {entry["team_path"] for entry in holdout_teams.values()}
+    expected_reference = set(CANONICAL_REFERENCE_TEAM_PATHS.values())
+    assert len(expected_reference) == 9
+    assert set(asked) == expected_holdout | expected_reference
+
+
+def test_combine_aborts_if_a_holdout_teams_packed_file_is_missing(tmp_path, monkeypatch):
+    """P1 #3: with species now DERIVED, an unreadable sealed team is a real, fail-closed abort
+    (load_team_species raises ValueError) -- not something a caller can paper over by supplying
+    a species list for a file that is not there."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    victim = sorted(holdout_teams)[0]
+    Path(teams_root, holdout_teams[victim]["team_path"]).with_suffix(".packed").unlink()
+
+    with pytest.raises(GateBAbort, match="species"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_aborts_if_a_canonical_reference_packed_file_is_missing(tmp_path, monkeypatch):
+    """P1 #3, reference side: the nine canonical references are pinned paths, not caller input,
+    so a missing one is likewise a fail-closed abort rather than a silently smaller comparison
+    set that would make the near-duplicate guard quietly weaker."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    victim = sorted(CANONICAL_REFERENCE_TEAM_PATHS)[0]
+    Path(teams_root, CANONICAL_REFERENCE_TEAM_PATHS[victim]).with_suffix(".packed").unlink()
+
+    with pytest.raises(GateBAbort, match="species"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_canonical_reference_team_paths_are_the_nine_real_champions_teams():
+    """P1 #3: the pinned reference set is the nine EXISTING Champions M-A teams (five
+    panel_champions_v0 + four coverage foes), and every one of them really exists in this repo
+    -- a pinned constant that drifts from the tree would silently weaken the guard."""
+    assert len(CANONICAL_REFERENCE_TEAM_PATHS) == 9
+    for team_id, rel_path in CANONICAL_REFERENCE_TEAM_PATHS.items():
+        assert Path(rel_path).with_suffix(".packed").exists(), f"{team_id} -> {rel_path}"
+
+
+# --- P2 #4: non-object JSON must abort, not raise a raw TypeError ----------------------------
+
+
+def test_combine_aborts_on_a_non_object_row_not_a_raw_typeerror(tmp_path, monkeypatch):
+    """P2 #4, freshly reproduced by the reviewer: a `null` row reached validate_battle_row, which
+    raised TypeError ('argument of type NoneType is not a container') -- escaping the GateBAbort
+    contract the CLI relies on."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    with open(Path(arm_a) / "rows.jsonl", "a", encoding="utf-8", newline="") as fh:
+        fh.write("null\n")
+
+    with pytest.raises(GateBAbort, match="object"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, ".", _fake_holdout_hashes())
+        )
+
+
+def test_combine_aborts_on_a_non_object_manifest_not_a_raw_typeerror(tmp_path, monkeypatch):
+    """P2 #4, manifest side: `null` reached `set(manifest)` and raised
+    TypeError ('NoneType object is not iterable')."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    (Path(arm_a) / "arm_manifest.json").write_text("null", encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="object"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, ".", _fake_holdout_hashes())
+        )
+
+
+# --- P2 #5: the access-budget check and its reservation must be one atomic section -----------
+
+
+def test_combine_holds_one_lock_across_the_budget_check_and_the_ledger_append(tmp_path, monkeypatch):
+    """P2 #5: check_access read the ledger near the start and append_entry wrote it much later,
+    so two concurrent combines could both observe a free budget and both publish. Proven here by
+    recording lock state at each call: both must happen while the SAME lock is held."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    ledger_path = str(tmp_path / "ledger.jsonl")
+
+    from showdown_bot.eval import strength_holdout_runner as mod
+    events = []
+    real_check, real_append = mod.check_access, mod.append_entry
+
+    def _spy_check(entries, config_hash, **kw):
+        events.append(("check", os.path.exists(ledger_path + ".lock")))
+        return real_check(entries, config_hash, **kw)
+
+    def _spy_append(path, entry):
+        events.append(("append", os.path.exists(ledger_path + ".lock")))
+        return real_append(path, entry)
+
+    monkeypatch.setattr(mod, "check_access", _spy_check)
+    monkeypatch.setattr(mod, "append_entry", _spy_append)
+
+    combine_strength_holdout_arms(
+        **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, ledger_path=ledger_path)
+    )
+    # The AUTHORITATIVE check is the one immediately before the reservation, and both are under
+    # the lock. (An earlier, unlocked check_access is allowed as a fail-fast, so this asserts the
+    # tail of the sequence rather than the whole of it.)
+    assert events[-2:] == [("check", True), ("append", True)]
+    # And the lock is released again once the section completes.
+    assert not os.path.exists(ledger_path + ".lock")
+
+
+def test_combine_refuses_to_start_while_another_combine_holds_the_ledger_lock(tmp_path, monkeypatch):
+    """P2 #5: a second concurrent combine must not slip past the budget while the first one is
+    still between its check and its append -- it aborts fail-closed instead of racing."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    ledger_path = str(tmp_path / "ledger.jsonl")
+    Path(ledger_path + ".lock").write_text("held by another combine\n", encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="lock"):
+        combine_strength_holdout_arms(
+            **_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes, ledger_path=ledger_path)
+        )
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+# ---------------------------------------------------------------------------
+# Task-10 second review round, P1: result rows must be bound to CANONICAL BATTLE
+# IDENTITY, not just to the (seed_index, opp_policy, opp_team_path) grid.
+# ---------------------------------------------------------------------------
+
+
+def _corrupt_field_in_both_arms(arm_a, arm_b, field, make_bad):
+    """Set a wrong value for `field` on EVERY row of BOTH arms.
+
+    Deliberately not "corrupt one row": a single bad row introduces intra-arm variance that
+    pair_runs' own constant-field check already notices, which would make these tests pass for a
+    reason that has nothing to do with canonical binding (verified -- the format_id case passed
+    exactly that way before this helper was widened). The scenario under test is the one that
+    genuinely slipped through: both arms internally consistent, in agreement with each other and
+    with their own manifests, and uniformly carrying values no genuine run could have produced.
+
+    `make_bad` takes the row and returns the replacement, so a case can stay per-row DISTINCT
+    (a wrong seed derivation) rather than collapsing 180 rows onto one repeated value.
+    """
+    for arm in (arm_a, arm_b):
+        rows_path = Path(arm) / "rows.jsonl"
+        rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        for row in rows:
+            row[field] = make_bad(row)
+        with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+@pytest.mark.parametrize("field,make_bad", [
+    # A real derive_battle_seed value, but for the WRONG index: still distinct per row, still
+    # correctly formatted, just not the seed this battle key scheduled. seeds.jsonl continues to
+    # verify -- it proves the canonical seeds exist, never that these rows were played under them.
+    ("seed", lambda row: derive_battle_seed(STRENGTH_HOLDOUT_SEED_BASE, row["seed_index"] + 1)),
+    # battle_id is the pairing key, sha1(schedule_hash, seed_index, seed)[:16]; here it is a real
+    # digest over a FORGED schedule_hash. The old fixture wrote "b0" here and passed -- which is
+    # exactly how this gap escaped 98 green tests.
+    ("battle_id", lambda row: make_battle_id("forged_schedule", row["seed_index"], row["seed"])),
+    ("format_id", lambda row: "gen9vgc2024regulationh"),
+    ("config_id", lambda row: "some_other_agent"),
+    ("run_id", lambda row: "forged-run-id"),
+    ("hero_team_path", lambda row: "showdown_bot/teams/fixed_team.txt"),
+    # A row produced from a dirty tree can never be part of sealed evidence.
+    ("dirty", lambda row: True),
+])
+def test_combine_aborts_when_both_arms_carry_the_same_wrong_canonical_field(
+    tmp_path, monkeypatch, field, make_bad,
+):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    _corrupt_field_in_both_arms(arm_a, arm_b, field, make_bad)
+
+    with pytest.raises(GateBAbort, match=field):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert not os.path.exists(str(tmp_path / "combined"))
+
+
+def test_combine_aborts_if_a_row_is_missing_a_canonical_identity_field(tmp_path, monkeypatch):
+    """Presence is checked before any value comparison, so a stripped field aborts cleanly
+    instead of raising a raw KeyError out of the new binding loop."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    rows_path = Path(arm_a) / "rows.jsonl"
+    rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    del rows[0]["run_id"]
+    with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(GateBAbort, match="run_id"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_derives_the_expected_seed_and_battle_id_per_canonical_key(tmp_path, monkeypatch):
+    """The binding must be a fresh DERIVATION per battle key, not a self-consistency check: a row
+    whose seed and battle_id agree with each other -- but belong to a DIFFERENT seed_index -- is
+    still not the battle that key scheduled. Here rows 0 and 1 swap their whole identity pair, so
+    every value present is individually 'real', just filed under the wrong key."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    for arm in (arm_a, arm_b):
+        rows_path = Path(arm) / "rows.jsonl"
+        rows = [json.loads(l) for l in rows_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        rows[0]["seed"], rows[1]["seed"] = rows[1]["seed"], rows[0]["seed"]
+        rows[0]["battle_id"], rows[1]["battle_id"] = rows[1]["battle_id"], rows[0]["battle_id"]
+        with open(rows_path, "w", encoding="utf-8", newline="") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    with pytest.raises(GateBAbort, match="seed|battle_id"):
+        combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+
+
+def test_combine_success_path_carries_real_canonical_battle_identity(tmp_path, monkeypatch):
+    """The positive fixture must itself be canonical -- otherwise the guard above would be
+    proven only by negative cases, and the success path would silently depend on the guard NOT
+    looking at these fields (which is how the gap survived the previous round)."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    with open(Path(arm_a) / "arm_manifest.json", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    rows = [json.loads(l) for l in (Path(arm_a) / "rows.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    schedule = build_strength_holdout_schedule(
+        holdout_team_ids=sorted(holdout_teams), panel_hash=manifest["panel_hash"],
+        seed_base=manifest["seed_base"],
+    )
+    by_index = {row["seed_index"]: row for row in rows}
+    for key in schedule.battle_keys:
+        row = by_index[key.seed_index]
+        expected_seed = derive_battle_seed(manifest["seed_base"], key.seed_index)
+        assert row["seed"] == expected_seed
+        assert row["battle_id"] == make_battle_id(manifest["schedule_hash"], key.seed_index, expected_seed)
+        assert row["run_id"] == f"{manifest['candidate_identity']}-{manifest['hero_agent']}"
+        assert row["hero_team_path"] == STRENGTH_HOLDOUT_HERO_TEAM_PATH
+        assert row["format_id"] == STRENGTH_HOLDOUT_FORMAT_ID
+        assert row["dirty"] is False
+
+    result = combine_strength_holdout_arms(**_combine_kwargs(tmp_path, arm_a, arm_b, teams_root, hashes))
+    assert result["n_total"] == 180
+
 ```
 
 Rev. 3 removes the `_all_guards_pass_for_test` seam entirely: it patched a name the production
@@ -5519,7 +6053,9 @@ independently in Task 7.
 **Corrected, Rev. 14 (§1m, P2 — this paragraph was stale relative to Rev. 13/14's own test
 design):** empty guard inputs are not permitted anywhere in this file any more, in a test or
 otherwise — `combine_strength_holdout_arms` itself unconditionally rejects an empty
-`holdout_content_hashes`/`reference_species` (§13), and every test above supplies non-empty,
+`holdout_content_hashes` (§13 -- the `holdout_candidate_species`/`reference_species` parameters
+no longer exist at all; both species mappings are derived from the real sealed `.packed` files,
+so there is no caller-supplied species input left to be empty), and every test above supplies non-empty,
 internally-consistent data by construction (`_write_arm`'s default `holdout_teams`, `_fake_holdout_hashes()`).
 What actually varies between tests is not "empty vs. non-empty" but *how far into the function
 each test's own scenario runs*: the ten early-abort tests (an i8d/coverage-path guard, an
@@ -5540,15 +6076,17 @@ guards away — every one of them runs for real, against real data, in every tes
 Run: `pytest showdown_bot/tests/test_strength_holdout_runner.py -v -k combine`
 Expected: FAIL — `ImportError: cannot import name 'combine_strength_holdout_arms'`
 
+**As executed (Rev. 20, mechanical sync):** that was the observed first RED. The two review
+rounds that followed produced their own REDs, recorded here because they are what the code above
+now encodes: the five-finding round went RED on
+`TypeError: combine_strength_holdout_arms() missing 2 required keyword-only arguments:
+'holdout_candidate_species' and 'reference_species'` (both parameters were removed — species are
+derived from the sealed files instead), and the canonical-identity round went RED with all seven
+parametrized field cases plus the identity-swap case failing `DID NOT RAISE GateBAbort`.
+
 - [ ] **Step 3: Write the implementation**
 
 ```python
-# append to showdown_bot/src/showdown_bot/eval/strength_holdout_runner.py
-import hashlib
-import shutil
-from dataclasses import asdict
-
-from showdown_bot.eval.result_jsonl import validate_battle_row, ResultRowError
 from showdown_bot.eval.pairing import pair_runs, PairingError
 from showdown_bot.eval.strength_holdout_verdict import (
     render_strength_holdout_verdict, compute_safety_pass,
@@ -5556,7 +6094,7 @@ from showdown_bot.eval.strength_holdout_verdict import (
 )
 from showdown_bot.eval.holdout_leakage_scan import assert_no_holdout_leakage
 from showdown_bot.eval.holdout_disjointness import assert_disjoint_from_coverage
-from showdown_bot.eval.near_duplicate import find_near_duplicate_flags
+from showdown_bot.eval.near_duplicate import find_near_duplicate_flags, load_team_species
 from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_no_cross_stratum_pooling
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
 from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
@@ -5586,6 +6124,17 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
             for line in fh:
                 if line.strip():
                     row = json.loads(line)
+                    # Task-10 review-fix, P2 #4: syntactically valid JSON that is not an OBJECT
+                    # (`null`, a bare number, a list) used to reach validate_battle_row, whose
+                    # `field in row` membership test raises a raw TypeError for None -- escaping
+                    # this function's own GateBAbort contract that the CLI depends on. Checked
+                    # here, before any field access, for exactly the same reason the manifest is
+                    # checked below.
+                    if not isinstance(row, dict):
+                        raise GateBAbort(
+                            f"malformed row in {arm_dir}/rows.jsonl: expected a JSON object, got "
+                            f"{type(row).__name__}"
+                        )
                     try:
                         validate_battle_row(row)  # F3 fix (Rev. 6): schema conformance was never checked on read
                     except ResultRowError as exc:
@@ -5596,6 +6145,14 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
                     rows.append(row)
         with open(os.path.join(arm_dir, "arm_manifest.json"), "r", encoding="utf-8") as fh:
             manifest = json.load(fh)
+        # Task-10 review-fix, P2 #4: same as the row check above -- a `null` manifest reached
+        # `set(manifest)` in _assert_rows_match_manifest and raised a raw TypeError ("'NoneType'
+        # object is not iterable") instead of aborting cleanly.
+        if not isinstance(manifest, dict):
+            raise GateBAbort(
+                f"malformed arm_manifest.json in {arm_dir!r}: expected a JSON object, got "
+                f"{type(manifest).__name__}"
+            )
     except (OSError, UnicodeDecodeError) as exc:
         raise GateBAbort(f"cannot read arm directory {arm_dir!r}: {exc}") from exc
     except json.JSONDecodeError as exc:
@@ -5755,9 +6312,15 @@ def _assert_seed_artifact_verified(arm_dir: str, manifest: dict, which: str) -> 
     though _validate_seed_proof_fields above already rejects any seed_log_relpath other than the
     literal 'seeds.jsonl', this still resolves the real path through the filesystem (following
     any symlink/junction) and checks by path COMPONENT that it lands inside arm_dir -- defense in
-    depth against a symlink/junction planted at that exact relative location pointing elsewhere."""
-    seed_log_path = (Path(arm_dir).resolve() / manifest["seed_log_relpath"]).resolve()
+    depth against a symlink/junction planted at that exact relative location pointing elsewhere.
+    The resolve() call itself is wrapped: on Windows, resolving certain symlink configurations can
+    raise a raw OSError (observed: WinError 267) instead of just following the link -- that must
+    fail closed as GateBAbort too, not escape uncaught."""
     arm_root = Path(arm_dir).resolve()
+    try:
+        seed_log_path = (arm_root / manifest["seed_log_relpath"]).resolve()
+    except OSError as exc:
+        raise GateBAbort(f"arm {which}: cannot resolve seed log path: {exc}") from exc
     arm_parts, seed_parts = arm_root.parts, seed_log_path.parts
     if platform.system() == "Windows":
         arm_parts = tuple(p.lower() for p in arm_parts)
@@ -5897,11 +6460,204 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
         )
 
 
+_ROW_REQUIRED_KEYS_FOR_SCHEDULE_BINDING = ("seed_index", "opp_policy")
+# Task-10 second review round, P1: the fields that make a row the battle its key scheduled, all
+# of them re-derivable here from the manifest alone -- so a value is never merely "present and
+# consistent", it is the one canonical value.
+_ROW_REQUIRED_KEYS_FOR_CANONICAL_IDENTITY = (
+    "seed", "battle_id", "format_id", "config_id", "run_id", "hero_team_path", "dirty",
+)
+
+
+def _assert_rows_cover_canonical_schedule(rows: list[dict], manifest: dict, which: str) -> None:
+    """Task-10 review-fix, P1 #1: an arm must be the WHOLE canonical 180-battle-key schedule, and
+    every row must be one of its keys.
+
+    Before this fix nothing in the combiner ever rebuilt the schedule. ``n_rows`` was only ever
+    compared against ``len(rows)`` (self-consistent by construction for a truncated arm) and
+    ``schedule_hash`` was compared row-vs-manifest -- also self-consistent, because the writer
+    stamps the same string on both. Two *matching*, *internally consistent*, 12-row arms
+    therefore combined to a published "strength" verdict over 12 battles, and the fixtures that
+    were supposed to prove otherwise were themselves 12-row. A short or reshaped arm is not a
+    weaker strength result, it is not a strength result at all, so this is fail-closed.
+
+    The rebuild is the same one Task 9's ``_assert_schedule_is_genuine`` performs on the write
+    side, driven here from what the arm itself recorded: its own six team_ids, its own
+    panel_hash, its own seed_base. ``seed_base`` is checked separately against the pinned
+    namespace FIRST, for the reason Task 9 documents at its own call site -- feeding a forged
+    seed_base into the rebuild and then comparing against that same forged value proves nothing.
+    """
+    if manifest["seed_base"] != STRENGTH_HOLDOUT_SEED_BASE:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_base={manifest['seed_base']!r} != the pinned seed "
+            f"namespace {STRENGTH_HOLDOUT_SEED_BASE!r} -- refusing an unpinned seed namespace"
+        )
+    try:
+        schedule = build_strength_holdout_schedule(
+            holdout_team_ids=sorted(manifest["holdout_teams"]),
+            panel_hash=manifest["panel_hash"], seed_base=manifest["seed_base"],
+        )
+    except ValueError as exc:
+        raise GateBAbort(
+            f"arm {which}: its own holdout_teams/panel_hash/seed_base do not rebuild a genuine "
+            f"canonical strength-holdout schedule: {exc}"
+        ) from exc
+    if schedule.schedule_hash != manifest["schedule_hash"]:
+        raise GateBAbort(
+            f"arm {which}: manifest's schedule_hash={manifest['schedule_hash']!r} is not the "
+            f"canonical rebuild from its own team_ids/panel_hash/seed_base "
+            f"({schedule.schedule_hash!r}) -- refusing a forged or stale schedule label"
+        )
+    if len(rows) != len(schedule.battle_keys):
+        raise GateBAbort(
+            f"arm {which}: has {len(rows)} row(s) but the canonical schedule has "
+            f"{len(schedule.battle_keys)} battle key(s) -- a partial arm is not a strength result"
+        )
+    expected = {
+        (key.seed_index, key.opponent_policy, f"{HOLDOUT_TEAMS_DIR}{key.holdout_team_id}.txt")
+        for key in schedule.battle_keys
+    }
+    played = []
+    for i, row in enumerate(rows):
+        missing = set(_ROW_REQUIRED_KEYS_FOR_SCHEDULE_BINDING) - set(row)
+        if missing:
+            raise GateBAbort(
+                f"arm {which}: row {i} is missing required key(s): {sorted(missing)} -- every row "
+                "must identify the canonical battle key it played"
+            )
+        played.append((row["seed_index"], row["opp_policy"], row["opp_team_path"]))
+    if len(set(played)) != len(played):
+        raise GateBAbort(
+            f"arm {which}: two or more rows claim the SAME canonical battle key -- one battle key "
+            "must be played exactly once"
+        )
+    if set(played) != expected:
+        unexpected = sorted(set(played) - expected)[:3]
+        unplayed = sorted(expected - set(played))[:3]
+        raise GateBAbort(
+            f"arm {which}: its rows do not cover the canonical schedule exactly once -- "
+            f"battle key(s) played but not scheduled: {unexpected}; scheduled but not played: "
+            f"{unplayed}"
+        )
+
+    # Task-10 second review round, P1: covering the (seed_index, opp_policy, opp_team_path) grid
+    # says the right SLOTS are present; it says nothing about whether the result in each slot is
+    # the battle that slot scheduled. seeds.jsonl proves the canonical seeds exist, but nothing
+    # tied the ROWS to those seeds -- so two arms could carry identical, uniformly wrong seeds,
+    # battle_ids, format, agent or hero team and still pair cleanly (pair_runs only notices
+    # variance WITHIN an arm, which uniform corruption does not produce). Every field below is
+    # re-derived here from the manifest and the canonical key, never merely compared for internal
+    # consistency.
+    keys_by_index = {key.seed_index: key for key in schedule.battle_keys}
+    expected_run_id = f"{manifest['candidate_identity']}-{manifest['hero_agent']}"
+    for i, row in enumerate(rows):
+        missing = set(_ROW_REQUIRED_KEYS_FOR_CANONICAL_IDENTITY) - set(row)
+        if missing:
+            raise GateBAbort(
+                f"arm {which}: row {i} is missing required key(s): {sorted(missing)} -- every row "
+                "must carry the full canonical battle identity"
+            )
+        key = keys_by_index[row["seed_index"]]
+        expected_seed = derive_battle_seed(manifest["seed_base"], key.seed_index)
+        for field, expected_value in (
+            ("seed", expected_seed),
+            ("battle_id", make_battle_id(manifest["schedule_hash"], key.seed_index, expected_seed)),
+            ("format_id", STRENGTH_HOLDOUT_FORMAT_ID),
+            ("config_id", manifest["hero_agent"]),
+            ("run_id", expected_run_id),
+            ("hero_team_path", STRENGTH_HOLDOUT_HERO_TEAM_PATH),
+        ):
+            if row[field] != expected_value:
+                raise GateBAbort(
+                    f"arm {which}: row {i} (seed_index {key.seed_index}) has "
+                    f"{field}={row[field]!r}, but the canonical battle key derives "
+                    f"{field}={expected_value!r} -- this row is not the battle its key scheduled"
+                )
+        # `is not False` on purpose, not `if row["dirty"]`: a truthy-but-not-True value (or a
+        # string "false") must fail here rather than be quietly accepted as clean.
+        if row["dirty"] is not False:
+            raise GateBAbort(
+                f"arm {which}: row {i} (seed_index {key.seed_index}) has dirty={row['dirty']!r} "
+                "-- a battle played from a dirty tree can never be part of sealed evidence"
+            )
+
+
+def _derive_species_from_sealed_files(holdout_teams: dict, teams_root: str) -> tuple[dict, dict]:
+    """Task-10 review-fix, P1 #3: derive BOTH sides of the near-duplicate comparison from real
+    sealed ``.packed`` content instead of trusting caller-supplied species mappings.
+
+    ``holdout_candidate_species`` and ``reference_species`` were plain caller assertions: combine
+    only ever checked that the candidate mapping's KEY SET matched the six scheduled teams, never
+    that any listed species had anything to do with the team it was filed under. A caller could
+    hand over six species lists that trivially overlap nothing and the guard would "pass".
+    ``near_duplicate.load_team_species`` -- which derives species from a team's real packed file,
+    and has its own tests -- existed already but had no production call site anywhere.
+
+    The candidate side is keyed off ``manifest_a["holdout_teams"]``, which by this point is
+    already proven to describe the rows actually played; the reference side is the pinned
+    ``CANONICAL_REFERENCE_TEAM_PATHS``, not caller input. Any unreadable or malformed team file
+    is a fail-closed abort -- a silently smaller comparison set would quietly weaken the guard.
+    """
+    try:
+        candidates = {
+            team_id: load_team_species(holdout_teams[team_id]["team_path"], teams_root=teams_root)
+            for team_id in sorted(holdout_teams)
+        }
+        references = {
+            ref_id: load_team_species(CANONICAL_REFERENCE_TEAM_PATHS[ref_id], teams_root=teams_root)
+            for ref_id in sorted(CANONICAL_REFERENCE_TEAM_PATHS)
+        }
+    except ValueError as exc:
+        raise GateBAbort(
+            f"cannot derive team species from the real sealed team files under "
+            f"teams_root={teams_root!r}: {exc}"
+        ) from exc
+    return candidates, references
+
+
+@contextmanager
+def _ledger_lock(ledger_path: str):
+    """Task-10 review-fix, P2 #5: make the held-out access budget's check-then-reserve atomic.
+
+    ``check_access`` reads the ledger early and ``append_entry`` writes it much later, with the
+    whole guard/pairing/verdict computation in between. Two combines started concurrently could
+    both observe a free budget in that window and both go on to append and publish -- exactly the
+    held-out-data-reuse the ledger exists to prevent, and invisible afterwards because both
+    entries look legitimate. An exclusive ``O_CREAT|O_EXCL`` lock file held across the entire
+    section closes it: the second process cannot even begin.
+
+    Deliberately fail-closed with no timeout or steal: a stale lock (left by a crashed combine)
+    blocks further runs until a human removes it. For a once-per-candidate held-out gate that is
+    the correct trade -- silently breaking a lock is how the budget gets spent twice.
+    """
+    lock_path = ledger_path + ".lock"
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise GateBAbort(
+            f"ledger lock {lock_path!r} is already held -- another combine is inside its "
+            "held-out access-budget section, or a previous run crashed and left the lock behind "
+            "(remove it by hand after confirming no combine is running)"
+        ) from exc
+    except OSError as exc:
+        raise GateBAbort(f"cannot acquire ledger lock {lock_path!r}: {exc}") from exc
+    try:
+        try:
+            os.write(fd, f"pid={os.getpid()}\n".encode("utf-8"))
+        finally:
+            os.close(fd)
+        yield
+    finally:
+        try:
+            os.unlink(lock_path)
+        except OSError:
+            pass
+
+
 def combine_strength_holdout_arms(
     *, arm_a_dir: str, arm_b_dir: str, out_dir: str,
     i8d_verdict_path: str, coverage_verdict_path: str,
     holdout_content_hashes: dict[str, str],
-    holdout_candidate_species: dict[str, list[str]], reference_species: dict[str, list[str]],
     baseline_manifest_path: str = "config/eval/baselines/champions-strength-holdout-v0.json",
     repo_root: str = ".",
     stratum_env_override: str | None = None,
@@ -5972,15 +6728,16 @@ def combine_strength_holdout_arms(
         raise GateBAbort("coverage_verdict_path is required and must be non-empty -- Gate B may only run after a Coverage PASS on this candidate")
     if not holdout_content_hashes:
         raise GateBAbort("holdout_content_hashes must be non-empty -- an empty mapping makes the disjointness/leakage guards vacuous")
-    if not holdout_candidate_species:
-        raise GateBAbort("holdout_candidate_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
-    if not reference_species:
-        raise GateBAbort("reference_species must be non-empty -- an empty mapping makes the near-duplicate guard vacuous")
 
     rows_a, manifest_a = _read_arm(arm_a_dir)
     rows_b, manifest_b = _read_arm(arm_b_dir)
     _assert_rows_match_manifest(rows_a, manifest_a, "A")
     _assert_rows_match_manifest(rows_b, manifest_b, "B")
+    # Task-10 review-fix, P1 #1: each arm must BE the canonical 180-battle-key schedule, rebuilt
+    # from its own recorded team_ids/panel_hash/seed_base -- the manifest-vs-rows checks above are
+    # all self-consistency checks and cannot detect a truncated or reshaped arm on their own.
+    _assert_rows_cover_canonical_schedule(rows_a, manifest_a, "A")
+    _assert_rows_cover_canonical_schedule(rows_b, manifest_b, "B")
     # Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
     # before pairing or any verdict -- both arms independently, never relying on matching
     # manifest values alone (a doctored manifest could claim agreement without either seed log
@@ -5994,6 +6751,25 @@ def combine_strength_holdout_arms(
         raise GateBAbort(f"arm B must be hero_agent='max_damage' (Baseline B per DESIGN sec 3.2), got {manifest_b['hero_agent']!r}")
     if manifest_a["git_sha"] != manifest_b["git_sha"]:
         raise GateBAbort("arms disagree on git_sha -- they were not played on the same commit")
+    # Task-10 review-fix, P1 #2: bind the COMBINE to the same commit the arms were played on,
+    # before any repo-dependent guard runs. verify_baseline reads the working tree,
+    # assert_no_holdout_leakage reads committed blobs via `git show HEAD:<path>`, and the
+    # published bundle is stamped with manifest_a["git_sha"] -- so combining from a dirty tree, or
+    # from a checkout sitting on a different commit, silently evaluates one commit's content and
+    # labels the evidence with another's. Both conditions are technical aborts, not verdicts.
+    if _git_is_dirty(cwd=repo_root):
+        raise GateBAbort(
+            f"refusing to combine from a dirty working tree at repo_root={repo_root!r} -- the "
+            "baseline/leakage guards read this checkout, so uncommitted changes would be "
+            "evaluated but never recorded in the published evidence"
+        )
+    head_sha = _git_sha(cwd=repo_root)
+    if head_sha != manifest_a["git_sha"]:
+        raise GateBAbort(
+            f"HEAD at repo_root={repo_root!r} is {head_sha!r} but both arms were played at "
+            f"git_sha={manifest_a['git_sha']!r} -- the repo-dependent guards would run against a "
+            "different commit than the one this evidence claims"
+        )
     # Rev. 15 fix (§1n, Task-3-review P1 #2): date_stratum_id added -- "different... date-strata
     # must abort" (stratum ITSELF is compared separately below, via assert_no_cross_stratum_
     # pooling, so its StrataPoolingError stays distinct from this loop's GateBAbort, matching the
@@ -6007,7 +6783,11 @@ def combine_strength_holdout_arms(
     # produce the SAME config_hash/candidate_identity (make_config_hash's manifest does not
     # include calc_backend), so without this check two arms could silently run under different
     # backends while every OTHER identity field still matched.
-    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id", "calc_backend"):
+    # Task-10 review-fix, P1 #1 (ordering consequence): holdout_teams is compared FIRST. Now that
+    # schedule_hash is the canonical rebuild over the arm's own team_ids, two arms that played
+    # different team sets necessarily disagree on schedule_hash too -- reporting the derived
+    # symptom before the cause would be strictly less useful than naming the team-set mismatch.
+    for field in ("holdout_teams", "schedule_hash", "panel_hash", "seed_base", "date_stratum_id", "calc_backend"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
 
@@ -6027,20 +6807,11 @@ def combine_strength_holdout_arms(
             f"{holdout_content_hashes}) -- the leakage/disjointness guards must see every "
             "scheduled team with its real hash, not a subset or a wrong value"
         )
-    # Rev. 18 fix (§1q): same discipline as holdout_content_hashes just above -- a caller-supplied
-    # holdout_candidate_species must name exactly the six teams this schedule actually played, not
-    # a subset, an extra team, or a mislabeled one. Key-set only (not value equality, unlike
-    # holdout_content_hashes): a hash has exactly one correct value to check against; a team's
-    # species list has no independently-derivable "correct" value here for combine to check
-    # against (Task 9's manifest never records species, only path/content_hash) -- species
-    # correctness is instead what the near-duplicate check itself exists to reason about.
-    if set(holdout_candidate_species) != set(manifest_a["holdout_teams"]):
-        raise GateBAbort(
-            f"holdout_candidate_species' team_ids {sorted(holdout_candidate_species)} do not "
-            f"match the six teams this schedule actually played "
-            f"{sorted(manifest_a['holdout_teams'])} -- the near-duplicate guard must see species "
-            "for every scheduled holdout team, not a subset, extra, or mislabeled one"
-        )
+    # Task-10 review-fix, P1 #3: Rev. 18's key-set check on a caller-supplied
+    # holdout_candidate_species is gone -- there is no caller-supplied species mapping to check
+    # any more. Both sides of the near-duplicate comparison are derived below from the real
+    # sealed .packed files, the candidate side keyed off manifest_a["holdout_teams"], which the
+    # checks above have already bound to the rows actually played.
 
     # NF2 fix (Rev. 7): verify_i8d_verdict_artifact/verify_coverage_verdict_artifact raise
     # StrengthHoldoutRunError, not GateBAbort -- this plan's own documentation (§1a, and the
@@ -6079,6 +6850,10 @@ def combine_strength_holdout_arms(
     except StrengthHoldoutRunError as exc:
         raise GateBAbort(f"upstream verdict verification failed: {exc}") from exc
 
+    # Early, UNLOCKED budget check: fail fast, before 180 rows of pairing/verdict work, exactly as
+    # the "cheapest checks first" ordering intends. Task-10 review-fix, P2 #5: this one is an
+    # optimisation only -- it is NOT the authoritative check any more. The check that actually
+    # gates the reservation runs again under the ledger lock, immediately before append_entry.
     check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=None)
 
     # Baseline-drift guard (Rev. 4 P1 fix): Task 6 creates/loads the manifest, but nothing
@@ -6126,6 +6901,12 @@ def combine_strength_holdout_arms(
     # catches GateBAbort, Task 11) -- the same "new guard, new raw exception" shape NF1/NF3 fixed
     # for _assert_rows_match_manifest/BattleResultWriter.write, applied here on introduction
     # rather than found later.
+    # Task-10 review-fix, P1 #3: both mappings are now DERIVED from the real sealed team files
+    # (see _derive_species_from_sealed_files) rather than taken from the caller, so the geometry
+    # below is unchanged but the DATA is no longer an assertion anyone could shape at will.
+    holdout_candidate_species, reference_species = _derive_species_from_sealed_files(
+        manifest_a["holdout_teams"], teams_root,
+    )
     try:
         near_dup_flags = []
         for team_id in sorted(holdout_candidate_species):
@@ -6230,19 +7011,33 @@ def combine_strength_holdout_arms(
     # the ledger exists to prevent. If append_entry raises (e.g. LedgerError on a malformed
     # entry), os.replace(staging_dir, out_dir) below must never run, so a failed ledger write can
     # never coexist with a "successful"-looking published bundle.
-    from datetime import date
-    try:
-        append_entry(ledger_path, {
-            "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
-            "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
-            "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
-            "result_sha256": result_sha256, "justification": None,
-        })
-    except LedgerError as exc:
-        raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
+    #
+    # Task-10 review-fix, P2 #5: the budget CHECK and the reservation it authorises now happen
+    # inside one exclusive lock. The early check_access far above is only a fail-fast; on its own
+    # it left a very wide window (all of the guard/pairing/verdict work) in which a second combine
+    # could read the same still-empty ledger, conclude the budget was free, and append and publish
+    # too -- two "first" held-out runs against the same config_hash, both looking legitimate
+    # afterwards. Re-reading the ledger here, under the lock, is what makes the decision
+    # authoritative; the publish stays inside the lock as well so a reservation can never be
+    # observed without the bundle it belongs to being on its way.
+    with _ledger_lock(ledger_path):
+        check_access(
+            read_ledger(ledger_path) if os.path.exists(ledger_path) else [],
+            manifest_a["config_hash"], justification=None,
+        )
+        try:
+            append_entry(ledger_path, {
+                "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
+                "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
+                "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
+                "result_sha256": result_sha256, "justification": None,
+            })
+        except LedgerError as exc:
+            raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
 
-    os.replace(staging_dir, out_dir)
+        os.replace(staging_dir, out_dir)
     return payload
+
 ```
 
 **Note on `date.today()`:** the ledger schema requires a real calendar date string; this is the
@@ -6254,12 +7049,23 @@ pure/deterministic. Not a placeholder — `heldout_ledger.py`'s own schema requi
 Run: `pytest showdown_bot/tests/test_strength_holdout_runner.py -v`
 Expected: all tests across Tasks 9 and 10 pass
 
+**As executed (Rev. 20):** 108 passed in `test_strength_holdout_runner.py` (Tasks 9 + 10
+combined), 405 passed / 1 xfailed across the proportional eval surface, 3343 collected
+repo-wide, full suite 3340 passed / 2 skipped / 1 xfailed.
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add showdown_bot/src/showdown_bot/eval/strength_holdout_runner.py showdown_bot/eval/strength_holdout_verdict.py showdown_bot/tests/test_strength_holdout_runner.py
-git commit -m "feat(champions): Gate B combine step -- every guard wired, ledger, full evidence bundle"
+git add showdown_bot/src/showdown_bot/eval/strength_holdout_runner.py showdown_bot/tests/test_strength_holdout_runner.py
+git commit -m "feat(champions): combine Gate B arms with all guards and sealed evidence"
 ```
+
+**As executed (Rev. 20):** Task 10 landed as `24ada4b`, followed by two review-fix commits --
+`895d1d2` (three P1s: canonical 180-key schedule rebuild, HEAD/dirty-tree binding, species
+derivation from sealed files; two P2s: non-object JSON aborts, authoritative ledger lock) and
+`53e6c9c` (one P1: full canonical row binding). `strength_holdout_verdict.py` is NOT in the stage
+list -- Task 10 never modifies it; that path was also wrong (missing the `src/showdown_bot/`
+segment).
 
 ---
 
@@ -6449,20 +7255,24 @@ def run_strength_holdout_combine_cli(args) -> int:
     from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
     from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
     from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
-    # Rev. 4 P2 fix: combine_strength_holdout_arms now REJECTS an empty holdout_content_hashes/
-    # reference_species unconditionally (Task 10) -- Rev. 3's CLI wiring passed {} for both,
-    # which would now always abort anyway, and doing so silently (dressed up as "PROPOSED, not
-    # wired yet") is exactly the vacuous-guard trust shape being eliminated. This subcommand is
-    # therefore explicitly blocked pending Task 13, matching run_strength_holdout_arm_cli's
-    # already-established honest-stop pattern exactly, rather than passing empty maps that
-    # would now fail anyway for a less obvious reason.
+    # Rev. 4 P2 fix: combine_strength_holdout_arms REJECTS an empty holdout_content_hashes
+    # unconditionally (Task 10) -- Rev. 3's CLI wiring passed {} for it, which would now always
+    # abort anyway, and doing so silently (dressed up as "PROPOSED, not wired yet") is exactly
+    # the vacuous-guard trust shape being eliminated. This subcommand is therefore explicitly
+    # blocked pending Task 13, matching run_strength_holdout_arm_cli's already-established
+    # honest-stop pattern exactly, rather than passing empty maps that would now fail anyway for
+    # a less obvious reason.
+    # Rev. 20 (mechanical sync): the species side is no longer a CLI concern at all -- Task 10's
+    # review-fix removed the holdout_candidate_species/reference_species parameters and derives
+    # both mappings from the real sealed .packed files. What this handler still cannot source is
+    # holdout_content_hashes, which needs Task 13's six sealed teams.
     try:
         raise GateBAbort(
-            "no sealed holdout team hashes/species available yet -- Task 13 (blocked on the "
-            "D-1b source-proof) must seal six teams before this subcommand has real "
-            "holdout_content_hashes/reference_species to pass; this is a deliberate, named "
-            "stop, not a bug. combine_strength_holdout_arms itself is fully functional and "
-            "tested (Task 10) -- only this CLI's data sourcing is pending."
+            "no sealed holdout team hashes available yet -- Task 13 (blocked on the D-1b "
+            "source-proof) must seal six teams before this subcommand has a real "
+            "holdout_content_hashes mapping to pass; this is a deliberate, named stop, not a "
+            "bug. combine_strength_holdout_arms itself is fully functional and tested "
+            "(Task 10) -- only this CLI's data sourcing is pending."
         )
     except (GateBAbort, AccessBudgetError, HoldoutNotDisjointError, LeakageDriftError,
             LeakageScanError, StrataPoolingError, UnattestedStratumError) as exc:
@@ -6839,16 +7649,18 @@ Steps 3-6 are explicitly out of scope for this plan.
 
 ## 19. What happens next
 
-Rev. 10 is ready for re-review. Every finding raised across all eight prior review rounds is
-fixed with real, verified code, and the one item Rev. 9 had left as an explicit open question —
-what to do about `resolve_coverage_provenance` — is now resolved per your own direction (§1i),
-not deferred again and not converted away with a technique that didn't fit it. Two things still
-need your decision:
+**Rev. 20 status.** Tasks 1–10 are implemented, reviewed, and merged on
+`feat/champions-gate-b-task-1-schedule`; this document's Task 10 section now mirrors that merged
+source rather than a proposal. Task 11 (CLI subcommands) is the active slice. Tasks 12–13 remain
+PROPOSED, and Task 13 stays blocked behind the §2 source-proof.
 
-1. Approval of this plan (or further requested changes).
-2. The §2 source-proof for Task 13 — explicitly not attempted in this revision, per your own
-   sequencing ("Task 13 bleibt... blockiert bis zum erfolgreichen Source-Proof"). Say when you'd
-   like that done as its own step.
+Every finding raised across all prior review rounds is fixed with real, verified code, and the one
+item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`
+— was resolved per your own direction (§1i). What still needs your decision:
+
+1. The §2 source-proof for Task 13 — the sealing of the six holdout teams, which both CLI
+   subcommands are honestly blocked on today.
+2. Whether Task 12 runs before or after that source-proof.
 
 No open exception-safety questions remain against either public entry point's own authored code.
 One narrow residual is disclosed, not left silent: `load_format_config`'s own malformed-YAML
