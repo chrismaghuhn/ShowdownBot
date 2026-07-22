@@ -33,6 +33,18 @@ def test_detect_stratum_rejects_an_override_that_contradicts_the_platform(monkey
         detect_stratum(env_override="windows")
 
 
+def test_detect_stratum_rejects_a_kaggle_override_on_a_non_linux_platform(monkeypatch):
+    # Review-fix P1: Rev. 16's fix only checked "is this platform Windows or not" -- Darwin
+    # (macOS) is also not Windows, but it is NOT the approved Kaggle environment either (which
+    # runs Linux). A "not Windows" consistency check is not the same as a "this is really Kaggle"
+    # consistency check; without this, env_override="kaggle" on a developer's Mac laptop would
+    # succeed, exactly the "non-Windows box silently trusted as Kaggle" failure mode this whole
+    # module exists to prevent (P2-1), reintroduced through the override path specifically.
+    monkeypatch.setattr("platform.system", lambda: "Darwin")
+    with pytest.raises(UnattestedStratumError, match="Linux"):
+        detect_stratum(env_override="kaggle")
+
+
 def test_detect_stratum_rejects_unknown_override():
     with pytest.raises(ValueError, match="unknown stratum"):
         detect_stratum(env_override="colab")
@@ -65,6 +77,23 @@ def test_assert_no_cross_stratum_pooling_rejects_mixed_strata():
         StratumRecord(stratum=KAGGLE_STRATUM, platform_string="Linux-5.15", output_dir="b"),
     ]
     with pytest.raises(StrataPoolingError, match="windows"):
+        assert_no_cross_stratum_pooling(records)
+
+
+def test_assert_no_cross_stratum_pooling_rejects_records_with_an_unknown_stratum():
+    # Review-fix P1: two records that AGREE with each other but share an unrecognized stratum
+    # value (e.g. a corrupted or hand-edited "colab") previously passed silently --
+    # len({"colab"}) == 1, so the mixed-strata check alone never fires. Defense in depth: this
+    # function's own contract requires every record to represent a REAL, recognized stratum, not
+    # merely agree with its neighbors -- independent of whatever validation an upstream caller
+    # (Task 10's _validate_stratum_fields) may or may not already have done, matching how
+    # scan_for_raw_payload_leakage independently rejects an empty team_ids list rather than
+    # relying solely on its own caller's check.
+    records = [
+        StratumRecord(stratum="colab", platform_string="Colab", output_dir="a"),
+        StratumRecord(stratum="colab", platform_string="Colab", output_dir="b"),
+    ]
+    with pytest.raises(ValueError, match="unknown stratum"):
         assert_no_cross_stratum_pooling(records)
 
 
