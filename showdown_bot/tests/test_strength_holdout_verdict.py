@@ -41,16 +41,26 @@ def _write_json(tmp_path, name, data):
 
 # --- I8-D fixtures ---------------------------------------------------------------------------
 
-def _fake_i8d_schedule():
-    rows = (
-        ScheduleRow(format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
-                    opp_policy="heuristic", opp_team_path="teams/panel_champions_v0/goodstuff.txt",
-                    seed_index=0, hero_team_hash="fixture-i8d-hero-hash",
-                    opp_team_hash="fixture-i8d-opp-hash-a", panel_split="dev"),
-        ScheduleRow(format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
-                    opp_policy="max_damage", opp_team_path="teams/panel_champions_v0/tailwind_offense.txt",
-                    seed_index=1, hero_team_hash="fixture-i8d-hero-hash",
-                    opp_team_hash="fixture-i8d-opp-hash-b", panel_split="dev"),
+_I8D_FAKE_SCHEDULE_ROWS = 100  # >= the 90 battles_played the "valid" fixture below claims
+
+
+def _fake_i8d_schedule(n_rows=_I8D_FAKE_SCHEDULE_ROWS):
+    # Task 7 review-fix (P1 #2): must be large enough that a "valid" verdict's battles_played
+    # is a geometrically possible subset of the canonical schedule's rows, once
+    # verify_i8d_verdict_artifact binds battles_played <= len(canonical.rows).
+    opp_choices = (
+        ("heuristic", "teams/panel_champions_v0/goodstuff.txt", "fixture-i8d-opp-hash-a"),
+        ("max_damage", "teams/panel_champions_v0/tailwind_offense.txt", "fixture-i8d-opp-hash-b"),
+    )
+    rows = tuple(
+        ScheduleRow(
+            format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
+            opp_policy=opp_choices[i % len(opp_choices)][0],
+            opp_team_path=opp_choices[i % len(opp_choices)][1], seed_index=i,
+            hero_team_hash="fixture-i8d-hero-hash",
+            opp_team_hash=opp_choices[i % len(opp_choices)][2], panel_split="dev",
+        )
+        for i in range(n_rows)
     )
     return Schedule(version="fixture-i8d-v0", rows=rows, schedule_hash="fixture-i8d-schedule-hash",
                      panel_hash=I8D_EXPECTED_PANEL_HASH)
@@ -94,16 +104,27 @@ def _i8d_call(tmp_path, stub_i8d_schedule, data, name="i8d_verdict.json"):
 
 # --- Coverage fixtures ------------------------------------------------------------------------
 
-def _fake_coverage_schedule():
-    rows = (
-        ScheduleRow(format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
-                    opp_policy="heuristic", opp_team_path="teams/panel_champions_coverage_v0/cov_foe_slot0.txt",
-                    seed_index=0, hero_team_hash="fixture-cov-hero-hash",
-                    opp_team_hash="fixture-cov-opp-hash-a", panel_split="dev"),
-        ScheduleRow(format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
-                    opp_policy="max_damage", opp_team_path="teams/panel_champions_coverage_v0/cov_foe_slot1.txt",
-                    seed_index=1, hero_team_hash="fixture-cov-hero-hash",
-                    opp_team_hash="fixture-cov-opp-hash-b", panel_split="dev"),
+_COVERAGE_FAKE_SCHEDULE_ROWS = 130  # >= the 120 battles_played the "valid" fixture below claims
+
+
+def _fake_coverage_schedule(n_rows=_COVERAGE_FAKE_SCHEDULE_ROWS):
+    # Task 7 review-fix (P1 #2): must be large enough that a "valid" verdict's battles_played
+    # (and every cell's decisions/distinct_battles) is a geometrically possible subset of the
+    # canonical schedule's rows, once verify_coverage_verdict_artifact binds
+    # battles_played <= len(canonical.rows).
+    opp_choices = (
+        ("heuristic", "teams/panel_champions_coverage_v0/cov_foe_slot0.txt", "fixture-cov-opp-hash-a"),
+        ("max_damage", "teams/panel_champions_coverage_v0/cov_foe_slot1.txt", "fixture-cov-opp-hash-b"),
+    )
+    rows = tuple(
+        ScheduleRow(
+            format_id="gen9championsvgc2026regma", hero_team_path="teams/fixed_champions_v0.txt",
+            opp_policy=opp_choices[i % len(opp_choices)][0],
+            opp_team_path=opp_choices[i % len(opp_choices)][1], seed_index=i,
+            hero_team_hash="fixture-cov-hero-hash",
+            opp_team_hash=opp_choices[i % len(opp_choices)][2], panel_split="dev",
+        )
+        for i in range(n_rows)
     )
     return Schedule(version="fixture-coverage-v0", rows=rows, schedule_hash="fixture-coverage-schedule-hash",
                      panel_hash=COVERAGE_EXPECTED_PANEL_HASH)
@@ -337,6 +358,28 @@ def test_i8d_rejects_invalid_p95_ms(tmp_path, stub_i8d_schedule, bad_p95):
         _i8d_call(tmp_path, stub_i8d_schedule, data)
 
 
+def test_i8d_rejects_battles_played_exceeding_canonical_schedule_rows(tmp_path, stub_i8d_schedule):
+    n_rows = len(stub_i8d_schedule.rows)
+    data = _valid_i8d_verdict(stub_i8d_schedule, battles_played=n_rows + 1)
+    with pytest.raises(StrengthHoldoutRunError, match="battles_played"):
+        _i8d_call(tmp_path, stub_i8d_schedule, data)
+
+
+def test_i8d_wraps_a_canonical_schedule_rebuild_failure(tmp_path, monkeypatch):
+    # Task 7 review-fix (P1 #1): a foreign exception from the real rebuild (e.g. a lower-level
+    # Panel/Schedule ValueError) must never escape this module raw -- only StrengthHoldoutRunError.
+    def _boom(**kwargs):
+        raise ValueError("simulated i8d schedule rebuild failure")
+
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_verdict.build_i8d_canonical_schedule", _boom,
+    )
+    data = _valid_i8d_verdict(_fake_i8d_schedule())
+    path = _write_json(tmp_path, "i8d_verdict.json", data)
+    with pytest.raises(StrengthHoldoutRunError, match="rebuild"):
+        verify_i8d_verdict_artifact(verdict_path=path, teams_root=str(tmp_path), **_IDENTITY_KWARGS)
+
+
 def test_i8d_rejects_nan_p95_ms_via_json_round_trip(tmp_path, stub_i8d_schedule):
     # json.dumps(float("nan")) writes the bare token NaN, which json.loads parses back to
     # float("nan") (Python's json module allows this non-standard extension by default) -- the
@@ -425,16 +468,72 @@ def test_coverage_rejects_wrong_schedule_complete_type(tmp_path, stub_coverage_s
 
 def test_coverage_accepts_schedule_complete_false_on_an_early_pass(tmp_path, stub_coverage_schedule):
     # A coverage PASS may legitimately happen BEFORE the schedule is exhausted -- schedule_complete
-    # must never be required True.
-    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=False)
+    # must never be required True. Task 7 review-fix (P1 #2): schedule_complete's VALUE is now
+    # bound to battles_played == len(canonical.rows), so "early pass" must genuinely under-play
+    # the canonical schedule for this to remain a valid False case.
+    n_rows = len(stub_coverage_schedule.rows)
+    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=False, battles_played=n_rows - 1)
     result = _cov_call(tmp_path, stub_coverage_schedule, data)
     assert result["schedule_complete"] is False
 
 
 def test_coverage_accepts_schedule_complete_true(tmp_path, stub_coverage_schedule):
-    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=True)
+    # Task 7 review-fix (P1 #2): schedule_complete=True is only valid when battles_played
+    # genuinely equals the canonical schedule's full row count.
+    n_rows = len(stub_coverage_schedule.rows)
+    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=True, battles_played=n_rows)
     result = _cov_call(tmp_path, stub_coverage_schedule, data)
     assert result["schedule_complete"] is True
+
+
+def test_coverage_rejects_schedule_complete_true_when_the_schedule_is_not_exhausted(tmp_path, stub_coverage_schedule):
+    n_rows = len(stub_coverage_schedule.rows)
+    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=True, battles_played=n_rows - 1)
+    with pytest.raises(StrengthHoldoutRunError, match="schedule_complete"):
+        _cov_call(tmp_path, stub_coverage_schedule, data)
+
+
+def test_coverage_rejects_schedule_complete_false_when_the_schedule_is_exhausted(tmp_path, stub_coverage_schedule):
+    n_rows = len(stub_coverage_schedule.rows)
+    data = _valid_coverage_verdict(stub_coverage_schedule, schedule_complete=False, battles_played=n_rows)
+    with pytest.raises(StrengthHoldoutRunError, match="schedule_complete"):
+        _cov_call(tmp_path, stub_coverage_schedule, data)
+
+
+def test_coverage_rejects_battles_played_exceeding_canonical_schedule_rows(tmp_path, stub_coverage_schedule):
+    n_rows = len(stub_coverage_schedule.rows)
+    data = _valid_coverage_verdict(stub_coverage_schedule, battles_played=n_rows + 1)
+    with pytest.raises(StrengthHoldoutRunError, match="battles_played"):
+        _cov_call(tmp_path, stub_coverage_schedule, data)
+
+
+def test_coverage_rejects_a_cell_decisions_exceeding_scored_decisions(tmp_path, stub_coverage_schedule):
+    data = _valid_coverage_verdict(stub_coverage_schedule)
+    data["cell_counts"]["slot0"]["decisions"] = data["scored_decisions"] + 1
+    with pytest.raises(StrengthHoldoutRunError, match="decisions"):
+        _cov_call(tmp_path, stub_coverage_schedule, data)
+
+
+def test_coverage_rejects_a_cell_distinct_battles_exceeding_battles_played(tmp_path, stub_coverage_schedule):
+    data = _valid_coverage_verdict(stub_coverage_schedule)
+    data["cell_counts"]["slot0"]["distinct_battles"] = data["battles_played"] + 1
+    with pytest.raises(StrengthHoldoutRunError, match="distinct_battles"):
+        _cov_call(tmp_path, stub_coverage_schedule, data)
+
+
+def test_coverage_wraps_a_canonical_schedule_rebuild_failure(tmp_path, monkeypatch):
+    # Task 7 review-fix (P1 #1): a foreign exception from the real rebuild (e.g. a lower-level
+    # Panel/Schedule ValueError) must never escape this module raw -- only StrengthHoldoutRunError.
+    def _boom(**kwargs):
+        raise ValueError("simulated coverage schedule rebuild failure")
+
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_verdict.build_coverage_live_schedule", _boom,
+    )
+    data = _valid_coverage_verdict(_fake_coverage_schedule())
+    path = _write_json(tmp_path, "cov_verdict.json", data)
+    with pytest.raises(StrengthHoldoutRunError, match="rebuild"):
+        verify_coverage_verdict_artifact(verdict_path=path, teams_root=str(tmp_path), **_IDENTITY_KWARGS)
 
 
 def test_coverage_rejects_wrong_cell_floors_values(tmp_path, stub_coverage_schedule):

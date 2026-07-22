@@ -220,7 +220,22 @@ def verify_i8d_verdict_artifact(
     _check_nonempty_str(data["hero_team_hash"], field="hero_team_hash", verdict_path=verdict_path, gate_name=gate_name)
     _check_list_of_nonempty_strs(data["opp_team_hashes"], field="opp_team_hashes", verdict_path=verdict_path, gate_name=gate_name)
 
-    canonical = build_i8d_canonical_schedule(teams_root=teams_root)
+    try:
+        canonical = build_i8d_canonical_schedule(teams_root=teams_root)
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad: any rebuild failure (a
+        # lower-level Panel/Schedule error, a missing file, ...) must translate to
+        # StrengthHoldoutRunError, never escape this module raw.
+        raise StrengthHoldoutRunError(
+            f"failed to rebuild the canonical {gate_name} schedule from "
+            f"teams_root={teams_root!r}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if data["battles_played"] > len(canonical.rows):
+        raise StrengthHoldoutRunError(
+            f"the {gate_name} verdict at {verdict_path!r} has battles_played "
+            f"{data['battles_played']!r} > the canonical {gate_name} schedule's "
+            f"{len(canonical.rows)} row(s): a genuine run can never play more battles than the "
+            f"schedule has"
+        )
     if data["schedule_hash"] != canonical.schedule_hash:
         raise StrengthHoldoutRunError(
             f"the {gate_name} verdict at {verdict_path!r} has schedule_hash "
@@ -333,7 +348,22 @@ def verify_coverage_verdict_artifact(
     _check_nonempty_str(data["hero_team_hash"], field="hero_team_hash", verdict_path=verdict_path, gate_name=gate_name)
     _check_list_of_nonempty_strs(data["opp_team_hashes"], field="opp_team_hashes", verdict_path=verdict_path, gate_name=gate_name)
 
-    canonical = build_coverage_live_schedule(teams_root=teams_root)
+    try:
+        canonical = build_coverage_live_schedule(teams_root=teams_root)
+    except Exception as exc:  # noqa: BLE001 -- deliberately broad: any rebuild failure (a
+        # lower-level Panel/Schedule error, a missing file, ...) must translate to
+        # StrengthHoldoutRunError, never escape this module raw.
+        raise StrengthHoldoutRunError(
+            f"failed to rebuild the canonical {gate_name} schedule from "
+            f"teams_root={teams_root!r}: {type(exc).__name__}: {exc}"
+        ) from exc
+    if data["battles_played"] > len(canonical.rows):
+        raise StrengthHoldoutRunError(
+            f"the {gate_name} verdict at {verdict_path!r} has battles_played "
+            f"{data['battles_played']!r} > the canonical {gate_name} schedule's "
+            f"{len(canonical.rows)} row(s): a genuine run can never play more battles than the "
+            f"schedule has"
+        )
     if data["schedule_hash"] != canonical.schedule_hash:
         raise StrengthHoldoutRunError(
             f"the {gate_name} verdict at {verdict_path!r} has schedule_hash "
@@ -358,8 +388,18 @@ def verify_coverage_verdict_artifact(
             f"the {gate_name} verdict at {verdict_path!r} has schedule_complete "
             f"{data['schedule_complete']!r}, not a bool: not a genuine {gate_name} gate artifact"
         )
-    # NOTE: schedule_complete's VALUE is deliberately not required to be True here -- a coverage
-    # PASS can legitimately happen before the schedule is exhausted (the floor stop fires first).
+    # schedule_complete is NOT required to be True -- a coverage PASS can legitimately happen
+    # before the schedule is exhausted (the floor stop fires first). But its value must exactly
+    # reflect whether the schedule genuinely was exhausted (Task 7 review-fix, P1 #2): True only
+    # when battles_played == every row of the canonical schedule, False otherwise.
+    expected_schedule_complete = data["battles_played"] == len(canonical.rows)
+    if data["schedule_complete"] != expected_schedule_complete:
+        raise StrengthHoldoutRunError(
+            f"the {gate_name} verdict at {verdict_path!r} has schedule_complete "
+            f"{data['schedule_complete']!r}, but battles_played {data['battles_played']!r} "
+            f"{'==' if expected_schedule_complete else '!='} the canonical schedule's "
+            f"{len(canonical.rows)} row(s): schedule_complete must reflect that exactly"
+        )
 
     # A straight equality check against the pinned floors is type-safe for ANY value of
     # data["cell_floors"] (a dict != a list/int/str/None never raises), so this ALSO serves as
@@ -398,6 +438,20 @@ def verify_coverage_verdict_artifact(
             _check_nonnegative_int(
                 counts[count_field], field=f"cell_counts[{cell!r}][{count_field!r}]",
                 verdict_path=verdict_path, gate_name=gate_name,
+            )
+        if counts["decisions"] > data["scored_decisions"]:
+            raise StrengthHoldoutRunError(
+                f"the {gate_name} verdict at {verdict_path!r} has "
+                f"cell_counts[{cell!r}]['decisions']={counts['decisions']!r} > scored_decisions "
+                f"{data['scored_decisions']!r}: a cell's decisions cannot outnumber all scored "
+                f"decisions"
+            )
+        if counts["distinct_battles"] > data["battles_played"]:
+            raise StrengthHoldoutRunError(
+                f"the {gate_name} verdict at {verdict_path!r} has "
+                f"cell_counts[{cell!r}]['distinct_battles']={counts['distinct_battles']!r} > "
+                f"battles_played {data['battles_played']!r}: a cell's distinct battles cannot "
+                f"outnumber all battles played"
             )
 
     if data["safety_violations"] != 0:
