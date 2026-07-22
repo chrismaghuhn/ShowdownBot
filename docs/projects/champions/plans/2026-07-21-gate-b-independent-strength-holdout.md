@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 11)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 14)
 
-> **Status: PROPOSED, Rev. 11 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 14 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
@@ -97,11 +97,70 @@
 >   specified. Fixed by hashing `panel_hash` directly, not by adopting `compute_schedule_hash` --
 >   `BattleKey` has no `hero_team_path`/`opp_team_path` fields to give that function, since team
 >   files do not exist before Task 13.
+> - **Rev. 11 → Rev. 12** (§1k, 2 user-found): not a new Codex review round -- two findings
+>   delivered directly by the user, verified against this document's own Task 2 code block before
+>   any fix. **P1 #1:** `_is_allowed`'s `path == prefix or path.startswith(prefix)` applied
+>   `.startswith` to single FILE entries in `ALLOWED_PATH_PREFIXES`, not just directories --
+>   `"config/eval/heldout_ledger.jsonl.evil"` (and two similarly-shaped paths) wrongly passed the
+>   allowlist. Fixed by splitting `ALLOWED_EXACT_PATHS` (exact match only) from
+>   `ALLOWED_DIRECTORY_PREFIXES` (prefix match, safe because every entry already ends in `/`).
+>   **P1 #2:** the content-leakage scan (`scan_for_content_leakage`) only ever looked at `.txt`
+>   files under `showdown_bot/teams/` with a co-located `.packed` partner, hashed the combined
+>   pair as one whole-file digest, and compared only against other similarly-shaped team files --
+>   invisible to a payload copied into a report, a test, a `.txt`-only copy with no `.packed`
+>   sibling, or embedded inside a larger tracked file, none of which DESIGN sec 3.3's repo-wide
+>   contract exempts. Fixed by replacing it with `scan_for_raw_payload_leakage`: a byte-exact
+>   substring scan of every git-tracked file's COMMITTED blob content (immune to Windows
+>   `core.autocrlf` working-copy drift) against the sealed teams' own committed `.txt`/`.packed`
+>   payloads, fail-closed on an empty payload or an unreadable blob. `Task 10`'s call site and
+>   `Task 13`'s definition-of-done wording are updated to match; `Task 12` was checked and needs
+>   no change (§1k).
+> - **Rev. 12 → Rev. 13** (§1l, 2 more findings, second review round on the Rev. 12 fix itself):
+>   the original two P1s were confirmed closed, but Rev. 12's own fix left two further
+>   execution-blocking gaps. **P1:** `assert_no_holdout_leakage`/`scan_for_raw_payload_leakage`
+>   accepted an empty or incomplete `team_ids` -- a `holdout_content_hashes` covering only some of
+>   the six scheduled teams would silently leakage-scan only that subset, and nothing anywhere
+>   checked the map against the schedule's real team set. Fixed with two layers: Task 9's arm
+>   manifest now records the sorted six `holdout_team_ids` it actually scheduled; Task 10 requires
+>   both arms to agree on that list (folded into the existing `schedule_hash`/`panel_hash`/
+>   `seed_base` agreement check) AND requires it to exactly equal `holdout_content_hashes.keys()`,
+>   aborting before any guard runs otherwise; `scan_for_raw_payload_leakage` itself also now
+>   rejects an empty `team_ids` list directly, fail-closed, independent of the caller-side check.
+>   **P1:** Task 10's own GREEN tests could not have passed against the real scanner --
+>   `_fake_holdout_hashes()` named team IDs with no committed `.txt`/`.packed` blobs anywhere, and
+>   every test that reaches `assert_no_holdout_leakage` used `teams_root="."` (the real ambient
+>   worktree, which has no sealed teams -- Task 13 is still blocked), so the real
+>   `scan_for_raw_payload_leakage` would raise `LeakageScanError` before any test's actual
+>   assertion. Fixed by adding `_write_holdout_teams_repo`, a real, isolated, per-test git repo
+>   seeded with six committed, allowlist-conformant sealed teams, and pointing every test that
+>   genuinely reaches the leakage scan at it (`teams_root=`, real `holdout_content_hashes=`) --
+>   the guard is not mocked away anywhere; it runs for real, against real committed content.
+> - **Rev. 13 → Rev. 14** (§1m, 1 P1 + 1 P2, third review round): Codex, not the user directly
+>   this time. **P1:** Rev. 13's `holdout_team_ids` was itself only ever an ASSERTION -- a bare
+>   list of six team IDs the manifest claimed, never bound to what `rows.jsonl` actually contains.
+>   `_assert_rows_match_manifest` checked the field for PRESENCE only; nothing verified a row's own
+>   `opp_team_path`/`opp_team_hash` against it. Both arms' manifests, and the caller-supplied
+>   `holdout_content_hashes`, could therefore all agree on the same six WRONG team identities while
+>   the real rows referenced entirely different opponents, and the leakage/disjointness guards
+>   would scan for the asserted teams, never the real ones. Fixed by replacing the bare list with a
+>   canonical mapping, `holdout_teams: {team_id: {"team_path", "content_hash"}}`, that Task 9
+>   derives only from the real scheduled battle-keys, the canonical `HOLDOUT_TEAMS_DIR` path
+>   convention, and the real sealed content hashes -- and that Task 10 now validates structurally
+>   (closed shape, exactly six entries, canonical paths, non-empty strings, no unknown fields) AND
+>   binds to every row (`opp_team_path` must be one of the six, `opp_team_hash` must match its
+>   team's declared hash, all six teams must actually appear) before trusting it for anything.
+>   `holdout_content_hashes` is now checked for full dict equality against the bound mapping, not
+>   just key-set equality. **P2:** the paragraph after Task 10's tests claimed empty guard inputs
+>   were a legitimate test choice and that every guard ran "for real" in every test -- stale
+>   relative to Rev. 13/14's actual design (empty inputs are rejected everywhere; only the
+>   early-abort tests use cheap fake data, and only because they never reach the guard). Corrected
+>   to describe the real Rev. 14 split.
 >
-> As of Rev. 11: Task 1 (including this revision's `panel_hash` fix) has been implemented,
-> tested, and committed on branch `feat/champions-gate-b-task-1-schedule` -- not yet merged to
-> `main`. Tasks 2–13 remain unexecuted: nothing has been run, no server or battle has touched
-> any worktree beyond Task 1's own code and tests, and no team file or sealed hash exists.
+> As of Rev. 14: Task 1 (including Rev. 11's `panel_hash` fix) has been implemented, tested, and
+> committed on branch `feat/champions-gate-b-task-1-schedule` -- not yet merged to `main`. Task 2's
+> plan text is corrected across Rev. 12/13/14 (§1k, §1l, §1m) but, like Tasks 3–13, remains
+> unimplemented: nothing has been run, no server or battle has touched any worktree beyond Task 1's
+> own code and tests, and no team file or sealed hash exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -318,8 +377,8 @@ than an entire unaudited module — down from two full trust-boundary rows in Re
 | `LedgerError` | `append_entry(...)` | yes (Rev. 6, unchanged) | `GateBAbort` |
 | `AccessBudgetError` | `check_access(...)` | no — deliberate | raw `AccessBudgetError` |
 | `HoldoutNotDisjointError` | `assert_disjoint_from_coverage(...)` | no — deliberate | raw `HoldoutNotDisjointError` |
-| `LeakageDriftError` | `assert_no_holdout_leakage(...)` → `scan_for_leakage`/`scan_for_content_leakage` | no — deliberate | raw `LeakageDriftError` |
-| `LeakageScanError` (Rev. 8, NF4) | `assert_no_holdout_leakage(...)` → `_git_tracked_files`/`_grep_identifier` (git infra failure, distinct from an actual leak finding) | no — deliberate, same reasoning as `LeakageDriftError` | raw `LeakageScanError` |
+| `LeakageDriftError` | `assert_no_holdout_leakage(...)` → `scan_for_leakage`/`scan_for_raw_payload_leakage` (Rev. 12, §1k, P1 #2: renamed and rebuilt from `scan_for_content_leakage`, now a repo-wide byte-exact scan) | no — deliberate | raw `LeakageDriftError` |
+| `LeakageScanError` (Rev. 8, NF4; Rev. 12 §1k added `_read_git_blob` as a third source) | `assert_no_holdout_leakage(...)` → `_git_tracked_files`/`_grep_identifier`/`_read_git_blob` (git infra failure, or a sealed team's committed blob unreadable, distinct from an actual leak finding) | no — deliberate, same reasoning as `LeakageDriftError` | raw `LeakageScanError` |
 | `StrataPoolingError` / `UnattestedStratumError` | `assert_no_cross_stratum_pooling(...)` | no — deliberate | raw |
 
 **What "caught by the CLI" means today, still:** `run_strength_holdout_combine_cli` (Task 11)
@@ -479,6 +538,70 @@ means when pairing candidate and baseline rows for McNemar. Changing the hash fo
 point would invalidate every row and frozen constant already produced under the old formula. Task
 1 is the last point in the plan's own sequencing where this fix is free.
 
+## 1k. What changed in Rev. 12 — allowlist prefix-matching and a repo-wide raw-content scan
+
+Not from a new Codex review round -- two findings delivered directly by the user, verified against
+this document's own Task 2 code block (the only place either bug could live, since Task 2 has not
+been implemented as real code yet) before any fix, per this plan's own standing discipline of
+checking a review claim against the actual text rather than trusting the finding's framing.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| U2 — user-found, P1 | `_is_allowed`'s `path == prefix or path.startswith(prefix)` (§5, Step 3) applied `.startswith` to EVERY entry in `ALLOWED_PATH_PREFIXES` alike, including four single FILES (`panel_champions_strength_holdout_v0.yaml`, the manifest `.json`, the baseline `.json`, `heldout_ledger.jsonl`) that carry no trailing separator to stop a longer path from matching as a false "child". `"config/eval/heldout_ledger.jsonl.evil"`, `"config/eval/panels/panel_champions_strength_holdout_v0.yaml.backup"`, and `"config/eval/holdout/champions_strength_holdout_v0_manifest.json/copied"` all wrongly passed `_is_allowed` under the Rev. 11 text. | Reproduced the bug by hand against the literal Rev. 11 code block: `"...jsonl.evil".startswith("...jsonl")` is `True` in Python, and the same holds for the other two paths against their respective single-file entries. Separately confirmed the two DIRECTORY entries (`showdown_bot/teams/panel_champions_strength_holdout_v0/`, `data/eval/champions-panel-v0/strength-holdout-v0/`) were never vulnerable to this shape of bypass -- both already end in `/`, so `"...v0_evil/x".startswith("...v0/")` is `False` (the `/` itself breaks the match); the bug was specific to the single-file entries lacking that same trailing separator, not a property of prefix-matching in general. | `_is_allowed` now checks `ALLOWED_EXACT_PATHS` (`==` only) before falling back to `ALLOWED_DIRECTORY_PREFIXES` (`.startswith`, unchanged logic, now applied only to the four entries where it was always safe); paths are normalized to forward slashes first so a caller-supplied Windows-style path can't bypass or miss the allowlist on separator form alone (§5, Step 3) |
+| U3 — user-found, P1 | The content-leakage scan (`scan_for_content_leakage` + `_all_tracked_team_content_hashes`, §5, Step 3, Rev. 10 and earlier) does not satisfy DESIGN sec 3.3's repo-wide contract for "packed/`.txt` content." It only ever iterates git-tracked files matching `showdown_bot/teams/*.txt`, silently skips (`except PanelError: continue`) any that lack a co-located `.packed` sibling, hashes the `.txt`+`.packed` PAIR as one combined digest (`panel.team_content_hash`), and flags a hit only when another file's OWN combined digest matches exactly. A `.txt` payload pasted into a report or test, a `.packed` payload pasted anywhere, a bare `.txt` copy with no `.packed` partner, or a payload embedded inside a larger tracked file all produce **no combined hash at all** for the leaking file (it either isn't under `showdown_bot/teams/`, isn't a whole-file `.txt`, or has no `.packed` partner to pair with) and are therefore structurally invisible to this scan, regardless of the allowlist fix above. Separately, `panel.team_content_hash` reads via `Path.read_text()` -- the working-copy filesystem, not the git object database -- so even a same-shaped comparison would be sensitive to this repo's global `core.autocrlf=true` translation on a Windows checkout, a channel neither leg of the old comparison defended against. | Re-read the Rev. 11 `_all_tracked_team_content_hashes`/`scan_for_content_leakage` code block line by line against DESIGN sec 3.3's own text ("a scan of git-tracked content for each holdout identifier (`team_hash`, `team_path`, `team_id`, packed/`.txt` content) must return zero hits outside the holdout's own operational artifacts... every *other* team file under `showdown_bot/teams/`... plus `reports/`, docs, tests, and tooling") -- confirmed each of the four gaps above is real and not merely hypothetical: the loop's own `if not path.startswith("showdown_bot/teams/") or not path.endswith(".txt"): continue` guard structurally excludes `reports/`, `docs/`, `tests/`, and tooling before any hashing happens. Re-read `panel.py::_team_content_hash` (`panel.py:51-59`): both files are opened via `.read_text(encoding="utf-8")`, confirming the CRLF-sensitivity claim against the real function, not by inference. | `scan_for_content_leakage`/`_all_tracked_team_content_hashes` removed; replaced by `scan_for_raw_payload_leakage(team_ids, *, cwd=".")` (§5, Step 3) -- for each sealed team_id, reads its `.txt` and `.packed` COMMITTED blob (`git show HEAD:<path>`, derived from the fixed `HOLDOUT_TEAMS_DIR` convention the allowlist already uses) as two separate search needles, then checks every OTHER git-tracked file's own COMMITTED blob bytes for either payload as a **substring** (not whole-file equality) -- catching a partial/embedded copy, requiring no `.packed` partner on the comparison side, and covering the full repo, not just `showdown_bot/teams/`. Reading committed blobs on BOTH sides of every comparison (needle and haystack alike) makes the result independent of working-copy line-ending state. Fails closed: an empty payload raises `ValueError` before any scan runs (`b"" in x` is trivially `True` in Python and would otherwise make the scan a silent no-op); a blob that cannot be read (missing path, not a git repo, `git` not on `PATH`) raises `LeakageScanError`, the same exception class `_git_tracked_files`/`_grep_identifier` already use for infra failures (§1g, NF4), not silently skipped and not conflated with `LeakageDriftError` (which means "scan ran, found a leak"). The existing combined `panel.team_content_hash` is **not** replaced -- it remains the correct tool for team identity and disjointness (Task 5's `assert_disjoint_from_coverage`, Task 9's `opp_team_hash` row-stamping), which legitimately want one hash per whole team; it was never the right tool for THIS scan specifically. |
+
+**Downstream, checked against the new signature (`assert_no_holdout_leakage(*, identifiers, team_ids, teams_root=".")`, replacing `content_hashes`):**
+
+- **Task 10** (§13): the only real production call site. `assert_no_holdout_leakage(identifiers=..., content_hashes=holdout_content_hashes, teams_root=teams_root)` becomes `assert_no_holdout_leakage(identifiers=..., team_ids=list(holdout_content_hashes.keys()), teams_root=teams_root)` -- `holdout_content_hashes` itself is unchanged (still required, still non-empty-checked, still feeds `assert_disjoint_from_coverage` for team identity, per U3's own "not replaced" note above); only what gets extracted from it for the leakage call changes. No new parameter was added to `combine_strength_holdout_arms` -- team IDs were already available as that dict's keys.
+- **Task 11** (§14): checked, no change. Both CLI handlers unconditionally `raise GateBAbort(...)` today, pending Task 13 -- neither constructs a real call to `combine_strength_holdout_arms` or names `content_hashes`/`team_ids` anywhere in its current text, so there is no stale signature to fix here yet.
+- **Task 12** (§15): checked, no change. `seal_team`/`SealedTeamRecord` compute and return the combined `team_content_hash` for provenance recording at seal time -- they were never a caller of the leakage guard and do not need to carry raw payload bytes: `scan_for_raw_payload_leakage` reads each sealed team's `.txt`/`.packed` payload itself, live, from its COMMITTED git blob at scan time (via `team_id` + `HOLDOUT_TEAMS_DIR`), which is more robust than threading a value captured once at seal time through two more task boundaries -- DESIGN sec 3.4 already guarantees the committed content cannot change after sealing ("After sealing they are not inspected, tuned against, or reshaped"), and by the time Task 10's `combine` step can run at all, Task 13's own definition-of-done (§16, item 7) already requires the sealed team files to be committed.
+- **Task 13** (§16): definition-of-done item 6 updated from "both identifier and content-hash scans" to "both the identifier scan and the raw `.txt`/`.packed` payload scan," matching the new function names; no other item changes.
+- **Tasks 3–9** (§6–§12): grepped the whole plan for every symbol this fix touches (`holdout_leakage_scan`, `assert_no_holdout_leakage`, `scan_for_content_leakage`, `LeakageDriftError`, `LeakageScanError`, `content_hashes`, `ALLOWED_PATH_PREFIXES`) -- no hits outside §1 (historical, unchanged on purpose), §1f (updated above), Task 2 itself, Task 10, Task 11, and Task 12/13. Task 9's similarly-named `holdout_team_content_hashes` parameter is a different thing entirely (per-row `opp_team_hash` provenance stamping, DESIGN sec 3.2/3.3's identity leg, not the leakage guard) and does not change.
+
+## 1l. What changed in Rev. 13 — the Rev. 12 fix itself was bypassable and its own tests couldn't have run
+
+Not a fresh Codex round on the whole plan -- a second review pass specifically on Rev. 12's own
+P1 #1/P1 #2 fix, delivered directly by the user. Both original P1s were confirmed closed; two new,
+execution-blocking gaps were found in how Rev. 12 wired the fix into Task 9/Task 10 and into its
+own tests.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| U4 — user-found, P1 | `assert_no_holdout_leakage`/`scan_for_raw_payload_leakage` accepted any `team_ids`, including an incomplete one. `combine_strength_holdout_arms` (§13) only ever checked `holdout_content_hashes` for non-emptiness, then passed `list(holdout_content_hashes.keys())` straight through -- a caller-supplied map covering one team instead of the real six would pass that check, and the guard would then silently scan for leakage of only that one team, the other five entirely unchecked. Nothing anywhere compared the map's keys against the schedule's actual team set. | Traced the real call path by hand against the literal Rev. 12 code: `if not holdout_content_hashes: raise GateBAbort(...)` is the only guard on that parameter; `team_ids=list(holdout_content_hashes.keys())` (§13's call site) accepts whatever keys happen to be present, one or six, with no cross-check against `build_strength_holdout_schedule`'s own 6-team requirement (Task 1) or against what the arms actually played. `scan_for_raw_payload_leakage` itself (§5) had no `team_ids` emptiness check either -- an empty list would make its own payload-collection loop a no-op, `payloads={}`, so every tracked file "passes" trivially. | Two layers, not one: (1) Task 9's arm manifest now records `holdout_team_ids` -- `sorted(scheduled_team_ids)`, already computed for the existing missing-hashes check, just also written out (§12). (2) Task 10 folds `holdout_team_ids` into the existing arm-vs-arm agreement loop (`schedule_hash`/`panel_hash`/`seed_base`) and adds a new, separate check requiring `set(manifest_a["holdout_team_ids"]) == set(holdout_content_hashes)` exactly -- missing, extra, or wrong team_ids abort with a named `GateBAbort` before any guard below runs (§13). (3) `scan_for_raw_payload_leakage` (§5) independently rejects an empty `team_ids` with `ValueError`, fail-closed, regardless of what any caller checks -- defense in depth, not a replacement for (2). |
+| U5 — user-found, P1 | Task 10's own Rev. 12 GREEN tests could not have passed against the real `scan_for_raw_payload_leakage` (once Task 10 is actually implemented) -- every test reaching `assert_no_holdout_leakage` relied on the default `teams_root="."`, i.e. the real ambient worktree, which has no sealed holdout teams (Task 13 is still blocked) and certainly none at the fake `holdout_0`/`holdout_1` paths `_fake_holdout_hashes()` implied. The real scanner would call `git show HEAD:showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt` against that worktree, get a nonzero exit (the path doesn't exist), and raise `LeakageScanError` -- uncaught by any of those tests' `pytest.raises(GateBAbort, ...)`/`pytest.raises(HoldoutNotDisjointError, ...)`/etc. assertions, well before whatever each test actually meant to exercise. | Confirmed `_fake_holdout_hashes()` (§13's Rev. 5-11 fixture) returned bare strings (`"aaaa1111bbbb2222"`), never anything computed from real file content, and that no test in Task 10's block passed `teams_root=` at all -- both facts read directly off the literal Rev. 12 test code. Cross-checked against `_read_git_blob`'s real behavior (§5): `git show HEAD:<path>` on a path absent from the tree exits non-zero under `check=True`, which is exactly the `LeakageScanError` path. | Added `_write_holdout_teams_repo(tmp_path)` (§13): a real, isolated, per-test git repo (fresh `tmp_path`-scoped, so no cross-test leakage) seeded with six committed `.txt`+`.packed` team files at the real `HOLDOUT_TEAMS_DIR` convention, returning `(teams_root, holdout_content_hashes)` with the LATTER computed via the real `panel.team_content_hash`, not a fake string. Every test that genuinely reaches the leakage scan (9 of the pre-existing tests, plus both new team-set-mismatch tests -- the mismatch tests abort *before* the scan, so they don't need it) now uses this fixture's `teams_root=`/`holdout_content_hashes=`; the 10 tests that abort earlier (an i8d/coverage-path guard, an arm-read/manifest-schema guard, an arm-role/git_sha mismatch) correctly keep the cheaper `_fake_holdout_hashes()`, since the guard never runs for them either way -- disclosed here, not left to look like an oversight. `assert_no_holdout_leakage` is not mocked away anywhere in this plan; every test that reaches it runs the real function against real committed content, per DESIGN's own testing discipline (§17.3's standing check: prove trust, don't assume it). |
+
+**Downstream, re-checked:** Task 11 (§14) still constructs no real call to `combine_strength_holdout_arms` -- unaffected, no change. Task 12 (§15) still only computes the combined `team_content_hash` for provenance, never calls the leakage guard -- unaffected, no change; its own Rev. 12 note (verified, no change needed) still holds. Task 13 (§16) item 6's wording (Rev. 12) already described "the raw `.txt`/`.packed` payload scan" generically enough that it needed no further edit for this round -- the team-set cross-check is a Task 9/Task 10 concern, not a Task 13 definition-of-done wording issue.
+
+## 1m. What changed in Rev. 14 — a manifest's team claim was never bound to its own rows
+
+A third review round, this time explicitly from Codex (not the user directly, unlike §1k/§1l).
+Verified against the literal Rev. 13 text before any fix, per this plan's own standing
+discipline.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| P1 (Rev. 14) | `holdout_team_ids` (Rev. 13) was a bare list the arm manifest CLAIMED -- `_assert_rows_match_manifest` (§13) checked it only for PRESENCE (`_MANIFEST_REQUIRED_KEYS`), never for agreement with what `rows` actually contain. Nothing bound a row's own `opp_team_path`/`opp_team_hash` to the manifest's declared team set. Both arms' manifests, and the caller-supplied `holdout_content_hashes`, could therefore all assert the identical six WRONG team identities -- passing every Rev. 13 check (arm-vs-arm agreement, key-set equality against the hash map) -- while `rows.jsonl` actually recorded battles against entirely different opponents. The leakage/disjointness guards would then scan for the six ASSERTED teams, never the six REAL ones, defeating DESIGN sec 3.3's repo-wide contamination check at its root. | Re-read `_assert_rows_match_manifest` (§13) and `_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK` line by line against the literal Rev. 13 code: `holdout_team_ids` was in `_MANIFEST_REQUIRED_KEYS` (presence-checked) but absent from `_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK` (the only content-match loop that function had) -- confirmed structurally impossible for that loop to have caught a manifest/row disagreement about team identity even if someone had added the field to it, since that loop compares a row field against exactly ONE manifest-wide scalar, and `opp_team_path`/`opp_team_hash` legitimately vary per row (one of six teams each). Re-read Task 9's `_capture` closure (§12): `opp_team_path`/`opp_team_hash` ARE the real per-battle ground truth, stamped from `key.holdout_team_id` and `holdout_team_content_hashes[key.holdout_team_id]` -- exactly the data a manifest claim needs to be checked against, and never was. | Replaced the bare list with a canonical mapping, `holdout_teams: {team_id: {"team_path": str, "content_hash": str}}` (§12, Task 9) -- derived ONLY from the real scheduled `schedule.battle_keys`, the canonical `HOLDOUT_TEAMS_DIR` path convention (now a single shared constant, no longer hardcoded twice), and `holdout_team_content_hashes[team_id]`. `_assert_rows_match_manifest` (§13) now runs two new checks, both before the pre-existing scalar loop: `_validate_holdout_teams_mapping` (closed shape -- object/mapping, exactly six entries, non-empty string keys/fields, no unknown fields, canonical `team_path` per `team_id`) and `_assert_rows_bind_to_holdout_teams` (every row's `opp_team_path` must be one of the declared six, `opp_team_hash` must equal that team's declared `content_hash`, and all six declared teams must actually appear in the rows at least once). The arm-vs-arm loop now compares `holdout_teams` (structural equality, dict-vs-dict); the cross-check against `holdout_content_hashes` is now full dict equality (keys AND values, catching a right-key/wrong-hash caller map that Rev. 13's key-set-only check would have missed); and the leakage guard's `team_ids=` argument is sourced from the validated, row-bound `manifest_a["holdout_teams"]`, not from the caller-supplied map directly. Eight new RED tests (§13) cover: both manifests claiming the same wrong teams while rows stay real; a correct team_id with a wrong `content_hash`; a correct team_id with a non-canonical `team_path`; one corrupted row with an unknown `opp_team_path`; a declared team that never appears in any row; all four malformed `holdout_teams` shapes (null/string/array/unknown-field) in one parametrized test; a caller `holdout_content_hashes` with the right keys but a wrong value; and the full six-real-team success path (the pre-existing Rev. 13 test, now also exercising every new check for real). |
+| P2 (Rev. 14) | The prose paragraph directly below Task 10's RED test block (§13) claimed guard inputs were legitimately "empty (if empty)" in tests and that every guard "actually run[s] ... in every test above, for real" -- both stale relative to what Rev. 13/14's own test suite actually does: empty inputs are rejected everywhere (Rev. 13 already made this unconditional), and only the tests that structurally reach `assert_no_holdout_leakage` exercise it for real; the ten early-abort tests deliberately use cheap, non-git-backed fixture data precisely because the guard never runs for them. | Re-read the paragraph against the actual Rev. 13 test bodies: no test passes `{}` or any other empty value for `holdout_content_hashes`/`reference_species` (confirmed by grep); `_write_holdout_teams_repo` (real git-backed) is used by exactly the tests that reach the guard, `_fake_holdout_hashes()` by the rest -- the paragraph described neither fact accurately. | Rewritten (§13, directly below the RED test block) to state the real Rev. 13/14 split: no empty inputs anywhere; early-abort tests use cheap fake data because the guard never runs for them, disclosed as deliberate rather than implied to be "real" coverage; every test that reaches the guard uses real committed `.txt`/`.packed` fixtures via `_write_holdout_teams_repo` and the real scanner, never a mock. |
+
+**Notable side effect, disclosed:** `test_combine_wraps_a_non_missing_pair_error_too` (§13) previously
+used `n=2` and corrupted `rows.jsonl` by replacing its entire content with two copies of row 0 --
+under the new "all six declared teams must appear in rows" check, that would have left five of
+six teams with zero rows, aborting at the NEW check instead of reaching `pair_runs` as the test
+intends. Fixed by moving to `n=12` (cycling all six teams twice each, matching the pattern every
+other test already uses) and a surgical corruption: row 6 (already, by construction, the SAME
+team as row 0) is overwritten to be byte-identical to row 0, creating the intended
+`(battle_id, config_hash)` duplicate without removing any team's representation. Not a new
+finding -- a consequence of P1's fix that would otherwise have silently broken this test's own
+intent.
+
+**Downstream, re-checked:** Task 11 (§14) and Task 12 (§15) -- unaffected, no change, same
+reasoning as §1l (neither constructs a real `combine_strength_holdout_arms` call or reads
+`holdout_teams`/`holdout_team_ids` in its current text). Task 13 (§16) -- unaffected; item 6's
+wording already covers "the raw `.txt`/`.packed` payload scan" generically. Task 9's OWN test
+suite (§12) needed no changes -- confirmed no test there inspects the manifest's exact key or
+value shape (grepped for `manifest.keys()`/`set(manifest)`/exact-dict assertions; none found
+outside `_assert_rows_match_manifest`'s own, now-extended, presence check).
+
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
 **Decision (user, this revision):** Option 1 — a published, concluded Reg M-A tournament source.
@@ -515,7 +638,7 @@ satisfied, in order, before any team file is created:**
 ```
 showdown_bot/src/showdown_bot/eval/
   strength_holdout_schedule.py   NEW  Task 1  -- 180-key schedule, now with a global seed_index
-  holdout_leakage_scan.py        NEW  Task 2  -- identifier grep + content-hash leakage guard
+  holdout_leakage_scan.py        NEW  Task 2  -- identifier grep + repo-wide raw-payload byte scan
   strata_guard.py                NEW  Task 3  -- fail-closed Windows/Kaggle stratum detection
   near_duplicate.py              NEW  Task 4  -- species-overlap near-duplicate flag (unchanged)
   holdout_disjointness.py        NEW  Task 5  -- exact-hash disjointness vs. frozen coverage (unchanged)
@@ -763,7 +886,7 @@ git commit -m "feat(champions): Gate B 180-key schedule with a global seed_index
 
 ---
 
-## 5. Task 2 — Leakage-drift guard (identifier grep + content-hash comparison)
+## 5. Task 2 — Leakage-drift guard (identifier grep + repo-wide raw-payload byte scan)
 
 **Files:**
 - Create: `showdown_bot/src/showdown_bot/eval/holdout_leakage_scan.py`
@@ -774,11 +897,10 @@ id) but cannot reliably find a whole multi-line team export appearing verbatim i
 `git grep`, like grep generally, matches per line, and no single line contains an embedded
 literal newline. DESIGN's own text requires scanning for both kinds of leak ("team_hash,
 team_path, team_id, **packed/.txt content**") — this task now does both: identifier grep for the
-short tokens, and a **content-hash comparison** (reusing `panel.team_content_hash`, not a
-bespoke hasher — see Task 12's fix for why that matters) for whole-file content leaks.
+short tokens, and (below, rebuilt Rev. 12) a **raw-payload byte scan** for whole-content leaks.
 
 **Fix vs. Rev. 4 (N3, §1d):** `teams_root` now genuinely reaches both the git-tracked-file
-listing and the content-hash computation — Rev. 4's `_all_tracked_team_content_hashes()` called
+listing and the content scan — Rev. 4's `_all_tracked_team_content_hashes()` called
 `_git_tracked_files()` with no argument, always scanning the ambient process CWD regardless of
 what `teams_root` the caller passed, and silently swallowing every resulting lookup failure via
 `except PanelError: continue` (fail-open, not fail-closed). Every `git` subprocess call now takes
@@ -786,23 +908,74 @@ an explicit `cwd`, so a test (or a caller with a non-default `teams_root`) is ne
 of whatever directory the test process happens to be running from — a real failure mode on
 Windows with multiple worktrees.
 
+**Fix vs. Rev. 11 (Rev. 12, §1k, P1 #1 + P1 #2 — user-found, verified against this exact code
+block before either fix):** `_is_allowed` applied one `.startswith`-based rule to both single
+files and directories, letting a suffix or pseudo-subpath (`heldout_ledger.jsonl.evil`,
+`...yaml.backup`, `...manifest.json/copied`) pass the allowlist — fixed by splitting
+`ALLOWED_EXACT_PATHS` (`==` only) from `ALLOWED_DIRECTORY_PREFIXES` (`.startswith`, safe because
+every entry already ends in `/`). Separately, the whole content-leakage scan
+(`scan_for_content_leakage`/`_all_tracked_team_content_hashes`, Rev. 10 and earlier) covered only
+`.txt` files under `showdown_bot/teams/` with a co-located `.packed` partner, as one combined
+whole-file hash, compared only against other similarly-shaped files — invisible to a payload
+copied into a report, a test, a bare `.txt` with no `.packed` partner, or embedded inside a larger
+file, and sensitive to this repo's own `core.autocrlf=true` working-copy translation on Windows
+besides. Replaced by `scan_for_raw_payload_leakage`, a repo-wide byte-exact substring scan over
+every git-tracked file's COMMITTED blob content. Full reasoning and the downstream Task 10/12/13
+impact: §1k.
+
+**Fix vs. Rev. 12 (Rev. 13, §1l, second review round P1):** `scan_for_raw_payload_leakage` now
+rejects an empty `team_ids` list itself (`ValueError`), fail-closed, independent of Task 10's own
+caller-side cross-check (§13) — an empty list previously made the whole scan a silent no-op.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # showdown_bot/tests/test_holdout_leakage_scan.py
+import os
+import subprocess
+
 import pytest
 
 from showdown_bot.eval.holdout_leakage_scan import (
-    scan_for_leakage, scan_for_content_leakage, assert_no_holdout_leakage,
-    LeakageDriftError, LeakageHit, _is_allowed,
+    scan_for_leakage, scan_for_raw_payload_leakage, assert_no_holdout_leakage,
+    LeakageDriftError, LeakageScanError, LeakageHit, _is_allowed,
 )
 
 
-def test_is_allowed_matches_holdouts_own_artifacts():
+def _init_repo(tmp_path, files: dict[str, bytes]) -> str:
+    """Real git repo fixture: init, write, add, commit every given path -> bytes, exactly as
+    given. Several tests below need REAL committed git blobs, not a monkeypatched stand-in for
+    the comparison logic -- the whole point of the raw-payload scan (P1 #2, Rev. 12 review) is
+    what it finds when it reads actual git-tracked content, including a case (CRLF) that mocking
+    the comparison alone could never exercise."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    # Local to this throwaway fixture repo only (never --global): the fixture writes exact bytes
+    # and must commit exactly those bytes, not whatever this machine's own core.autocrlf=true
+    # would rewrite them to on `git add` -- and gpgsign=false so a machine with commit signing
+    # enforced globally can't make this disposable fixture repo hang or fail.
+    subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True)
+    for rel_path, content in files.items():
+        full = repo / rel_path
+        full.parent.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(content)
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
+    return str(repo)
+
+
+def test_is_allowed_matches_exact_allowlisted_files():
     assert _is_allowed("config/eval/panels/panel_champions_strength_holdout_v0.yaml")
     assert _is_allowed("config/eval/holdout/champions_strength_holdout_v0_manifest.json")
     assert _is_allowed("config/eval/baselines/champions-strength-holdout-v0.json")
     assert _is_allowed("config/eval/heldout_ledger.jsonl")
+
+
+def test_is_allowed_matches_real_children_of_directory_prefixes():
     assert _is_allowed("showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt")
     assert _is_allowed("data/eval/champions-panel-v0/strength-holdout-v0/verdict.json")
 
@@ -811,6 +984,23 @@ def test_is_allowed_rejects_dev_and_coverage_paths():
     assert not _is_allowed("config/eval/schedules/champions_dev_gauntlet.yaml")
     assert not _is_allowed("showdown_bot/teams/panel_champions_v0/rain_offense.txt")
     assert not _is_allowed("config/eval/coverage/champions_coverage_v0_manifest.json")
+
+
+def test_is_allowed_rejects_suffix_and_pseudo_subpath_bypasses_of_exact_files():
+    # P1 #1 (Rev. 12 review): `path == prefix or path.startswith(prefix)` treated single FILES
+    # as prefixes too, so anything sharing that prefix -- regardless of what followed it --
+    # matched. Single files now require exact equality (ALLOWED_EXACT_PATHS); all three must be
+    # rejected under the fixed rule.
+    assert not _is_allowed("config/eval/heldout_ledger.jsonl.evil")
+    assert not _is_allowed("config/eval/panels/panel_champions_strength_holdout_v0.yaml.backup")
+    assert not _is_allowed("config/eval/holdout/champions_strength_holdout_v0_manifest.json/copied")
+
+
+def test_is_allowed_normalizes_backslashes_before_comparing():
+    # git itself always reports/expects forward slashes; a caller-supplied Windows-style path
+    # (e.g. from os.path.join on Windows) must not bypass or miss the allowlist on that account.
+    assert _is_allowed("showdown_bot\\teams\\panel_champions_strength_holdout_v0\\holdout_0.txt")
+    assert not _is_allowed("config\\eval\\heldout_ledger.jsonl.evil")
 
 
 def test_scan_for_leakage_finds_no_hits_for_an_identifier_absent_from_the_repo():
@@ -822,39 +1012,123 @@ def test_scan_for_leakage_rejects_empty_identifier():
         scan_for_leakage([""])
 
 
-def test_scan_for_content_leakage_flags_a_matching_content_hash_outside_the_allowlist(monkeypatch):
-    def fake_tracked_hashes(teams_root="."):
-        return {"config/eval/schedules/other.yaml": "deadbeefcafe0001"}
-    monkeypatch.setattr(
-        "showdown_bot.eval.holdout_leakage_scan._all_tracked_team_content_hashes", fake_tracked_hashes
+def test_scan_for_raw_payload_leakage_flags_txt_payload_copied_into_a_report(tmp_path):
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": b"|packed-0|",
+        "reports/some-analysis.md": b"# Analysis\n\n" + txt_payload,
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert any(h.path == "reports/some-analysis.md" for h in hits)
+
+
+def test_scan_for_raw_payload_leakage_flags_packed_payload_copied_into_a_test_fixture(tmp_path):
+    packed_payload = b"|packed-payload-bytes|"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": b"Fixture Mon @ Focus Sash\n",
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": packed_payload,
+        "showdown_bot/tests/fixtures/some_test_fixture.py": b"PACKED = " + packed_payload,
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert any(h.path == "showdown_bot/tests/fixtures/some_test_fixture.py" for h in hits)
+
+
+def test_scan_for_raw_payload_leakage_flags_payload_embedded_inside_a_larger_tracked_file(tmp_path):
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": b"|packed-0|",
+        # the payload sits in the MIDDLE of a much bigger tracked file -- not a whole-file match.
+        "docs/scratch/team-dump.json": b'{"unrelated": "prefix", "blob": "' + txt_payload + b'", "more": "suffix"}',
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert any(h.path == "docs/scratch/team-dump.json" for h in hits)
+
+
+def test_scan_for_raw_payload_leakage_flags_a_txt_only_copy_with_no_packed_partner(tmp_path):
+    # the OLD scan_for_content_leakage (Rev. 10 and earlier) required a co-located .packed file
+    # to even compute a comparable hash -- a .txt-only copy was invisible by construction
+    # (team_content_hash raised PanelError, silently skipped via `except PanelError: continue`).
+    # The raw-payload scan has no such precondition: it matches byte content directly.
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": b"|packed-0|",
+        # a bare .txt copy elsewhere, deliberately with NO .packed sibling at all.
+        "showdown_bot/teams/panel_champions_v0/suspicious_copy.txt": txt_payload,
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert any(h.path == "showdown_bot/teams/panel_champions_v0/suspicious_copy.txt" for h in hits)
+
+
+def test_scan_for_raw_payload_leakage_does_not_flag_the_holdouts_own_allowlisted_files(tmp_path):
+    txt_payload = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n"
+    packed_payload = b"|packed-0|"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": txt_payload,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": packed_payload,
+        # legitimate self-reference: the manifest happens to embed the team's own .txt content
+        # verbatim (e.g. a debug/export dump) -- must NOT be flagged, it's the holdout's own file.
+        "config/eval/holdout/champions_strength_holdout_v0_manifest.json": b'{"embedded": "' + txt_payload + b'"}',
+        "data/eval/champions-panel-v0/strength-holdout-v0/rows.jsonl": packed_payload,
+    })
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert hits == []
+
+
+def test_scan_for_raw_payload_leakage_rejects_an_empty_payload(tmp_path):
+    # fail-closed (P1 #2, Rev. 12 review): an empty payload would match every tracked file
+    # trivially (`b"" in x` is always True in Python) -- a silent no-op dressed up as "clean".
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": b"",
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": b"|packed-0|",
+    })
+    with pytest.raises(ValueError, match="empty"):
+        scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+
+
+def test_scan_for_raw_payload_leakage_rejects_an_empty_team_id_list():
+    # P1 fix (Rev. 13, §1l, second review round): an empty team_ids list must fail closed here
+    # too, independent of Task 10's own caller-side cross-check (defense in depth, not either/or)
+    # -- otherwise `payloads` stays {} and the scan silently "passes" without checking anything.
+    with pytest.raises(ValueError, match="team_ids must be non-empty"):
+        scan_for_raw_payload_leakage([])
+
+
+def test_scan_for_raw_payload_leakage_wraps_a_git_blob_read_failure(tmp_path):
+    # fail-closed (P1 #2, Rev. 12 review): a team_id with no actual committed blob at the
+    # conventional path (e.g. a caller passes a team_id that was never sealed/committed) must
+    # raise LeakageScanError, not silently scan with a missing/empty needle or crash raw.
+    repo = _init_repo(tmp_path, {"README.md": b"unrelated"})
+    with pytest.raises(LeakageScanError, match="could not read committed blob"):
+        scan_for_raw_payload_leakage(["never_sealed_team"], cwd=repo)
+
+
+def test_scan_for_raw_payload_leakage_reads_committed_bytes_not_the_crlf_working_copy(tmp_path):
+    # DESIGN sec 3.3 + P1 #2 (Rev. 12 review): panel.team_content_hash reads via
+    # Path.read_text(), which is subject to this repo's own global core.autocrlf=true translation
+    # on a Windows checkout -- a needle sourced that way would silently stop matching a haystack
+    # sourced from committed (LF) blob bytes the moment the working copy's line endings drift
+    # from what is actually committed. This scan must never have that failure mode: both the
+    # needle (the sealed payload) and every haystack file are read via `git show HEAD:<path>`,
+    # which returns the COMMITTED bytes regardless of what sits in the working copy right now.
+    payload_lf = b"Fixture Mon @ Focus Sash\nAbility: Levitate\n"
+    repo = _init_repo(tmp_path, {
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.txt": payload_lf,
+        "showdown_bot/teams/panel_champions_strength_holdout_v0/holdout_0.packed": b"|packed-0|",
+        "reports/leaked-copy.md": payload_lf,  # outside the allowlist -- the leak to catch
+    })
+    # Corrupt the WORKING COPY of the sealed team's own .txt to CRLF, post-commit, WITHOUT
+    # committing that change -- the committed blob (what `git show` reads) stays pure LF.
+    working_copy_path = os.path.join(
+        repo, "showdown_bot", "teams", "panel_champions_strength_holdout_v0", "holdout_0.txt",
     )
-    hits = scan_for_content_leakage({"holdout_0": "deadbeefcafe0001"})
-    assert len(hits) == 1
-    assert hits[0].path == "config/eval/schedules/other.yaml"
+    with open(working_copy_path, "wb") as fh:
+        fh.write(payload_lf.replace(b"\n", b"\r\n"))
 
-
-def test_scan_for_content_leakage_passes_teams_root_through(monkeypatch):
-    # N3 fix: teams_root must actually reach _all_tracked_team_content_hashes, not be silently
-    # dropped in favor of the ambient process CWD.
-    seen = {}
-
-    def fake_tracked_hashes(teams_root="."):
-        seen["teams_root"] = teams_root
-        return {}
-
-    monkeypatch.setattr(
-        "showdown_bot.eval.holdout_leakage_scan._all_tracked_team_content_hashes", fake_tracked_hashes
-    )
-    scan_for_content_leakage({"holdout_0": "deadbeefcafe0001"}, teams_root="some/other/root")
-    assert seen["teams_root"] == "some/other/root"
-
-
-def test_scan_for_content_leakage_ignores_a_non_matching_hash(monkeypatch):
-    monkeypatch.setattr(
-        "showdown_bot.eval.holdout_leakage_scan._all_tracked_team_content_hashes",
-        lambda teams_root=".": {"config/eval/schedules/other.yaml": "some-other-hash"},
-    )
-    assert scan_for_content_leakage({"holdout_0": "deadbeefcafe0001"}) == []
+    hits = scan_for_raw_payload_leakage(["holdout_0"], cwd=repo)
+    assert any(h.path == "reports/leaked-copy.md" for h in hits)
 
 
 def test_assert_no_holdout_leakage_raises_on_either_scan_type(monkeypatch):
@@ -863,21 +1137,36 @@ def test_assert_no_holdout_leakage_raises_on_either_scan_type(monkeypatch):
         lambda identifiers, cwd=".": [LeakageHit(identifier="leaked-id", path="config/eval/schedules/other.yaml", line="x")],
     )
     monkeypatch.setattr(
-        "showdown_bot.eval.holdout_leakage_scan.scan_for_content_leakage",
-        lambda content_hashes, teams_root=".": [],
+        "showdown_bot.eval.holdout_leakage_scan.scan_for_raw_payload_leakage",
+        lambda team_ids, cwd=".": [],
     )
+    # team_ids is a placeholder here (the real scan is mocked away) -- kept non-empty since an
+    # empty list is no longer a legal input to the real scan_for_raw_payload_leakage (Rev. 13).
     with pytest.raises(LeakageDriftError, match="leaked-id"):
-        assert_no_holdout_leakage(identifiers=["leaked-id"], content_hashes={})
+        assert_no_holdout_leakage(identifiers=["leaked-id"], team_ids=["placeholder"])
+
+
+def test_assert_no_holdout_leakage_raises_on_raw_payload_hits_too(monkeypatch):
+    monkeypatch.setattr(
+        "showdown_bot.eval.holdout_leakage_scan.scan_for_leakage",
+        lambda identifiers, cwd=".": [],
+    )
+    monkeypatch.setattr(
+        "showdown_bot.eval.holdout_leakage_scan.scan_for_raw_payload_leakage",
+        lambda team_ids, cwd=".": [LeakageHit(identifier="holdout_0:txt", path="reports/leak.md", line="(raw payload match)")],
+    )
+    with pytest.raises(LeakageDriftError, match="holdout_0:txt"):
+        assert_no_holdout_leakage(identifiers=[], team_ids=["holdout_0"])
 
 
 def test_git_tracked_files_wraps_a_called_process_error(tmp_path):
     # NF4 fix (Rev. 8): check=True raises subprocess.CalledProcessError when cwd is not a git
     # repository -- a real (not mocked) way to trigger it: point cwd at an empty tmp_path. This
-    # was unguarded and would escape scan_for_leakage/_all_tracked_team_content_hashes ->
+    # was unguarded and would escape scan_for_leakage/scan_for_raw_payload_leakage ->
     # assert_no_holdout_leakage -> combine_strength_holdout_arms as a raw traceback. The N3 fix
     # (Rev. 5) that made cwd/teams_root caller-controllable is exactly what makes this reachable:
     # a caller-supplied teams_root that isn't a git checkout now reaches git directly.
-    from showdown_bot.eval.holdout_leakage_scan import _git_tracked_files, LeakageScanError
+    from showdown_bot.eval.holdout_leakage_scan import _git_tracked_files
     with pytest.raises(LeakageScanError, match="could not list git-tracked files"):
         _git_tracked_files(cwd=str(tmp_path))
 
@@ -886,7 +1175,7 @@ def test_grep_identifier_wraps_a_missing_git_executable(monkeypatch):
     # Self-found sibling gap in the same module, same pass: _grep_identifier never set check=True
     # (a nonzero exit is already handled via the manual returncode check right below it), but
     # subprocess.run raises FileNotFoundError for a missing git executable regardless of check=.
-    from showdown_bot.eval.holdout_leakage_scan import _grep_identifier, LeakageScanError
+    from showdown_bot.eval.holdout_leakage_scan import _grep_identifier
 
     def _raise(*a, **kw):
         raise FileNotFoundError("git not found")
@@ -894,6 +1183,15 @@ def test_grep_identifier_wraps_a_missing_git_executable(monkeypatch):
     monkeypatch.setattr("showdown_bot.eval.holdout_leakage_scan.subprocess.run", _raise)
     with pytest.raises(LeakageScanError, match="could not run git grep"):
         _grep_identifier("some-id", ["some/file.txt"])
+
+
+def test_read_git_blob_wraps_a_called_process_error(tmp_path):
+    # a path that isn't tracked at HEAD (or cwd isn't a git repo) makes `git show HEAD:<path>`
+    # exit non-zero -- must surface as LeakageScanError, not a raw CalledProcessError.
+    from showdown_bot.eval.holdout_leakage_scan import _read_git_blob
+    repo = _init_repo(tmp_path, {"README.md": b"unrelated"})
+    with pytest.raises(LeakageScanError, match="could not read committed blob"):
+        _read_git_blob("no/such/path.txt", cwd=repo)
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -906,25 +1204,28 @@ Expected: FAIL with `ModuleNotFoundError`
 ```python
 # showdown_bot/src/showdown_bot/eval/holdout_leakage_scan.py
 """Repo-wide leakage-drift guard for the Gate B strength holdout (DESIGN sec 3.3): scans for
-BOTH short identifiers (team_hash/team_path/team_id -- line-based grep is fine here) AND whole
-team content appearing elsewhere (packed/.txt content -- grep cannot reliably match multi-line
-content, so this compares canonical content hashes instead, via the same panel.team_content_hash
-every other gate already trusts)."""
+BOTH short identifiers (team_hash/team_path/team_id -- line-based grep is fine here) AND the
+actual sealed .txt/.packed CONTENT appearing anywhere else in the repo (packed/.txt content --
+grep cannot reliably match multi-line content, and a whole-file combined-hash comparison misses a
+payload copied into a bigger file or copied without its hash-partner -- see Rev. 12 review's
+P1 #2, §1k, fixed this revision by a byte-exact substring scan over every git-tracked file's
+COMMITTED content)."""
 from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
 
-from showdown_bot.eval.panel import team_content_hash, PanelError
-
-ALLOWED_PATH_PREFIXES = (
-    "showdown_bot/teams/panel_champions_strength_holdout_v0/",
+ALLOWED_EXACT_PATHS = (
     "config/eval/panels/panel_champions_strength_holdout_v0.yaml",
     "config/eval/holdout/champions_strength_holdout_v0_manifest.json",
     "config/eval/baselines/champions-strength-holdout-v0.json",
     "config/eval/heldout_ledger.jsonl",
+)
+ALLOWED_DIRECTORY_PREFIXES = (
+    "showdown_bot/teams/panel_champions_strength_holdout_v0/",
     "data/eval/champions-panel-v0/strength-holdout-v0/",
 )
+HOLDOUT_TEAMS_DIR = "showdown_bot/teams/panel_champions_strength_holdout_v0/"
 
 
 class LeakageDriftError(Exception):
@@ -932,13 +1233,13 @@ class LeakageDriftError(Exception):
 
 
 class LeakageScanError(Exception):
-    """NF4 fix (Rev. 8): the scan could NOT be completed at all (git missing from PATH, or `cwd`/
-    `teams_root` is not a git repository) -- distinct from LeakageDriftError, which means the scan
-    ran to completion and found something. Collapsing the two would erase a distinction a caller
-    might reasonably want: retrying an infra failure is sensible, auto-retrying past a genuine
-    leak finding is not. Left unwrapped by combine_strength_holdout_arms, exactly like
-    LeakageDriftError already is (§1f/§19) -- the CLI boundary is where these get a documented,
-    per-class handler, not this module."""
+    """NF4 fix (Rev. 8): the scan could NOT be completed at all (git missing from PATH, `cwd`/
+    `teams_root` is not a git repository, or a sealed team's committed blob could not be read) --
+    distinct from LeakageDriftError, which means the scan ran to completion and found something.
+    Collapsing the two would erase a distinction a caller might reasonably want: retrying an
+    infra failure is sensible, auto-retrying past a genuine leak finding is not. Left unwrapped
+    by combine_strength_holdout_arms, exactly like LeakageDriftError already is (§1f/§19) -- the
+    CLI boundary is where these get a documented, per-class handler, not this module."""
 
 
 @dataclass(frozen=True)
@@ -948,8 +1249,24 @@ class LeakageHit:
     line: str
 
 
+def _normalize_path(path: str) -> str:
+    """Git always reports/expects forward-slash paths regardless of OS; normalize before any
+    comparison so a caller-supplied Windows-style path (e.g. from os.path.join) can't bypass or
+    miss the allowlist purely on separator form (P1 #1, Rev. 12 review, §1k)."""
+    return path.replace("\\", "/")
+
+
 def _is_allowed(path: str) -> bool:
-    return any(path == prefix or path.startswith(prefix) for prefix in ALLOWED_PATH_PREFIXES)
+    path = _normalize_path(path)
+    if path in ALLOWED_EXACT_PATHS:
+        return True
+    # P1 #1 fix (Rev. 12 review, §1k): directory prefixes already end in "/", so
+    # `.startswith(prefix)` only ever matches a REAL child under that directory --
+    # "...strength_holdout_v0_evil/x" does NOT start with ".../strength_holdout_v0/" (the "/"
+    # itself breaks the match). The bug was never in this branch; it was single FILES being
+    # checked with the same startswith rule but no trailing separator to protect them -- fixed by
+    # requiring exact equality for those instead (above), not by changing this branch.
+    return any(path.startswith(prefix) for prefix in ALLOWED_DIRECTORY_PREFIXES)
 
 
 def _git_tracked_files(cwd: str = ".") -> list[str]:
@@ -960,7 +1277,7 @@ def _git_tracked_files(cwd: str = ".") -> list[str]:
     # NF4 fix (Rev. 8): check=True raises subprocess.CalledProcessError if cwd is not a git repo
     # (or any other nonzero git exit); a missing git executable raises FileNotFoundError from
     # subprocess.run itself, check=True or not. Neither was caught anywhere -- both would escape
-    # as a raw traceback through scan_for_leakage/_all_tracked_team_content_hashes ->
+    # as a raw traceback through scan_for_leakage/scan_for_raw_payload_leakage ->
     # assert_no_holdout_leakage -> combine_strength_holdout_arms. The N3 fix that made `cwd`
     # caller-controllable is exactly what makes this reachable: a caller-supplied teams_root that
     # doesn't point at a git checkout now reaches git directly, where it didn't before.
@@ -969,6 +1286,25 @@ def _git_tracked_files(cwd: str = ".") -> list[str]:
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
         raise LeakageScanError(f"could not list git-tracked files under cwd={cwd!r}: {exc}") from exc
     return [line for line in result.stdout.splitlines() if line]
+
+
+def _read_git_blob(path: str, *, cwd: str = ".") -> bytes:
+    """Reads a git-tracked file's COMMITTED bytes (HEAD's blob) -- never the working-copy bytes.
+    Reading via open()/Path.read_text() (as panel.py's team_content_hash does, for a different,
+    still-legitimate purpose -- team identity/disjointness, not this scan) would make this scan's
+    result depend on this repo's global core.autocrlf=true translation on a Windows checkout,
+    since a needle and haystack sourced from two different places (one committed, one
+    working-copy) can silently stop matching even when the underlying content is identical
+    (P1 #2, Rev. 12 review, §1k). `git show HEAD:<path>` reads the blob straight out of the
+    object database in binary form, bypassing any working-tree filter, so every comparison this
+    function feeds compares the same kind of bytes on both sides."""
+    try:
+        result = subprocess.run(
+            ["git", "show", f"HEAD:{path}"], capture_output=True, check=True, cwd=cwd,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise LeakageScanError(f"could not read committed blob for {path!r} under cwd={cwd!r}: {exc}") from exc
+    return result.stdout
 
 
 def _grep_identifier(identifier: str, files: list[str], cwd: str = ".") -> list[LeakageHit]:
@@ -1006,43 +1342,58 @@ def scan_for_leakage(identifiers: list[str], *, cwd: str = ".") -> list[LeakageH
     return violations
 
 
-def _all_tracked_team_content_hashes(teams_root: str = ".") -> dict[str, str]:
-    """content-hash every .txt file under showdown_bot/teams/ that has a co-located .packed
-    (team_content_hash's own precondition) -- everything else can't be a team file by
-    definition and is skipped, not force-hashed.
+def scan_for_raw_payload_leakage(team_ids: list[str], *, cwd: str = ".") -> list[LeakageHit]:
+    """Byte-exact scan (DESIGN sec 3.3's 'packed/.txt content' leg; P1 #2 fix, Rev. 12 review,
+    §1k): for each sealed holdout team_id, reads its .txt and .packed COMMITTED payload (path
+    derived from the fixed HOLDOUT_TEAMS_DIR convention -- the same directory
+    ALLOWED_DIRECTORY_PREFIXES already grants) and checks every OTHER git-tracked file's
+    COMMITTED bytes for that exact payload as a substring.
 
-    N3 fix: `_git_tracked_files(cwd=teams_root)` -- Rev. 4 called `_git_tracked_files()` with no
-    argument, always scanning "." (the ambient process CWD) regardless of what teams_root the
-    caller actually passed. A wrong teams_root then hashed the wrong tree, and
-    `except PanelError: continue` below swallowed every resulting lookup failure -- degrading
-    fail-open to "found nothing" instead of erroring. teams_root now genuinely governs both the
-    file listing and the hash computation."""
-    hashes: dict[str, str] = {}
-    for path in _git_tracked_files(cwd=teams_root):
-        if not path.startswith("showdown_bot/teams/") or not path.endswith(".txt"):
+    Unlike the whole-file combined-hash comparison this replaces (Rev. 10 and earlier's
+    scan_for_content_leakage / _all_tracked_team_content_hashes), this is repo-wide (every
+    git-tracked file, not just showdown_bot/teams/*.txt), requires no co-located .packed partner
+    on the OTHER side of the comparison (a bare copied .txt is still caught), and matches a
+    payload embedded inside a larger file (substring, not whole-file equality). The existing
+    combined panel.team_content_hash remains the right tool for team IDENTITY and DISJOINTNESS
+    (Task 5, and Task 9's opp_team_hash row-stamping) -- a single hash per team is exactly what
+    those need; it is not replaced, only no longer relied on for THIS scan.
+
+    Fails closed on every kind of degenerate input, never silently: an EMPTY team_ids LIST would
+    make the whole scan a silent no-op (the payload-collection loop never runs, so `payloads`
+    stays `{}` and every downstream file trivially "passes" -- rejected here, Rev. 13 §1l second
+    review round P1, as defense in depth independent of Task 10's own caller-side check). An
+    empty PAYLOAD for a given team would match every tracked file trivially (`b"" in x` is always
+    True in Python); a missing or unreadable committed blob for a claimed team_id is refused
+    (LeakageScanError, via _read_git_blob) rather than scanned as an empty needle or silently
+    skipped."""
+    if not team_ids:
+        raise ValueError("team_ids must be non-empty -- an empty list makes this scan vacuous (it would silently report no leaks without checking anything)")
+    payloads: dict[str, bytes] = {}
+    for team_id in team_ids:
+        txt_path = f"{HOLDOUT_TEAMS_DIR}{team_id}.txt"
+        packed_path = f"{HOLDOUT_TEAMS_DIR}{team_id}.packed"
+        txt_bytes = _read_git_blob(txt_path, cwd=cwd)
+        packed_bytes = _read_git_blob(packed_path, cwd=cwd)
+        if not txt_bytes:
+            raise ValueError(f"empty .txt payload for {team_id!r} at {txt_path!r} -- refusing to scan")
+        if not packed_bytes:
+            raise ValueError(f"empty .packed payload for {team_id!r} at {packed_path!r} -- refusing to scan")
+        payloads[f"{team_id}:txt"] = txt_bytes
+        payloads[f"{team_id}:packed"] = packed_bytes
+
+    violations: list[LeakageHit] = []
+    for path in _git_tracked_files(cwd=cwd):
+        if _is_allowed(path):
             continue
-        try:
-            hashes[path] = team_content_hash(teams_root, path)
-        except PanelError:
-            continue  # no co-located .packed -- not a sealed team file, skip rather than fail
-    return hashes
-
-
-def scan_for_content_leakage(holdout_content_hashes: dict[str, str], *, teams_root: str = ".") -> list[LeakageHit]:
-    """Whole-team-content scan: does any git-tracked team file (outside the allowlist) hash to
-    the SAME content as one of the holdout's own sealed teams? Catches a copy-paste leak that a
-    short-identifier grep would miss entirely."""
-    tracked = _all_tracked_team_content_hashes(teams_root=teams_root)
-    holdout_hash_values = set(holdout_content_hashes.values())
-    violations = []
-    for path, h in tracked.items():
-        if h in holdout_hash_values and not _is_allowed(path):
-            violations.append(LeakageHit(identifier=h, path=path, line="(content-hash match)"))
+        blob = _read_git_blob(path, cwd=cwd)
+        for name, payload in payloads.items():
+            if payload in blob:
+                violations.append(LeakageHit(identifier=name, path=path, line="(raw payload match)"))
     return violations
 
 
-def assert_no_holdout_leakage(*, identifiers: list[str], content_hashes: dict[str, str], teams_root: str = ".") -> None:
-    violations = scan_for_leakage(identifiers, cwd=teams_root) + scan_for_content_leakage(content_hashes, teams_root=teams_root)
+def assert_no_holdout_leakage(*, identifiers: list[str], team_ids: list[str], teams_root: str = ".") -> None:
+    violations = scan_for_leakage(identifiers, cwd=teams_root) + scan_for_raw_payload_leakage(team_ids, cwd=teams_root)
     if violations:
         detail = "\n".join(f"  {v.identifier!r} in {v.path}: {v.line.strip()}" for v in violations)
         raise LeakageDriftError(f"holdout identifier(s)/content leaked outside the allowlist:\n{detail}")
@@ -1051,13 +1402,14 @@ def assert_no_holdout_leakage(*, identifiers: list[str], content_hashes: dict[st
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest showdown_bot/tests/test_holdout_leakage_scan.py -v`
-Expected: 10 passed (7 from Rev. 2 + 1 teams_root-threading test, Rev. 5 + 2 new git-subprocess-exception tests, Rev. 8)
+Expected: 21 passed (5 `_is_allowed` + 2 `scan_for_leakage` + 9 `scan_for_raw_payload_leakage` +
+2 `assert_no_holdout_leakage` + 3 low-level git-subprocess-exception tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/holdout_leakage_scan.py showdown_bot/tests/test_holdout_leakage_scan.py
-git commit -m "feat(champions): repo-wide leakage guard -- identifier grep + content-hash scan"
+git commit -m "feat(champions): repo-wide leakage guard -- identifier grep + raw-payload byte scan"
 ```
 
 ---
@@ -2092,6 +2444,20 @@ dance. The arm also now proves its seeds server-side before publishing: the Chan
 runs after the battle loop and before publish, mirroring `i8d_runner.py`'s/`coverage_runner.py`'s
 own private `_verify_seed_alignment` twins.
 
+**Fix vs. Rev. 12 (Rev. 13, §1l, second review round P1):** the arm manifest carried
+`holdout_team_ids` — the sorted six team IDs this arm actually scheduled (`scheduled_team_ids`,
+already computed for the missing-hashes check). Purely additive; no existing test reads the
+manifest's exact key set (verified by grep), so nothing here broke Task 9's own tests.
+
+**Fix vs. Rev. 13 (Rev. 14, §1m, third review round P1):** `holdout_team_ids` (a bare list) is
+now `holdout_teams` (a mapping, `team_id -> {"team_path": ..., "content_hash": ...}`) — a list
+only ever ASSERTED which six teams were scheduled; it was never bound to what `rows` actually
+contain. Each entry's `team_path`/`content_hash` are the exact values every row for that team was
+built from (`opp_team_path`/`opp_team_hash` in `_capture`, same `HOLDOUT_TEAMS_DIR` expression),
+so Task 10 can now PROVE agreement between the manifest and the rows, not just trust it. Also
+purely additive to this function's own behavior (still `_write_json_atomic`, still one call);
+Task 10 is the actual consumer of the new shape (§13).
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
@@ -2501,6 +2867,7 @@ import json
 import os
 import subprocess
 
+from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 from showdown_bot.eval.i8d_runner import _write_json_atomic
 from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, ResultRowError
 from showdown_bot.eval.seeding import derive_battle_seed, verify_seed_log, SeedLogError
@@ -2668,7 +3035,11 @@ def run_strength_holdout_arm(
     for key in schedule.battle_keys:
         seed = derive_battle_seed(schedule.seed_base, key.seed_index)  # GLOBAL index, never `key.seed`
         battle_id = make_battle_id(schedule.schedule_hash, key.seed_index, seed)
-        opp_team_path = f"showdown_bot/teams/panel_champions_strength_holdout_v0/{key.holdout_team_id}.txt"
+        # Rev. 14 fix (§1m, third review round): HOLDOUT_TEAMS_DIR is now imported from
+        # holdout_leakage_scan.py rather than hardcoded inline here a second time -- it is also
+        # the source the manifest's holdout_teams mapping (below) derives each team_path from,
+        # so the two can never independently drift apart.
+        opp_team_path = f"{HOLDOUT_TEAMS_DIR}{key.holdout_team_id}.txt"
         opp_team_abs = os.path.abspath(os.path.join(teams_root, opp_team_path))
 
         for label, abs_path in (("hero", hero_team_abs), ("opponent", opp_team_abs)):
@@ -2776,9 +3147,24 @@ def run_strength_holdout_arm(
                 f"logged battle_index {rec['battle_index']}"
             )
 
+    # Rev. 14 fix (§1m, third review round P1): a bare team_id LIST (Rev. 13) only ever ASSERTED
+    # which six teams this arm scheduled -- it was never BOUND to what the rows themselves
+    # actually contain. A canonical MAPPING closes that gap: team_path is the real path each row's
+    # opp_team_path was built from (same HOLDOUT_TEAMS_DIR expression, just above) and
+    # content_hash is the exact value each row's opp_team_hash was stamped with
+    # (holdout_team_content_hashes[team_id], _capture's own opp_team_hash line above) -- so Task
+    # 10 can prove the manifest and the rows agree, not just trust that they do.
+    holdout_teams = {
+        team_id: {
+            "team_path": f"{HOLDOUT_TEAMS_DIR}{team_id}.txt",
+            "content_hash": holdout_team_content_hashes[team_id],
+        }
+        for team_id in sorted(scheduled_team_ids)
+    }
     _write_json_atomic(os.path.join(staging_dir, "arm_manifest.json"), {
         "hero_agent": hero_agent, "schedule_hash": schedule.schedule_hash,
         "seed_base": schedule.seed_base, "panel_hash": schedule.panel_hash,
+        "holdout_teams": holdout_teams,
         **provenance, "seed_log_path": seed_log_path, "n_rows": len(rows),
     })
     os.replace(staging_dir, out_dir)
@@ -2854,11 +3240,33 @@ that manifest's claims license an upstream-verdict check, a ledger entry, or a p
 now writes before `os.replace(staging_dir, out_dir)`, not after, so a failed `append_entry` can
 never coexist with a published bundle the next run's access-budget check wouldn't know about.
 
+**Fix vs. Rev. 11 (Rev. 12, §1k, P1 #2 downstream):** Task 2's leakage guard rebuilt its content
+leg as a raw-payload byte scan and renamed `assert_no_holdout_leakage`'s `content_hashes`
+parameter to `team_ids`. The call site below passes `team_ids=list(holdout_content_hashes.keys())`
+instead of `content_hashes=holdout_content_hashes` — `holdout_content_hashes` itself, and every
+other guard/check in this function, is unchanged.
+
+**Fix vs. Rev. 12 (Rev. 13, §1l, second review round P1):** `holdout_content_hashes` being
+non-empty didn't prove it covered every scheduled team — the arm-vs-arm field loop gained
+`holdout_team_ids`, and a new check required its key set to exactly equal
+`holdout_content_hashes.keys()` before any guard ran.
+
+**Fix vs. Rev. 13 (Rev. 14, §1m, third review round P1):** `holdout_team_ids` (Rev. 13's bare
+list) was itself only ever an ASSERTION, never bound to what `rows.jsonl` actually contains.
+`_assert_rows_match_manifest` now validates the manifest's `holdout_teams` mapping structurally
+(`_validate_holdout_teams_mapping`) and binds it to that same arm's own rows
+(`_assert_rows_bind_to_holdout_teams`) — both before the pre-existing scalar per-field checks.
+The arm-vs-arm loop compares `holdout_teams` (not `holdout_team_ids`); the cross-check against
+`holdout_content_hashes` is now full dict equality (keys AND values, not just keys); and the
+leakage guard's `team_ids=` argument is sourced from the validated, row-bound
+`manifest_a["holdout_teams"]`, not from the caller-supplied map directly.
+
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # append to showdown_bot/tests/test_strength_holdout_runner.py
 import shutil
+import subprocess
 
 from showdown_bot.eval.heldout_ledger import AccessBudgetError, read_ledger
 from showdown_bot.eval.strength_holdout_runner import combine_strength_holdout_arms
@@ -2868,7 +3276,36 @@ from showdown_bot.eval.strength_holdout_verdict import StrengthHoldoutRunError
 from showdown_bot.learning.provenance import make_candidate_identity
 
 
-def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=12):
+def _fake_holdout_teams():
+    # Rev. 14 fix (§1m, third review round P1): structurally valid (six entries, canonical
+    # paths, non-empty hash-shaped strings) but NOT backed by any real committed git content --
+    # fine as _write_arm's DEFAULT, since every row _write_arm builds is stamped from THIS SAME
+    # mapping (below), so manifest and rows always agree with each other by construction,
+    # regardless of whether the hash values are real. Tests that must reach the real leakage
+    # scanner pass an explicit holdout_teams derived from _write_holdout_teams_repo instead
+    # (_holdout_teams_mapping).
+    from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
+    return {
+        team_id: {"team_path": f"{HOLDOUT_TEAMS_DIR}{team_id}.txt", "content_hash": f"{i:016x}"}
+        for i, team_id in enumerate(_six_teams())
+    }
+
+
+def _holdout_teams_mapping(hashes: dict) -> dict:
+    """Converts a flat {team_id: content_hash} map (as _write_holdout_teams_repo returns, and as
+    combine_strength_holdout_arms's own holdout_content_hashes parameter still takes -- that
+    shape is UNCHANGED by Rev. 14) into the nested holdout_teams shape _write_arm's manifest now
+    needs. Kept separate from _write_holdout_teams_repo itself so that helper's own job (real git
+    repo + real hashes) stays focused."""
+    from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
+    return {
+        team_id: {"team_path": f"{HOLDOUT_TEAMS_DIR}{team_id}.txt", "content_hash": content_hash}
+        for team_id, content_hash in hashes.items()
+    }
+
+
+def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=12,
+                holdout_teams=None):
     # Rev. 3 fix: candidate_identity is DERIVED via the real formula, never hardcoded the same
     # for both arms -- hero_agent is a hash input, so heuristic vs max_damage always produces
     # different identities. A test that hardcodes one shared value can't catch a broken equality
@@ -2879,18 +3316,33 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
     # N4 already fixed for JSON formatting, just on a different field. Local import, matching the
     # existing pattern in _write_valid_seed_log above.
     from showdown_bot.eval.seeding import derive_battle_seed as _seed_for
+    # Rev. 14 fix (§1m, third review round P1): default matches _fake_holdout_teams() -- both
+    # arms of a test that doesn't care about team identity specifically therefore agree with
+    # each other AND with their own rows by construction (every row below is stamped from THIS
+    # SAME mapping, cycled); a test that DOES care passes an explicit, different mapping for one
+    # arm, or corrupts the written manifest/rows afterward (see the binding-mismatch tests below).
+    if holdout_teams is None:
+        holdout_teams = _fake_holdout_teams()
+    team_ids_cycle = sorted(holdout_teams)  # deterministic order; real schedules are 6 teams x 2
+                                             # policies x 15 seeds, so cycling covers all of them
+                                             # whenever n is a multiple of len(holdout_teams)
     arm_dir = tmp_path / name
     arm_dir.mkdir()
     rows = []
     for i in range(n):
+        team_id = team_ids_cycle[i % len(team_ids_cycle)]
+        team_entry = holdout_teams[team_id]
         rows.append({
             "battle_id": f"b{i}", "run_id": "r", "config_id": hero_agent, "format_id": "gen9championsvgc2026regma",
             "config_hash": config_hash, "schedule_hash": "sched1", "seed_index": i,
-            "opp_policy": "heuristic", "hero_team_path": "h.txt", "opp_team_path": "o.txt",
+            # opp_team_path/opp_team_hash are now team-specific (Rev. 14), not a flat placeholder
+            # -- combine_strength_holdout_arms's new row-binding check (§13) requires every row to
+            # resolve to one of holdout_teams' own declared teams, by path AND by hash.
+            "opp_policy": "heuristic", "hero_team_path": "h.txt", "opp_team_path": team_entry["team_path"],
             "seed": _seed_for("champions-strength-holdout-v0", i), "seed_base": "champions-strength-holdout-v0",
             "winner": winner, "turns": 5,
             "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
-            "dirty": False, "end_reason": "normal", "opp_team_hash": "t1",
+            "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
             # panel_hash: required by pairing.py's _check_constant_fields (direct row[field]
             # index, pairing.py:105) even though result_jsonl.py's schema treats it as nullable
             # -- omitting it here reproduces the exact bug this fixture exists to catch.
@@ -2908,10 +3360,57 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         "hero_agent": hero_agent, "schedule_hash": "sched1", "seed_base": "champions-strength-holdout-v0",
         "panel_hash": "panel1", "git_sha": git_sha, "config_hash": config_hash,
         "candidate_identity": candidate_identity, "seed_log_path": str(tmp_path / f"{name}_seeds.jsonl"), "n_rows": n,
+        "holdout_teams": holdout_teams,
     }
     with open(arm_dir / "arm_manifest.json", "w", encoding="utf-8") as fh:
         json.dump(manifest, fh)
     return str(arm_dir)
+
+
+def _fake_holdout_hashes():
+    # Deliberately NOT six real committed teams: every remaining caller of this helper (below)
+    # asserts an abort that fires before combine_strength_holdout_arms's holdout_teams
+    # cross-check or the leakage scan ever run (Rev. 13/14, §1l/§1m) -- an i8d/coverage-path
+    # guard, an arm-read/manifest-schema guard, or an arm-role/git_sha mismatch, all earlier in
+    # the function. Content is irrelevant there; only non-empty-ness is. Tests that DO reach the
+    # cross-check or the leakage scan use _write_holdout_teams_repo instead, not this.
+    return {"holdout_0": "aaaa1111bbbb2222", "holdout_1": "cccc3333dddd4444"}
+
+
+def _write_holdout_teams_repo(tmp_path):
+    """A real, isolated git repo seeded with six committed, allowlist-conformant sealed team
+    files. Rev. 13 fix (§1l, second review round P1): the leakage guard (Task 2) now reads
+    committed git blobs at combine-time -- a test that actually reaches assert_no_holdout_leakage
+    needs real committed content at the real HOLDOUT_TEAMS_DIR convention with teams_root pointed
+    at it, not the ambient worktree (no sealed teams exist there yet -- Task 13 the plan task is
+    still blocked) and not a bare fake hash string. _fake_holdout_hashes() above stays in use for
+    the tests that abort before that guard ever runs, where content is irrelevant -- this helper
+    is for every test that reaches it for real. tmp_path is already function-scoped, so a fresh
+    repo per call means no test's mutation of it can leak into another. Returns (teams_root,
+    holdout_content_hashes); team_ids match _six_teams()."""
+    from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
+    from showdown_bot.eval.panel import team_content_hash
+
+    repo = tmp_path / "teams_repo"
+    team_dir = repo / HOLDOUT_TEAMS_DIR
+    team_dir.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True)
+
+    for team_id in _six_teams():
+        (team_dir / f"{team_id}.txt").write_text(f"Fixture Mon {team_id} @ Focus Sash\n", encoding="utf-8")
+        (team_dir / f"{team_id}.packed").write_text(f"|packed-{team_id}|", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture holdout teams"], cwd=repo, check=True)
+
+    hashes = {
+        team_id: team_content_hash(str(repo), f"{HOLDOUT_TEAMS_DIR}{team_id}.txt")
+        for team_id in _six_teams()
+    }
+    return str(repo), hashes
 
 
 def _patch_upstream_verdicts_as_pass(monkeypatch):
@@ -2930,10 +3429,6 @@ def _patch_upstream_verdicts_as_pass(monkeypatch):
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
 
 
-def _fake_holdout_hashes():
-    return {"holdout_0": "aaaa1111bbbb2222", "holdout_1": "cccc3333dddd4444"}
-
-
 def _fake_reference_species():
     return {"cov_foe_slot0": ["FixtureMonA", "FixtureMonB"]}
 
@@ -2943,15 +3438,19 @@ def test_combine_does_not_require_matching_candidate_identity_between_arms(tmp_p
     # (max_damage) NEVER share a candidate_identity for any genuine run -- DESIGN sec 5:
     # "Candidate A IS that shared candidate; Baseline B is the reference, not a separately-gated
     # candidate." This must succeed, not abort, despite the arms' candidate_identity differing.
+    # Full valid success path, six real committed teams (Rev. 14, §1m, requirement 8): also now
+    # exercises _assert_rows_bind_to_holdout_teams for real, not just the Rev. 13 checks.
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
 
     result = combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-        stratum_env_override="windows",
+        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
     assert result["verdict"] in ("UNDERPOWERED", "GO", "NO-GO", "SAFETY-FAIL")  # ran to a real verdict, did not abort
@@ -3032,16 +3531,18 @@ def test_combine_wraps_a_strength_holdout_run_error_from_i8d_verification(tmp_pa
         raise StrengthHoldoutRunError("fixture-forced I8-D verification failure")
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", _raise_i8d_error)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     out_dir = tmp_path / "combined"
 
     with pytest.raises(GateBAbort, match="upstream verdict verification failed"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
 
@@ -3055,31 +3556,35 @@ def test_combine_wraps_a_strength_holdout_run_error_from_coverage_verification(t
         raise StrengthHoldoutRunError("fixture-forced Coverage verification failure")
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", _raise_coverage_error)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     out_dir = tmp_path / "combined"
 
     with pytest.raises(GateBAbort, match="upstream verdict verification failed"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
 
 
 def test_combine_publishes_full_evidence_bundle_not_just_verdict_json(tmp_path, monkeypatch):
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", winner="hero")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", winner="hero", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     out_dir = tmp_path / "combined"
 
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-        stratum_env_override="windows",
+        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(tmp_path / "ledger.jsonl"),
     )
 
@@ -3091,15 +3596,17 @@ def test_combine_publishes_full_evidence_bundle_not_just_verdict_json(tmp_path, 
 
 def test_combine_appends_a_ledger_run_entry_with_all_real_required_fields(tmp_path, monkeypatch):
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     ledger_path = tmp_path / "ledger.jsonl"
 
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-        stratum_env_override="windows",
+        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
 
@@ -3113,25 +3620,27 @@ def test_combine_appends_a_ledger_run_entry_with_all_real_required_fields(tmp_pa
 
 def test_combine_refuses_a_repeat_config_hash_without_justification(tmp_path, monkeypatch):
     _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
     ledger_path = tmp_path / "ledger.jsonl"
-    arm_a = _write_arm(tmp_path, "arm_a1", hero_agent="heuristic", config_hash="dup-cfg")
-    arm_b = _write_arm(tmp_path, "arm_b1", hero_agent="max_damage", config_hash="dup-cfg-b", winner="villain")
+    arm_a = _write_arm(tmp_path, "arm_a1", hero_agent="heuristic", config_hash="dup-cfg", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b1", hero_agent="max_damage", config_hash="dup-cfg-b", winner="villain", holdout_teams=holdout_teams)
     combine_strength_holdout_arms(
         arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined1"),
         i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-        holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-        stratum_env_override="windows",
+        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        stratum_env_override="windows", teams_root=teams_root,
         ledger_path=str(ledger_path),
     )
 
-    arm_a2 = _write_arm(tmp_path, "arm_a2", hero_agent="heuristic", config_hash="dup-cfg")
-    arm_b2 = _write_arm(tmp_path, "arm_b2", hero_agent="max_damage", config_hash="dup-cfg-b", winner="villain")
+    arm_a2 = _write_arm(tmp_path, "arm_a2", hero_agent="heuristic", config_hash="dup-cfg", holdout_teams=holdout_teams)
+    arm_b2 = _write_arm(tmp_path, "arm_b2", hero_agent="max_damage", config_hash="dup-cfg-b", winner="villain", holdout_teams=holdout_teams)
     with pytest.raises(AccessBudgetError):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a2, arm_b_dir=arm_b2, out_dir=str(tmp_path / "combined2"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows",
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root,
             ledger_path=str(ledger_path),
         )
 
@@ -3151,16 +3660,18 @@ def test_combine_aborts_on_baseline_drift(tmp_path, monkeypatch):
         raise BaselineDriftError("fixture-forced drift")
 
     monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", _raise_drift)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     out_dir = tmp_path / "combined"
 
     with pytest.raises(GateBAbort, match="baseline drift"):
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
     assert not out_dir.exists()
 
@@ -3170,19 +3681,32 @@ def test_combine_wraps_a_non_missing_pair_error_too(tmp_path, monkeypatch):
     # caught MissingPairError. Force a DIFFERENT subclass (DuplicateRowError, via a duplicate
     # battle_id/config_hash pair in arm A's own rows) and confirm it still becomes GateBAbort.
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=2)
-    # Corrupt arm A's rows.jsonl with a duplicate (battle_id, config_hash) pair after the fact.
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    # Rev. 14 fix (§1m): n=12 (not the old n=2) so all six teams are naturally represented twice
+    # each (row i's team is team_ids_cycle[i % 6]) BEFORE any corruption -- required now that
+    # _assert_rows_bind_to_holdout_teams demands every declared team actually appear in rows.
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12, holdout_teams=holdout_teams)
+    # Corrupt arm A's rows.jsonl: overwrite row 6 (already, by construction, the SAME team as
+    # row 0 -- n=12 cycling 6 teams means team_ids_cycle[6 % 6] == team_ids_cycle[0 % 6]) with an
+    # EXACT copy of row 0. This creates a genuine (battle_id, config_hash) duplicate for
+    # pair_runs to catch WITHOUT losing any team's representation: team 0 already appeared at
+    # both positions by construction, so making the two occurrences byte-identical (rather than
+    # two distinct battles) doesn't remove either team 0's or any other team's presence -- unlike
+    # replacing the whole file with two copies of row 0 (the old n=2 approach), which would have
+    # left five of the six declared teams with zero rows.
     rows_path = tmp_path / "arm_a" / "rows.jsonl"
     lines = rows_path.read_text(encoding="utf-8").splitlines()
-    rows_path.write_text("\n".join([lines[0], lines[0]]) + "\n", encoding="utf-8")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=2)
+    lines[6] = lines[0]
+    rows_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12, holdout_teams=holdout_teams)
 
     with pytest.raises(GateBAbort, match="pairing failed"):
         combine_strength_holdout_arms(
             arm_a_dir=str(tmp_path / "arm_a"), arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
-            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
-            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
         )
 
 
@@ -3329,8 +3853,10 @@ def test_combine_does_not_publish_if_the_ledger_append_fails(tmp_path, monkeypat
     # coexist with a "successful"-looking published bundle the next run's check_access wouldn't
     # even know to budget against.
     _patch_upstream_verdicts_as_pass(monkeypatch)
-    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
-    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
     out_dir = tmp_path / "combined"
 
     from showdown_bot.eval.heldout_ledger import LedgerError
@@ -3344,10 +3870,220 @@ def test_combine_does_not_publish_if_the_ledger_append_fails(tmp_path, monkeypat
         combine_strength_holdout_arms(
             arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
             i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+    assert not out_dir.exists()
+
+
+def test_combine_aborts_if_holdout_content_hashes_omits_a_scheduled_team(tmp_path, monkeypatch):
+    # P1 fix (Rev. 13, §1l, second review round): holdout_content_hashes being non-empty is not
+    # enough -- it must cover every team the schedule actually played, or the leakage/
+    # disjointness guards below would silently scan only whichever subset a caller happened to
+    # supply. Both arms agree on all six teams (the _write_arm default); holdout_content_hashes
+    # here covers only one of them. No real teams_repo needed -- this abort fires before the
+    # leakage scan ever runs.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    with pytest.raises(GateBAbort, match="does not match the six teams"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes={"holdout_0": "fakehash1111aaaa"}, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_holdout_content_hashes_has_a_wrong_value_for_a_correct_key(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m, third review round): Rev. 13 only checked KEY-set equality between
+    # holdout_content_hashes and the schedule's real team set -- a caller supplying every right
+    # team_id but a WRONG hash value for one of them would have passed that check. The comparison
+    # is now full dict equality (keys AND values).
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    holdout_teams = _fake_holdout_teams()
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    wrong_value_hashes = {t: e["content_hash"] for t, e in holdout_teams.items()}
+    wrong_value_hashes[sorted(holdout_teams)[0]] = "totally-wrong-hash-value"
+    with pytest.raises(GateBAbort, match="does not match the six teams"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=wrong_value_hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_arms_disagree_on_holdout_teams(tmp_path, monkeypatch):
+    # P1 fix (Rev. 13/14, §1l/§1m): holdout_teams is part of the same arm-vs-arm agreement check
+    # as schedule_hash/panel_hash/seed_base -- two arms that somehow scheduled a different team
+    # set were not played under the same battle conditions. Each entry in mismatched_teams is
+    # itself internally well-formed (_holdout_teams_mapping derives team_path from its own key),
+    # so only the arm-vs-arm inequality fires here, not the structural/canonical-path checks.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    default_teams = _fake_holdout_teams()
+    mismatched_ids = _six_teams()[:5] + ["holdout_other"]
+    mismatched_teams = _holdout_teams_mapping({tid: f"{i:016x}" for i, tid in enumerate(mismatched_ids)})
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=mismatched_teams)
+    with pytest.raises(GateBAbort, match="holdout_teams"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes={t: e["content_hash"] for t, e in default_teams.items()},
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_both_manifests_claim_wrong_teams_but_rows_are_unchanged(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m, third review round): a manifest's holdout_teams is just an assertion
+    # until bound to the rows -- if BOTH arms' manifests agree with EACH OTHER (so an arm-vs-arm
+    # check alone would pass) but neither actually matches what's in rows.jsonl (still the
+    # normal, real per-team data from _write_arm), the leakage/disjointness guards would scan for
+    # the WRONG six teams while the REAL opponent teams go completely unchecked.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+
+    wrong_teams = _holdout_teams_mapping({f"wrong_{i}": f"{i:016x}" for i in range(6)})
+    for arm_dir in (tmp_path / "arm_a", tmp_path / "arm_b"):
+        manifest_path = arm_dir / "arm_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["holdout_teams"] = wrong_teams
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="not one of the six"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes={t: e["content_hash"] for t, e in wrong_teams.items()},
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_a_rows_opp_team_hash_does_not_match_the_manifest(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m): a manifest can declare the CORRECT team_id/team_path for a team
+    # while lying about its content_hash -- only binding opp_team_hash per row catches this; a
+    # bare ID (or even a team_path-only mapping) never would.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first_team_id = sorted(manifest["holdout_teams"])[0]
+    manifest["holdout_teams"][first_team_id]["content_hash"] = "wrong-hash-not-in-rows"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(GateBAbort, match="does not match holdout_teams"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
             holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
-    assert not out_dir.exists()
+
+
+def test_combine_aborts_if_a_manifest_team_path_is_not_canonical(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m): a manifest could declare the right team_id and a content_hash that
+    # matches its own rows, but point team_path at a non-canonical location -- rejected by
+    # _validate_holdout_teams_mapping before any row-binding check even runs.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    first_team_id = sorted(manifest["holdout_teams"])[0]
+    manifest["holdout_teams"][first_team_id]["team_path"] = "showdown_bot/teams/wrong_dir/not_canonical.txt"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(GateBAbort, match="canonical path"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_one_row_has_an_unknown_opponent_path(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m): the manifest itself may be perfectly valid and match every OTHER
+    # row -- a single corrupted row with an opp_team_path outside the declared six must still
+    # abort, not slip through because most rows are fine.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    rows_path = tmp_path / "arm_a" / "rows.jsonl"
+    lines = rows_path.read_text(encoding="utf-8").splitlines()
+    first_row = json.loads(lines[0])
+    first_row["opp_team_path"] = "showdown_bot/teams/panel_champions_v0/not_a_holdout_team.txt"
+    lines[0] = json.dumps(first_row, sort_keys=True, separators=(",", ":"))
+    rows_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(GateBAbort, match="not one of the six"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_a_manifest_team_never_appears_in_rows(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m): a manifest declaring six teams is not enough if one of them never
+    # actually appears among the rows -- e.g. a battle silently never got played for that team,
+    # or every row for it got corrupted/overwritten. The leakage/disjointness guards must never
+    # trust a declared team that isn't backed by at least one real row.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    holdout_teams = _fake_holdout_teams()
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12, holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12, holdout_teams=holdout_teams)
+    # Overwrite every row that would have represented team_ids[5] (rows 5 and 11 -- n=12 cycling
+    # 6 teams puts that team at both positions) with team_ids[0]'s data instead: team_ids[5] is
+    # still fully declared in the manifest, but now appears in zero rows.
+    rows_path = tmp_path / "arm_a" / "rows.jsonl"
+    lines = rows_path.read_text(encoding="utf-8").splitlines()
+    lines[5] = lines[0]
+    lines[11] = lines[0]
+    rows_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(GateBAbort, match="never appear in rows"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes={t: e["content_hash"] for t, e in holdout_teams.items()},
+            reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_holdout_teams_has_an_invalid_shape(tmp_path, monkeypatch):
+    # P1 fix (Rev. 14, §1m): holdout_teams must be a genuine object/mapping with exactly the
+    # expected shape -- null, a bare string, an array, or a mapping whose entries carry
+    # unexpected fields must all be rejected fail-closed, before any row-binding check even
+    # attempts to read it.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    valid_teams = _fake_holdout_teams()
+    first_id = sorted(valid_teams)[0]
+    malformed_shapes = {
+        "null": None,
+        "string": ",".join(sorted(valid_teams)),
+        "array": sorted(valid_teams),
+        "unknown_field": {**valid_teams, first_id: {**valid_teams[first_id], "extra_field": "x"}},
+    }
+    for label, shape in malformed_shapes.items():
+        arm_a = _write_arm(tmp_path, f"arm_a_{label}", hero_agent="heuristic", config_hash="cfgA")
+        arm_b = _write_arm(tmp_path, f"arm_b_{label}", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+        manifest_path = tmp_path / f"arm_a_{label}" / "arm_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["holdout_teams"] = shape
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        with pytest.raises(GateBAbort, match="holdout_teams"):
+            combine_strength_holdout_arms(
+                arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{label}"),
+                i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+                holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+                stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            )
 ```
 
 Rev. 3 removes the `_all_guards_pass_for_test` seam entirely: it patched a name the production
@@ -3355,10 +4091,26 @@ code never called, so it isolated nothing (its own tests only passed because `ho
 `reference_species` defaulting to falsy also skipped the *real* guards — the same optional-skip
 anti-pattern as the verdict-path bug, just one level deeper). The tests above patch only
 `verify_i8d_verdict_artifact`/`verify_coverage_verdict_artifact` — both fully covered
-independently in Task 7 — and pass legitimate, explicit (if empty) values for every other
-guard's real input, so `assert_disjoint_from_coverage`, `assert_no_holdout_leakage`,
-`assert_no_cross_stratum_pooling`, and the near-duplicate scan all actually run in every test
-above, for real, against those inputs.
+independently in Task 7.
+
+**Corrected, Rev. 14 (§1m, P2 — this paragraph was stale relative to Rev. 13/14's own test
+design):** empty guard inputs are not permitted anywhere in this file any more, in a test or
+otherwise — `combine_strength_holdout_arms` itself unconditionally rejects an empty
+`holdout_content_hashes`/`reference_species` (§13), and every test above supplies non-empty,
+internally-consistent data by construction (`_write_arm`'s default `holdout_teams`, `_fake_holdout_hashes()`).
+What actually varies between tests is not "empty vs. non-empty" but *how far into the function
+each test's own scenario runs*: the ten early-abort tests (an i8d/coverage-path guard, an
+arm-read/manifest-schema guard, an arm-role/git_sha mismatch — none of them reach
+`assert_no_holdout_leakage` at all) use cheap, structurally-valid-but-not-git-backed fixture data
+(`_fake_holdout_hashes()`, `_write_arm`'s default `_fake_holdout_teams()`) deliberately, because
+the guard never runs for them regardless of what that data contains. Every test that DOES reach
+the team-/leakage-guard — the full-success path, both upstream-verdict-error tests, the
+publish/ledger tests, the baseline-drift test, and the pairing-error test — uses
+`_write_holdout_teams_repo`: a real, isolated git repository seeded with six committed,
+allowlist-conformant `.txt`/`.packed` team files, with `teams_root` pointed at it and
+`holdout_content_hashes` computed from its real content via `panel.team_content_hash`. No test
+anywhere mocks `assert_no_holdout_leakage`, `scan_for_raw_payload_leakage`, or any of the other
+guards away — every one of them runs for real, against real data, in every test that reaches it.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -3429,8 +4181,97 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
 # this function's own row[field] access with a raw KeyError, exactly the N1 bug one level up
 # (see the comment at Task 9's row-building site).
 _MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", "seed_base",
-                          "panel_hash", "hero_agent", "candidate_identity")
+                          "panel_hash", "hero_agent", "candidate_identity", "holdout_teams")
 _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
+# Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
+# _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound
+# against holdout_teams (a per-team MAPPING) in a separate function below, not the scalar
+# row[field] != manifest[field] content-match loop just below this constant, which only ever
+# compares a row field against ONE manifest-wide value -- opp_team_path/opp_team_hash vary
+# per row by design (each row is for a DIFFERENT one of the six teams).
+_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING = ("opp_team_path", "opp_team_hash")
+_HOLDOUT_TEAM_ENTRY_FIELDS = frozenset({"team_path", "content_hash"})
+
+
+def _validate_holdout_teams_mapping(holdout_teams, which: str) -> None:
+    """Rev. 14 fix (§1m, third review round P1): holdout_teams must be a CLOSED, unambiguous,
+    deterministic mapping -- Rev. 13's bare team_id LIST only ever ASSERTED which six teams were
+    played; it was never bound to what the rows themselves actually contain, and nothing rejected
+    a malformed shape either. Every structural deviation is rejected fail-closed here, before any
+    row-binding check below even attempts to read it (mirrors panel.py's own
+    missing/unknown-field pattern in _load_team_list)."""
+    if not isinstance(holdout_teams, dict):
+        raise GateBAbort(
+            f"arm {which}: manifest's holdout_teams must be an object/mapping, got "
+            f"{type(holdout_teams).__name__}"
+        )
+    if len(holdout_teams) != 6:
+        raise GateBAbort(
+            f"arm {which}: manifest's holdout_teams must have exactly 6 entries, got "
+            f"{len(holdout_teams)}"
+        )
+    for team_id, entry in holdout_teams.items():
+        if not isinstance(team_id, str) or not team_id:
+            raise GateBAbort(f"arm {which}: holdout_teams has a non-string or empty team_id key: {team_id!r}")
+        if not isinstance(entry, dict):
+            raise GateBAbort(
+                f"arm {which}: holdout_teams[{team_id!r}] must be an object/mapping, got "
+                f"{type(entry).__name__}"
+            )
+        missing = _HOLDOUT_TEAM_ENTRY_FIELDS - set(entry)
+        unknown = set(entry) - _HOLDOUT_TEAM_ENTRY_FIELDS
+        if missing:
+            raise GateBAbort(f"arm {which}: holdout_teams[{team_id!r}] is missing field(s): {sorted(missing)}")
+        if unknown:
+            raise GateBAbort(f"arm {which}: holdout_teams[{team_id!r}] has unknown field(s): {sorted(unknown)}")
+        for field in _HOLDOUT_TEAM_ENTRY_FIELDS:
+            if not isinstance(entry[field], str) or not entry[field]:
+                raise GateBAbort(
+                    f"arm {which}: holdout_teams[{team_id!r}][{field!r}] must be a non-empty "
+                    f"string, got {entry[field]!r}"
+                )
+        expected_path = f"{HOLDOUT_TEAMS_DIR}{team_id}.txt"
+        if entry["team_path"] != expected_path:
+            raise GateBAbort(
+                f"arm {which}: holdout_teams[{team_id!r}]['team_path']={entry['team_path']!r} "
+                f"is not the canonical path for this team_id (expected {expected_path!r})"
+            )
+
+
+def _assert_rows_bind_to_holdout_teams(rows: list[dict], holdout_teams: dict, which: str) -> None:
+    """Rev. 14 fix (§1m, third review round P1): a structurally-valid holdout_teams mapping is
+    still just an ASSERTION until checked against what the rows themselves actually played.
+    opp_team_path/opp_team_hash are the row-level ground truth -- Task 9's own _capture closure
+    stamps them from the real per-battle key and the real sealed content hash -- so
+    holdout_teams must agree with THAT, not the other way around. Requires every row to resolve
+    to one of the declared six teams by path AND by hash, and every declared team to actually
+    appear at least once."""
+    allowed_paths = {entry["team_path"] for entry in holdout_teams.values()}
+    path_to_team_id = {entry["team_path"]: team_id for team_id, entry in holdout_teams.items()}
+    seen_paths = set()
+    for i, row in enumerate(rows):
+        opp_team_path = row["opp_team_path"]
+        if opp_team_path not in allowed_paths:
+            raise GateBAbort(
+                f"arm {which}: row {i} has opp_team_path={opp_team_path!r}, not one of the six "
+                "teams declared in holdout_teams"
+            )
+        team_id = path_to_team_id[opp_team_path]
+        expected_hash = holdout_teams[team_id]["content_hash"]
+        if row["opp_team_hash"] != expected_hash:
+            raise GateBAbort(
+                f"arm {which}: row {i} (team {team_id!r}) has "
+                f"opp_team_hash={row['opp_team_hash']!r}, does not match holdout_teams's "
+                f"content_hash={expected_hash!r} for this team"
+            )
+        seen_paths.add(opp_team_path)
+    missing_teams = allowed_paths - seen_paths
+    if missing_teams:
+        missing_ids = sorted(path_to_team_id[p] for p in missing_teams)
+        raise GateBAbort(
+            f"arm {which}: holdout_teams declares team(s) {missing_ids} that never appear in "
+            "rows -- manifest and rows.jsonl do not agree on which teams were actually played"
+        )
 
 
 def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) -> None:
@@ -3446,15 +4287,25 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
     NF1 fix (Rev. 7): a malformed or truncated manifest/row -- exactly the kind of bad input
     this function exists to catch -- must never crash it with a raw KeyError instead of
     producing the GateBAbort it was written to produce. Every expected key is checked for
-    presence FIRST, before any indexed access."""
+    presence FIRST, before any indexed access.
+
+    Rev. 14 fix (§1m, third review round P1): presence and internal shape are not enough for
+    holdout_teams specifically -- it is validated structurally (_validate_holdout_teams_mapping)
+    and then bound to what these SAME rows actually contain
+    (_assert_rows_bind_to_holdout_teams), both before the scalar per-field checks below, so a
+    manifest that lies about which teams were played is caught here, not three call sites
+    downstream where the leakage/disjointness guards would have silently trusted it."""
     missing_manifest_keys = set(_MANIFEST_REQUIRED_KEYS) - set(manifest)
     if missing_manifest_keys:
         raise GateBAbort(
             f"arm {which}: manifest is missing required key(s): {sorted(missing_manifest_keys)} "
             "-- malformed or truncated arm_manifest.json"
         )
+    _validate_holdout_teams_mapping(manifest["holdout_teams"], which)
     for i, row in enumerate(rows):
-        missing_row_keys = set(_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK) - set(row)
+        missing_row_keys = (
+            set(_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK) | set(_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING)
+        ) - set(row)
         if missing_row_keys:
             raise GateBAbort(
                 f"arm {which}: row {i} is missing required key(s): {sorted(missing_row_keys)} "
@@ -3475,6 +4326,7 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
                 f"{field}={manifest[field]!r} (found: {mismatched}) -- manifest and rows.jsonl "
                 f"do not belong together"
             )
+    _assert_rows_bind_to_holdout_teams(rows, manifest["holdout_teams"], which)
     fresh_identity = make_candidate_identity(
         hero_agent=manifest["hero_agent"], git_sha=manifest["git_sha"], config_hash=manifest["config_hash"],
     )
@@ -3510,7 +4362,18 @@ def combine_strength_holdout_arms(
     test scenario from a production caller that just never wired real data through; an empty
     mapping makes the disjointness/leakage/near-duplicate guards vacuous in EITHER case, so
     production now refuses it unconditionally. Tests use small non-empty fake maps instead
-    of `{}` -- see Task 10's test fixtures).
+    of `{}` -- see Task 10's test fixtures). NON-EMPTY alone does not prove
+    holdout_content_hashes covers every scheduled team WITH the right hashes, though -- Rev. 13
+    (§1l) closed the key-set-only version of this gap (a partial map) but not the value-wrong
+    version (right keys, wrong hash for one), and neither Rev. 12 nor Rev. 13 checked it against
+    the rows actually played, only against a bare team_id list the manifest itself never proved.
+    Rev. 14 (§1m) closes both: `holdout_content_hashes` is checked for full dict equality
+    (keys AND values) against each arm's own `holdout_teams` mapping (Task 9), which
+    `_assert_rows_match_manifest` has already bound to that arm's OWN rows
+    (`_assert_rows_bind_to_holdout_teams`) before this function ever reaches this check --
+    so by the time the leakage guard's `team_ids=` argument below is built, it is provably the
+    real six teams this schedule played, not merely whatever six labels a manifest or a caller
+    happened to assert.
 
     Candidate identity note (Rev. 3 P1 fix): arm A (hero_agent='heuristic') IS the shared
     candidate identity checked against I8-D/Coverage (DESIGN sec 5: "Candidate A is that shared
@@ -3542,9 +4405,26 @@ def combine_strength_holdout_arms(
         raise GateBAbort(f"arm B must be hero_agent='max_damage' (Baseline B per DESIGN sec 3.2), got {manifest_b['hero_agent']!r}")
     if manifest_a["git_sha"] != manifest_b["git_sha"]:
         raise GateBAbort("arms disagree on git_sha -- they were not played on the same commit")
-    for field in ("schedule_hash", "panel_hash", "seed_base"):
+    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
+
+    # Rev. 14 fix (§1m, third review round P1): Rev. 13's key-set-only check missed a caller
+    # supplying every right team_id with a WRONG hash for one of them. manifest_a["holdout_teams"]
+    # is now a real per-team {team_path, content_hash} mapping, independently proven (just above,
+    # via _assert_rows_match_manifest -> _assert_rows_bind_to_holdout_teams) to describe what
+    # THIS arm's rows actually played -- and proven identical to manifest_b's by the loop just
+    # above. Require FULL dict equality (keys AND values) against holdout_content_hashes, not a
+    # key-set check -- missing, extra, or value-wrong team_ids all abort here, before any guard
+    # below ever runs.
+    expected_hashes = {team_id: entry["content_hash"] for team_id, entry in manifest_a["holdout_teams"].items()}
+    if holdout_content_hashes != expected_hashes:
+        raise GateBAbort(
+            "holdout_content_hashes does not match the six teams' content hashes this schedule "
+            f"actually played (schedule: {expected_hashes}, holdout_content_hashes: "
+            f"{holdout_content_hashes}) -- the leakage/disjointness guards must see every "
+            "scheduled team with its real hash, not a subset or a wrong value"
+        )
 
     # NF2 fix (Rev. 7): verify_i8d_verdict_artifact/verify_coverage_verdict_artifact raise
     # StrengthHoldoutRunError, not GateBAbort -- this plan's own documentation (§1a, and the
@@ -3592,7 +4472,17 @@ def combine_strength_holdout_arms(
     assert_disjoint_from_coverage(holdout_content_hashes)
     assert_no_holdout_leakage(
         identifiers=list(holdout_content_hashes.values()) + list(holdout_content_hashes.keys()),
-        content_hashes=holdout_content_hashes,
+        # Rev. 12 P1 #2 fix (§1k): the leakage guard's content leg now reads each sealed team's
+        # OWN committed .txt/.packed blob directly (scan_for_raw_payload_leakage), keyed by
+        # team_id -- it no longer takes a hash mapping. holdout_content_hashes itself is
+        # unchanged above (still required, still feeds assert_disjoint_from_coverage).
+        # Rev. 14 fix (§1m): team_ids now comes from manifest_a["holdout_teams"] -- the VALIDATED,
+        # ROW-BOUND mapping (_assert_rows_match_manifest, above) -- not from
+        # holdout_content_hashes.keys() directly. By this point the two are already proven
+        # dict-equal (the check just above), so the VALUES are identical either way; sourcing
+        # from the bound manifest data is the structurally-safer choice regardless of any future
+        # reordering of these checks.
+        team_ids=sorted(manifest_a["holdout_teams"]),
         teams_root=teams_root,  # N3 fix: was silently hardcoded to "." inside the scan before
     )
     near_dup_flags = []
@@ -3823,9 +4713,11 @@ def run_strength_holdout_arm_cli(args) -> int:
     from showdown_bot.eval.strength_holdout_runner import run_strength_holdout_arm, GateBAbort
     from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
     try:
-        # Team-dependent: real holdout_team_ids only exist once Task 13 seals the six teams.
-        # This raises a clear, named error rather than silently accepting an empty/fake list --
-        # deliberately deferred behind D-1b, not a hidden gap.
+        # Team-dependent: a real holdout_teams mapping (Rev. 14, §1m -- team_id ->
+        # {team_path, content_hash}) only exists once Task 13 seals the six teams and Task 9
+        # derives it from the real schedule. This raises a clear, named error rather than
+        # silently accepting an empty/fake mapping -- deliberately deferred behind D-1b, not a
+        # hidden gap.
         raise GateBAbort(
             "no sealed holdout team IDs available yet -- Task 13 (blocked on the D-1b "
             "source-proof) must seal six teams and register their IDs before this subcommand "
@@ -4090,6 +4982,18 @@ git add showdown_bot/src/showdown_bot/eval/team_sealing.py showdown_bot/tests/te
 git commit -m "fix(champions): team sealing uses the real .txt+.packed content hash, not a reimplementation"
 ```
 
+**Checked against Rev. 12's Task 2 fix (§1k, P1 #2), no change needed:** `seal_team`/
+`SealedTeamRecord` were never a caller of the leakage guard and are not one now — they compute and
+return the combined `team_content_hash` for provenance recording at seal time, which remains
+exactly the right tool for team identity (Task 5's disjointness check, Task 9's `opp_team_hash`
+row-stamping). `scan_for_raw_payload_leakage` (Task 2) does not need `seal_team` to hand it raw
+bytes: it reads each sealed team's `.txt`/`.packed` payload itself, live, from the team's COMMITTED
+git blob at scan time (`team_id` + `HOLDOUT_TEAMS_DIR`) — more robust than threading a value
+captured once at seal time through two further task boundaries, since DESIGN sec 3.4 already
+guarantees sealed content cannot change afterward, and by the time Task 10's `combine` step can
+run at all, Task 13's own definition-of-done (item 7, below) already requires the sealed team
+files to be committed.
+
 ---
 
 ## 16. Task 13 — [BLOCKED on the source-proof, §2] Source, seal, and register the six holdout teams
@@ -4106,8 +5010,8 @@ Unchanged in structure from Rev. 1, with the pre-conditions from §2 now explici
 4. `assert_disjoint_from_coverage` (Task 5) passes against the real six hashes.
 5. `find_near_duplicate_flags` (Task 4) run against all nine existing Champions M-A teams; any
    flag gets a written disposition before proceeding.
-6. `assert_no_holdout_leakage` (Task 2, both identifier and content-hash scans) returns zero
-   hits outside the allowlist.
+6. `assert_no_holdout_leakage` (Task 2, both the identifier scan and the raw `.txt`/`.packed`
+   payload scan, Rev. 12 §1k) returns zero hits outside the allowlist.
 7. Panel YAML, holdout manifest JSON, and the Task 6 baseline manifest all get real content;
    their hashes back-filled into Task 1's/Task 6's frozen constants, in a fresh commit.
 8. ~~`_derive_config_hash` (Task 9) reconciled against the real `resolve_coverage_provenance`
