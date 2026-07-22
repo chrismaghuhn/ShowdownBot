@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 14)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 16)
 
-> **Status: PROPOSED, Rev. 14 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 16 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
@@ -155,12 +155,57 @@
 >   relative to Rev. 13/14's actual design (empty inputs are rejected everywhere; only the
 >   early-abort tests use cheap fake data, and only because they never reach the guard). Corrected
 >   to describe the real Rev. 14 split.
+> - **Rev. 14 → Rev. 15** (§1n, 2 P1, "Task-3-review"): Task 2 was implemented for real between
+>   Rev. 14 and this round (`c4aa94b`/`7cdc661`); this round is plan-text-only again, scoped to
+>   Task 3. Task 3's own `strata_guard.py` primitives (`detect_stratum`/
+>   `assert_no_cross_stratum_pooling`/`stratum_output_root`) were correct and complete, but never
+>   correctly wired into Tasks 9/10 -- the same "lower-level module right, higher-level integration
+>   wrong" shape as Rev. 14's `holdout_teams` gap, recurring one guard over. **P1:** Task 9 never
+>   wrote a stratum, platform attestation, or pre-registered date/stratum identifier into the arm
+>   manifest at all; Task 10's `combine_strength_holdout_arms` called `detect_stratum()` ITSELF
+>   (re-determining stratum from whatever machine happens to run the combine step, not either arm's
+>   actual play machine) and built both `StratumRecord`s from that SAME single self-detected value
+>   with `platform_string=""` hardcoded -- so two arms genuinely played on different strata could
+>   never be told apart; `assert_no_cross_stratum_pooling` always saw one identical value twice.
+>   **P1:** `stratum_output_root()` (Task 3) was called nowhere in the plan outside its own tests --
+>   dead code; nothing bound an arm's `out_dir` to its stratum. Fixed: Task 9 now establishes
+>   stratum (`detect_stratum`, via a new `stratum_env_override` parameter), a `platform.platform()`
+>   attestation, and a required `date_stratum_id` parameter (no default) once, at play time,
+>   validates `out_dir` against `stratum_output_root()` before publishing, and records all three in
+>   the arm manifest. Task 10 validates the three fields in closed form per arm
+>   (`_validate_stratum_fields` -- presence via `_MANIFEST_REQUIRED_KEYS`, unknown-stratum/
+>   non-string/empty rejected), extends the arm-vs-arm equality loop with `date_stratum_id`, and
+>   replaces the self-detecting `assert_no_cross_stratum_pooling` call with one built from each
+>   arm's OWN manifest-recorded `stratum`/`platform_attestation` -- the combiner never calls
+>   `detect_stratum()` itself any more. `stratum_env_override` is repurposed from a detection
+>   source into an optional caller expectation, checked against the arms' own recorded stratum and
+>   aborting as a "contradictory override" on mismatch. Six new tests: reject mixed Windows+Kaggle
+>   arms, accept two equally-attested arms, reject a contradictory override, reject differing
+>   `date_stratum_id`, reject an unknown stratum value, reject a type-wrong manifest value.
+>   Self-found, same pass: Task 9's new `detect_stratum()` call makes `UnattestedStratumError`
+>   newly reachable from the arm CLI's call graph, falsifying that handler's own "does not need
+>   widening" comment -- widened and corrected here, not deferred (§1n).
+> - **Rev. 15 → Rev. 16** (§1o, 2 P1, mechanical follow-up): two remaining gaps in Rev. 15's own
+>   fix, found by re-reading the actual Rev. 15 text rather than assumed closed. **P1:**
+>   `detect_stratum`'s `env_override` bypassed `platform.system()` entirely -- `env_override=
+>   "kaggle"` on the real, fixed Windows measurement host (or the reverse on a non-Windows box)
+>   succeeded silently, which was harmless before Rev. 15 (nothing trusted the result downstream)
+>   but became consequential the moment Rev. 15 made it the arm manifest's authoritative,
+>   Task-10-trusted `stratum` value. Fixed: the override may now only confirm what the platform
+>   can prove, never contradict it (Task 3, §6). **P1:** Task 9's new `out_dir`-vs-
+>   `stratum_output_root` check (Rev. 15) compared an absolute, OS-native-separator path (every
+>   `out_dir` the plan's own tests construct, via `tmp_path`) against a bare relative,
+>   forward-slash `expected_root` string -- rejecting the plan's own tests, not just genuine
+>   mistakes. Fixed with a separator-normalized, slash-bounded substring check (Task 9, §12),
+>   matching Task 2's own `_normalize_path` precedent (§5) for the identical class of bug.
 >
-> As of Rev. 14: Task 1 (including Rev. 11's `panel_hash` fix) has been implemented, tested, and
-> committed on branch `feat/champions-gate-b-task-1-schedule` -- not yet merged to `main`. Task 2's
-> plan text is corrected across Rev. 12/13/14 (§1k, §1l, §1m) but, like Tasks 3–13, remains
-> unimplemented: nothing has been run, no server or battle has touched any worktree beyond Task 1's
-> own code and tests, and no team file or sealed hash exists.
+> As of Rev. 16: Task 1 (including Rev. 11's `panel_hash` fix) and Task 2 (repo-wide leakage-drift
+> guard) have been implemented, tested, and committed on branch
+> `feat/champions-gate-b-task-1-schedule` -- not yet merged to `main` (`c4aa94b` docs, `7cdc661`
+> code). Task 3's plan text is corrected through this revision (§1n, §1o) and is about to be
+> implemented for real in this same session; the rest of Tasks 4–13 remain unimplemented as code:
+> no server or battle has touched any worktree beyond Task 1/2's own code and tests, and no team
+> file or sealed hash exists.
 >
 > **For agentic workers (once approved):** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -349,15 +394,21 @@ for that specific mechanism by grepping the entire plan for `json.load(`/`json.l
 | `SeedLogError` | `verify_seed_log(...)` (after the loop, before publish) | yes (Rev. 4, unchanged) | `GateBAbort` |
 | `Exception` (any -- unaudited callee, deliberately not narrowed) | `asyncio.run(gauntlet_runner(...))` (the real `run_local_gauntlet`, external websocket client) | yes (NF5, Rev. 9) — a BOUNDARY WRAP, not a contract audit: converts whatever an unaudited callee raises without needing to know what that is; `BaseException` subclasses (`KeyboardInterrupt`, `SystemExit`) are untouched since they are not `Exception` subclasses | `GateBAbort` (message includes `seed_index`, `from exc` preserves the original) |
 | `CoverageRunError` / `ItemdataStaleError` / `SpeciesMetaStaleError` / `PinnedCalcError` | `_derive_config_hash` → `resolve_coverage_provenance(...)` → `effective_config_manifest(...)` → `config_provenance_for_format(...)` | yes (Rev. 10, §1i) — AUDITED, not boundary-wrapped: `resolve_coverage_provenance`/`resolve_i8d_provenance` read in full and confirmed structurally identical (same `effective_config_manifest` call, same args, `COVERAGE_FORMAT == I8D_FORMAT == STRENGTH_HOLDOUT_FORMAT_ID`); the 4 exception types read from `config_env.py`/`engine/items.py`/`engine/species_meta.py`/`engine/calc/pin.py` and caught by name, not via `except Exception` | `GateBAbort` |
+| `UnattestedStratumError` (Rev. 15, §1n, self-found while fixing the Task-3-review P1s -- not named in the review itself) | `detect_stratum(env_override=stratum_env_override)` (new, near-top call, Task 9's own Rev. 15 fix) | no — deliberate, matching Task 10's own established treatment of the identical exception type (§13's audit table below: "their exception types stay distinct by design," §1g) | raw `UnattestedStratumError` |
+| `ValueError` ("unknown stratum", disclosed, not caught) | `detect_stratum(env_override=stratum_env_override)`, only if `stratum_env_override` is a non-`None`, unrecognized string | no | raw `ValueError` — expected to be pre-empted by argparse `choices=` once Task 11 exposes a `--stratum-override` flag for real (not yet wired; this CLI subcommand is still the Task-13-blocked stub below); disclosed here rather than silently assumed unreachable |
 | **residual, narrowly scoped** | `load_format_config(format_id)`'s own malformed-YAML/schema-error path (inside `config_provenance_for_format`, one level past what Rev. 10 audited) | **not independently confirmed** | unknown — its `FileNotFoundError` case is already caught one level down and does not reach here; only its OTHER error path (malformed YAML content) is unconfirmed. Reading `format_config.py`'s own exception handling would close this; not done here, since the residual is now one specific function's one specific error path, not an entire untraced module |
 
 **Verified positive claim, not just a gap list:** every exception in the first nine rows —
 i.e. `run_strength_holdout_arm`'s ENTIRE exception surface within code this plan authors, now
 INCLUDING the one genuinely live-network call (NF5) and the full config-provenance chain
-(Rev. 10) — is `GateBAbort`. The arm CLI's existing `except GateBAbort as exc:` (Task 11) is
-therefore sufficient for that whole chain, not just hoped to be. Exactly one row remains, and it
-is now a single function's single error path (`load_format_config`'s malformed-YAML case) rather
-than an entire unaudited module — down from two full trust-boundary rows in Rev. 8, one in Rev. 9.
+(Rev. 10) — is `GateBAbort`. Two rows deliberately are not (Rev. 15, §1n): `UnattestedStratumError`
+and, on a malformed override, `ValueError`, from the new `detect_stratum()` call -- both left raw
+by the same design choice already established for Task 10's identical exception types, not an
+oversight. The arm CLI's `except` clause (Task 11) is therefore widened to
+`(GateBAbort, UnattestedStratumError)` to match — see the updated note at that call site. Exactly
+one row remains genuinely unresolved, and it is now a single function's single error path
+(`load_format_config`'s malformed-YAML case) rather than an entire unaudited module — down from
+two full trust-boundary rows in Rev. 8, one in Rev. 9.
 
 #### `combine_strength_holdout_arms` (Task 10)
 
@@ -601,6 +652,87 @@ wording already covers "the raw `.txt`/`.packed` payload scan" generically. Task
 suite (§12) needed no changes -- confirmed no test there inspects the manifest's exact key or
 value shape (grepped for `manifest.keys()`/`set(manifest)`/exact-dict assertions; none found
 outside `_assert_rows_match_manifest`'s own, now-extended, presence check).
+
+## 1n. What changed in Rev. 15 — Task 3's stratum guard, built correctly, was never wired in
+
+Not a fresh full-plan round: a "Task-3-review," scoped explicitly to Task 3 and its two
+integration points (Task 9, Task 10), delivered as six binding-correction bullets in one message
+("Bindende Korrektur in einer einzigen Rev. 15... keine weiteren Stilrunden"). Verified against
+the literal Rev. 14 text before any fix: read Task 3 (§6) in full end to end, then grepped the
+whole document for `stratum_output_root|StratumRecord\(|detect_stratum\(|platform_string` to find
+every call site outside Task 3's own tests/implementation.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| P1 (Rev. 15) | Task 9 never wrote any stratum information into the arm manifest at all -- no `stratum`, no platform attestation, no date/stratum identifier. Task 10's `combine_strength_holdout_arms` then called `detect_stratum(env_override=stratum_env_override)` ITSELF, once, and built BOTH arms' `StratumRecord`s from that single self-detected value, with `platform_string=""` hardcoded on both. Two arms genuinely played on different strata (e.g. one on the fixed Windows host, one on a Kaggle session -- DESIGN sec 3.5's own scenario) would always look identical to `assert_no_cross_stratum_pooling`, because the combiner never looked at either arm's actual play-time evidence -- it only ever asked its OWN machine, once, and copied the answer twice. | Read Task 9's full implementation (§12) end to end: no `import platform`, no `strata_guard` import, no stratum field anywhere in the `arm_manifest.json` write. Read Task 10's full implementation (§13): the grep above found exactly one `detect_stratum(` call site outside Task 3 itself, at the stratum-pooling block near the end of `combine_strength_holdout_arms`, feeding both `StratumRecord`s from the same local variable. | Task 9 (§12) now calls `detect_stratum(env_override=stratum_env_override)` and `platform.platform()` once, near the top (a new `stratum_env_override` parameter, and a required `date_stratum_id` parameter with no default -- DESIGN sec 3.5: "a Kaggle strength stratum is a separate pre-registered run," so this identifier must come from the caller, never be derived from wall-clock time), and records `stratum`/`platform_attestation`/`date_stratum_id` in the arm manifest. Task 10 (§13) no longer calls `detect_stratum()` at all -- it reads `manifest_a["stratum"]`/`manifest_b["stratum"]`/`manifest_a["platform_attestation"]`/`manifest_b["platform_attestation"]`, already proven present and well-formed by `_validate_stratum_fields`, and builds the two `StratumRecord`s from those, comparing the two ACTUAL arm records instead of one self-detected value. `date_stratum_id` is added to the pre-existing arm-vs-arm equality loop (`schedule_hash`/`panel_hash`/`seed_base`/`holdout_teams`), so two arms with the same stratum but different pre-registered runs still abort. `stratum_env_override` is repurposed: no longer fed into `detect_stratum`, it is now an optional caller expectation checked against `manifest_a["stratum"]`, aborting as a "contradictory override" on mismatch. |
+| P1 (Rev. 15) | `stratum_output_root()` (Task 3, §6) was called nowhere in the entire plan outside its own two unit tests (`test_stratum_output_root_separates_strata`/`test_stratum_output_root_rejects_unknown_stratum`) -- confirmed dead code in every real code path. Nothing bound an arm's `out_dir` to the stratum it was actually played under, so two strata's arms could be published to the same or an arbitrarily-named directory with nothing to catch it. | The `stratum_output_root\|StratumRecord\(\|detect_stratum\(\|platform_string` grep across the whole document returned zero hits for `stratum_output_root(` outside §6's own test block and implementation -- confirmed by reading every match. | Task 9 (§12) now computes `expected_root = stratum_output_root(stratum, STRENGTH_HOLDOUT_OUTPUT_BASE)` (a new module constant, `"data/eval/champions-panel-v0/strength-holdout-v0"` -- matches `holdout_leakage_scan.ALLOWED_DIRECTORY_PREFIXES`'s existing entry for this tree exactly, so no allowlist change is needed) and aborts with `GateBAbort` if the caller-supplied `out_dir` is not that root or a path under it, before `staging_dir`/`os.makedirs` run. This binds `stratum_output_root` into the real arm-publish path per the review's own "used... or bindingly validated there" wording -- the validated-caller-supplied-`out_dir` form, not the derive-it-internally form, since `out_dir`'s existing meaning as a full caller-supplied path (already relied on by Task 11's future CLI wiring) is unchanged. |
+
+**Required tests, confirmed present:** `test_combine_rejects_mixed_windows_and_kaggle_arms` (reject
+Windows+Kaggle), `test_combine_accepts_two_equally_attested_arms` (accept two equally-attested
+arms), `test_combine_rejects_a_contradictory_stratum_override` (reject contradictory overrides) --
+the three scenarios named explicitly in the review -- plus
+`test_combine_aborts_if_arms_disagree_on_date_stratum_id` (same stratum, different date-stratum,
+still aborts -- the other half of "different strata or date-strata must abort"),
+`test_combine_aborts_on_an_unknown_stratum_value` and
+`test_combine_aborts_on_a_type_wrong_platform_attestation` (closed-form validation: "missing,
+unknown, or type-wrong manifest values must abort" -- missing is covered by the pre-existing
+generic `_MANIFEST_REQUIRED_KEYS` presence-check test, itself unchanged, now also proving the
+mechanism for these three new keys by construction).
+
+**Self-found while fixing the two P1s above, same pass, not named in the review itself:** Task 9's
+new `detect_stratum(env_override=stratum_env_override)` call makes `UnattestedStratumError`
+(no override supplied, non-Windows platform -- DESIGN sec 3.5's own core Kaggle scenario) newly
+reachable from `run_strength_holdout_arm`'s call graph. The arm CLI's exception-audit table (§12)
+and its `except GateBAbort` handler (§14) both carried an explicit, load-bearing claim that this
+function's entire exception surface resolves to `GateBAbort` -- true before this round, false the
+moment `detect_stratum()` was added. Fixed in the same pass: the audit table gained two new rows
+(`UnattestedStratumError`, deliberately raw, matching Task 10's own established treatment of the
+identical exception type; `ValueError` on a malformed override, disclosed but not caught, expected
+to be argparse-guarded once a real `--stratum-override` flag exists), and `run_strength_holdout_arm_cli`'s
+except clause widened to `(GateBAbort, UnattestedStratumError)` with its comment corrected to stop
+claiming the handler "does not need widening." Exactly the same shape as Rev. 8/9's own NF3-NF5
+findings (a fix introducing a new raw exception path, caught by re-auditing the boundary in the
+same round rather than leaving the stale claim to mislead the next reader) -- disclosed here for
+that same reason, not silently folded into the two P1s' own cells above.
+
+**Side finding, deliberately not folded in (per explicit instruction):** the review's own message
+separately flagged `showdown_bot/uv.lock` as untracked in this worktree. Investigated read-only,
+reported to the user alongside this round, not treated as part of Task 3's scope, and no action
+taken on the file itself.
+
+**Downstream, re-checked:** Task 11 (§14) -- the arm CLI handler DOES change (self-found finding,
+above): its except clause and comment, corrected in this same round. Its combine CLI handler
+(`run_strength_holdout_combine_cli`/`_describe_strength_holdout_combine_error`) needed no change
+-- it already catches `StrataPoolingError`/`UnattestedStratumError` in its existing four-guards
+tuple (Rev. 8, NF4), which now simply carries real per-arm data instead of a self-detected value;
+both CLI handlers still unconditionally `raise GateBAbort(...)` pending Task 13 and construct no
+real call to either runner function otherwise. Task 12 (§15) -- unaffected, no change; still only
+computes the combined `team_content_hash` for provenance, never touches stratum. Task 13 (§16) --
+unaffected; its wording names no stratum-related field. "## 3.
+File structure" -- unaffected; `strength_holdout_runner.py`'s existing description ("per-arm
+execution + combine/guards/publish") already covers this change without edit.
+
+## 1o. What changed in Rev. 16 — two mechanical gaps in Rev. 15's own fix
+
+A direct, mechanical follow-up review on Rev. 15's own text (not a fresh full-plan round): "Rev.
+15 schließt die ursprüngliche Arm→Manifest→Combine-Lücke korrekt. Zwei mechanische P1-Reste
+bleiben jedoch." Both confirmed against the literal Rev. 15 code before any fix -- the first by
+re-reading `detect_stratum`'s body (Task 3, §6) end to end; the second by hand-tracing what
+`out_dir` actually looks like at Task 9's own test call sites (`_arm_out_dir`, §12) against what
+the new check compared it to.
+
+| # | Finding | Verified against | Fixed in |
+|---|---|---|---|
+| P1 (Rev. 16) | `detect_stratum`'s `env_override` bypassed `platform.system()` entirely: `if env_override is not None: ... return env_override` -- no check of any kind against what the platform actually is. Before Rev. 15 this was inert (nothing downstream trusted the result for anything consequential). Rev. 15 made it load-bearing: Task 9 now writes `detect_stratum`'s return value into the arm manifest as the authoritative `stratum` field, and Task 10 trusts that field completely, never re-deriving it. `env_override="kaggle"` passed on the real, fixed Windows measurement host (or `env_override="windows"` passed on a non-Windows box) would therefore now succeed silently and get recorded as fact -- a spoofed label with real downstream consequences: DESIGN sec 3.5's whole point (Kaggle's CPU is not reproducibly comparable to the fixed Windows host) depends on the recorded stratum being true, not merely claimed. | Read `detect_stratum`'s full body (§6) line by line: the `if env_override is not None:` branch only ever validated membership in `VALID_STRATA`, never compared against `platform.system()`. Confirmed the two spoofing directions both reach `return env_override` unobstructed on the literal Rev. 15 code. | `detect_stratum` (§6) now computes `is_windows = platform.system() == "Windows"` once, and rejects (`UnattestedStratumError`, reusing the existing type rather than adding a new one -- the semantic fit is exact: an override contradicting reality is not a valid attestation) `env_override="kaggle"` when `is_windows` is true, and `env_override="windows"` when it is false. Consistent combinations (`"windows"` on Windows, `"kaggle"` on non-Windows) are unaffected. `test_detect_stratum_respects_explicit_override` (which asserted both calls succeeded using the REAL ambient platform, no monkeypatch) is replaced by two tests: one confirming both consistent combinations under explicit `monkeypatch.setattr("platform.system", ...)`, one confirming both contradiction directions are rejected. Net test count: 8 -> 9. |
+| P1 (Rev. 16) | Task 9's new out_dir validation (Rev. 15) compared `out_dir` against `expected_root` with `out_dir != expected_root and not out_dir.startswith(expected_root + "/")`. `expected_root` (`stratum_output_root`'s return value) is always a bare, forward-slash, repo-root-relative string with no absolute prefix. Every `out_dir` the plan's OWN tests construct (via `_arm_out_dir`, built from pytest's `tmp_path` fixture -- an absolute, OS-native-separator directory, exactly like every other test in this file already uses to get a real, writable location) therefore NEVER matches: on Windows, `str(tmp_path / "data/eval/.../windows" / "arm_a")` renders with backslashes and an absolute drive-letter prefix, which can satisfy neither `==` nor `.startswith()` against the bare relative `expected_root`. The check would reject every one of Task 9's own passing tests, not just a genuine mistake. | Hand-traced `_arm_out_dir`'s actual return value (§12: `tmp_path / stratum_output_root(stratum, STRENGTH_HOLDOUT_OUTPUT_BASE) / name`, an absolute `WindowsPath`) against `run_strength_holdout_arm`'s literal Rev. 15 comparison -- confirmed the two can never satisfy either branch of the `if` on this OS, by construction. | Replaced the direct comparison with a separator-normalized, slash-bounded substring check (§12): `out_dir.replace("\\", "/")`, then test that `f"/{expected_root}/"` appears in `f"/{normalized_out_dir}/"`. Handles the relative-path production shape (root as a literal prefix) and the absolute-tmp_path test shape (root as a middle segment) identically, without requiring `out_dir` to be one specific form -- the same normalize-before-compare technique Task 2's `_normalize_path` (§5) already established for the identical class of bug (a caller-supplied Windows-style path defeating a string-based path check). No test-fixture change needed -- `_arm_out_dir` was already correct; only the comparison it fed was wrong. |
+
+**Downstream, re-checked:** Neither fix touches a manifest field, a function signature, or a
+call site outside the two cells above -- `_MANIFEST_REQUIRED_KEYS`, the arm-vs-arm loop,
+`_validate_stratum_fields`, the six Rev. 15 tests, and every CLI/exception-audit change from §1n
+are all unaffected, no change. Task 9's own tests (§12) needed no change: every one already
+passes `stratum_env_override="windows"` under the real, unpatched ambient platform (this dev/CI
+box is genuinely Windows), which is consistent under the new `detect_stratum` check exactly as it
+was under the old one.
 
 ## 2. Team Sourcing — D-1b resolved, Task 13 fail-closed pending source-proof
 
@@ -1463,9 +1595,30 @@ from showdown_bot.eval.strata_guard import (
 )
 
 
-def test_detect_stratum_respects_explicit_override():
-    assert detect_stratum(env_override="kaggle") == "kaggle"
+def test_detect_stratum_respects_explicit_override_when_consistent_with_the_platform(monkeypatch):
+    # Rev. 16 fix (§1o, P1 #1): an override may only CONFIRM what platform.system() can prove,
+    # never CONTRADICT it -- see test_detect_stratum_rejects_an_override_that_contradicts_the_platform
+    # below for the rejection side. "windows" on a real/simulated Windows box, and "kaggle" on a
+    # simulated non-Windows box, are the only two consistent combinations.
+    monkeypatch.setattr("platform.system", lambda: "Windows")
     assert detect_stratum(env_override="windows") == "windows"
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    assert detect_stratum(env_override="kaggle") == "kaggle"
+
+
+def test_detect_stratum_rejects_an_override_that_contradicts_the_platform(monkeypatch):
+    # Rev. 16 fix (§1o, P1 #1): before this fix, env_override bypassed platform.system() entirely
+    # -- env_override="kaggle" on the real, fixed Windows measurement host (or the reverse on a
+    # non-Windows box) succeeded silently, mislabeling a run's stratum regardless of where it
+    # actually executed. DESIGN sec 3.5 cares about the ACTUAL hardware a run executed on, not
+    # merely a claimed label -- an override that contradicts observable platform reality is not a
+    # valid attestation.
+    monkeypatch.setattr("platform.system", lambda: "Windows")
+    with pytest.raises(UnattestedStratumError, match="Windows"):
+        detect_stratum(env_override="kaggle")
+    monkeypatch.setattr("platform.system", lambda: "Linux")
+    with pytest.raises(UnattestedStratumError, match="not Windows"):
+        detect_stratum(env_override="windows")
 
 
 def test_detect_stratum_rejects_unknown_override():
@@ -1525,7 +1678,9 @@ Expected: FAIL with `ModuleNotFoundError`
 attestation (env_override, or Windows sniffed via platform.system()) selects a stratum. A bare
 non-Windows box is NOT assumed to be the approved Kaggle environment -- it could be any
 unattested machine, and DESIGN requires Kaggle to be a deliberate, separately pre-registered
-stratum, not a default."""
+stratum, not a default. An env_override may only CONFIRM what platform.system() can prove, never
+CONTRADICT it (Rev. 16, §1o, P1 #1) -- it selects between platform-consistent choices, it does
+not let a caller relabel whatever machine is actually running as a different stratum."""
 from __future__ import annotations
 
 import platform
@@ -1552,11 +1707,28 @@ class StratumRecord:
 
 
 def detect_stratum(*, env_override: str | None = None) -> str:
+    is_windows = platform.system() == "Windows"
     if env_override is not None:
         if env_override not in VALID_STRATA:
             raise ValueError(f"unknown stratum {env_override!r}, expected one of {VALID_STRATA}")
+        # Rev. 16 fix (§1o, P1 #1): before this check, env_override bypassed platform.system()
+        # entirely -- env_override="kaggle" on the real, fixed Windows measurement host (or the
+        # reverse on a non-Windows box) succeeded silently. The override may only select between
+        # platform-CONSISTENT choices, never contradict what platform.system() can already prove.
+        if env_override == KAGGLE_STRATUM and is_windows:
+            raise UnattestedStratumError(
+                f"env_override={env_override!r} claims the Kaggle stratum, but this machine's "
+                "platform.system() is Windows -- the fixed Windows measurement host must never "
+                "be relabeled as Kaggle"
+            )
+        if env_override == WINDOWS_STRATUM and not is_windows:
+            raise UnattestedStratumError(
+                f"env_override={env_override!r} claims the Windows stratum, but "
+                f"platform.system()={platform.system()!r} is not Windows -- the override may "
+                "not contradict what the platform can already prove"
+            )
         return env_override
-    if platform.system() == "Windows":
+    if is_windows:
         return WINDOWS_STRATUM
     raise UnattestedStratumError(
         f"platform.system()={platform.system()!r} is not Windows and no env_override was given "
@@ -1585,13 +1757,13 @@ def stratum_output_root(stratum: str, base_dir: str) -> str:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pytest showdown_bot/tests/test_strata_guard.py -v`
-Expected: 8 passed
+Expected: 9 passed
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/eval/strata_guard.py showdown_bot/tests/test_strata_guard.py
-git commit -m "fix(champions): stratum detection fails closed instead of defaulting to Kaggle"
+git commit -m "fix(champions): stratum detection fails closed and rejects a platform-inconsistent override"
 ```
 
 ---
@@ -2658,15 +2830,26 @@ def _setup_common(monkeypatch, tmp_path, schedule):
     return str(seed_log_path)
 
 
+def _arm_out_dir(tmp_path, name, stratum="windows"):
+    """Rev. 15 fix (§1n, Task-3-review P1 #2): run_strength_holdout_arm now bindingly validates
+    out_dir against stratum_output_root -- every test reaching that check needs an out_dir
+    actually rooted there, not a bare tmp_path child. Returns a Path (like the `tmp_path /
+    "arm_a"` expressions this replaces), so existing `.exists()` / `/` usage keeps working."""
+    from showdown_bot.eval.strata_guard import stratum_output_root
+    from showdown_bot.eval.strength_holdout_runner import STRENGTH_HOLDOUT_OUTPUT_BASE
+    return tmp_path / stratum_output_root(stratum, STRENGTH_HOLDOUT_OUTPUT_BASE) / name
+
+
 def test_run_strength_holdout_arm_plays_every_battle_key_exactly_once(tmp_path, monkeypatch):
     schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
     seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
     fake_runner = _fake_gauntlet_runner_factory(winner="hero")
 
     result = run_strength_holdout_arm(
-        hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+        hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
         seed_log_path=seed_log_path, teams_root=".", gauntlet_runner=fake_runner,
         holdout_team_content_hashes=_fake_team_content_hashes(),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
     )
 
     assert len(fake_runner.calls) == 180
@@ -2681,14 +2864,15 @@ def test_run_strength_holdout_arm_plays_every_battle_key_exactly_once(tmp_path, 
 def test_run_strength_holdout_arm_publishes_atomically(tmp_path, monkeypatch):
     schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
     seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
-    out_dir = tmp_path / "arm_a"
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
     run_strength_holdout_arm(
         hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
         seed_log_path=seed_log_path, teams_root=".",
         gauntlet_runner=_fake_gauntlet_runner_factory(),
         holdout_team_content_hashes=_fake_team_content_hashes(),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
     )
-    assert not (tmp_path / "arm_a.staging").exists()  # staging dir cleaned up via rename
+    assert not out_dir.with_name(out_dir.name + ".staging").exists()  # staging dir cleaned up via rename
     assert out_dir.exists()
     with open(out_dir / "rows.jsonl", "r", encoding="utf-8") as fh:
         lines = fh.readlines()
@@ -2717,12 +2901,13 @@ def test_run_strength_holdout_arm_aborts_cleanly_on_a_row_that_fails_schema_vali
             })
         return _FakeGauntletStats(games=1)
 
-    out_dir = tmp_path / "arm_a"
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
     with pytest.raises(GateBAbort, match="fails schema validation"):
         run_strength_holdout_arm(
             hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
             seed_log_path=seed_log_path, teams_root=".", gauntlet_runner=runner_with_an_unknown_field,
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert not out_dir.exists()  # never published -- orphaned staging dir left behind instead
 
@@ -2730,14 +2915,15 @@ def test_run_strength_holdout_arm_aborts_cleanly_on_a_row_that_fails_schema_vali
 def test_run_strength_holdout_arm_refuses_an_existing_out_dir(tmp_path, monkeypatch):
     schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
     seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
-    out_dir = tmp_path / "arm_a"
-    out_dir.mkdir()
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    out_dir.mkdir(parents=True)
     with pytest.raises(GateBAbort, match="already exists"):
         run_strength_holdout_arm(
             hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
             seed_log_path=seed_log_path, teams_root=".",
             gauntlet_runner=_fake_gauntlet_runner_factory(),
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
 
 
@@ -2750,9 +2936,10 @@ def test_run_strength_holdout_arm_discards_a_timed_out_battle_and_aborts(tmp_pat
 
     with pytest.raises(GateBAbort, match="did not complete"):
         run_strength_holdout_arm(
-            hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
             seed_log_path=seed_log_path, teams_root=".", gauntlet_runner=timing_out_runner,
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
 
 
@@ -2770,9 +2957,10 @@ def test_run_strength_holdout_arm_aborts_cleanly_if_the_gauntlet_runner_raises(t
 
     with pytest.raises(GateBAbort, match="seed_index 0") as exc_info:
         run_strength_holdout_arm(
-            hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
             seed_log_path=seed_log_path, teams_root=".", gauntlet_runner=disconnecting_runner,
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert isinstance(exc_info.value.__cause__, ConnectionError)
 
@@ -2792,9 +2980,10 @@ def test_run_strength_holdout_arm_aborts_before_playing_if_a_scheduled_team_has_
 
     with pytest.raises(GateBAbort, match="holdout_0"):
         run_strength_holdout_arm(
-            hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
             seed_log_path=str(tmp_path / "seeds.jsonl"), teams_root=".", gauntlet_runner=fake_runner,
             holdout_team_content_hashes=incomplete_hashes,
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert len(fake_runner.calls) == 0  # no battle played before the check fired
 
@@ -2811,9 +3000,10 @@ def test_run_strength_holdout_arm_rejects_a_seed_base_env_mismatch(tmp_path, mon
 
     with pytest.raises(GateBAbort, match="SHOWDOWN_BATTLE_SEED_BASE"):
         run_strength_holdout_arm(
-            hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
             seed_log_path=str(tmp_path / "seeds.jsonl"), teams_root=".", gauntlet_runner=fake_runner,
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert len(fake_runner.calls) == 0
 
@@ -2828,9 +3018,10 @@ def test_run_strength_holdout_arm_requires_a_seed_log_path(tmp_path, monkeypatch
 
     with pytest.raises(GateBAbort, match="seed_log_path"):
         run_strength_holdout_arm(
-            hero_agent="heuristic", schedule=schedule, out_dir=str(tmp_path / "arm_a"),
+            hero_agent="heuristic", schedule=schedule, out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
             seed_log_path="", teams_root=".", gauntlet_runner=fake_runner,
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert len(fake_runner.calls) == 0
 
@@ -2847,7 +3038,7 @@ def test_run_strength_holdout_arm_aborts_if_the_seed_log_does_not_verify(tmp_pat
     monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", schedule.seed_base)
     bad_seed_log = tmp_path / "seeds.jsonl"
     _write_valid_seed_log(str(bad_seed_log), "wrong-seed-base-recorded", len(schedule.battle_keys))
-    out_dir = tmp_path / "arm_a"
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
 
     with pytest.raises(GateBAbort, match="seed-log verification failed"):
         run_strength_holdout_arm(
@@ -2855,6 +3046,7 @@ def test_run_strength_holdout_arm_aborts_if_the_seed_log_does_not_verify(tmp_pat
             seed_log_path=str(bad_seed_log), teams_root=".",
             gauntlet_runner=_fake_gauntlet_runner_factory(),
             holdout_team_content_hashes=_fake_team_content_hashes(),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert not out_dir.exists()
 ```
@@ -2893,17 +3085,26 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
 import subprocess
 
 from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 from showdown_bot.eval.i8d_runner import _write_json_atomic
 from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, ResultRowError
 from showdown_bot.eval.seeding import derive_battle_seed, verify_seed_log, SeedLogError
+from showdown_bot.eval.strata_guard import detect_stratum, stratum_output_root
 from showdown_bot.eval.strength_holdout_schedule import (
     STRENGTH_HOLDOUT_HERO_TEAM_PATH, STRENGTH_HOLDOUT_FORMAT_ID,
 )
 from showdown_bot.learning.provenance import make_candidate_identity
 from showdown_bot.team.pack import load_packed_team
+
+# Rev. 15 fix (§1n, Task-3-review P1 #2): matches holdout_leakage_scan.ALLOWED_DIRECTORY_PREFIXES'
+# "data/eval/champions-panel-v0/strength-holdout-v0/" entry (Task 2) exactly, minus the trailing
+# slash stratum_output_root's own f"{base_dir}/{stratum}" join adds back -- every arm this
+# function publishes therefore lands somewhere the leakage guard's allowlist already covers,
+# with no allowlist change needed.
+STRENGTH_HOLDOUT_OUTPUT_BASE = "data/eval/champions-panel-v0/strength-holdout-v0"
 
 
 class GateBAbort(Exception):
@@ -3011,8 +3212,8 @@ def resolve_strength_holdout_provenance(*, hero_agent: str = "heuristic") -> dic
 
 def run_strength_holdout_arm(
     *, hero_agent: str, schedule, out_dir: str, seed_log_path: str,
-    holdout_team_content_hashes: dict[str, str], teams_root: str = ".",
-    calc_backend: str = "oneshot", gauntlet_runner=None,
+    holdout_team_content_hashes: dict[str, str], date_stratum_id: str, teams_root: str = ".",
+    calc_backend: str = "oneshot", gauntlet_runner=None, stratum_env_override: str | None = None,
 ) -> dict:
     """Plays all len(schedule.battle_keys) battles for ONE arm, staged+atomically published.
     gauntlet_runner defaults to the real client.gauntlet.run_local_gauntlet; tests inject a fake
@@ -3023,7 +3224,18 @@ def run_strength_holdout_arm(
     team missing from this mapping aborts before the first battle plays; the row's opp_team_hash
     field must never fall back to the bare team_id string (Rev. 3 P2 fix: that field name
     promises a hash to every downstream consumer -- the leakage scan, the disjointness check,
-    cell grouping -- and a non-hash placeholder there would silently defeat all three)."""
+    cell grouping -- and a non-hash placeholder there would silently defeat all three).
+
+    Rev. 15 fix (§1n, Task-3-review P1 #1): stratum/platform/date-stratum identity is established
+    HERE, on the machine that actually plays this arm's battles -- never re-derived later by
+    combine_strength_holdout_arms (Task 10, its own Rev. 15 fix), which reads what THIS function
+    wrote into the manifest instead. date_stratum_id is a pre-registered identifier for this run
+    (DESIGN sec 3.5: "a Kaggle strength stratum is a separate pre-registered run"), required with
+    no default -- an auto-derived "today's date" would not be pre-registered, so the caller must
+    supply it. stratum_env_override threads into detect_stratum's own explicit-override escape
+    hatch (Task 3) -- required for any real Kaggle run, since detect_stratum() refuses to guess
+    Kaggle from a bare non-Windows platform.system() read; also used by tests to pin the stratum
+    deterministically regardless of the box actually running the suite."""
     if gauntlet_runner is None:
         from showdown_bot.client.gauntlet import run_local_gauntlet as gauntlet_runner
 
@@ -3049,6 +3261,36 @@ def run_strength_holdout_arm(
         raise GateBAbort(
             "seed_log_path (SHOWDOWN_EVAL_SEED_LOG) is required so the played seeds can be "
             "proven; without it the run's seeds are only labelled, not verified"
+        )
+
+    # Rev. 15 fix (§1n, Task-3-review P1 #1/#2): stratum/platform/out_dir identity, established
+    # ONCE here and written into the manifest below -- never re-derived by the combiner.
+    if not date_stratum_id:
+        raise GateBAbort(
+            "date_stratum_id is required and must be non-empty -- DESIGN sec 3.5 requires a "
+            "pre-registered stratum/date identifier, fixed before the run, never derived after "
+            "the fact"
+        )
+    stratum = detect_stratum(env_override=stratum_env_override)
+    platform_attestation = platform.platform()
+    expected_root = stratum_output_root(stratum, STRENGTH_HOLDOUT_OUTPUT_BASE)
+    # Rev. 16 fix (§1o, P1 #2): comparing out_dir against expected_root via `==`/`.startswith`
+    # directly only works if out_dir happens to be a bare, forward-slash, repo-root-relative
+    # string -- exactly what expected_root itself is. Every out_dir this plan's OWN tests
+    # construct (via pytest's tmp_path fixture, the same pattern every other test in this file
+    # uses to get a real, writable directory) is an ABSOLUTE, OS-native-separator path with
+    # tmp_path's own prefix ahead of the stratum root -- so the direct comparison rejected the
+    # plan's own tests, not just genuine mistakes. Normalizing separators (matching Task 2's
+    # `_normalize_path` precedent, §5) and checking for expected_root as a slash-bounded path
+    # SEGMENT -- not a bare prefix -- accepts both the relative (production, repo-root CWD) and
+    # absolute (tests, or a fully-resolved real caller) shapes the same way, without requiring
+    # out_dir to be one specific form.
+    normalized_out_dir = out_dir.replace("\\", "/")
+    if f"/{expected_root}/" not in f"/{normalized_out_dir}/":
+        raise GateBAbort(
+            f"out_dir={out_dir!r} must be {expected_root!r} or a path under it for "
+            f"stratum={stratum!r} -- DESIGN sec 3.5 requires each stratum to publish under its "
+            "own separate output tree, never a shared or ambiguous location"
         )
 
     staging_dir = f"{out_dir}.staging"
@@ -3193,6 +3435,12 @@ def run_strength_holdout_arm(
         "hero_agent": hero_agent, "schedule_hash": schedule.schedule_hash,
         "seed_base": schedule.seed_base, "panel_hash": schedule.panel_hash,
         "holdout_teams": holdout_teams,
+        # Rev. 15 fix (§1n, Task-3-review P1 #1): the three fields established near the top of
+        # this function (stratum/platform_attestation/date_stratum_id) are recorded here so
+        # combine_strength_holdout_arms (Task 10) can validate and compare them WITHOUT ever
+        # calling detect_stratum() itself.
+        "stratum": stratum, "platform_attestation": platform_attestation,
+        "date_stratum_id": date_stratum_id,
         **provenance, "seed_log_path": seed_log_path, "n_rows": len(rows),
     })
     os.replace(staging_dir, out_dir)
@@ -3333,7 +3581,8 @@ def _holdout_teams_mapping(hashes: dict) -> dict:
 
 
 def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=12,
-                holdout_teams=None):
+                holdout_teams=None, stratum="windows", platform_attestation="Fixture-Platform-1",
+                date_stratum_id="fixture-date-stratum-0"):
     # Rev. 3 fix: candidate_identity is DERIVED via the real formula, never hardcoded the same
     # for both arms -- hero_agent is a hash input, so heuristic vs max_damage always produces
     # different identities. A test that hardcodes one shared value can't catch a broken equality
@@ -3389,6 +3638,14 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         "panel_hash": "panel1", "git_sha": git_sha, "config_hash": config_hash,
         "candidate_identity": candidate_identity, "seed_log_path": str(tmp_path / f"{name}_seeds.jsonl"), "n_rows": n,
         "holdout_teams": holdout_teams,
+        # Rev. 15 fix (§1n, Task-3-review P1 #1): both arms default to the SAME stratum/
+        # platform_attestation/date_stratum_id, so a test that doesn't care about strata
+        # specifically (most of them) gets two equally-attested arms by construction -- exactly
+        # the "accept two equally-attested arms" scenario the review requires as its own test.
+        # A test that DOES care (mixed strata / differing date_stratum_id / contradictory
+        # override) passes an explicit, different value for one arm.
+        "stratum": stratum, "platform_attestation": platform_attestation,
+        "date_stratum_id": date_stratum_id,
     }
     with open(arm_dir / "arm_manifest.json", "w", encoding="utf-8") as fh:
         json.dump(manifest, fh)
@@ -4112,6 +4369,137 @@ def test_combine_aborts_if_holdout_teams_has_an_invalid_shape(tmp_path, monkeypa
                 holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
                 stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
             )
+
+
+# Rev. 15 (§1n, Task-3-review): Task 9 now writes stratum/platform_attestation/date_stratum_id
+# into each arm's own manifest (its own Rev. 15 fix); the six tests below prove Task 10 validates
+# them in closed form and compares the two ACTUAL arm records, never re-determining its own
+# stratum from detect_stratum().
+
+
+def test_combine_rejects_mixed_windows_and_kaggle_arms(tmp_path, monkeypatch):
+    # P1 #3: "different strata... must abort" -- arm A played on Windows, arm B on Kaggle, must
+    # never combine even though every other field agrees.
+    from showdown_bot.eval.strata_guard import StrataPoolingError
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                        holdout_teams=holdout_teams, stratum="windows")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=holdout_teams, stratum="kaggle")
+
+    with pytest.raises(StrataPoolingError):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_accepts_two_equally_attested_arms(tmp_path, monkeypatch):
+    # Required test: the mirror image of the rejection above -- two arms sharing one stratum,
+    # each with its own non-empty platform_attestation, must combine successfully.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                        holdout_teams=holdout_teams, stratum="windows",
+                        platform_attestation="Windows-11-10.0.26200")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=holdout_teams, stratum="windows",
+                        platform_attestation="Windows-11-10.0.26200")
+
+    result = combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+        teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+    )
+    assert result["stratum"] == "windows"
+
+
+def test_combine_rejects_a_contradictory_stratum_override(tmp_path, monkeypatch):
+    # Required test: both arms genuinely agree (windows/windows), but the caller-supplied
+    # stratum_env_override="kaggle" contradicts what they actually recorded -- must abort, not
+    # silently force a mismatched label onto real data.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                        holdout_teams=holdout_teams, stratum="windows")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=holdout_teams, stratum="windows")
+
+    with pytest.raises(GateBAbort, match="contradicts"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=hashes, reference_species=_fake_reference_species(),
+            stratum_env_override="kaggle", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_arms_disagree_on_date_stratum_id(tmp_path, monkeypatch):
+    # P1 #3: "different... date-strata must abort" -- same stratum (windows/windows, so
+    # assert_no_cross_stratum_pooling alone would NOT catch this) but two different pre-
+    # registered run identifiers must still never combine.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                        date_stratum_id="run-2026-07-01")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        date_stratum_id="run-2026-08-01")
+
+    with pytest.raises(GateBAbort, match="date_stratum_id"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_on_an_unknown_stratum_value(tmp_path, monkeypatch):
+    # P1 #4: "unknown... manifest values must abort" -- a stratum value present but not one of
+    # strata_guard.VALID_STRATA (a hand-edited or future-format manifest) must be rejected in
+    # closed form, not silently accepted or crash downstream with a raw KeyError/ValueError.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["stratum"] = "colab"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="not one of the known strata"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_on_a_type_wrong_platform_attestation(tmp_path, monkeypatch):
+    # P1 #4: "type-wrong manifest values must abort" -- a non-string platform_attestation (an
+    # accidental int from a hand-edited or differently-typed manifest) must be rejected, not
+    # silently accepted or crash the StratumRecord construction downstream unclearly.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["platform_attestation"] = 12345
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="platform_attestation"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
 ```
 
 Rev. 3 removes the `_all_guards_pass_for_test` seam entirely: it patched a name the production
@@ -4162,7 +4550,7 @@ from showdown_bot.eval.strength_holdout_verdict import (
 from showdown_bot.eval.holdout_leakage_scan import assert_no_holdout_leakage
 from showdown_bot.eval.holdout_disjointness import assert_disjoint_from_coverage
 from showdown_bot.eval.near_duplicate import find_near_duplicate_flags
-from showdown_bot.eval.strata_guard import detect_stratum, StratumRecord, assert_no_cross_stratum_pooling
+from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_no_cross_stratum_pooling
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
 from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
 from showdown_bot.eval.report import _build_cells, _build_aggregates
@@ -4209,7 +4597,12 @@ def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
 # this function's own row[field] access with a raw KeyError, exactly the N1 bug one level up
 # (see the comment at Task 9's row-building site).
 _MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", "seed_base",
-                          "panel_hash", "hero_agent", "candidate_identity", "holdout_teams")
+                          "panel_hash", "hero_agent", "candidate_identity", "holdout_teams",
+                          # Rev. 15 fix (§1n, Task-3-review P1 #1): presence-checked here exactly
+                          # like every other required field -- closed-form validity (unknown
+                          # stratum value; non-string/empty platform_attestation/date_stratum_id)
+                          # is checked separately, by _validate_stratum_fields below.
+                          "stratum", "platform_attestation", "date_stratum_id")
 _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
 # Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
 # _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound
@@ -4264,6 +4657,26 @@ def _validate_holdout_teams_mapping(holdout_teams, which: str) -> None:
                 f"arm {which}: holdout_teams[{team_id!r}]['team_path']={entry['team_path']!r} "
                 f"is not the canonical path for this team_id (expected {expected_path!r})"
             )
+
+
+def _validate_stratum_fields(manifest: dict, which: str) -> None:
+    """Rev. 15 fix (§1n, Task-3-review P1 #1): stratum/platform_attestation/date_stratum_id are
+    now REQUIRED manifest fields (presence checked by _MANIFEST_REQUIRED_KEYS, same as
+    holdout_teams) -- but presence alone is not closed validation. A stratum value that is
+    present but not one of strata_guard.VALID_STRATA, or a platform_attestation/date_stratum_id
+    that is present but empty or the wrong type, must abort here -- exactly the same
+    "missing, unknown, or type-wrong" standard _validate_holdout_teams_mapping already applies to
+    holdout_teams, now applied to these three fields."""
+    stratum = manifest["stratum"]
+    if not isinstance(stratum, str) or stratum not in VALID_STRATA:
+        raise GateBAbort(
+            f"arm {which}: manifest's stratum={stratum!r} is not one of the known strata "
+            f"{sorted(VALID_STRATA)}"
+        )
+    for field in ("platform_attestation", "date_stratum_id"):
+        value = manifest[field]
+        if not isinstance(value, str) or not value:
+            raise GateBAbort(f"arm {which}: manifest's {field}={value!r} must be a non-empty string")
 
 
 def _assert_rows_bind_to_holdout_teams(rows: list[dict], holdout_teams: dict, which: str) -> None:
@@ -4322,7 +4735,13 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
     and then bound to what these SAME rows actually contain
     (_assert_rows_bind_to_holdout_teams), both before the scalar per-field checks below, so a
     manifest that lies about which teams were played is caught here, not three call sites
-    downstream where the leakage/disjointness guards would have silently trusted it."""
+    downstream where the leakage/disjointness guards would have silently trusted it.
+
+    Rev. 15 fix (§1n, Task-3-review P1 #1): the same standard now applies to
+    stratum/platform_attestation/date_stratum_id (_validate_stratum_fields) -- presence via
+    _MANIFEST_REQUIRED_KEYS, closed-form validity (unknown stratum, non-string/empty attestation
+    or date-stratum id) here, before combine_strength_holdout_arms ever compares the two arms'
+    values against each other."""
     missing_manifest_keys = set(_MANIFEST_REQUIRED_KEYS) - set(manifest)
     if missing_manifest_keys:
         raise GateBAbort(
@@ -4330,6 +4749,7 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
             "-- malformed or truncated arm_manifest.json"
         )
     _validate_holdout_teams_mapping(manifest["holdout_teams"], which)
+    _validate_stratum_fields(manifest, which)
     for i, row in enumerate(rows):
         missing_row_keys = (
             set(_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK) | set(_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING)
@@ -4412,6 +4832,13 @@ def combine_strength_holdout_arms(
     commit) and schedule_hash/panel_hash/seed_base (same battle conditions) -- checked explicitly
     below, and re-verified independently by pair_runs's own cross-run checks.
 
+    stratum_env_override (Rev. 15 fix, §1n): NOT a source of truth -- this function never calls
+    detect_stratum() itself, since the machine running combine_strength_holdout_arms need not be
+    either arm's play machine. If given, it is an optional caller EXPECTATION, checked against
+    what the two arms' own manifests actually recorded (already proven to agree with each other by
+    the arm-vs-arm loop below); a mismatch aborts as a contradictory override, before the arms are
+    ever compared to each other for pooling.
+
     Order: cheapest checks first, matching coverage_runner.py."""
     if not i8d_verdict_path:
         raise GateBAbort("i8d_verdict_path is required and must be non-empty -- Gate B may only run after an I8-D PASS on this candidate")
@@ -4433,7 +4860,16 @@ def combine_strength_holdout_arms(
         raise GateBAbort(f"arm B must be hero_agent='max_damage' (Baseline B per DESIGN sec 3.2), got {manifest_b['hero_agent']!r}")
     if manifest_a["git_sha"] != manifest_b["git_sha"]:
         raise GateBAbort("arms disagree on git_sha -- they were not played on the same commit")
-    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams"):
+    # Rev. 15 fix (§1n, Task-3-review P1 #2): date_stratum_id added -- "different... date-strata
+    # must abort" (stratum ITSELF is compared separately below, via assert_no_cross_stratum_
+    # pooling, so its StrataPoolingError stays distinct from this loop's GateBAbort, matching the
+    # exception-audit table's existing, deliberate separation of guard-specific exception types
+    # from this trust-chain's single GateBAbort class -- see the comment above the upstream-
+    # verdict try/except further down). platform_attestation is NOT compared here: two arms
+    # legitimately played on the same physical box can report different platform.platform()
+    # strings (e.g. an OS patch between arm A and arm B's runs) without that meaning anything --
+    # only its non-empty presence is required (_validate_stratum_fields), not byte-equality.
+    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
 
@@ -4521,10 +4957,27 @@ def combine_strength_holdout_arms(
     # DESIGN sec 3.3: manual-review flag, never an auto-abort -- always computed and recorded
     # in the published bundle below (payload["near_duplicate_flags"]), never silently dropped.
 
-    stratum = detect_stratum(env_override=stratum_env_override)
+    # Rev. 15 fix (§1n, Task-3-review P1 #2/#3): the combiner must not RE-DETERMINE stratum from
+    # its own machine -- detect_stratum() reflects whatever box happens to run
+    # combine_strength_holdout_arms, which need not be either arm's PLAY machine. Each arm's own
+    # manifest already carries what Task 9 (its own Rev. 15 fix) recorded at play time, already
+    # proven present/well-formed by _validate_stratum_fields above; compare the two ACTUAL arm
+    # records instead of a freshly-detected third value.
+    #
+    # stratum_env_override is repurposed accordingly: no longer a source of truth fed into
+    # detect_stratum, it is now an optional caller-supplied EXPECTATION checked against what the
+    # arms actually recorded. A caller who expects e.g. a Windows-stratum combine and gets
+    # Kaggle-stratum arms (or the reverse) gets a clear "contradictory override" abort instead of
+    # silently combining the wrong stratum's arms.
+    if stratum_env_override is not None and stratum_env_override != manifest_a["stratum"]:
+        raise GateBAbort(
+            f"stratum_env_override={stratum_env_override!r} contradicts the arms' own recorded "
+            f"stratum={manifest_a['stratum']!r} -- the override must match what the arms actually "
+            "recorded, not silently force a different stratum onto them"
+        )
     assert_no_cross_stratum_pooling([
-        StratumRecord(stratum=stratum, platform_string="", output_dir=arm_a_dir),
-        StratumRecord(stratum=stratum, platform_string="", output_dir=arm_b_dir),
+        StratumRecord(stratum=manifest_a["stratum"], platform_string=manifest_a["platform_attestation"], output_dir=arm_a_dir),
+        StratumRecord(stratum=manifest_b["stratum"], platform_string=manifest_b["platform_attestation"], output_dir=arm_b_dir),
     ])
 
     try:
@@ -4567,7 +5020,7 @@ def combine_strength_holdout_arms(
         "safety_pass": safety_pass, "candidate_identity": manifest_a["candidate_identity"],
         "git_sha": manifest_a["git_sha"], "config_hash_a": manifest_a["config_hash"],
         "config_hash_b": manifest_b["config_hash"], "schedule_hash": manifest_a["schedule_hash"],
-        "panel_hash": manifest_a["panel_hash"], "stratum": stratum,
+        "panel_hash": manifest_a["panel_hash"], "stratum": manifest_a["stratum"],
         "near_duplicate_flags": [asdict(f) for f in near_dup_flags],
         "report_banner": "HELD-OUT RUN -- these numbers must never inform tuning.",
     }
@@ -4740,6 +5193,7 @@ Following `run_coverage_gate_cli`'s exact shape, add two handlers and subparsers
 def run_strength_holdout_arm_cli(args) -> int:
     from showdown_bot.eval.strength_holdout_runner import run_strength_holdout_arm, GateBAbort
     from showdown_bot.eval.strength_holdout_schedule import build_strength_holdout_schedule
+    from showdown_bot.eval.strata_guard import UnattestedStratumError
     try:
         # Team-dependent: a real holdout_teams mapping (Rev. 14, §1m -- team_id ->
         # {team_path, content_hash}) only exists once Task 13 seals the six teams and Task 9
@@ -4751,17 +5205,22 @@ def run_strength_holdout_arm_cli(args) -> int:
             "source-proof) must seal six teams and register their IDs before this subcommand "
             "can build a real schedule; this is a deliberate, named stop, not a bug"
         )
-    except GateBAbort as exc:
+    except (GateBAbort, UnattestedStratumError) as exc:
         # Verified sufficient, Rev. 9 (§1h's audit table, correcting Rev. 8's unqualified
         # version of this same comment -- NF5): every exception reachable from
         # run_strength_holdout_arm's own call graph -- including the NF3 (BattleResultWriter.write),
         # NF4 (_git_is_dirty/_git_sha), and NF5 (gauntlet_runner boundary wrap) fixes -- is
         # GateBAbort, with ONE still-untraced trust boundary (_derive_config_hash ->
         # resolve_coverage_provenance, pre-existing, disclosed since Rev. 1/2, not re-verified
-        # this round -- see §1g/§1h). This function calls none of the four guards Task 10 keeps
-        # distinct (those are combine-only), so unlike the combine handler below, this except
-        # clause does not need widening for that reason -- but the claim above is NOT
-        # unconditionally proven end-to-end the way this comment stated in Rev. 8.
+        # this round -- see §1g/§1h).
+        #
+        # Rev. 15 fix (§1n, self-found while fixing the Task-3-review P1s): this function now
+        # calls detect_stratum() (Task 9's own Rev. 15 fix), which -- like Task 10's four guards
+        # below -- deliberately raises its OWN distinct exception (UnattestedStratumError) rather
+        # than GateBAbort (§1g: "their exception types stay distinct by design"). Unlike those
+        # four, this one IS reachable from this function's call graph, so the earlier claim that
+        # "this handler does not need widening for that reason" no longer holds -- widened here,
+        # in the same pass the reachability was introduced, not deferred to a future round.
         print(f"champions-strength-holdout-arm: {exc}", file=sys.stderr)
         return 1
 
