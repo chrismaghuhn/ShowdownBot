@@ -1,8 +1,26 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 18)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 19)
 
-> **Status: PROPOSED, Rev. 18 — for Codex review, not execution.** Rev. 9 was the first round
+> **Status: PROPOSED, Rev. 19 — for Codex review, not execution.** Rev. 9 was the first round
 > with zero findings against it. Eight prior review rounds received CHANGES REQUESTED; full
 > per-round findings tables are in §1a–§1i, summarized briefly here so this header stays readable:
+> - **Rev. 18 → Rev. 19** (§1r, mechanical contract sync, no new design round): Task 9's own
+>   review-fix (implemented and merged as commit `6658625`, five P1s) shipped after this plan's
+>   Task 10 text was written, and changed the arm manifest shape Task 10 reads: `calc_backend` is
+>   now derived internally and carried in the manifest (previously discarded); the caller-local
+>   `seed_log_path` field is replaced by a four-field seed PROOF the arm itself carries
+>   (`seed_log_relpath`/`seed_log_sha256`/`seed_log_n_lines`/`seed_log_verified`), with the
+>   verified seed log published as `seeds.jsonl` inside the arm directory. Task 10 is corrected to
+>   match: `_MANIFEST_REQUIRED_KEYS` gains all five fields; `_validate_seed_proof_fields` closed-
+>   form validates them; `_assert_seed_artifact_verified` independently re-verifies BOTH arms'
+>   real seed-log bytes (canonical containment, fresh sha256, `verify_seed_log`, count bound to
+>   both `seed_log_n_lines` and `n_rows`) before any pairing or verdict; the arm-vs-arm field loop
+>   gains `calc_backend`; both upstream-verifier calls pass `calc_backend=manifest_a["calc_backend"]`
+>   instead of a hardcoded `"oneshot"` literal, which would have silently mis-verified any run
+>   that actually used `persistent`. `_write_arm`'s test fixture now writes a real `seeds.jsonl`
+>   and the corrected manifest shape; thirteen new tests cover the sync directly. No other Task 10
+>   contract point changes; Task 11/Definition-of-Done were checked and have no stale references
+>   to sync (Task 11's CLI wiring for Task 10 is not yet implemented, and neither section mentions
+>   `calc_backend`/`seed_log_path` at all).
 > - **Rev. 1 → Rev. 2** (§1a, 9 P1 + 3 P2): the original single-server, single-generic-check
 >   design — cell-flip/weak-policy McNemar bypass, no real upstream-verdict schema validation,
 >   caller-controlled provenance, unbound paired seeds, unwired guards, incomplete evidence,
@@ -4072,6 +4090,10 @@ leakage guard's `team_ids=` argument is sourced from the validated, row-bound
 # append to showdown_bot/tests/test_strength_holdout_runner.py
 import shutil
 import subprocess
+# Rev. 19 note (Task 9 review-fix sync, §1r): `hashlib`, `json`, `platform`, and `Path` are
+# already imported module-wide at the top of test_strength_holdout_runner.py (Task 9's own
+# review-fix) -- _write_arm's new real-seed-log writing and the new seed-proof tests below reuse
+# those, no new import needed for Task 10 itself.
 
 from showdown_bot.eval.heldout_ledger import AccessBudgetError, read_ledger
 from showdown_bot.eval.strength_holdout_runner import combine_strength_holdout_arms
@@ -4111,7 +4133,8 @@ def _holdout_teams_mapping(hashes: dict) -> dict:
 
 def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", winner="hero", n=12,
                 holdout_teams=None, stratum="windows", platform_attestation="Fixture-Platform-1",
-                date_stratum_id="fixture-date-stratum-0"):
+                date_stratum_id="fixture-date-stratum-0", calc_backend="oneshot",
+                seed_base="champions-strength-holdout-v0"):
     # Rev. 3 fix: candidate_identity is DERIVED via the real formula, never hardcoded the same
     # for both arms -- hero_agent is a hash input, so heuristic vs max_damage always produces
     # different identities. A test that hardcodes one shared value can't catch a broken equality
@@ -4145,7 +4168,7 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
             # -- combine_strength_holdout_arms's new row-binding check (§13) requires every row to
             # resolve to one of holdout_teams' own declared teams, by path AND by hash.
             "opp_policy": "heuristic", "hero_team_path": "h.txt", "opp_team_path": team_entry["team_path"],
-            "seed": _seed_for("champions-strength-holdout-v0", i), "seed_base": "champions-strength-holdout-v0",
+            "seed": _seed_for(seed_base, i), "seed_base": seed_base,
             "winner": winner, "turns": 5,
             "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 5.0, "git_sha": git_sha,
             "dirty": False, "end_reason": "normal", "opp_team_hash": team_entry["content_hash"],
@@ -4162,10 +4185,25 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
     with open(arm_dir / "rows.jsonl", "w", encoding="utf-8", newline="") as fh:
         for row in rows:
             fh.write(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n")
+
+    # Rev. 19 fix (Task 9 review-fix sync, §1r): a REAL seeds.jsonl, matching verify_seed_log's
+    # own expected shape and derive_battle_seed's own real derivation, so combine's new per-arm
+    # seed-artifact re-verification (_assert_seed_artifact_verified) can genuinely succeed
+    # against real bytes -- not a manifest-only claim. newline="\n" (no translation) so the bytes
+    # written match exactly what seed_log_sha256 below hashes.
+    seed_log_lines = [
+        json.dumps({"battle_index": i, "seed": _seed_for(seed_base, i), "seed_base": seed_base})
+        for i in range(n)
+    ]
+    seed_log_text = "".join(line + "\n" for line in seed_log_lines)
+    with open(arm_dir / "seeds.jsonl", "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(seed_log_text)
+    seed_log_sha256 = hashlib.sha256(seed_log_text.encode("utf-8")).hexdigest()
+
     manifest = {
-        "hero_agent": hero_agent, "schedule_hash": "sched1", "seed_base": "champions-strength-holdout-v0",
+        "hero_agent": hero_agent, "schedule_hash": "sched1", "seed_base": seed_base,
         "panel_hash": "panel1", "git_sha": git_sha, "config_hash": config_hash,
-        "candidate_identity": candidate_identity, "seed_log_path": str(tmp_path / f"{name}_seeds.jsonl"), "n_rows": n,
+        "candidate_identity": candidate_identity, "n_rows": n,
         "holdout_teams": holdout_teams,
         # Rev. 15 fix (§1n, Task-3-review P1 #1): both arms default to the SAME stratum/
         # platform_attestation/date_stratum_id, so a test that doesn't care about strata
@@ -4175,6 +4213,11 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         # override) passes an explicit, different value for one arm.
         "stratum": stratum, "platform_attestation": platform_attestation,
         "date_stratum_id": date_stratum_id,
+        # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend + the four-field seed proof,
+        # replacing the old caller-local seed_log_path field Task 9's own review-fix removed.
+        "calc_backend": calc_backend,
+        "seed_log_relpath": "seeds.jsonl", "seed_log_sha256": seed_log_sha256,
+        "seed_log_n_lines": n, "seed_log_verified": True,
     }
     with open(arm_dir / "arm_manifest.json", "w", encoding="utf-8") as fh:
         json.dump(manifest, fh)
@@ -5136,6 +5179,334 @@ def test_combine_aborts_on_a_type_wrong_platform_attestation(tmp_path, monkeypat
             holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
             stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
         )
+
+
+# Rev. 19 (Task 9 review-fix sync, §1r): Task 9's own review-fix (5 P1s) added calc_backend
+# (derived internally, threaded through) and replaced the caller-local seed_log_path field with a
+# four-field seed PROOF (seed_log_relpath/seed_log_sha256/seed_log_n_lines/seed_log_verified) --
+# the thirteen tests below prove Task 10 validates the new fields in closed form, independently
+# re-verifies both arms' real seed-log bytes (never trusting seed_log_verified=True alone), and
+# passes the manifest-bound calc_backend to both upstream verifiers instead of a hardcoded
+# "oneshot" literal.
+
+def test_combine_aborts_if_manifest_is_missing_calc_backend(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    del manifest["calc_backend"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="missing required key"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_arms_disagree_on_calc_backend(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", calc_backend="oneshot")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", calc_backend="persistent")
+
+    with pytest.raises(GateBAbort, match="calc_backend"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_passes_the_manifest_bound_calc_backend_to_both_upstream_verifiers(tmp_path, monkeypatch):
+    # Proves the fix directly: mocks capture the kwargs each upstream verifier was actually
+    # called with, using a NON-DEFAULT backend ("persistent") so a hardcoded "oneshot" literal
+    # would be caught red-handed, not accidentally matched by coincidence.
+    calls = {}
+
+    def _capture_i8d(**kw):
+        calls["i8d"] = kw
+        return {"verdict": "PASS"}
+
+    def _capture_coverage(**kw):
+        calls["coverage"] = kw
+        return {"verdict": "PASS"}
+
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", _capture_i8d)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", _capture_coverage)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.load_baseline", lambda path: {"baseline_id": "fixture"})
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_baseline", lambda baseline, **kw: [])
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA",
+                        holdout_teams=holdout_teams, calc_backend="persistent")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain",
+                        holdout_teams=holdout_teams, calc_backend="persistent")
+
+    combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+        stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+    )
+    assert calls["i8d"]["calc_backend"] == "persistent"
+    assert calls["coverage"]["calc_backend"] == "persistent"
+
+
+def test_combine_aborts_if_manifest_is_missing_a_seed_proof_field(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    for field in ("seed_log_relpath", "seed_log_sha256", "seed_log_n_lines", "seed_log_verified"):
+        arm_a = _write_arm(tmp_path, f"arm_a_{field}", hero_agent="heuristic", config_hash="cfgA")
+        arm_b = _write_arm(tmp_path, f"arm_b_{field}", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+        manifest_path = tmp_path / f"arm_a_{field}" / "arm_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest[field]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+        with pytest.raises(GateBAbort, match="missing required key"):
+            combine_strength_holdout_arms(
+                arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{field}"),
+                i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+                holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+                stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+            )
+
+
+def test_combine_aborts_if_seed_log_verified_is_not_true(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_verified"] = False
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed_log_verified"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_on_an_absolute_seed_log_relpath(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_relpath"] = str(tmp_path / "arm_a" / "seeds.jsonl")  # absolute, not "seeds.jsonl"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed_log_relpath"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_on_a_traversing_seed_log_relpath(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_relpath"] = "../seeds.jsonl"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed_log_relpath"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_the_seed_log_file_is_missing(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    (tmp_path / "arm_a" / "seeds.jsonl").unlink()
+
+    with pytest.raises(GateBAbort, match="cannot read seed log"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_the_seed_log_sha256_does_not_match(tmp_path, monkeypatch):
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_sha256"] = "0" * 64  # a well-formed but wrong digest
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="does not match manifest's seed_log_sha256"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_the_seed_log_content_fails_verify_seed_log(tmp_path, monkeypatch):
+    # The sha256 is recomputed to match the CORRUPTED content, isolating this test to
+    # verify_seed_log's own content check (wrong seed_base recorded in every line), not the
+    # digest check above.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+    from showdown_bot.eval.seeding import derive_battle_seed as _dbs
+    corrupted_text = "".join(
+        json.dumps({"battle_index": i, "seed": _dbs("wrong-seed-base-recorded", i), "seed_base": "wrong-seed-base-recorded"}) + "\n"
+        for i in range(12)
+    )
+    (tmp_path / "arm_a" / "seeds.jsonl").write_text(corrupted_text, encoding="utf-8", newline="\n")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_sha256"] = hashlib.sha256(corrupted_text.encode("utf-8")).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed-log verification failed"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_seed_log_n_lines_does_not_match_the_verified_count(tmp_path, monkeypatch):
+    # manifest claims n_rows=12 (matching rows.jsonl, so verify_seed_log's own expected_count
+    # check passes) but seed_log_n_lines is a DIFFERENT, wrong number -- isolates the SEPARATE
+    # seed_log_n_lines-vs-verified-count check from the n_rows-bound expected_count check inside
+    # verify_seed_log itself.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12)
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_n_lines"] = 11
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed_log_n_lines"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_aborts_if_the_seed_log_line_count_does_not_match_n_rows(tmp_path, monkeypatch):
+    # The seed log genuinely verifies against seed_base, but has a DIFFERENT line count than
+    # n_rows -- verify_seed_log's own expected_count=manifest["n_rows"] parameter must catch this
+    # (SeedLogError, wrapped as GateBAbort), not just the separate seed_log_n_lines check.
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", n=12)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", n=12)
+    from showdown_bot.eval.seeding import derive_battle_seed as _dbs
+    # 11 lines (not 12) -- still genuinely verifiable seeds, just the wrong count vs n_rows=12.
+    short_text = "".join(
+        json.dumps({"battle_index": i, "seed": _dbs("champions-strength-holdout-v0", i), "seed_base": "champions-strength-holdout-v0"}) + "\n"
+        for i in range(11)
+    )
+    (tmp_path / "arm_a" / "seeds.jsonl").write_text(short_text, encoding="utf-8", newline="\n")
+    manifest_path = tmp_path / "arm_a" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_sha256"] = hashlib.sha256(short_text.encode("utf-8")).hexdigest()
+    manifest["seed_log_n_lines"] = 11
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="seed-log verification failed"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def test_combine_verifies_both_arms_seed_logs_independently(tmp_path, monkeypatch):
+    # Arm A's seed log is genuinely valid; ONLY arm B's is corrupted. Must still abort -- proves
+    # both arms are independently re-verified, not just arm A (or only checked once via shared
+    # manifest agreement).
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    manifest_path = tmp_path / "arm_b" / "arm_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_log_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(GateBAbort, match="does not match manifest's seed_log_sha256"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=hashes, holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
+
+
+def _make_windows_junction(link_path, target_path):
+    """Creates a Windows directory junction via mklink /J -- unlike symlinks, this needs no
+    admin privilege / Developer Mode. Raises OSError on failure. Mirrors Task 9's own
+    _make_windows_junction helper."""
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link_path), str(target_path)],
+        capture_output=True, encoding="utf-8", errors="replace",
+    )
+    if result.returncode != 0:
+        raise OSError(f"mklink /J failed (rc={result.returncode}): {result.stdout} {result.stderr}")
+
+
+def test_combine_rejects_a_seed_log_symlink_escape_from_the_arm_directory(tmp_path, monkeypatch):
+    import os as _os
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA")
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain")
+
+    escape_target_dir = tmp_path / "outside_arm_a"
+    escape_target_dir.mkdir()
+    real_seed_log = tmp_path / "arm_a" / "seeds.jsonl"
+    escape_target = escape_target_dir / "seeds.jsonl"
+    escape_target.write_text(real_seed_log.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
+    real_seed_log.unlink()
+    try:
+        _os.symlink(str(escape_target), str(real_seed_log))
+    except OSError:
+        try:
+            _make_windows_junction(real_seed_log, escape_target)
+        except OSError as exc:
+            pytest.skip(
+                "neither os.symlink nor mklink /J is available in this test environment "
+                f"(insufficient privilege) -- cannot exercise a real link escape: {exc}"
+            )
+
+    # The symlink points to a byte-identical copy, so sha256/verify_seed_log both still pass --
+    # the containment check must fire regardless, on the resolved location alone.
+    with pytest.raises(GateBAbort, match="outside its own arm directory"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=_fake_holdout_hashes(), holdout_candidate_species=_fake_holdout_candidate_species(), reference_species=_fake_reference_species(),
+            stratum_env_override="windows", ledger_path=str(tmp_path / "ledger.jsonl"),
+        )
 ```
 
 Rev. 3 removes the `_all_guards_pass_for_test` seam entirely: it patched a name the production
@@ -5190,6 +5561,12 @@ from showdown_bot.eval.strata_guard import VALID_STRATA, StratumRecord, assert_n
 from showdown_bot.eval.heldout_ledger import append_entry, read_ledger, check_access, LedgerError
 from showdown_bot.eval.baseline import load_baseline, verify_baseline, BaselineDriftError
 from showdown_bot.eval.report import _build_cells, _build_aggregates
+# Rev. 19 note (Task 9 review-fix sync, §1r): _assert_seed_artifact_verified (below) needs
+# `hashlib`, `re`, `Path`, `platform`, `verify_seed_log`, and `SeedLogError` -- all ALREADY
+# imported module-wide at the top of strength_holdout_runner.py by Task 9's own review-fix
+# (`import hashlib`/`import re`/`from pathlib import Path`/`import platform`/`from
+# showdown_bot.eval.seeding import ..., verify_seed_log, SeedLogError`). No new import needed
+# for Task 10 itself.
 
 
 def _read_arm(arm_dir: str) -> tuple[list[dict], dict]:
@@ -5238,7 +5615,16 @@ _MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", 
                           # like every other required field -- closed-form validity (unknown
                           # stratum value; non-string/empty platform_attestation/date_stratum_id)
                           # is checked separately, by _validate_stratum_fields below.
-                          "stratum", "platform_attestation", "date_stratum_id")
+                          "stratum", "platform_attestation", "date_stratum_id",
+                          # Rev. 19 fix (Task 9 review-fix sync, §1r): Task 9's own review-fix
+                          # (5 P1s) added calc_backend (derived internally, no longer discarded)
+                          # and replaced the caller-local seed_log_path field with a four-field
+                          # seed PROOF -- seed_log_relpath/seed_log_sha256/seed_log_n_lines/
+                          # seed_log_verified -- so the arm's manifest never again carries a
+                          # machine-local absolute path. Presence-checked here; closed-form
+                          # validity by _validate_seed_proof_fields below.
+                          "calc_backend", "seed_log_relpath", "seed_log_sha256",
+                          "seed_log_n_lines", "seed_log_verified")
 _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
 # Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
 # _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound
@@ -5315,6 +5701,94 @@ def _validate_stratum_fields(manifest: dict, which: str) -> None:
             raise GateBAbort(f"arm {which}: manifest's {field}={value!r} must be a non-empty string")
 
 
+_SUPPORTED_CALC_BACKENDS = frozenset({"oneshot", "persistent"})
+
+
+def _validate_seed_proof_fields(manifest: dict, which: str) -> None:
+    """Rev. 19 fix (Task 9 review-fix sync, §1r): Task 9's own review-fix derives calc_backend
+    internally (never caller-supplied, never discarded) and replaced the caller-local
+    seed_log_path field with a four-field seed PROOF the arm carries in its own manifest --
+    seed_log_relpath/seed_log_sha256/seed_log_n_lines/seed_log_verified. Closed-form validated
+    here, exactly like _validate_stratum_fields already does for
+    stratum/platform_attestation/date_stratum_id, before _assert_seed_artifact_verified (below)
+    ever trusts these values to locate and re-verify the real seed-log bytes."""
+    calc_backend = manifest["calc_backend"]
+    if not isinstance(calc_backend, str) or calc_backend not in _SUPPORTED_CALC_BACKENDS:
+        raise GateBAbort(
+            f"arm {which}: manifest's calc_backend={calc_backend!r} is not a supported backend "
+            f"{sorted(_SUPPORTED_CALC_BACKENDS)}"
+        )
+    seed_log_relpath = manifest["seed_log_relpath"]
+    if seed_log_relpath != "seeds.jsonl":
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_relpath={seed_log_relpath!r} must be exactly "
+            "'seeds.jsonl' -- no absolute path, no subdirectory, no traversal"
+        )
+    seed_log_sha256 = manifest["seed_log_sha256"]
+    if not isinstance(seed_log_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", seed_log_sha256) is None:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_sha256={seed_log_sha256!r} must be a lowercase "
+            "64-character sha256 hex digest"
+        )
+    seed_log_n_lines = manifest["seed_log_n_lines"]
+    if isinstance(seed_log_n_lines, bool) or not isinstance(seed_log_n_lines, int) or seed_log_n_lines < 0:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_n_lines={seed_log_n_lines!r} must be a genuine "
+            "non-negative int"
+        )
+    if manifest["seed_log_verified"] is not True:
+        raise GateBAbort(
+            f"arm {which}: manifest's seed_log_verified={manifest['seed_log_verified']!r} must "
+            "be exactly True"
+        )
+
+
+def _assert_seed_artifact_verified(arm_dir: str, manifest: dict, which: str) -> None:
+    """Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
+    before pairing or any verdict -- never trust Task 9's own seed_log_verified=True claim alone
+    (that is a self-report from a prior, separate process; this function independently
+    reproduces the proof against the bytes actually sitting in THIS arm directory). Both arms are
+    verified independently -- matching manifest values alone are never sufficient, since a
+    doctored manifest could claim agreement without either seed log genuinely verifying.
+
+    Containment is canonical (mirrors run_strength_holdout_arm's own out_dir fix, Task 9): even
+    though _validate_seed_proof_fields above already rejects any seed_log_relpath other than the
+    literal 'seeds.jsonl', this still resolves the real path through the filesystem (following
+    any symlink/junction) and checks by path COMPONENT that it lands inside arm_dir -- defense in
+    depth against a symlink/junction planted at that exact relative location pointing elsewhere."""
+    seed_log_path = (Path(arm_dir).resolve() / manifest["seed_log_relpath"]).resolve()
+    arm_root = Path(arm_dir).resolve()
+    arm_parts, seed_parts = arm_root.parts, seed_log_path.parts
+    if platform.system() == "Windows":
+        arm_parts = tuple(p.lower() for p in arm_parts)
+        seed_parts = tuple(p.lower() for p in seed_parts)
+    if seed_parts[: len(arm_parts)] != arm_parts:
+        raise GateBAbort(
+            f"arm {which}: seed_log_relpath resolves to {str(seed_log_path)!r}, outside its own "
+            f"arm directory {str(arm_root)!r} -- refusing a symlink/junction escape"
+        )
+    try:
+        with open(seed_log_path, "rb") as fh:
+            seed_log_bytes = fh.read()
+    except OSError as exc:
+        raise GateBAbort(f"arm {which}: cannot read seed log at {str(seed_log_path)!r}: {exc}") from exc
+    fresh_sha256 = hashlib.sha256(seed_log_bytes).hexdigest()
+    if fresh_sha256 != manifest["seed_log_sha256"]:
+        raise GateBAbort(
+            f"arm {which}: seed log at {str(seed_log_path)!r} has sha256={fresh_sha256!r}, does "
+            f"not match manifest's seed_log_sha256={manifest['seed_log_sha256']!r}"
+        )
+    try:
+        seed_records = verify_seed_log(str(seed_log_path), manifest["seed_base"], manifest["n_rows"])
+    except SeedLogError as exc:
+        raise GateBAbort(f"arm {which}: seed-log verification failed: {exc}") from exc
+    if len(seed_records) != manifest["seed_log_n_lines"]:
+        raise GateBAbort(
+            f"arm {which}: verified {len(seed_records)} seed-log record(s), but manifest claims "
+            f"seed_log_n_lines={manifest['seed_log_n_lines']!r}"
+        )
+
+
 def _assert_rows_bind_to_holdout_teams(rows: list[dict], holdout_teams: dict, which: str) -> None:
     """Rev. 14 fix (§1m, third review round P1): a structurally-valid holdout_teams mapping is
     still just an ASSERTION until checked against what the rows themselves actually played.
@@ -5386,6 +5860,7 @@ def _assert_rows_match_manifest(rows: list[dict], manifest: dict, which: str) ->
         )
     _validate_holdout_teams_mapping(manifest["holdout_teams"], which)
     _validate_stratum_fields(manifest, which)
+    _validate_seed_proof_fields(manifest, which)
     for i, row in enumerate(rows):
         missing_row_keys = (
             set(_ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK) | set(_ROW_REQUIRED_KEYS_FOR_TEAM_BINDING)
@@ -5506,6 +5981,12 @@ def combine_strength_holdout_arms(
     rows_b, manifest_b = _read_arm(arm_b_dir)
     _assert_rows_match_manifest(rows_a, manifest_a, "A")
     _assert_rows_match_manifest(rows_b, manifest_b, "B")
+    # Rev. 19 fix (Task 9 review-fix sync, §1r): re-verify each arm's PUBLISHED seed log fresh,
+    # before pairing or any verdict -- both arms independently, never relying on matching
+    # manifest values alone (a doctored manifest could claim agreement without either seed log
+    # genuinely verifying).
+    _assert_seed_artifact_verified(arm_a_dir, manifest_a, "A")
+    _assert_seed_artifact_verified(arm_b_dir, manifest_b, "B")
 
     if manifest_a["hero_agent"] != "heuristic":
         raise GateBAbort(f"arm A must be hero_agent='heuristic' (Candidate A per DESIGN sec 3.2), got {manifest_a['hero_agent']!r}")
@@ -5522,7 +6003,11 @@ def combine_strength_holdout_arms(
     # legitimately played on the same physical box can report different platform.platform()
     # strings (e.g. an OS patch between arm A and arm B's runs) without that meaning anything --
     # only its non-empty presence is required (_validate_stratum_fields), not byte-equality.
-    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id"):
+    # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend added -- oneshot vs persistent
+    # produce the SAME config_hash/candidate_identity (make_config_hash's manifest does not
+    # include calc_backend), so without this check two arms could silently run under different
+    # backends while every OTHER identity field still matched.
+    for field in ("schedule_hash", "panel_hash", "seed_base", "holdout_teams", "date_stratum_id", "calc_backend"):
         if manifest_a[field] != manifest_b[field]:
             raise GateBAbort(f"arms disagree on {field} -- they were not played under the same battle conditions")
 
@@ -5575,15 +6060,21 @@ def combine_strength_holdout_arms(
     # trust chain specifically, not this whole function's entire exception surface -- an earlier
     # draft of this exact comment claimed the broader, false version of this sentence.
     try:
+        # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend is now the manifest-bound value
+        # Task 9 actually derived for this run (arm A and arm B already proven equal above) --
+        # never the hardcoded literal "oneshot", which would silently pass an unverified backend
+        # claim through to both upstream verifiers regardless of what the run actually used.
         verify_i8d_verdict_artifact(
             verdict_path=i8d_verdict_path, teams_root=teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
-            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"], calc_backend="oneshot",
+            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
+            calc_backend=manifest_a["calc_backend"],
         )
         verify_coverage_verdict_artifact(
             verdict_path=coverage_verdict_path, teams_root=teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
-            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"], calc_backend="oneshot",
+            config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
+            calc_backend=manifest_a["calc_backend"],
         )
     except StrengthHoldoutRunError as exc:
         raise GateBAbort(f"upstream verdict verification failed: {exc}") from exc
