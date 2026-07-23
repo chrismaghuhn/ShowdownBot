@@ -155,18 +155,6 @@ def test_load_baseline_heldout_fields_all_absent_ok(tmp_path):
     assert load_baseline(str(path)) == baseline
 
 
-@pytest.mark.parametrize("bad_value", ["", "   ", 123])
-def test_load_baseline_rejects_an_empty_or_non_string_hero_team_path(tmp_path, bad_value):
-    # Task 6 grounding P1: hero_team_path is an optional field (absent -> unchanged Reg-I
-    # default), but if PRESENT it must be a genuine, non-empty, non-whitespace-only string --
-    # an empty or blank override would silently make verify_baseline hash an empty/invalid path.
-    baseline = _build_micro_repo(tmp_path)
-    baseline["hero_team_path"] = bad_value
-    path = _write(tmp_path, baseline)
-    with pytest.raises(BaselineError):
-        load_baseline(str(path))
-
-
 # --- verify_baseline: green + drift -----------------------------------------------------
 
 def test_verify_baseline_green_on_untampered(tmp_path):
@@ -179,34 +167,6 @@ def test_verify_baseline_green_on_untampered(tmp_path):
         "heldout_schedule_hash", "showdown_commit", "server_patch_hash",
         "reference_sha256", "heldout_reference_sha256",
     }
-
-
-def test_verify_baseline_uses_an_explicit_hero_team_path(tmp_path):
-    # Task 6 grounding P1: _HERO_TEAM_PATH is hardcoded to the Reg-I hero
-    # ("teams/fixed_team.txt"); Gate B's hero is a genuinely different team
-    # ("teams/fixed_champions_v0.txt"). An explicit hero_team_path field lets verify_baseline
-    # hash the RIGHT hero file. RED against the pre-fix code: it ignores hero_team_path
-    # entirely and always hashes _HERO_TEAM_PATH, so this alternative hero's real, different
-    # content hash would never match and the hero_team_hash check would fail.
-    baseline = _build_micro_repo(tmp_path)
-    teams_root = tmp_path / "showdown_bot"
-    alt_txt = teams_root / "teams" / "alt_hero.txt"
-    alt_packed = teams_root / "teams" / "alt_hero.packed"
-    alt_txt.write_text("Fixture Alt Hero @ Leftovers\n", encoding="utf-8")
-    alt_packed.write_text("Alt Hero||Leftovers|Levitate|Protect|Careful|0,0,0,0,0,0",
-                           encoding="utf-8")
-
-    alt_hash = team_content_hash(str(teams_root), "teams/alt_hero.txt")
-    default_hash = team_content_hash(str(teams_root), "teams/fixed_team.txt")
-    assert alt_hash != default_hash  # sanity: genuinely different real content, not just a label
-
-    baseline["hero_team_path"] = "teams/alt_hero.txt"
-    baseline["hero_team_hash"] = alt_hash
-
-    checks = verify_baseline(baseline, repo_root=str(tmp_path))
-    assert checks and all(c.ok for c in checks)
-    hero_check = next(c for c in checks if c.name == "hero_team_hash")
-    assert hero_check.measured == alt_hash
 
 
 def test_verify_baseline_panel_edit_drift(tmp_path):

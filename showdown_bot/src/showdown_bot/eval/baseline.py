@@ -79,19 +79,6 @@ def load_baseline(path) -> dict:
         raise BaselineError(f"baseline manifest missing required field(s): {sorted(missing)}")
     if not isinstance(data["opp_team_hashes"], dict):
         raise BaselineError("baseline manifest field 'opp_team_hashes' must be an object")
-    # Optional field (Task 6 grounding P1): absent or explicit null means "unchanged Reg-I
-    # default" (_HERO_TEAM_PATH) -- matching how the _HELDOUT_FIELDS group already treats a
-    # null value as "not present" below. If PRESENT with a real value, it must be a genuine,
-    # non-empty, non-whitespace-only string; anything else would silently make verify_baseline
-    # hash an empty or garbage path.
-    hero_team_path = data.get("hero_team_path")
-    if hero_team_path is not None and (
-        not isinstance(hero_team_path, str) or not hero_team_path.strip()
-    ):
-        raise BaselineError(
-            f"baseline manifest field 'hero_team_path' must be a non-empty string, "
-            f"got {hero_team_path!r}"
-        )
     present = [f for f in _HELDOUT_FIELDS if data.get(f) is not None]
     if present and len(present) != len(_HELDOUT_FIELDS):
         absent = [f for f in _HELDOUT_FIELDS if f not in present]
@@ -148,14 +135,7 @@ def verify_baseline(baseline: dict, *, repo_root, teams_root=None) -> list[Basel
     _add_check(checks, "panel_hash", _panel_check)
 
     def _hero_check():
-        # Task 6 grounding P1: an explicit hero_team_path (already validated non-empty by
-        # load_baseline, if present) overrides the Reg-I default -- Gate B's hero
-        # ("teams/fixed_champions_v0.txt") is a genuinely different team from
-        # _HERO_TEAM_PATH ("teams/fixed_team.txt"). `or` correctly falls back to the default
-        # for both "key absent" and "key present with an explicit null" (load_baseline treats
-        # both as "not present", matching the existing _HELDOUT_FIELDS convention).
-        hero_team_path = baseline.get("hero_team_path") or _HERO_TEAM_PATH
-        h = team_content_hash(str(teams_root), hero_team_path)
+        h = team_content_hash(str(teams_root), _HERO_TEAM_PATH)
         return h, h == baseline["hero_team_hash"]
 
     _add_check(checks, "hero_team_hash", _hero_check)
