@@ -1,6 +1,6 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 24)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 25)
 
-> **Status: Rev. 24 — Tasks 1–12 AND all of Task 13 (steps 1–3) are IMPLEMENTED, tested, and
+> **Status: Rev. 25 — Tasks 1–12 AND all of Task 13 (steps 1–3) are IMPLEMENTED, tested, and
 > COMMITTED on branch `feat/champions-gate-b-task-1-schedule`; Tasks 1–12 and Task 13 steps 1–2 are
 > Codex-PASS, and step 3 is UNDER REVIEW. Nothing is merged to `main`.** Step 3 is code-complete:
 > the source condition is SATISFIED (§2a); the six `.txt`/`.packed` team artifacts exist, are
@@ -21,6 +21,17 @@
 > This header, the implementation-status block further down, §16 and §19 are kept in agreement;
 > if they ever disagree, the deepest one (§19) is the one to fix first.
 >
+> - **Rev. 24 → Rev. 25** (baseline-immutability fix + authorized history rewrite, no new design
+>   round): the full offline suite surfaced one failure —
+>   `test_baseline_manifest_git_immutability` — because the baseline manifest
+>   `config/eval/baselines/champions-strength-holdout-v0.json` was committed twice (a Task-6
+>   schema-loadable placeholder, then a step-3 back-fill with real values), and a baseline manifest
+>   is immutable after its first commit. Under explicit owner authorization, the feature branch was
+>   rewritten (`git filter-branch`, backup branch kept) so the file is **created exactly once**, with
+>   its final real values, in the step-3 commit; the final tree is byte-identical to the pre-rewrite
+>   HEAD. This revision aligns the plan with that reality: **Task 6 owns only the schema, loader,
+>   verifier and their tests**; the baseline manifest is committed once in **Task 13 step 3** with
+>   final values (§9 box, §16 item 7, the file-map). The generic T6 immutability test is unchanged.
 > - **Rev. 23 → Rev. 24** (execution-status sync + one review-fix round on step-3 code, no new
 >   design round): step 3's artifacts (panel real content, baseline real values, the two hash-freeze
 >   constants, the CLI data wiring, the near-duplicate audit) are committed, so the status no longer
@@ -1160,7 +1171,7 @@ showdown_bot/src/showdown_bot/eval/
 config/eval/
   panels/panel_champions_strength_holdout_v0.yaml     NEW  Task 1 (schema)  / Task 13 step 3 (real content — DONE)
   holdout/champions_strength_holdout_v0_manifest.json NEW  Task 5 (schema)  / Task 13 step 3 (real content — DONE)
-  baselines/champions-strength-holdout-v0.json        NEW  Task 6 (real schema) / Task 13 step 3 (real closed-schema values — DONE)
+  baselines/champions-strength-holdout-v0.json        NEW  committed ONCE in Task 13 step 3 with final closed-schema values (DONE); its schema/loader/verifier live in baseline.py (Task 6). Immutable after first commit (test_baseline_manifest_git_immutability) — never a Task-6 placeholder.
 
 showdown_bot/teams/panel_champions_strength_holdout_v0/   NEW  — the six sealed gbh_* .txt/.packed (Task 13 step 2 — DONE)
 
@@ -2585,15 +2596,27 @@ No review finding targeted this task. Implement exactly as Rev. 1 specified: cre
 > raise `BaselineError`. `combine_strength_holdout_arms` calls only this pair and normalises both
 > `BaselineError` and `BaselineDriftError` to `GateBAbort`; `run_strength_holdout_arm` refuses to
 > play unless `PYTHONHASHSEED == "0"` and records it, and combine binds both arms' recorded value
-> to the baseline. Files: `eval/baseline.py`, `config/eval/baselines/champions-strength-holdout-v0.json`,
-> `config/eval/holdout/champions_strength_holdout_v0_manifest.json`,
+> to the baseline. Files: `eval/baseline.py`,
 > `showdown_bot/tests/test_baseline_strength_holdout.py`, `test_strength_holdout_runner.py`.
+>
+> **Baseline-manifest commit boundary (Rev. 25, immutability fix):** Task 6's scope is the
+> **schema, loader, verifier and their tests** in `eval/baseline.py`. The baseline manifest file
+> `config/eval/baselines/champions-strength-holdout-v0.json` is **NOT created here** — it is
+> committed **once, with its final real values, in Task 13 step 3** (alongside the panel YAML and
+> the hash freeze). A baseline manifest is immutable after its first commit
+> (`test_baseline_manifest_git_immutability` — a change needs a new versioned file), so there is no
+> placeholder-then-backfill: the file appears exactly once in history, already final. The holdout
+> manifest (`champions_strength_holdout_v0_manifest.json`) likewise carries its real content from
+> Task 13.
 
-**Files:**
-- Create: `config/eval/baselines/champions-strength-holdout-v0.json`
+**Files (Task 6):**
+- Modify: `showdown_bot/src/showdown_bot/eval/baseline.py` (schema, loader, verifier)
 - Test: `showdown_bot/tests/test_baseline_strength_holdout.py`
+- (The manifest JSON itself is committed once in Task 13 step 3 with final values — see the box above.)
 
-_The historical Rev. 1–6 text below is retained for provenance; the box above is authoritative._
+_The historical Rev. 1–6 text below is retained for provenance; the box above is authoritative. In
+particular, the placeholder manifest and its "back-fill later" note below are SUPERSEDED — the real
+manifest is committed once in Task 13 step 3, never as an empty-field placeholder in Task 6._
 
 **Fix vs. Rev. 1 (P1-8):** `load_baseline_manifest` never existed. The real functions are
 `load_baseline(path) -> dict` (schema-only validation, raises `BaselineError`) and
@@ -7938,8 +7961,12 @@ restated accordingly; every other item is unchanged and still outstanding.
    condition is now satisfied per §2a.
 6. `assert_no_holdout_leakage` (Task 2, both the identifier scan and the raw `.txt`/`.packed`
    payload scan, Rev. 12 §1k) returns zero hits outside the allowlist.
-7. Panel YAML, holdout manifest JSON, and the Task 6 baseline manifest all get real content;
-   their hashes back-filled into Task 1's/Task 6's frozen constants, in a fresh commit.
+7. The panel YAML and holdout manifest JSON get real content, and the Gate B baseline manifest
+   (`config/eval/baselines/champions-strength-holdout-v0.json`) is committed **once, with its final
+   real values** — not a Task-6 placeholder that is later back-filled (a baseline manifest is
+   immutable after its first commit: `test_baseline_manifest_git_immutability`). Their hashes are
+   frozen into Task 1's constants (`STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH` /
+   `STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH`) in the same step-3 commit that creates the manifest.
 8. ~~`_derive_config_hash` (Task 9) reconciled against the real `resolve_coverage_provenance`
    implementation~~ — **DONE, Rev. 10 (§1i)**, ahead of Task 13 rather than deferred to it.
 9. Full offline suite green, including every RED/GREEN pair from Tasks 1-12.
