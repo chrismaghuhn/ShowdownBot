@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import date
@@ -95,6 +96,70 @@ class GateBAbort(Exception):
     """A technical abort -- dirty tree, hash mismatch, infra failure, or zero-battle timeout.
     NOT a verdict (ports Gate A's DESIGN sec 2.6 taxonomy, since Gate B has no equivalent
     dedicated section -- grounding report sec 2)."""
+
+
+# Windows-only transient directory-rename failures that a fully-valid ``os.replace(staging, out)``
+# can still hit: another process (search indexer, AV real-time scan, a not-yet-released handle on a
+# just-written staging file) holds the directory or a file inside it for a brief window. POSIX does
+# not raise these for a plain rename, so the retry loop below is a no-op cost off Windows. 5 =
+# ERROR_ACCESS_DENIED, 32 = ERROR_SHARING_VIOLATION, 33 = ERROR_LOCK_VIOLATION -- and ONLY these.
+_PUBLISH_TRANSIENT_WINERRORS = frozenset({5, 32, 33})
+_PUBLISH_RETRY_DEADLINE_S = 10.0   # bounded wall-clock window; never an unbounded retry
+_PUBLISH_RETRY_BACKOFF_S = 0.2
+
+
+def _atomic_publish_dir(
+    staging_dir: str, out_dir: str, *, replace=os.replace, exists=os.path.exists,
+    monotonic=time.monotonic, sleep=time.sleep,
+    deadline_s: float = _PUBLISH_RETRY_DEADLINE_S, backoff_s: float = _PUBLISH_RETRY_BACKOFF_S,
+) -> None:
+    """Publish a fully-staged directory via the SINGLE atomic rename ``os.replace(staging_dir,
+    out_dir)`` -- the one shared publish primitive for both the strength-holdout arm and combine.
+
+    Problem it fixes: the lone unguarded ``os.replace`` reproducibly aborted a completed arm on
+    Windows with ``PermissionError [WinError 5]`` at publish time (candidate ``c8752b3``, Arm A --
+    all 180 battles had already run and staged). Effect: a completed run threw its evidence away at
+    the very last step. Fix: retry ONLY the classified transient Windows rename errors (5/32/33)
+    within a bounded wall-clock deadline, with a fixed backoff, keeping every other property of the
+    original single-rename publish:
+
+    - **no copy fallback, no partial promotion**: the ONLY operation is the atomic directory rename;
+    - **fail-closed, never overwrite**: if ``out_dir`` exists at entry OR appears during the retry
+      window (another writer got there first), abort without renaming;
+    - **persistent transient error**: after ``deadline_s`` the staging dir is left intact for
+      diagnosis and ``out_dir`` is still absent -- a clean ``GateBAbort``, not a raw traceback;
+    - **non-transient ``OSError``**: re-raised immediately, with no retry (a real bug must not be
+      masked by waiting).
+
+    All of ``replace``/``exists``/``monotonic``/``sleep`` are injectable so the contract is unit
+    tested without a real clock or a real filesystem race.
+    """
+    start = monotonic()
+    while True:
+        # Fail closed BEFORE every attempt: os.replace onto an existing directory would either
+        # raise or (for an empty target on POSIX) silently overwrite -- neither is acceptable for a
+        # published held-out bundle. Checked each iteration so a final dir appearing mid-retry is
+        # caught too, never overwritten.
+        if exists(out_dir):
+            raise GateBAbort(
+                f"refusing to publish {staging_dir!r} -> {out_dir!r}: the final directory already "
+                "exists -- never overwrite a published bundle; the staging dir is left intact"
+            )
+        try:
+            replace(staging_dir, out_dir)
+            return
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            if winerror not in _PUBLISH_TRANSIENT_WINERRORS:
+                raise  # non-transient: immediate abort, no retry (do not mask a real failure)
+            if monotonic() - start >= deadline_s:
+                raise GateBAbort(
+                    f"could not atomically publish {staging_dir!r} -> {out_dir!r} within "
+                    f"{deadline_s:g}s: a transient Windows rename error (WinError {winerror}) "
+                    "persisted. Staging is preserved and the final dir was not created; nothing "
+                    "was copied or partially promoted."
+                ) from exc
+            sleep(backoff_s)
 
 
 def _hash_randomization_enabled() -> bool:
@@ -692,7 +757,11 @@ def run_strength_holdout_arm(
         "seed_log_n_lines": len(seed_records), "seed_log_verified": True,
         "n_rows": len(rows),
     })
-    os.replace(staging_dir, out_dir)
+    # Publish via the Windows-retry-safe atomic rename: all 180 battles already ran and staged, so a
+    # lone unguarded os.replace could still throw the whole arm away on a transient WinError 5/32/33
+    # (candidate c8752b3, Arm A). Same single-rename semantics, bounded retry, staging preserved on
+    # persistent failure, out_dir never overwritten.
+    _atomic_publish_dir(staging_dir, out_dir)
     return {"hero_agent": hero_agent, "rows": rows, "out_dir": out_dir, **provenance}
 
 
@@ -1665,5 +1734,7 @@ def combine_strength_holdout_arms(
         except LedgerError as exc:
             raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
 
-        os.replace(staging_dir, out_dir)
+        # Same Windows-retry-safe atomic publish as the arm, kept INSIDE the ledger lock so a
+        # reservation is never observable without its bundle being on the way (F6 ordering intact).
+        _atomic_publish_dir(staging_dir, out_dir)
     return payload
