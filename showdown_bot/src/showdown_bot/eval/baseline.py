@@ -26,6 +26,10 @@ from pathlib import Path
 from showdown_bot.eval.panel import load_panel, team_content_hash
 from showdown_bot.eval.run_manifest import load_showdown_commit, server_patch_hash
 from showdown_bot.eval.schedule import load_schedule
+from showdown_bot.eval.strength_holdout_schedule import (
+    build_strength_holdout_schedule, STRENGTH_HOLDOUT_HERO_TEAM_PATH, STRENGTH_HOLDOUT_MANIFEST_PATH,
+)
+from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 
 # The hero team is fixed repo-wide (every dev/held-out schedule pairs it against panel
 # opponents) -- there is no per-manifest field for it, matching how every committed schedule
@@ -210,3 +214,346 @@ def verify_winner_sequence(reference_rows, fresh_rows) -> None:
                 f"{ref.get('winner')!r} seed={ref.get('seed')!r} vs fresh winner="
                 f"{fresh.get('winner')!r} seed={fresh.get('seed')!r}"
             )
+
+
+# =================================================================================================
+# Gate B (Independent Strength Holdout) — STATIC baseline contract (spec Amendment A1.3, APPROVED)
+#
+# Additive. The generic T6 contract above (`_REQUIRED_FIELDS`, `load_baseline`, `verify_baseline`)
+# is deliberately untouched: it freezes a heuristic policy's *reference run* and therefore needs
+# `reference_jsonl`/`reference_sha256` plus a loadable YAML `dev_schedule_path`. Gate B can satisfy
+# neither, and neither should be faked:
+#
+#   * a reference result file cannot predate the run it describes, and committing one afterwards
+#     would change the candidate SHA the gate is bound to;
+#   * Gate B's schedule is generated from code (`build_strength_holdout_schedule`), so there is no
+#     YAML for `load_schedule` to read.
+#
+# What IS freezable before the run is Baseline B itself -- the `max_damage` configuration and the
+# static environment it will run in. That is what this contract binds, and every field is
+# re-derived from the current checkout at verification time.
+# =================================================================================================
+
+SH_BASELINE_SCHEMA_VERSION = 1
+SH_BASELINE_ID = "champions-strength-holdout-v0"
+SH_BASELINE_HERO_AGENT = "max_damage"
+SH_BASELINE_FORMAT_ID = "gen9championsvgc2026regma"
+SH_BASELINE_SEED_BASE = "champions-strength-holdout-v0"
+SH_BASELINE_PANEL_VERSION = "champions_strength_holdout_v0"
+SH_OPPONENT_TEAM_COUNT = 6
+# The one pinned reproducibility value, defined once here (review-fix): the loader requires this
+# literal, the runner checks the live PYTHONHASHSEED against it before battle 1, and the combiner
+# compares both arms' recorded value to it. No second derivation anywhere.
+SH_BASELINE_PYTHONHASHSEED = "0"
+
+# Closed schema: exactly these keys, no more, no less.
+_SH_REQUIRED_FIELDS = (
+    "schema_version", "baseline_id", "hero_agent", "format_id", "panel_version", "panel_hash",
+    "hero_team_path", "hero_team_hash", "opponent_teams", "schedule_hash", "seed_base",
+    "showdown_commit", "server_patch_hash", "pythonhashseed",
+)
+_SH_TEAM_FIELDS = ("team_id", "team_path", "team_content_hash")
+# Non-empty strings; `schema_version` is an int and `opponent_teams` a list, handled separately.
+_SH_STRING_FIELDS = tuple(f for f in _SH_REQUIRED_FIELDS
+                          if f not in ("schema_version", "opponent_teams"))
+
+
+def _sh_require_text(data: dict, field: str) -> None:
+    value = data[field]
+    if not isinstance(value, str):
+        raise BaselineError(
+            f"strength-holdout baseline field {field!r} must be a string, got "
+            f"{type(value).__name__}"
+        )
+    if not value.strip():
+        raise BaselineError(f"strength-holdout baseline field {field!r} must not be blank")
+
+
+def load_strength_holdout_baseline(path) -> dict:
+    """Load + schema-validate the Gate B static baseline manifest (Amendment A1.3).
+
+    Closed schema, fail-closed. Raises ``BaselineError`` on anything unexpected, including any
+    field belonging to the generic *result* contract -- a manifest carrying `reference_jsonl`,
+    `reference_sha256` or `dev_schedule_path` is rejected outright rather than silently ignored,
+    so a generic manifest can never be loaded here by mistake (or vice versa).
+    """
+    # Review-fix P1 #3: every real load failure -- missing file, unreadable, non-UTF-8 bytes, or
+    # truncated/corrupt JSON -- becomes a BaselineError with the path, never a raw OSError/
+    # UnicodeDecodeError/JSONDecodeError. The combiner catches BaselineError, so wrapping here is
+    # what makes "malformed baseline manifest" a clean GateBAbort instead of an escaping traceback.
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BaselineError(
+            f"strength-holdout baseline manifest at {str(path)!r} could not be read: {exc}"
+        ) from exc
+    except json.JSONDecodeError as exc:
+        raise BaselineError(
+            f"strength-holdout baseline manifest at {str(path)!r} is not valid JSON: {exc}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise BaselineError("strength-holdout baseline manifest must be a JSON object")
+
+    missing = [f for f in _SH_REQUIRED_FIELDS if f not in data]
+    if missing:
+        raise BaselineError(
+            f"strength-holdout baseline manifest missing required field(s): {sorted(missing)}"
+        )
+    unknown = sorted(set(data) - set(_SH_REQUIRED_FIELDS))
+    if unknown:
+        raise BaselineError(
+            f"strength-holdout baseline manifest has unknown field(s): {unknown} -- this schema is "
+            "closed and carries STATIC pre-run data only (Amendment A1.3); result artifacts, "
+            "caller-supplied git SHAs and candidate identities do not belong in it"
+        )
+
+    if not isinstance(data["schema_version"], int) or isinstance(data["schema_version"], bool):
+        raise BaselineError(
+            f"strength-holdout baseline field 'schema_version' must be an int, got "
+            f"{type(data['schema_version']).__name__}"
+        )
+    if data["schema_version"] != SH_BASELINE_SCHEMA_VERSION:
+        raise BaselineError(
+            f"strength-holdout baseline 'schema_version' must be {SH_BASELINE_SCHEMA_VERSION}, "
+            f"got {data['schema_version']!r}"
+        )
+    for field in _SH_STRING_FIELDS:
+        _sh_require_text(data, field)
+
+    if data["baseline_id"] != SH_BASELINE_ID:
+        raise BaselineError(
+            f"strength-holdout baseline 'baseline_id' must be {SH_BASELINE_ID!r}, got "
+            f"{data['baseline_id']!r}"
+        )
+    if data["hero_agent"] != SH_BASELINE_HERO_AGENT:
+        raise BaselineError(
+            f"strength-holdout baseline 'hero_agent' must be {SH_BASELINE_HERO_AGENT!r} -- this "
+            f"manifest defines Baseline B, not the candidate -- got {data['hero_agent']!r}"
+        )
+    if data["format_id"] != SH_BASELINE_FORMAT_ID:
+        raise BaselineError(
+            f"strength-holdout baseline 'format_id' must be {SH_BASELINE_FORMAT_ID!r}, got "
+            f"{data['format_id']!r}"
+        )
+    if data["seed_base"] != SH_BASELINE_SEED_BASE:
+        raise BaselineError(
+            f"strength-holdout baseline 'seed_base' must be the pinned namespace "
+            f"{SH_BASELINE_SEED_BASE!r}, got {data['seed_base']!r}"
+        )
+    if data["panel_version"] != SH_BASELINE_PANEL_VERSION:
+        raise BaselineError(
+            f"strength-holdout baseline 'panel_version' must be {SH_BASELINE_PANEL_VERSION!r}, "
+            f"got {data['panel_version']!r}"
+        )
+    # Review-fix P1 #2: the hero path is PINNED, not caller-controlled -- a different existing hero
+    # file with a correctly co-updated hash must be refused, because it is not THE canonical hero.
+    if data["hero_team_path"] != STRENGTH_HOLDOUT_HERO_TEAM_PATH:
+        raise BaselineError(
+            f"strength-holdout baseline 'hero_team_path' must be the canonical hero "
+            f"{STRENGTH_HOLDOUT_HERO_TEAM_PATH!r}, got {data['hero_team_path']!r}"
+        )
+    # Review-fix P1 #2: pythonhashseed was a dead field (loaded as a non-empty string, never
+    # checked). Pin it to the one canonical value.
+    if data["pythonhashseed"] != SH_BASELINE_PYTHONHASHSEED:
+        raise BaselineError(
+            f"strength-holdout baseline 'pythonhashseed' must be {SH_BASELINE_PYTHONHASHSEED!r}, "
+            f"got {data['pythonhashseed']!r}"
+        )
+
+    teams = data["opponent_teams"]
+    if not isinstance(teams, list):
+        raise BaselineError(
+            f"strength-holdout baseline field 'opponent_teams' must be a list, got "
+            f"{type(teams).__name__}"
+        )
+    if len(teams) != SH_OPPONENT_TEAM_COUNT:
+        raise BaselineError(
+            f"strength-holdout baseline must register exactly six (6) opponent teams, got "
+            f"{len(teams)}"
+        )
+    for i, entry in enumerate(teams):
+        if not isinstance(entry, dict):
+            raise BaselineError(
+                f"strength-holdout baseline opponent_teams[{i}] must be an object, got "
+                f"{type(entry).__name__}"
+            )
+        entry_missing = [f for f in _SH_TEAM_FIELDS if f not in entry]
+        if entry_missing:
+            raise BaselineError(
+                f"strength-holdout baseline opponent_teams[{i}] missing field(s): "
+                f"{sorted(entry_missing)}"
+            )
+        entry_unknown = sorted(set(entry) - set(_SH_TEAM_FIELDS))
+        if entry_unknown:
+            raise BaselineError(
+                f"strength-holdout baseline opponent_teams[{i}] has unknown field(s): "
+                f"{entry_unknown} -- the public-to-internal id mapping lives in the holdout "
+                "manifest, not here (Amendment A1.1)"
+            )
+        for field in _SH_TEAM_FIELDS:
+            if not isinstance(entry[field], str) or not entry[field].strip():
+                raise BaselineError(
+                    f"strength-holdout baseline opponent_teams[{i}][{field!r}] must be a "
+                    f"non-empty string, got {entry[field]!r}"
+                )
+        # Review-fix P1 #2: each opponent path is PINNED to the canonical holdout team directory --
+        # HOLDOUT_TEAMS_DIR + team_id + ".txt" -- so it cannot silently point at a team elsewhere.
+        expected_path = f"{HOLDOUT_TEAMS_DIR}{entry['team_id']}.txt"
+        if entry["team_path"] != expected_path:
+            raise BaselineError(
+                f"strength-holdout baseline opponent_teams[{i}] 'team_path' must be "
+                f"{expected_path!r} (HOLDOUT_TEAMS_DIR + team_id + '.txt'), got "
+                f"{entry['team_path']!r}"
+            )
+    for field in ("team_id", "team_path"):
+        seen = [t[field] for t in teams]
+        if len(set(seen)) != len(seen):
+            dupes = sorted({v for v in seen if seen.count(v) > 1})
+            raise BaselineError(
+                f"strength-holdout baseline has duplicate opponent {field}(s): {dupes}"
+            )
+    return data
+
+
+def verify_strength_holdout_baseline(baseline: dict, *, repo_root, teams_root=None) -> list[BaselineCheck]:
+    """Re-derive every static pin in ``baseline`` from the CURRENT checkout.
+
+    Same contract as ``verify_baseline``: every check runs to completion, and the failures are
+    reported together via ``BaselineDriftError``. What differs is WHAT is pinned -- panel, hero and
+    opponent team content, the canonically REBUILT schedule, and the server/seed pins, with no
+    result artifact anywhere.
+    """
+    repo_root = Path(repo_root)
+    # Gate B path geometry (Task 9 contract, review-fix): teams_root is the REPO ROOT, not
+    # repo_root/showdown_bot -- every Gate B path (hero, opponents, panel team_paths) is
+    # repo-root-relative and carries the showdown_bot/ prefix, exactly as the runner resolves them.
+    teams_root = Path(teams_root) if teams_root is not None else repo_root
+    checks: list[BaselineCheck] = []
+
+    def _panel():
+        return load_panel(
+            str(_panel_path(repo_root, baseline["panel_version"])), teams_root=str(teams_root)
+        )
+
+    _add_check(checks, "panel_hash",
+               lambda: (_panel().panel_hash, _panel().panel_hash == baseline["panel_hash"]))
+
+    def _holdout_manifest_check():
+        # Review-fix P1 #1: bind the AUTHORITATIVE holdout manifest, not just the panel. Panel and
+        # baseline could be changed together to a different six teams while this manifest -- the
+        # single source of the id/path/hash truth -- stays put. Read it fresh, validate its shape,
+        # and require the baseline's opponent projection, the panel's projection, AND the real file
+        # hashes to all equal the manifest's {team_id, team_path, team_content_hash} projection.
+        man_path = repo_root / STRENGTH_HOLDOUT_MANIFEST_PATH
+        try:
+            man = json.loads(man_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError) as exc:
+            return f"unreadable: {exc}", False
+        except json.JSONDecodeError as exc:
+            return f"malformed JSON: {exc}", False
+        if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
+            return "manifest is not an object with a 'teams' list", False
+        man_teams = man["teams"]
+        if len(man_teams) != SH_OPPONENT_TEAM_COUNT:
+            return f"manifest has {len(man_teams)} teams, expected {SH_OPPONENT_TEAM_COUNT}", False
+        for key in ("selection_index", "team_id", "team_path"):
+            seen = [t.get(key) for t in man_teams]
+            if len(set(map(str, seen))) != len(seen):
+                return f"manifest has duplicate {key}", False
+        # Review-fix (Step 2 round 2, P2): selection_index must be the CLOSED set {1..6}, not merely
+        # unique. Uniqueness alone accepts {1,2,3,4,5,99} -- six distinct values that silently drop
+        # a real place and smuggle in an out-of-range one. Require exactly the sorted 1..6 sequence.
+        # bool is an int subclass, so exclude it explicitly; a non-int (str/None/float) also fails.
+        selection = [t.get("selection_index") for t in man_teams]
+        if any(not isinstance(s, int) or isinstance(s, bool) for s in selection):
+            return f"manifest selection_index values are not all integers: {selection}", False
+        if sorted(selection) != list(range(1, SH_OPPONENT_TEAM_COUNT + 1)):
+            return (f"manifest selection_index is not the closed 1..{SH_OPPONENT_TEAM_COUNT} "
+                    f"set: {sorted(selection)}"), False
+        for t in man_teams:
+            for key in ("team_id", "team_path", "team_content_hash"):
+                if not isinstance(t.get(key), str) or not t[key].strip():
+                    return f"manifest team missing/blank {key}", False
+        proj = lambda src: sorted(
+            (t["team_id"], t["team_path"], t["team_content_hash"]) for t in src)
+        manifest_proj = proj(man_teams)
+        baseline_proj = proj(baseline["opponent_teams"])
+        panel = _panel()
+        panel_teams = [*panel.dev_teams, *panel.heldout_teams]
+        panel_proj = sorted(
+            (t.team_id, t.team_path, t.team_hash) for t in panel_teams)
+        real_proj = sorted(
+            (t["team_id"], t["team_path"], team_content_hash(str(teams_root), t["team_path"]))
+            for t in man_teams)
+        ok = (manifest_proj == baseline_proj == panel_proj == real_proj)
+        return {"manifest": manifest_proj, "baseline": baseline_proj,
+                "panel": panel_proj, "on_disk": real_proj}, ok
+
+    _add_check(checks, "holdout_manifest", _holdout_manifest_check)
+
+    def _hero_check():
+        measured = team_content_hash(str(teams_root), baseline["hero_team_path"])
+        return measured, measured == baseline["hero_team_hash"]
+
+    _add_check(checks, "hero_team_hash", _hero_check)
+
+    def _opponents_check():
+        panel = _panel()
+        by_id = {t.team_id: t for t in (*panel.dev_teams, *panel.heldout_teams)}
+        measured = {}
+        ok = True
+        for entry in baseline["opponent_teams"]:
+            team_id = entry["team_id"]
+            panel_team = by_id.get(team_id)
+            fresh = team_content_hash(str(teams_root), entry["team_path"])
+            measured[team_id] = fresh
+            if panel_team is None or panel_team.team_path != entry["team_path"]:
+                ok = False
+                continue
+            if fresh != entry["team_content_hash"] or panel_team.team_hash != fresh:
+                ok = False
+        # the panel must not carry teams the baseline does not register, either
+        if set(by_id) != {e["team_id"] for e in baseline["opponent_teams"]}:
+            ok = False
+        return measured, ok
+
+    _add_check(checks, "opponent_team_hashes", _opponents_check)
+
+    def _schedule_check():
+        panel = _panel()
+        team_ids = sorted(t.team_id for t in (*panel.dev_teams, *panel.heldout_teams))
+        rebuilt = build_strength_holdout_schedule(
+            holdout_team_ids=team_ids, panel_hash=panel.panel_hash, seed_base=baseline["seed_base"],
+        )
+        return rebuilt.schedule_hash, rebuilt.schedule_hash == baseline["schedule_hash"]
+
+    _add_check(checks, "schedule_hash", _schedule_check)
+
+    _add_check(checks, "seed_base",
+               lambda: (SH_BASELINE_SEED_BASE, baseline["seed_base"] == SH_BASELINE_SEED_BASE))
+    _add_check(checks, "format_id",
+               lambda: (SH_BASELINE_FORMAT_ID, baseline["format_id"] == SH_BASELINE_FORMAT_ID))
+    _add_check(checks, "hero_agent",
+               lambda: (SH_BASELINE_HERO_AGENT, baseline["hero_agent"] == SH_BASELINE_HERO_AGENT))
+
+    def _commit_check():
+        commit = load_showdown_commit(str(repo_root / "config" / "eval" / "provenance.yaml"))
+        return commit, commit == baseline["showdown_commit"]
+
+    _add_check(checks, "showdown_commit", _commit_check)
+
+    def _patch_check():
+        h = server_patch_hash(
+            str(repo_root / "tools" / "eval" / "patches" / "pokemon-showdown-seeded-battle.patch")
+        )
+        return h, h == baseline["server_patch_hash"]
+
+    _add_check(checks, "server_patch_hash", _patch_check)
+
+    failed = [c.name for c in checks if not c.ok]
+    if failed:
+        raise BaselineDriftError(
+            f"strength-holdout baseline drift -> refuse: failed check(s): {failed}"
+        )
+    return checks

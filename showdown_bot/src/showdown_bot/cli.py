@@ -756,6 +756,260 @@ def run_coverage_gate_cli(args) -> None:
           f"candidate_identity={report['candidate_identity']}) -> {out_dir}/")
 
 
+def _load_holdout_content_hashes(teams_root: str) -> dict:
+    """Read the six holdout ``{team_id: team_content_hash}`` from the AUTHORITATIVE holdout manifest
+    (Amendment A1.1 -- the manifest is the single source of these IDs; nothing hardcodes them).
+    Resolved under ``teams_root`` (Gate B's repo-root geometry). Every malformed/missing/degenerate
+    shape becomes a clean ``GateBAbort`` -- never a raw ``OSError``/``JSONDecodeError``/``KeyError``
+    -- so both CLI handlers stop fail-closed, before any runner/combiner call and before any
+    battle or publish (Task 13 step 3)."""
+    import json
+    import os
+
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import STRENGTH_HOLDOUT_MANIFEST_PATH
+
+    path = os.path.join(teams_root or ".", STRENGTH_HOLDOUT_MANIFEST_PATH)
+    try:
+        man = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise GateBAbort(f"could not read the holdout manifest at {path!r}: {exc}") from exc
+    if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
+        raise GateBAbort(f"holdout manifest at {path!r} must be an object with a 'teams' list")
+    hashes: dict[str, str] = {}
+    for i, entry in enumerate(man["teams"]):
+        if not isinstance(entry, dict):
+            raise GateBAbort(f"holdout manifest teams[{i}] must be an object")
+        team_id, content_hash = entry.get("team_id"), entry.get("team_content_hash")
+        if not (isinstance(team_id, str) and team_id.strip()
+                and isinstance(content_hash, str) and content_hash.strip()):
+            raise GateBAbort(
+                f"holdout manifest teams[{i}] has a blank/non-string team_id or team_content_hash"
+            )
+        if team_id in hashes:
+            raise GateBAbort(f"holdout manifest has a duplicate team_id {team_id!r}")
+        hashes[team_id] = content_hash
+    if len(hashes) != 6:
+        raise GateBAbort(f"holdout manifest must register exactly six teams, got {len(hashes)}")
+    return hashes
+
+
+def _load_gate_b_panel_hash(teams_root: str) -> str:
+    """``panel_hash`` of the real Gate B panel, resolved under ``teams_root`` (repo-root geometry).
+    Any load/parse failure -- missing file, malformed YAML, or a panel-schema violation -- becomes a
+    clean ``GateBAbort`` rather than a raw traceback."""
+    import os
+
+    import yaml
+
+    from showdown_bot.eval.panel import PanelError, load_panel
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import STRENGTH_HOLDOUT_PANEL_PATH
+
+    root = teams_root or "."
+    panel_path = os.path.join(root, STRENGTH_HOLDOUT_PANEL_PATH)
+    try:
+        return load_panel(panel_path, teams_root=root).panel_hash
+    except (PanelError, OSError, yaml.YAMLError) as exc:
+        raise GateBAbort(f"could not load the Gate B panel at {panel_path!r}: {exc}") from exc
+
+
+def _load_and_verify_frozen_gate_b_identity(teams_root: str) -> str:
+    """Bind the on-disk panel and holdout manifest to their FROZEN identities (Task 13 step-3
+    hash-freeze) and return the verified ``panel_hash`` -- BEFORE any battle or verdict.
+
+    P1 fix: sourcing the panel/manifest and re-hashing team content internally is not enough. A
+    *consistent* drift -- the panel, the manifest, and the baseline edited together to a different
+    six teams -- passes ``verify_strength_holdout_baseline`` (which only checks those three agree
+    with each other and with disk). The frozen constants are the external anchor a re-sealed or
+    swapped holdout can never satisfy, so the arm must refuse before battle 1 and combine before it
+    publishes a verdict. Fail-closed ``GateBAbort``.
+    """
+    import os
+
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import (
+        STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH, STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH,
+        STRENGTH_HOLDOUT_MANIFEST_PATH, strength_holdout_manifest_hash,
+    )
+
+    panel_hash = _load_gate_b_panel_hash(teams_root)
+    if panel_hash != STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH:
+        raise GateBAbort(
+            f"Gate B panel drift: on-disk panel_hash {panel_hash!r} != frozen "
+            f"{STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH!r} -- refusing before battle 1"
+        )
+    try:
+        manifest_hash = strength_holdout_manifest_hash(
+            os.path.join(teams_root or ".", STRENGTH_HOLDOUT_MANIFEST_PATH)
+        )
+    except ValueError as exc:
+        raise GateBAbort(f"could not hash the holdout manifest: {exc}") from exc
+    if manifest_hash != STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH:
+        raise GateBAbort(
+            f"Gate B holdout-manifest drift: on-disk manifest hash {manifest_hash!r} != frozen "
+            f"{STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH!r} -- refusing before battle 1"
+        )
+    return panel_hash
+
+
+def _verify_gate_b_baseline(teams_root: str) -> None:
+    """Load and FULLY verify the Gate B static baseline against the current tree before the arm
+    plays.
+
+    P1 fix: the frozen-identity check binds panel + manifest, but the baseline pins more -- the
+    hero team, the canonical schedule, the showdown_commit and the server_patch_hash. Without this,
+    a wrong hero/schedule/showdown/patch value is only caught by combine's own
+    verify_strength_holdout_baseline -- i.e. AFTER all 180 battles have already run. Running it here,
+    before the schedule build and the runner, moves that failure to before battle 1. Fail-closed
+    ``GateBAbort`` (``BaselineDriftError`` is a ``BaselineError`` subclass, so both are caught).
+    """
+    import os
+
+    from showdown_bot.eval.baseline import (
+        BaselineError, load_strength_holdout_baseline, verify_strength_holdout_baseline,
+    )
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+
+    root = teams_root or "."
+    baseline_path = os.path.join(root, "config/eval/baselines/champions-strength-holdout-v0.json")
+    try:
+        baseline = load_strength_holdout_baseline(baseline_path)
+        verify_strength_holdout_baseline(baseline, repo_root=root)
+    except BaselineError as exc:
+        raise GateBAbort(f"Gate B baseline verification failed before battle 1: {exc}") from exc
+
+
+def run_strength_holdout_arm_cli(args) -> int:
+    """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11; WIRED in Task 13
+    step 3).
+
+    Sources the six holdout IDs + content hashes from the authoritative manifest, builds the real
+    180-key schedule from the real panel, and plays the arm via ``run_strength_holdout_arm``.
+    ``date_stratum_id`` is required (enforced by ``main`` via ``parser.error``); ``stratum_override``
+    is optional and threads into ``detect_stratum`` (needed for a real Kaggle run). Every
+    data-sourcing / runner failure is a clean ``GateBAbort``/``UnattestedStratumError`` mapped to a
+    named stderr line + exit 1 -- never a traceback and never a half-built publish.
+    """
+    import sys
+
+    from showdown_bot.eval.strata_guard import UnattestedStratumError
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort, run_strength_holdout_arm
+    from showdown_bot.eval.strength_holdout_schedule import (
+        STRENGTH_HOLDOUT_SEED_BASE, build_strength_holdout_schedule,
+    )
+
+    try:
+        content_hashes = _load_holdout_content_hashes(args.teams_root)
+        # P1: bind the frozen panel + manifest identity AND fully verify the baseline (hero,
+        # schedule, showdown_commit, server_patch_hash, opponents) BEFORE building the schedule or
+        # playing -- so any drift is refused before battle 1, not discovered at combine after 180.
+        panel_hash = _load_and_verify_frozen_gate_b_identity(args.teams_root)
+        _verify_gate_b_baseline(args.teams_root)
+        schedule = build_strength_holdout_schedule(
+            holdout_team_ids=sorted(content_hashes), panel_hash=panel_hash,
+            seed_base=STRENGTH_HOLDOUT_SEED_BASE,
+        )
+        run_strength_holdout_arm(
+            hero_agent=args.hero_agent, schedule=schedule, out_dir=args.out_dir,
+            seed_log_path=args.seed_log_path, holdout_team_content_hashes=content_hashes,
+            date_stratum_id=args.date_stratum_id, teams_root=args.teams_root,
+            stratum_env_override=(args.stratum_override or None),
+        )
+        return 0
+    except (GateBAbort, UnattestedStratumError) as exc:
+        # Every exception reachable from the arm's data-sourcing + run_strength_holdout_arm call
+        # graph is GateBAbort (the loaders above wrap OSError/JSON/YAML/PanelError into it), with
+        # detect_stratum's own UnattestedStratumError the one sibling class -- hence the two-class
+        # tuple (Rev. 9 §1h / Rev. 15 §1n).
+        print(f"champions-strength-holdout-arm: {exc}", file=sys.stderr)
+        return 1
+
+
+def _describe_strength_holdout_combine_error(exc: BaseException) -> tuple[str, int]:
+    """NF4 fix (Rev. 8): ``combine_strength_holdout_arms`` can raise 7 exception CLASSES across 4
+    meaningfully DISTINCT message/exit-code CATEGORIES (§1f/§1g's audit table) -- Task 10
+    deliberately keeps these distinct rather than folding all of them into ``GateBAbort``:
+
+    1. ``GateBAbort`` -- the row-schema/manifest/upstream-verdict/pairing/ledger/git-infra trust
+       chain, exit 1.
+    2. ``AccessBudgetError`` -- a policy refusal with a defined override (pass a justification),
+       not a technical failure; collapsing it would hide the one exception an operator may
+       legitimately overrule, exit 2.
+    3. ``HoldoutNotDisjointError``/``LeakageDriftError``/``StrataPoolingError``/
+       ``UnattestedStratumError`` -- four DIFFERENT classes, ONE category: integrity judgments
+       about the holdout itself, exit 3.
+    4. ``LeakageScanError`` -- the scan could not even run; neither a policy refusal nor an
+       integrity judgment, exit 4. Checked BEFORE ``LeakageDriftError`` would be reached, because
+       "couldn't check" must never read as "checked, found a problem".
+
+    Returns ``(message, exit_code)``. Deliberately does not recognize anything outside those 7
+    classes -- an unrecognized type raises ``TypeError`` rather than being mislabeled.
+    """
+    from showdown_bot.eval.heldout_ledger import AccessBudgetError
+    from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
+    from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
+    from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+
+    if isinstance(exc, AccessBudgetError):
+        return (
+            f"ledger budget refused: {exc} (this is a policy decision, not a technical failure "
+            "-- pass a justification to override it if that override is warranted)", 2,
+        )
+    if isinstance(exc, LeakageScanError):
+        return (f"leakage scan could not be completed: {exc}", 4)
+    if isinstance(exc, (HoldoutNotDisjointError, LeakageDriftError, StrataPoolingError, UnattestedStratumError)):
+        return (f"holdout integrity check failed: {exc}", 3)
+    if isinstance(exc, GateBAbort):
+        return (str(exc), 1)
+    raise TypeError(
+        f"unrecognized exception type for the strength-holdout combine CLI: {type(exc).__name__}"
+    ) from exc
+
+
+def run_strength_holdout_combine_cli(args) -> int:
+    """Gate B, combine the two published arms into a verdict (plan §14, Task 11; WIRED in Task 13
+    step 3).
+
+    Sources the six holdout content hashes from the authoritative manifest (the species side is NOT
+    a CLI concern -- ``combine_strength_holdout_arms`` derives both species mappings from the real
+    sealed ``.packed`` files, Task 10 review-fix) and runs the real combiner. ``stratum_override``
+    is passed only as an EXPECTATION checked against the arms' own recorded stratum -- combine never
+    re-detects the stratum here. The seven combine exception classes map to four exit codes via
+    ``_describe_strength_holdout_combine_error`` (NF4, §1f/§1g).
+    """
+    import sys
+
+    from showdown_bot.eval.heldout_ledger import AccessBudgetError
+    from showdown_bot.eval.holdout_disjointness import HoldoutNotDisjointError
+    from showdown_bot.eval.holdout_leakage_scan import LeakageDriftError, LeakageScanError
+    from showdown_bot.eval.strata_guard import StrataPoolingError, UnattestedStratumError
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort, combine_strength_holdout_arms
+
+    try:
+        content_hashes = _load_holdout_content_hashes(args.teams_root)
+        # P1: bind the frozen panel + manifest identity before publishing any verdict.
+        _load_and_verify_frozen_gate_b_identity(args.teams_root)
+        combine_strength_holdout_arms(
+            arm_a_dir=args.arm_a_dir, arm_b_dir=args.arm_b_dir, out_dir=args.out_dir,
+            i8d_verdict_path=args.i8d_verdict_path,
+            coverage_verdict_path=args.coverage_verdict_path,
+            holdout_content_hashes=content_hashes,
+            repo_root=(args.teams_root or "."), teams_root=(args.teams_root or "."),
+            stratum_env_override=(args.stratum_override or None),
+        )
+        return 0
+    except (GateBAbort, AccessBudgetError, HoldoutNotDisjointError, LeakageDriftError,
+            LeakageScanError, StrataPoolingError, UnattestedStratumError) as exc:
+        # NF4 fix (Rev. 8): the seven combine exception classes across four categories -- the
+        # data-sourcing loader wraps its own OSError/JSON into GateBAbort, and combine itself raises
+        # the other six; _describe_strength_holdout_combine_error maps each to its exit code.
+        message, code = _describe_strength_holdout_combine_error(exc)
+        print(f"champions-strength-holdout-combine: {message}", file=sys.stderr)
+        return code
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Parser construction split out from ``main`` so tests can drive the REAL parser (e.g. to
     prove a new global flag's default doesn't break other commands) without executing dispatch."""
@@ -764,9 +1018,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "command",
         choices=["ladder", "challenge", "smoke", "replay-fixture", "validate-log", "gauntlet",
                  "eval-report", "decision-diff", "generalisation-plan", "generalisation-analyze",
-                 "i8d-live-gate", "champions-coverage-gate"],
+                 "i8d-live-gate", "champions-coverage-gate",
+                 "champions-strength-holdout-arm", "champions-strength-holdout-combine"],
         help="ladder/challenge/smoke/replay-fixture/validate-log/gauntlet/eval-report/"
-        "decision-diff/generalisation-plan/generalisation-analyze/i8d-live-gate/champions-coverage-gate",
+        "decision-diff/generalisation-plan/generalisation-analyze/i8d-live-gate/champions-coverage-gate/"
+        "champions-strength-holdout-arm/champions-strength-holdout-combine",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
@@ -919,6 +1175,65 @@ def _build_parser() -> argparse.ArgumentParser:
         "required): the runner refuses to run unless that verdict's candidate_identity matches this "
         "run's freshly-derived one AND its verdict is 'PASS'. Global default is empty so other "
         "commands are unaffected; only champions-coverage-gate's own handler requires it.",
+    )
+    # Gate B (strength holdout, Task 11). All five are GLOBAL flags with an empty default, like
+    # --i8d-verdict-path above and for the same reason: this CLI has a single flat `command`
+    # positional, not argparse subparsers, so `required=True` on any of them would make EVERY
+    # other command (ladder, smoke, gauntlet, ...) refuse to start. Per-command required-ness is
+    # enforced in main() via parser.error(), exactly as generalisation-plan/-analyze already do.
+    parser.add_argument(
+        "--hero-agent",
+        dest="hero_agent",
+        default="",
+        help="Which arm to play for champions-strength-holdout-arm (required for it): "
+        "'heuristic' is Candidate A, 'max_damage' is Baseline B.",
+    )
+    parser.add_argument(
+        "--seed-log-path",
+        dest="seed_log_path",
+        default="",
+        help="Path the server's seed log is written to (champions-strength-holdout-arm, "
+        "required): the arm refuses to run unless the log is built during this very run.",
+    )
+    parser.add_argument(
+        "--arm-a-dir",
+        dest="arm_a_dir",
+        default="",
+        help="Published Candidate-A arm directory (champions-strength-holdout-combine, required).",
+    )
+    parser.add_argument(
+        "--arm-b-dir",
+        dest="arm_b_dir",
+        default="",
+        help="Published Baseline-B arm directory (champions-strength-holdout-combine, required).",
+    )
+    parser.add_argument(
+        "--coverage-verdict-path",
+        dest="coverage_verdict_path",
+        default="",
+        help="Path to the Coverage gate's verdict.json for the SAME candidate "
+        "(champions-strength-holdout-combine, required): Gate B may only run after an I8-D PASS "
+        "AND a Coverage PASS. Global default is empty so other commands are unaffected.",
+    )
+    parser.add_argument(
+        "--date-stratum-id",
+        dest="date_stratum_id",
+        default="",
+        help="Pre-registered date/stratum identifier for champions-strength-holdout-arm (required "
+        "for it; whitespace-only is treated as missing): fixed before the run, threaded unchanged "
+        "into the arm's provenance (DESIGN sec 3.5 -- 'a Kaggle strength stratum is a separate "
+        "pre-registered run'). Global default empty so other commands are unaffected.",
+    )
+    parser.add_argument(
+        "--stratum-override",
+        dest="stratum_override",
+        default="",
+        choices=["windows", "kaggle"],
+        help="Optional explicit hardware stratum. For champions-strength-holdout-arm it is passed "
+        "to detect_stratum (required for a real Kaggle run, which detect_stratum refuses to guess "
+        "from a bare non-Windows platform read); for champions-strength-holdout-combine it is ONLY "
+        "an expectation checked against the arms' own recorded stratum, never a re-detection. "
+        "Empty default (auto-detect / no expectation).",
     )
     parser.add_argument(
         "--mode",
@@ -1094,6 +1409,33 @@ def main() -> None:
     if args.command == "champions-coverage-gate":
         run_coverage_gate_cli(args)
         return
+
+    if args.command == "champions-strength-holdout-arm":
+        # parser.error() (not argparse `required=True`) because these are shared GLOBAL flags --
+        # see the Gate B block in _build_parser. It is still argparse's own error path: usage to
+        # stderr, exit 2, same as generalisation-plan's existing check.
+        missing = [
+            flag for flag, value in (
+                ("--hero-agent", args.hero_agent), ("--out-dir", args.out_dir),
+                ("--seed-log-path", args.seed_log_path), ("--teams-root", args.teams_root),
+                ("--date-stratum-id", args.date_stratum_id),
+            ) if not (value or "").strip()  # whitespace-only counts as missing (date-stratum-id)
+        ]
+        if missing:
+            parser.error(f"champions-strength-holdout-arm requires {', '.join(missing)}")
+        raise SystemExit(run_strength_holdout_arm_cli(args))
+
+    if args.command == "champions-strength-holdout-combine":
+        missing = [
+            flag for flag, value in (
+                ("--arm-a-dir", args.arm_a_dir), ("--arm-b-dir", args.arm_b_dir),
+                ("--out-dir", args.out_dir), ("--i8d-verdict-path", args.i8d_verdict_path),
+                ("--coverage-verdict-path", args.coverage_verdict_path),
+            ) if not value
+        ]
+        if missing:
+            parser.error(f"champions-strength-holdout-combine requires {', '.join(missing)}")
+        raise SystemExit(run_strength_holdout_combine_cli(args))
 
     settings = Settings.from_env()
     if args.command == "ladder":

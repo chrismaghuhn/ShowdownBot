@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "baseline_id": "champions-strength-holdout-v0",
+  "hero_agent": "max_damage",
+  "format_id": "gen9championsvgc2026regma",
+  "panel_version": "champions_strength_holdout_v0",
+  "panel_hash": "122764211b6db3ba",
+  "hero_team_path": "showdown_bot/teams/fixed_champions_v0.txt",
+  "hero_team_hash": "1d3a4cf5a4042532",
+  "opponent_teams": [
+    {
+      "team_id": "gbh_a",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_a.txt",
+      "team_content_hash": "e3e2c1c1dce08a57"
+    },
+    {
+      "team_id": "gbh_b",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_b.txt",
+      "team_content_hash": "7f026166ceb58d38"
+    },
+    {
+      "team_id": "gbh_c",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_c.txt",
+      "team_content_hash": "cb76e5fbf51a992d"
+    },
+    {
+      "team_id": "gbh_d",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_d.txt",
+      "team_content_hash": "5cff8b4cad64c6dc"
+    },
+    {
+      "team_id": "gbh_e",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_e.txt",
+      "team_content_hash": "14965e1f2a0d36c3"
+    },
+    {
+      "team_id": "gbh_f",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_f.txt",
+      "team_content_hash": "b46b101c7c25c768"
+    }
+  ],
+  "schedule_hash": "37df91c10c24801d",
+  "seed_base": "champions-strength-holdout-v0",
+  "showdown_commit": "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5",
+  "server_patch_hash": "86e31891547e87da",
+  "pythonhashseed": "0"
+}

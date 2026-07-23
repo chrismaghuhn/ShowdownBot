@@ -1,0 +1,21 @@
+# Champions strength-holdout panel v0 — Gate B (Independent Strength Holdout), spec §3.
+# The six sealed, tournament-legal gen9championsvgc2026regma OPPONENT teams (§3.1/§3.4).
+# Internal IDs gbh_* map to their public sources ONLY in the holdout manifest
+# (config/eval/holdout/champions_strength_holdout_v0_manifest.json, Amendment A1.1) — never here.
+# Hero (NOT in this panel): showdown_bot/teams/fixed_champions_v0.txt.
+# team_path values are REPO-ROOT-RELATIVE (they carry the showdown_bot/ prefix), matching Task 9's
+# teams_root='.' geometry; load this panel with teams_root=<repo root>.
+# The dev/held-out split is STRUCTURAL ONLY — load_panel requires both lists non-empty, but Gate B
+# uses all six teams as one opponent axis (the schedule iterates every panel team, sorted). The
+# split affects only panel_hash; it carries no dev-vs-held-out semantics for Gate B. archetype is
+# the source-rank label already recorded (blind to bot results) in the holdout manifest.
+version: champions_strength_holdout_v0
+policies: [heuristic, max_damage]
+dev_teams:
+  - {team_id: gbh_a, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_a.txt, archetype: published-champion}
+  - {team_id: gbh_b, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_b.txt, archetype: published-champion-seniors}
+  - {team_id: gbh_c, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_c.txt, archetype: published-runner-up}
+heldout_teams:
+  - {team_id: gbh_d, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_d.txt, archetype: published-runner-up-seniors}
+  - {team_id: gbh_e, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_e.txt, archetype: published-top-4-seniors}
+  - {team_id: gbh_f, team_path: showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_f.txt, archetype: published-top-4-seniors}
