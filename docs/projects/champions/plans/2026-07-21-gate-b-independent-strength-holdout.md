@@ -1,23 +1,37 @@
-# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 23)
+# Champions Gate B — Independent Strength Holdout — Implementation Plan (Rev. 24)
 
-> **Status: Rev. 23 — Tasks 1–12 AND Task 13 steps 1–2 are IMPLEMENTED, tested, reviewed (Codex
-> PASS) and COMMITTED on branch `feat/champions-gate-b-task-1-schedule` (through `b0cb3bf`).
-> Nothing is merged to `main`. Task 13 is the active slice, and **step 3 is now in progress**. Its
-> source condition is SATISFIED (§2a); the six `.txt`/`.packed` team artifacts exist, are sealed,
-> are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the holdout
-> manifest exists and is the single home of the public-to-internal ID mapping; and the Gate B
-> **static baseline CONTRACT exists and is committed** — `load_strength_holdout_baseline` /
-> `verify_strength_holdout_baseline` (the additive, closed-schema A1.3 loader/verifier) plus their
-> tests are in `baseline.py`. **Still outstanding (step 3):** the panel YAML with real content, the
-> baseline manifest's real VALUES (currently a schema-loadable placeholder), the hash freeze into
-> Task 1's/Task 6's frozen constants, the CLI data wiring (so both subcommands stop naming a
-> Task 13 blocker), the near-duplicate audit against the nine reference teams, and the whole-suite
-> verification. No Gate-B server has been started and no Gate-B battle has been played, and the live
-> Gate B run remains BLOCKED under a separate authorization (§17).**
+> **Status: Rev. 24 — Tasks 1–12 AND all of Task 13 (steps 1–3) are IMPLEMENTED, tested, and
+> COMMITTED on branch `feat/champions-gate-b-task-1-schedule`; Tasks 1–12 and Task 13 steps 1–2 are
+> Codex-PASS, and step 3 is UNDER REVIEW. Nothing is merged to `main`.** Step 3 is code-complete:
+> the source condition is SATISFIED (§2a); the six `.txt`/`.packed` team artifacts exist, are
+> sealed, are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the
+> holdout manifest is the single home of the public-to-internal ID mapping; the Gate B static
+> baseline CONTRACT and its real frozen VALUES are committed (`load_strength_holdout_baseline` /
+> `verify_strength_holdout_baseline`, the additive closed-schema A1.3 loader/verifier, verifying
+> clean against the real tree); the **panel YAML** carries real content; the **hash freeze** is done
+> (`STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH` / `STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH`, derived via the
+> production functions, and the manifest hash binds the frozen selection order + public→internal
+> mapping); both **CLI subcommands are wired** to real manifest/panel data and enforce the frozen
+> identity before battle 1 / before any verdict (no Task-13 blocker remains); and the **reference
+> near-duplicate audit** against the nine reference teams is recorded (selection audit §5a). **Still
+> outstanding:** the whole-suite verification and Codex review of this branch. No Gate-B server has
+> been started and no Gate-B battle has been played, and the live Gate B run remains BLOCKED under a
+> separate authorization (§17).**
 >
 > This header, the implementation-status block further down, §16 and §19 are kept in agreement;
 > if they ever disagree, the deepest one (§19) is the one to fix first.
 >
+> - **Rev. 23 → Rev. 24** (execution-status sync + one review-fix round on step-3 code, no new
+>   design round): step 3's artifacts (panel real content, baseline real values, the two hash-freeze
+>   constants, the CLI data wiring, the near-duplicate audit) are committed, so the status no longer
+>   lists them as outstanding. Two review findings on the step-3 code were closed: **(P1)** both CLI
+>   subcommands now bind the on-disk panel and holdout-manifest hashes to their FROZEN constants
+>   before battle 1 / before any verdict (`_load_and_verify_frozen_gate_b_identity`) — a *consistent*
+>   drift of panel + manifest + baseline together would pass `verify_strength_holdout_baseline`
+>   (which only checks those three agree with each other and disk), so the frozen constants are the
+>   external anchor a swapped/re-sealed holdout can never satisfy; **(P2)** `strength_holdout_manifest_hash`
+>   now binds the frozen selection ORDER (`selection_index`) and the public→internal MAPPING
+>   (`source_team_id`), not merely the `(team_id, team_path, team_content_hash)` triple.
 > - **Rev. 22 → Rev. 23** (mechanical execution-status sync, no new design round, no findings):
 >   Task 13 steps 1–2 (the six sealed teams + the holdout manifest) and their two focused
 >   review-fix rounds are committed through `b0cb3bf`, so the status surfaces move to Rev. 23 and
@@ -8059,25 +8073,28 @@ Steps 3-6 are explicitly out of scope for this plan.
 
 ## 19. What happens next
 
-**Rev. 23 status.** Tasks 1–12 AND Task 13 steps 1–2 are implemented, tested, reviewed (Codex
-PASS), and **committed on `feat/champions-gate-b-task-1-schedule` through `b0cb3bf` — nothing is
-merged to `main`**; this document's Task 10 and Task 11 sections mirror that committed source
-rather than a proposal, Task 12 (team sealing/provenance) shipped with the `.packed`-containment
-review-fix, and the Gate B **static baseline contract itself is committed** —
-`load_strength_holdout_baseline` / `verify_strength_holdout_baseline` (the additive, closed-schema
-A1.3 loader/verifier, spec Amendment A1.3), hardened across two focused review-fix rounds
-(interpreter-start `PYTHONHASHSEED` guard; closed `selection_index={1..6}` check). **Task 13 is the
-active slice and step 3 is in progress.**
-Task 13's source condition is SATISFIED as of 2026-07-22 (§2a), and its team-artifact half is
-done: the six `.txt`/`.packed` team artifacts exist, are sealed, are `validate-team`-legal, and pass the real leakage and coverage-disjointness scans; the holdout manifest exists and is the single home of the public-to-internal ID mapping, with the real leakage and disjointness
-scans green.
+**Rev. 24 status.** Tasks 1–12 AND all of Task 13 (steps 1–3) are implemented, tested, and
+**committed on `feat/champions-gate-b-task-1-schedule` — nothing is merged to `main`**. Tasks 1–12
+and Task 13 steps 1–2 are Codex-PASS; step 3 is code-complete and UNDER REVIEW. This document's
+Task 10 and Task 11 sections mirror that committed source rather than a proposal, Task 12 (team
+sealing/provenance) shipped with the `.packed`-containment review-fix, and the Gate B static
+baseline contract + its real frozen VALUES are committed — `load_strength_holdout_baseline` /
+`verify_strength_holdout_baseline` (the additive, closed-schema A1.3 loader/verifier, spec Amendment
+A1.3), hardened across the earlier focused review-fix rounds (interpreter-start `PYTHONHASHSEED`
+guard; closed `selection_index={1..6}` check).
 
-What remains for Task 13 (step 3) is the panel YAML with real content, the baseline manifest's real
-VALUES (the contract exists; the committed manifest is still a schema-loadable placeholder), the
-hash freeze into Task 1's/Task 6's frozen constants, the CLI data wiring, the near-duplicate audit
-against the nine reference teams, and the whole-suite verification -- after which both CLI
-subcommands stop naming a Task 13 blocker. **No live Gate B run is authorized regardless**; that is
-a separate decision (§17).
+Task 13's source condition is SATISFIED as of 2026-07-22 (§2a), and step 3 is now done: the six
+`.txt`/`.packed` team artifacts exist, are sealed, are `validate-team`-legal, and pass the real
+leakage and coverage-disjointness scans; the holdout manifest is the single home of the
+public-to-internal ID mapping; the panel YAML carries real content; the hash freeze is complete
+(`STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH` / `STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH`, the latter
+binding the frozen selection order + public→internal mapping); both CLI subcommands source real
+manifest/panel data and enforce the frozen identity before battle 1 / before any verdict (no Task-13
+blocker remains); and the reference near-duplicate audit against the nine reference teams is recorded
+(selection audit §5a).
+
+What remains is the whole-suite verification and Codex review of this branch. **No live Gate B run is
+authorized regardless**; that is a separate decision (§17).
 
 Every finding raised across all prior review rounds is fixed with real, verified code, and the one
 item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`

@@ -814,6 +814,45 @@ def _load_gate_b_panel_hash(teams_root: str) -> str:
         raise GateBAbort(f"could not load the Gate B panel at {panel_path!r}: {exc}") from exc
 
 
+def _load_and_verify_frozen_gate_b_identity(teams_root: str) -> str:
+    """Bind the on-disk panel and holdout manifest to their FROZEN identities (Task 13 step-3
+    hash-freeze) and return the verified ``panel_hash`` -- BEFORE any battle or verdict.
+
+    P1 fix: sourcing the panel/manifest and re-hashing team content internally is not enough. A
+    *consistent* drift -- the panel, the manifest, and the baseline edited together to a different
+    six teams -- passes ``verify_strength_holdout_baseline`` (which only checks those three agree
+    with each other and with disk). The frozen constants are the external anchor a re-sealed or
+    swapped holdout can never satisfy, so the arm must refuse before battle 1 and combine before it
+    publishes a verdict. Fail-closed ``GateBAbort``.
+    """
+    import os
+
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+    from showdown_bot.eval.strength_holdout_schedule import (
+        STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH, STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH,
+        STRENGTH_HOLDOUT_MANIFEST_PATH, strength_holdout_manifest_hash,
+    )
+
+    panel_hash = _load_gate_b_panel_hash(teams_root)
+    if panel_hash != STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH:
+        raise GateBAbort(
+            f"Gate B panel drift: on-disk panel_hash {panel_hash!r} != frozen "
+            f"{STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH!r} -- refusing before battle 1"
+        )
+    try:
+        manifest_hash = strength_holdout_manifest_hash(
+            os.path.join(teams_root or ".", STRENGTH_HOLDOUT_MANIFEST_PATH)
+        )
+    except ValueError as exc:
+        raise GateBAbort(f"could not hash the holdout manifest: {exc}") from exc
+    if manifest_hash != STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH:
+        raise GateBAbort(
+            f"Gate B holdout-manifest drift: on-disk manifest hash {manifest_hash!r} != frozen "
+            f"{STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH!r} -- refusing before battle 1"
+        )
+    return panel_hash
+
+
 def run_strength_holdout_arm_cli(args) -> int:
     """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11; WIRED in Task 13
     step 3).
@@ -835,7 +874,8 @@ def run_strength_holdout_arm_cli(args) -> int:
 
     try:
         content_hashes = _load_holdout_content_hashes(args.teams_root)
-        panel_hash = _load_gate_b_panel_hash(args.teams_root)
+        # P1: bind the frozen panel + manifest identity BEFORE building the schedule or playing.
+        panel_hash = _load_and_verify_frozen_gate_b_identity(args.teams_root)
         schedule = build_strength_holdout_schedule(
             holdout_team_ids=sorted(content_hashes), panel_hash=panel_hash,
             seed_base=STRENGTH_HOLDOUT_SEED_BASE,
@@ -919,6 +959,8 @@ def run_strength_holdout_combine_cli(args) -> int:
 
     try:
         content_hashes = _load_holdout_content_hashes(args.teams_root)
+        # P1: bind the frozen panel + manifest identity before publishing any verdict.
+        _load_and_verify_frozen_gate_b_identity(args.teams_root)
         combine_strength_holdout_arms(
             arm_a_dir=args.arm_a_dir, arm_b_dir=args.arm_b_dir, out_dir=args.out_dir,
             i8d_verdict_path=args.i8d_verdict_path,

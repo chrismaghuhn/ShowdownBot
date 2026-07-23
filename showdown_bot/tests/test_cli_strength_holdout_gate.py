@@ -260,6 +260,57 @@ def test_combine_cli_sources_manifest_hashes_and_passes_override_as_expectation_
     assert captured["arm_a_dir"] == "a" and captured["arm_b_dir"] == "b"
 
 
+def test_arm_cli_aborts_before_battle_1_when_the_panel_drifts_from_the_frozen_hash(monkeypatch):
+    # P1: sourcing the panel/manifest is not enough -- the on-disk identity must equal the FROZEN
+    # constants before the arm plays. Simulate drift by moving the frozen panel-hash constant; the
+    # real panel then no longer matches, so the arm must abort and never call the runner.
+    ran = {"v": False}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: ran.__setitem__("v", True),
+    )
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_schedule.STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH",
+        "deadbeefdeadbeef",
+    )
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args())
+    assert rc == 1
+    assert ran["v"] is False
+
+
+def test_arm_cli_aborts_before_battle_1_when_the_manifest_drifts_from_the_frozen_hash(monkeypatch):
+    ran = {"v": False}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: ran.__setitem__("v", True),
+    )
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_schedule.STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH",
+        "deadbeefdeadbeef",
+    )
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args())
+    assert rc == 1
+    assert ran["v"] is False
+
+
+def test_combine_cli_aborts_when_the_frozen_gate_b_identity_drifts(monkeypatch):
+    ran = {"v": False}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.combine_strength_holdout_arms",
+        lambda **kw: ran.__setitem__("v", True),
+    )
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_schedule.STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH",
+        "deadbeefdeadbeef",
+    )
+    from showdown_bot.cli import run_strength_holdout_combine_cli
+    rc = run_strength_holdout_combine_cli(_combine_args())
+    assert rc != 0
+    assert ran["v"] is False
+
+
 def test_arm_cli_aborts_cleanly_when_the_holdout_manifest_is_missing(monkeypatch, tmp_path):
     # A teams_root with no manifest must abort with a named GateBAbort-mapped message and exit 1,
     # before any runner call -- no traceback, nothing published.

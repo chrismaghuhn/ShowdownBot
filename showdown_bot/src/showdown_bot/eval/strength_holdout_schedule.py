@@ -19,7 +19,7 @@ STRENGTH_HOLDOUT_HERO_TEAM_PATH = "showdown_bot/teams/fixed_champions_v0.txt"
 # production functions (load_panel(...).panel_hash and strength_holdout_manifest_hash), never
 # hand-entered. test_strength_holdout_freeze.py re-derives both and pins these constants to them.
 STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH = "122764211b6db3ba"
-STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH = "6c37277bd1bd2a71"
+STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH = "e853766638b6363e"
 
 
 def _sha16(s: str) -> str:
@@ -27,15 +27,18 @@ def _sha16(s: str) -> str:
 
 
 def strength_holdout_manifest_hash(manifest_path: str) -> str:
-    """Content identity of the holdout manifest's authoritative team set (Task 13 hash-freeze).
+    """Frozen identity of the holdout manifest's authoritative team set (Task 13 hash-freeze).
 
-    Hashes exactly the sorted ``(team_id, team_path, team_content_hash)`` projection -- the same
-    triple ``verify_strength_holdout_baseline`` binds panel/baseline/on-disk against -- with this
-    module's own ``_sha16`` + canonical-JSON convention. Deliberately independent of the manifest's
-    incidental fields (source URLs, ranks, formatting) and of key order, so a provenance-only edit
-    does not move it while any change to WHICH six teams are registered, their paths, or their
-    sealed content does. Raises ``ValueError`` on a manifest that is not an object with a ``teams``
-    list of the closed triple shape -- never a raw ``KeyError``/``OSError`` escaping to the caller.
+    Binds, per team, the full frozen identity: the ``selection_index`` (the frozen selection ORDER,
+    Amendment A1.1 -- IDs are assigned in that order), the ``source_team_id`` (the public->internal
+    MAPPING the manifest is the sole home of), and the ``(team_id, team_path, team_content_hash)``
+    triple ``verify_strength_holdout_baseline`` binds panel/baseline/on-disk against. Hashed with
+    this module's ``_sha16`` + canonical-JSON convention, over the projection sorted for stability.
+    A swap of which public source backs an internal id, a renumbering of the selection order, or any
+    change to which six teams are registered / their paths / their sealed content all move the hash;
+    incidental fields (URLs, ranks, formatting) and JSON key order do not. Raises ``ValueError`` on a
+    manifest that is not an object with a ``teams`` list of the closed shape -- never a raw
+    ``KeyError``/``OSError`` escaping to the caller.
     """
     try:
         man = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
@@ -48,12 +51,17 @@ def strength_holdout_manifest_hash(manifest_path: str) -> str:
         if not isinstance(t, dict):
             raise ValueError(f"holdout manifest teams[{i}] must be an object")
         try:
-            triple = (t["team_id"], t["team_path"], t["team_content_hash"])
+            selection_index = t["selection_index"]
+            strings = (t["source_team_id"], t["team_id"], t["team_path"], t["team_content_hash"])
         except KeyError as exc:
             raise ValueError(f"holdout manifest teams[{i}] missing field {exc}") from exc
-        if not all(isinstance(v, str) and v.strip() for v in triple):
-            raise ValueError(f"holdout manifest teams[{i}] has a blank/non-string id/path/hash")
-        projection.append(list(triple))
+        if not isinstance(selection_index, int) or isinstance(selection_index, bool):
+            raise ValueError(f"holdout manifest teams[{i}] selection_index must be an int")
+        if not all(isinstance(v, str) and v.strip() for v in strings):
+            raise ValueError(
+                f"holdout manifest teams[{i}] has a blank/non-string source_team_id/id/path/hash"
+            )
+        projection.append([selection_index, *strings])
     return _sha16(json.dumps(sorted(projection), sort_keys=True, separators=(",", ":")))
 
 

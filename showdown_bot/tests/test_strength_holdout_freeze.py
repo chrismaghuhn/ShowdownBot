@@ -164,6 +164,39 @@ def test_real_baseline_tamper_on_an_opponent_team_hash_fails_closed():
         verify_strength_holdout_baseline(baseline, repo_root=str(_REPO_ROOT))
 
 
+def _minimal_manifest(tmp_path, teams):
+    p = tmp_path / "m.json"
+    p.write_text(json.dumps({"teams": teams}), encoding="utf-8")
+    return str(p)
+
+
+def _manifest_team(sel, src, tid):
+    return {"selection_index": sel, "source_team_id": src, "team_id": tid,
+            "team_path": f"showdown_bot/teams/panel_champions_strength_holdout_v0/{tid}.txt",
+            "team_content_hash": f"hash_{tid}"}
+
+
+def test_manifest_hash_covers_the_frozen_selection_order(tmp_path):
+    # Swapping which team holds which selection_index (the frozen order) MUST move the hash -- the
+    # order is part of the frozen identity (Amendment A1.1: assigned in the frozen selection order).
+    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
+        _manifest_team(1, "PC1", "gx"), _manifest_team(2, "PC2", "gy")]))
+    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
+        _manifest_team(2, "PC1", "gx"), _manifest_team(1, "PC2", "gy")]))  # order swapped
+    assert a != b
+
+
+def test_manifest_hash_covers_the_public_to_internal_mapping(tmp_path):
+    # Remapping which PUBLIC source id backs an internal id MUST move the hash -- the public->internal
+    # mapping is the one thing the manifest is the sole home of (Amendment A1.1), and pinning it is
+    # what a frozen-identity hash exists to protect.
+    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
+        _manifest_team(1, "PC1", "gx"), _manifest_team(2, "PC2", "gy")]))
+    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
+        _manifest_team(1, "PC2", "gx"), _manifest_team(2, "PC1", "gy")]))  # sources swapped
+    assert a != b
+
+
 def test_reference_near_duplicate_audit_is_reproducible_and_diagnostic():
     """Task 13 item 5: run find_near_duplicate_flags for every sealed holdout team against exactly
     the nine canonical reference teams (species from the real .packed), and pin the audit's
