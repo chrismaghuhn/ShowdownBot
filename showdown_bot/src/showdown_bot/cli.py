@@ -998,6 +998,10 @@ def run_strength_holdout_combine_cli(args) -> int:
             holdout_content_hashes=content_hashes,
             repo_root=(args.teams_root or "."), teams_root=(args.teams_root or "."),
             stratum_env_override=(args.stratum_override or None),
+            # `or None` so the argparse default ("") is indistinguishable from "not supplied";
+            # the combine normalises blank-to-None again anyway, so a whitespace-only value
+            # cannot bypass the budget through this path either.
+            ledger_justification=(getattr(args, "ledger_justification", "") or None),
         )
         return 0
     except (GateBAbort, AccessBudgetError, HoldoutNotDisjointError, LeakageDriftError,
@@ -1223,6 +1227,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "for it; whitespace-only is treated as missing): fixed before the run, threaded unchanged "
         "into the arm's provenance (DESIGN sec 3.5 -- 'a Kaggle strength stratum is a separate "
         "pre-registered run'). Global default empty so other commands are unaffected.",
+    )
+    parser.add_argument(
+        "--ledger-justification",
+        dest="ledger_justification",
+        default="",
+        help="champions-strength-holdout-combine ONLY: documented reason for a JUSTIFIED REPEAT on "
+        "a config_hash whose one-attempt held-out budget is already consumed. Omitting it (the "
+        "default) leaves the budget fully enforced -- a repeat then aborts with AccessBudgetError, "
+        "exactly as before this flag existed. An empty or whitespace-only value does NOT count as "
+        "provided. The string given here is recorded verbatim on the appended ledger entry, so it "
+        "is the audit trail for the bypass; it does not authorize a run by itself.",
     )
     parser.add_argument(
         "--stratum-override",

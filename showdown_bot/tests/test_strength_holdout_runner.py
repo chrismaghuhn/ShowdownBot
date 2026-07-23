@@ -3151,3 +3151,158 @@ def test_upstream_verifier_failure_still_aborts_before_ledger_pairing_and_publis
     assert not ledger_path.exists()  # no reservation was made -> the attempt is not consumed
     assert not out_dir.exists()       # nothing published
     assert not out_dir.with_name(out_dir.name + ".staging").exists()
+
+
+# ==============================================================================================
+# Ledger justification (justified-repeat path).
+#
+# This wires a BYPASS into a fail-closed guard, so the tests below pin both directions: a
+# justification must make a repeat possible AND its absence (or an empty/whitespace-only value)
+# must leave the budget exactly as strict as before.
+#
+# Note on why normalisation lives in the combine and not in check_access: check_access returns
+# early on `justification is not None`, so ANY non-None value -- including "" and "   " -- would
+# bypass the budget. The combine therefore normalises blank-to-None BEFORE calling check_access,
+# which is what makes the empty/whitespace cases below refuse rather than silently pass.
+# ==============================================================================================
+
+def _combine_once(tmp_path, hashes, teams_root, holdout_teams, *, tag, config_hash,
+                  ledger_path, **kwargs):
+    """One combine over a freshly written arm pair, so each call is an independent attempt."""
+    arm_a = _write_arm(tmp_path, f"arm_a_{tag}", hero_agent="heuristic",
+                       config_hash=config_hash, holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, f"arm_b_{tag}", hero_agent="max_damage",
+                       config_hash=f"{config_hash}-b", winner="villain", holdout_teams=holdout_teams)
+    return combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / f"combined_{tag}"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes,
+        stratum_env_override="windows", teams_root=teams_root,
+        ledger_path=str(ledger_path), **kwargs,
+    )
+
+
+def test_combine_allows_a_repeat_config_hash_with_a_justification(tmp_path, monkeypatch):
+    """RED 1: the justified-repeat path. A consumed config_hash must proceed when a justification
+    is supplied -- today combine hardcodes justification=None, so this raises AccessBudgetError."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="first", config_hash="repeat-cfg", ledger_path=ledger_path)
+
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="second", config_hash="repeat-cfg", ledger_path=ledger_path,
+                  ledger_justification="documented justified repeat after the B1 fix")
+
+    entries = read_ledger(str(ledger_path))
+    assert len(entries) == 2, "the justified repeat must append its own run entry"
+
+
+def test_combine_records_the_justification_verbatim_on_the_entry(tmp_path, monkeypatch):
+    """RED 2: the string passed to check_access must be the string recorded on the entry -- the
+    ledger is the audit trail, so a bypass that is not recorded verbatim is worse than none."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    reason = "re-run after the trapped-switch fix; prior attempt was a SAFETY-FAIL"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="only", config_hash="rec-cfg", ledger_path=ledger_path,
+                  ledger_justification=reason)
+
+    entries = read_ledger(str(ledger_path))
+    assert entries[-1]["justification"] == reason
+
+
+def test_combine_still_refuses_a_repeat_without_justification(tmp_path, monkeypatch):
+    """Regression: the default path is unchanged -- absent justification still enforces budget."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="d1", config_hash="dflt-cfg", ledger_path=ledger_path)
+    with pytest.raises(AccessBudgetError):
+        _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                      tag="d2", config_hash="dflt-cfg", ledger_path=ledger_path)
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n  "])
+def test_combine_refuses_a_blank_justification(tmp_path, monkeypatch, blank):
+    """Regression: an empty or whitespace-only justification must NOT count as provided.
+    check_access alone would accept it (it only tests `is not None`), so this pins the
+    normalisation the combine does before calling it."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="b1", config_hash="blank-cfg", ledger_path=ledger_path)
+    with pytest.raises(AccessBudgetError):
+        _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                      tag="b2", config_hash="blank-cfg", ledger_path=ledger_path,
+                      ledger_justification=blank)
+
+
+def test_fresh_config_hash_still_needs_no_justification(tmp_path, monkeypatch):
+    """Regression: the justification is only ever needed for a REPEAT; a fresh config_hash is
+    unaffected and still records justification=None."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="fresh", config_hash="fresh-cfg", ledger_path=ledger_path)
+    entries = read_ledger(str(ledger_path))
+    assert len(entries) == 1
+    assert entries[0]["justification"] is None
+
+
+def test_justification_is_wired_to_BOTH_check_access_call_sites(tmp_path, monkeypatch):
+    """The pre-check and the authoritative check under the ledger lock must BOTH receive the same
+    justification. Wiring only one leaves either a fail-fast that refuses a legitimate justified
+    repeat, or a lock-held check that refuses after all the work is done. Captures every call."""
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    ledger_path = tmp_path / "ledger.jsonl"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="w1", config_hash="wire-cfg", ledger_path=ledger_path)
+
+    seen: list = []
+    import showdown_bot.eval.strength_holdout_runner as runner
+    real = runner.check_access
+
+    def _spy(entries, config_hash, *, justification=None):
+        seen.append(justification)
+        return real(entries, config_hash, justification=justification)
+
+    monkeypatch.setattr(runner, "check_access", _spy)
+    reason = "both-sites wiring probe"
+    _combine_once(tmp_path, hashes, teams_root, holdout_teams,
+                  tag="w2", config_hash="wire-cfg", ledger_path=ledger_path,
+                  ledger_justification=reason)
+
+    assert len(seen) == 2, f"expected both check_access call sites to run, saw {len(seen)}"
+    assert seen == [reason, reason], f"both sites must receive the justification, got {seen!r}"
+
+
+def test_cli_parses_ledger_justification_and_defaults_to_not_supplied():
+    """The CLI is how Gate B is actually run, so the flag must exist and its DEFAULT must be
+    indistinguishable from 'not supplied' -- otherwise the budget bypass would be reachable by
+    accident. Drives the real parser."""
+    from showdown_bot.cli import _build_parser
+    from showdown_bot.eval.strength_holdout_runner import _normalized_ledger_justification
+
+    parser = _build_parser()
+    default_args = parser.parse_args(["champions-strength-holdout-combine"])
+    assert (getattr(default_args, "ledger_justification", "") or None) is None
+
+    given = parser.parse_args(
+        ["champions-strength-holdout-combine", "--ledger-justification", "documented repeat"]
+    )
+    assert given.ledger_justification == "documented repeat"
+    blank = parser.parse_args(["champions-strength-holdout-combine", "--ledger-justification", "   "])
+    assert _normalized_ledger_justification(blank.ledger_justification) is None
