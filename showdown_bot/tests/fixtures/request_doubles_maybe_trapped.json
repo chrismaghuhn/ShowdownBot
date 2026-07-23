@@ -1,0 +1,185 @@
+{
+  "active": [
+    {
+      "moves": [
+        {
+          "move": "Dire Claw",
+          "id": "direclaw",
+          "pp": 16,
+          "maxpp": 16,
+          "target": "normal",
+          "disabled": false
+        },
+        {
+          "move": "Close Combat",
+          "id": "closecombat",
+          "pp": 6,
+          "maxpp": 8,
+          "target": "normal",
+          "disabled": false
+        },
+        {
+          "move": "Fake Out",
+          "id": "fakeout",
+          "pp": 12,
+          "maxpp": 12,
+          "target": "normal",
+          "disabled": true
+        },
+        {
+          "move": "Protect",
+          "id": "protect",
+          "pp": 7,
+          "maxpp": 8,
+          "target": "self",
+          "disabled": false
+        }
+      ],
+      "trapped": true
+    },
+    {
+      "moves": [
+        {
+          "move": "Rock Slide",
+          "id": "rockslide",
+          "pp": 10,
+          "maxpp": 12,
+          "target": "allAdjacentFoes",
+          "disabled": false
+        },
+        {
+          "move": "Dual Wingbeat",
+          "id": "dualwingbeat",
+          "pp": 12,
+          "maxpp": 12,
+          "target": "normal",
+          "disabled": false
+        },
+        {
+          "move": "Tailwind",
+          "id": "tailwind",
+          "pp": 16,
+          "maxpp": 16,
+          "target": "allySide",
+          "disabled": false
+        },
+        {
+          "move": "Protect",
+          "id": "protect",
+          "pp": 7,
+          "maxpp": 8,
+          "target": "self",
+          "disabled": false
+        }
+      ],
+      "maybeTrapped": true
+    }
+  ],
+  "side": {
+    "name": "HeuristicBot",
+    "id": "p1",
+    "pokemon": [
+      {
+        "ident": "p1: Sneasler",
+        "details": "Sneasler, L50, M",
+        "condition": "1/157",
+        "active": true,
+        "stats": {
+          "atk": 182,
+          "def": 80,
+          "spa": 54,
+          "spd": 100,
+          "spe": 189
+        },
+        "moves": [
+          "direclaw",
+          "closecombat",
+          "fakeout",
+          "protect"
+        ],
+        "baseAbility": "poisontouch",
+        "item": "",
+        "pokeball": "pokeball",
+        "ability": "poisontouch",
+        "commanding": false,
+        "reviving": false
+      },
+      {
+        "ident": "p1: Aerodactyl",
+        "details": "Aerodactyl-Mega, L50, F",
+        "condition": "88/157 brn",
+        "active": true,
+        "stats": {
+          "atk": 187,
+          "def": 105,
+          "spa": 81,
+          "spd": 115,
+          "spe": 222
+        },
+        "moves": [
+          "rockslide",
+          "dualwingbeat",
+          "tailwind",
+          "protect"
+        ],
+        "baseAbility": "toughclaws",
+        "item": "aerodactylite",
+        "pokeball": "pokeball",
+        "ability": "toughclaws",
+        "commanding": false,
+        "reviving": false
+      },
+      {
+        "ident": "p1: Scovillain",
+        "details": "Scovillain, L50, M",
+        "condition": "172/172",
+        "active": false,
+        "stats": {
+          "atk": 115,
+          "def": 85,
+          "spa": 160,
+          "spd": 85,
+          "spe": 106
+        },
+        "moves": [
+          "overheat",
+          "leechseed",
+          "ragepowder",
+          "protect"
+        ],
+        "baseAbility": "moody",
+        "item": "scovillainite",
+        "pokeball": "pokeball",
+        "ability": "moody",
+        "commanding": false,
+        "reviving": false
+      },
+      {
+        "ident": "p1: Garchomp",
+        "details": "Garchomp, L50, F",
+        "condition": "215/215",
+        "active": false,
+        "stats": {
+          "atk": 200,
+          "def": 115,
+          "spa": 90,
+          "spd": 105,
+          "spe": 124
+        },
+        "moves": [
+          "dragonclaw",
+          "earthquake",
+          "rockslide",
+          "protect"
+        ],
+        "baseAbility": "roughskin",
+        "item": "sitrusberry",
+        "pokeball": "pokeball",
+        "ability": "roughskin",
+        "commanding": false,
+        "reviving": false
+      }
+    ]
+  },
+  "rqid": 12
+}

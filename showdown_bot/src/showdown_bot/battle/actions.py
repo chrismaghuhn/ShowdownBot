@@ -49,13 +49,18 @@ class JointAction:
 
 def _voluntary_switches(req: BattleRequest, active_index: int) -> list[SlotAction]:
     """Single-slot voluntary switch targets (legal_actions only emits switches on
-    force-switch; the heuristic needs them as defensive options too)."""
-    if (
-        req.active
-        and active_index < len(req.active)
-        and req.active[active_index] is not None
-        and req.active[active_index].trapped
-    ):
+    force-switch; the heuristic needs them as defensive options too).
+
+    Both `trapped` and `maybeTrapped` block a VOLUNTARY switch. For an ability trap the server
+    reports the last active slot as `maybeTrapped` purely to avoid leaking which foe ability is
+    doing the trapping (sim/pokemon.ts:1098,1135-1138) -- the Pokemon really is trapped, so a
+    switch here is an illegal action, not a probe. Offering it is what failed Gate B
+    (`invalid_choices`=1). This is the VOLUNTARY path only: a FORCED replacement after a faint is
+    still legal while trapped and is emitted by legal_actions._bench_switch_targets, which this
+    guard deliberately does not touch.
+    """
+    slot = req.active[active_index] if req.active and active_index < len(req.active) else None
+    if slot is not None and (slot.trapped or slot.maybe_trapped):
         return []
     out: list[SlotAction] = []
     for mon in req.side.pokemon:

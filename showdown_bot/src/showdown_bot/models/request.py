@@ -26,6 +26,30 @@ class ActiveSlot(BaseModel):
         exclude_if=lambda value: value is False,
     )
     trapped: bool | None = None
+    # The server sets `maybeTrapped` INSTEAD of `trapped` for the LAST active slot when the trap
+    # comes from an ability: all three trapping abilities call `tryTrap(true)` -> `trapped='hidden'`
+    # (sim/pokemon.ts:1613-1618, field typed `boolean | "hidden"` at :131), and the request
+    # serializer restricts information for the last active (:1098) -- a non-last slot uses the loose
+    # `if (this.trapped)` (:1124) while the last active uses the strict `if (this.trapped === true)`
+    # (:1135-1138), which 'hidden' fails. So for an ability trap this means "actually trapped,
+    # withheld", NOT "uncertain". Without this field pydantic silently DROPPED the key (no
+    # extra="forbid"), the slot parsed to trapped=None, and _voluntary_switches offered switches for
+    # a trapped Pokemon -- the illegal action behind the Gate B SAFETY-FAIL. See
+    # docs/projects/champions/audits/2026-07-23-gate-b-trapped-switch-defect-diagnosis.md
+    #
+    # `exclude_if` (same device as can_mega_evo above, and required for the same reason): several
+    # callers serialize this model with `model_dump(..., exclude_none=False)`
+    # (eval/decision_capture.py, eval/room_raw_replay.py) and eval/decision_profile.py hashes the
+    # dump. Without this predicate a bare `maybe_trapped=None` would be emitted on EVERY board and
+    # silently change `fixture_input_hash` -- it did: the pinned C3-proof board moved
+    # 3d246b21910204ec -> 1a15d8ded702c464 before this was added. Omitting the field when the server
+    # did not send it keeps every non-maybeTrapped board byte-identical to before this slice, so the
+    # behaviour change is confined to boards that actually carry the flag.
+    maybe_trapped: bool | None = Field(
+        default=None,
+        alias="maybeTrapped",
+        exclude_if=lambda value: value is None,
+    )
     model_config = {"populate_by_name": True}
 
 
