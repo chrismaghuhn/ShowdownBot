@@ -1,6 +1,7 @@
 # Gate B holdout — near-duplicate disjointness review (Option A: documented ACCEPT)
 
-**Status:** reviewer draft — RECOMMEND ACCEPT. Owner sign-off pending (§ Owner sign-off).
+**Status:** reviewer draft — RECOMMEND ACCEPT. Owner sign-off pending (§7). Records an adjacent
+intra-holdout diversity caveat (§3.6) that does not change the recommendation.
 **Type:** docs-only audit. Nothing sealed is changed by this document.
 
 ## 1. Scope & decision
@@ -132,6 +133,73 @@ The teams are distinct strategic objects that happen to draw from the same Reg-M
 returns **PASS**: no holdout team **is** a coverage team (no content-hash collision). Near-duplicate
 similarity is a *diagnostic* signal; this firewall is the *hard* one and it holds.
 
+### 3.6 Intra-holdout diversity observation (adjacent scope — NOT a §3.3 finding)
+
+The §3.3 near-duplicate check compares each holdout team against the nine touched/coverage reference
+teams; it does **not** compare holdout teams against each other. A reviewer-requested holdout×holdout
+pass surfaces an adjacent fact that must be recorded but is **outside** §3.3's scope.
+
+**`gbh_d` and `gbh_e` are two variants of one archetype.** Computed holdout×holdout species Jaccard
+matrix (from the sealed `.packed`, via `near_duplicate.load_team_species`):
+
+|        | gbh_a | gbh_b | gbh_c | gbh_d | gbh_e | gbh_f |
+|---|---|---|---|---|---|---|
+| **gbh_a** | 1.000 | 0.500 | 0.000 | 0.500 | 0.500 | 0.000 |
+| **gbh_b** | 0.500 | 1.000 | 0.000 | 0.500 | 0.500 | 0.000 |
+| **gbh_c** | 0.000 | 0.000 | 1.000 | 0.000 | 0.000 | 0.091 |
+| **gbh_d** | 0.500 | 0.500 | 0.000 | 1.000 | **1.000** | 0.000 |
+| **gbh_e** | 0.500 | 0.500 | 0.000 | **1.000** | 1.000 | 0.000 |
+| **gbh_f** | 0.000 | 0.000 | 0.091 | 0.000 | 0.000 | 1.000 |
+
+- The **only** off-diagonal pair at Jaccard **1.0** is (`gbh_d`, `gbh_e`) — species-identical
+  {Aerodactyl, Charizard, Floette-Eternal, Garchomp, Kingambit, Sneasler}. The **next-highest** pair
+  is **0.500** (e.g. `gbh_b`↔`gbh_e`; `gbh_a`/`gbh_b`/`gbh_d`/`gbh_e` form a 0.5 staple cluster).
+- **Items: 5 of 6 identical** between `gbh_d` and `gbh_e` (only **Kingambit** differs — `Chople
+  Berry` vs `Black Glasses`).
+- **0 of 6 mon blocks are byte-identical** (diff of `gbh_d.txt` vs `gbh_e.txt`): they differ in EV
+  spreads, in natures (**Garchomp** and **Sneasler** are Jolly in `gbh_d` vs Adamant in `gbh_e`), and
+  in 1–2 moves each (e.g. Floette-Eternal: `gbh_d` Moonblast/Light-of-Ruin vs `gbh_e`
+  Draining-Kiss/Calm-Mind). Two distinct **builds** of one archetype — not duplicate teams.
+
+**Scope.** This is holdout-vs-holdout, **outside** the §3.3 near-duplicate check (holdout-vs-
+touched/coverage). It is therefore **not** a disjointness or leakage finding and **does not change
+the ACCEPT recommendation (§6)** or the owner sign-off block (§7). The hard content-hash firewall
+(§3.5) already proves `gbh_d` and `gbh_e` are distinct sealed teams.
+
+**Effect on the holdout as a measurement instrument (record for interpreting any future strength
+result).** Effective **archetype** diversity is **~5 distinct, not 6** (`gbh_d`/`gbh_e` collapse to
+one archetype). That archetype occupies **2 of 6 teams = 60 of 180 schedule battle-keys (1/3)** of
+the strength schedule (180 = 6 teams × 2 policies × 15 seeds ⇒ 30 keys/team). A future McNemar
+strength verdict would therefore draw ~**1/3** of its paired evidence from a single archetype
+(effectively double-weighted). This is a descriptive interpretation caveat only; it uses no bot
+result and is moot under the current SAFETY-FAIL.
+
+**Not actionable as a fix.** Dropping or swapping either team would break the blind, positional,
+pre-registered selection (manifest `selection_rule` / `blind_attestation`; spec §3.4 *"freshly
+created is not the same as independent"*) — the same trap as a hand-swap. The fixed positional rule
+legitimately produced two variants of one archetype from **two consecutive entries** in the sealed
+selection order (manifest `selection_index` 4 and 5, both Seniors-division placements; the source
+identities themselves are sealed to the manifest and are deliberately **not** reproduced here). It is
+**documented, not remedied**; the only clean remedy, if the owner judges the double-weighting
+unacceptable, is the same full blind re-selection escalation as §5 — never an edit of this set.
+
+**Reproduction** (repo root, `teams_root="."`):
+
+```bash
+python - <<'PY'
+import sys, itertools
+sys.path.insert(0, "showdown_bot/src")
+from showdown_bot.eval.near_duplicate import load_team_species, overlap_fraction
+from showdown_bot.cli import _load_holdout_content_hashes
+HD = "showdown_bot/teams/panel_champions_strength_holdout_v0"
+ids = sorted(_load_holdout_content_hashes("."))
+sp = {t: frozenset(load_team_species(f"{HD}/{t}.txt", teams_root=".")) for t in ids}
+for a in ids:
+    print(a, " ".join(f"{overlap_fraction(sp[a], sp[b]):.3f}" for b in ids))
+print("1.0 pairs:", [(a, b) for a, b in itertools.combinations(ids, 2) if overlap_fraction(sp[a], sp[b]) == 1.0])
+PY
+```
+
 ## 4. Independence argument (grounded strictly in §3)
 
 1. **Species-level only.** The overlap is a shared *species set*, never a shared team: the hard
@@ -188,6 +256,11 @@ positional predicate** (e.g. one that additionally excludes substantial overlap 
 panel), re-sealed before first access — a new independent holdout, not an edit of this one. That is a
 separate, owner-authorized work item, and it also interacts with the already-consumed ledger budget
 for this `config_hash` (see the SAFETY-FAIL evidence record).
+
+Separately from §3.3 disjointness, see **§3.6** for an adjacent intra-holdout observation (`gbh_d`
+and `gbh_e` are two builds of one archetype): outside this check's scope, not a leakage/disjointness
+finding, no change to the recommendation below — but a recorded interpretation caveat (~5 effective
+archetypes; that archetype carries 1/3 of the schedule) for any eventual strength result.
 
 ## 6. Verdict (reviewer draft)
 
