@@ -32,6 +32,10 @@
 >   HEAD. This revision aligns the plan with that reality: **Task 6 owns only the schema, loader,
 >   verifier and their tests**; the baseline manifest is committed once in **Task 13 step 3** with
 >   final values (§9 box, §16 item 7, the file-map). The generic T6 immutability test is unchanged.
+>   The rewrite gave every commit from `b7bbd4e` (pre-rewrite) onward a new SHA; **all commit SHAs
+>   cited in this document's revision notes (§1a–§1t and the Task 10/11 sync notes) are PRE-REWRITE
+>   IDs**, resolvable to their post-rewrite equivalents via the full 38-row map in
+>   `docs/projects/champions/audits/2026-07-23-gate-b-baseline-immutability-rewrite-sha-map.md`.
 > - **Rev. 23 → Rev. 24** (execution-status sync + one review-fix round on step-3 code, no new
 >   design round): step 3's artifacts (panel real content, baseline real values, the two hash-freeze
 >   constants, the CLI data wiring, the near-duplicate audit) are committed, so the status no longer

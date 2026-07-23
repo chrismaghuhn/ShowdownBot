@@ -9,7 +9,7 @@ load-bearing statement below was recomputed or re-fetched independently.
 | | |
 |---|---|
 | Reviewed artifact | `docs/projects/champions/audits/2026-07-21-task13-source-evidence/` (21 files, frozen in `16fb5fb`) |
-| Repo state at review | branch `feat/champions-gate-b-task-1-schedule`, HEAD `cebf99f` |
+| Repo state at review | branch `feat/champions-gate-b-task-1-schedule`, HEAD `cebf99f` (a **PRE-REWRITE** SHA — post-rewrite `ad04305`; see `2026-07-23-gate-b-baseline-immutability-rewrite-sha-map.md`) |
 | **Source-proof verdict** | **PASS** |
 | **Task 13 construction** | **BLOCKED** — see §7 and §10 |
 
