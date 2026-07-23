@@ -1,7 +1,7 @@
 # Gate B holdout — near-duplicate disjointness review (Option A: documented ACCEPT)
 
-**Status:** reviewer draft — RECOMMEND ACCEPT. Owner sign-off pending (§7). Records an adjacent
-intra-holdout diversity caveat (§3.6) that does not change the recommendation.
+**Status:** ACCEPTED — owner sign-off recorded (§7, chris, 2026-07-23, at commit 82234a8). Records
+an adjacent intra-holdout diversity caveat (§3.6) that does not change the ruling.
 **Type:** docs-only audit. Nothing sealed is changed by this document.
 
 **Reference convention (leakage discipline — read before editing).** This review refers to the six
@@ -294,7 +294,7 @@ The acceptance ruling belongs to the project owner, not the implementer. Please 
 - Rationale / conditions: `Species overlap is metagame-staple, confined to engineered coverage teams, zero dev-panel overlap; residual risk per §5 accepted; H4/H5 effective-diversity caveat (§3.6) noted for strength interpretation.`
 - Owner: `chris`   Date: `2026-07-23`   Commit/branch at decision: `82234a8`
 
-*Until this block is signed, this document is a reviewer recommendation only, not an accepted ruling.*
+*This block is signed (§7); the recommendation is an accepted ruling as of 2026-07-23.*
 
 ## 8. Cross-references
 
