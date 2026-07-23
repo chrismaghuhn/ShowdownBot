@@ -14,7 +14,7 @@ quietly falling back to an optimistic approximation.
 The authoritative status is maintained in [docs/ROADMAP.md](docs/ROADMAP.md). New contributors
 should start with [docs/PROJECT_INDEX.md](docs/PROJECT_INDEX.md).
 
-As of **2026-07-16**:
+As of **2026-07-23**:
 
 | Area | Status |
 |---|---|
@@ -27,7 +27,8 @@ As of **2026-07-16**:
 | Champions own Mega (`I7a`) | Merged; safety pass, no strength claim |
 | Champions opponent Mega (`I7b-A` / `I7b-B`) | Merged; limited-view hypotheses and dual-Mega scoring are live for Mega-enabled formats |
 | Champions telemetry/smoke (`I7b-C`) | Safety pass with **narrow exposure**: only 1 of 17 scored decisions exposed an opponent-Mega hypothesis, slot 1 only. No strength claim, no latency claim |
-| Champions strength | **NO-GO** until a dedicated latency gate passes |
+| Champions independent Strength holdout (Gate B) | Harness **built and merged** (PR #52); code + six sealed blind-curated holdout teams + guards + CLI only — **no run, no Strength claim** |
+| Champions strength | **NO-GO** — stays NO-GO until latency, opponent-Mega coverage, and the independent holdout all pass on one candidate identity (a latency gate alone does not authorize a Strength run) |
 | ShowdownBot Studio | Product and bundle-contract design approved; exporter planning is separate from the bot runtime |
 
 That provenance issue is now fixed. Several configuration identities were historically computed
