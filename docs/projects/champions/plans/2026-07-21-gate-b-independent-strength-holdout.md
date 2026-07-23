@@ -8105,11 +8105,12 @@ authorized regardless**; that is a separate decision (§17).
 
 Every finding raised across all prior review rounds is fixed with real, verified code, and the one
 item Rev. 9 had left as an explicit open question — what to do about `resolve_coverage_provenance`
-— was resolved per your own direction (§1i). What still needs your decision:
-
-1. The §2 source-proof for Task 13 — the sealing of the six holdout teams, which both CLI
-   subcommands are honestly blocked on today.
-2. Whether Task 12 runs before or after that source-proof.
+— was resolved per your own direction (§1i). The two items that were open here (the §2 source-proof
+and whether Task 12 runs before or after it) are both **closed**: the source condition is satisfied
+(§2a), the six holdout teams are sealed (Task 12 / step 2), and neither CLI subcommand is blocked any
+longer — both source real manifest/panel data and enforce the frozen identity + baseline before
+battle 1. **What remains is only the whole-suite verification and the Codex review of this branch;**
+the live Gate B run is a separate authorization (§17).
 
 No open exception-safety questions remain against either public entry point's own authored code.
 One narrow residual is disclosed, not left silent: `load_format_config`'s own malformed-YAML

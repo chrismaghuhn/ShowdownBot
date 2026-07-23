@@ -76,7 +76,10 @@ def strength_holdout_manifest_hash(manifest_path: str) -> str:
             f"holdout manifest selection_index must be the closed 1..{_SH_TEAM_COUNT} set, got "
             f"{sorted(p[0] for p in projection)}"
         )
-    for field, idx in (("team_id", 2), ("team_path", 3)):
+    # projection rows are [selection_index, source_team_id, team_id, team_path, team_content_hash];
+    # source_team_id is checked too so the public->internal mapping stays a bijection (two internal
+    # ids may never both claim the same public source).
+    for field, idx in (("source_team_id", 1), ("team_id", 2), ("team_path", 3)):
         values = [p[idx] for p in projection]
         if len(set(values)) != len(values):
             raise ValueError(f"holdout manifest has a duplicate {field}")

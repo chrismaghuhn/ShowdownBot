@@ -224,6 +224,16 @@ def test_manifest_hash_rejects_a_duplicate_team_path(tmp_path):
         strength_holdout_manifest_hash(_minimal_manifest(tmp_path, teams))
 
 
+def test_manifest_hash_rejects_a_duplicate_source_team_id(tmp_path):
+    # The public->internal mapping must be a bijection: two internal ids may not both claim the same
+    # public source. A duplicate source_team_id is a structurally wrong mapping and must never earn a
+    # valid frozen hash (team_id and team_path here stay distinct).
+    teams = _six_manifest_teams()
+    teams[5]["source_team_id"] = teams[0]["source_team_id"]
+    with pytest.raises(ValueError, match="duplicate"):
+        strength_holdout_manifest_hash(_minimal_manifest(tmp_path, teams))
+
+
 def test_manifest_hash_rejects_a_selection_index_that_is_not_the_closed_1_to_6_set(tmp_path):
     teams = _six_manifest_teams()
     teams[5]["selection_index"] = 99  # unique but not a closed 1..6 set
