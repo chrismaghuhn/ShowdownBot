@@ -1338,6 +1338,32 @@ def _ledger_lock(ledger_path: str):
             pass
 
 
+def _normalized_ledger_justification(value: str | None) -> str | None:
+    """Normalise a caller-supplied held-out justification to either a real reason or ``None``.
+
+    This is a BYPASS of a fail-closed budget, so the blank cases matter: ``check_access`` only
+    tests ``justification is not None``, which means ``""`` and ``"   "`` would sail straight past
+    the one-attempt budget. Normalising blank-to-``None`` HERE -- before either ``check_access``
+    call and before the ledger entry is built -- is what makes an absent, empty or whitespace-only
+    justification behave exactly as before this parameter existed: budget enforced,
+    ``AccessBudgetError`` raised.
+
+    The returned value is used for BOTH ``check_access`` call sites AND the appended entry, so the
+    reason that authorised the bypass is always the reason recorded in the audit trail; they cannot
+    diverge. Non-strings are refused rather than coerced -- a stray non-string here means a caller
+    wired something unintended into a guard bypass, which must be loud, not silently truthy.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise GateBAbort(
+            f"ledger_justification must be a string or None, got {type(value).__name__} -- "
+            "refusing to bypass the held-out access budget on a non-string value"
+        )
+    stripped = value.strip()
+    return stripped or None
+
+
 def combine_strength_holdout_arms(
     *, arm_a_dir: str, arm_b_dir: str, out_dir: str,
     i8d_verdict_path: str, coverage_verdict_path: str,
@@ -1347,6 +1373,7 @@ def combine_strength_holdout_arms(
     stratum_env_override: str | None = None,
     ledger_path: str = "config/eval/heldout_ledger.jsonl",
     teams_root: str = ".",
+    ledger_justification: str | None = None,
 ) -> dict:
     """Reads both already-published arms, verifies the two upstream gates, checks baseline
     drift, pairs the arms, runs EVERY guard, renders the verdict via the real report.py
@@ -1548,7 +1575,10 @@ def combine_strength_holdout_arms(
     # the "cheapest checks first" ordering intends. Task-10 review-fix, P2 #5: this one is an
     # optimisation only -- it is NOT the authoritative check any more. The check that actually
     # gates the reservation runs again under the ledger lock, immediately before append_entry.
-    check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=None)
+    # Normalised ONCE, here, then reused for both check_access sites and the ledger entry below --
+    # the reason that authorises the bypass is by construction the reason that gets recorded.
+    justification = _normalized_ledger_justification(ledger_justification)
+    check_access(read_ledger(ledger_path) if os.path.exists(ledger_path) else [], manifest_a["config_hash"], justification=justification)
 
     # Baseline-drift guard. Task 13 step 2 (spec Amendment A1.3): Gate B uses its OWN static
     # baseline contract, NOT the generic T6 result-baseline. The generic load_baseline/
@@ -1732,14 +1762,14 @@ def combine_strength_holdout_arms(
     with _ledger_lock(ledger_path):
         check_access(
             read_ledger(ledger_path) if os.path.exists(ledger_path) else [],
-            manifest_a["config_hash"], justification=None,
+            manifest_a["config_hash"], justification=justification,
         )
         try:
             append_entry(ledger_path, {
                 "kind": "run", "date": date.today().isoformat(), "purpose": "champions-strength-holdout-v0",
                 "panel_hash": manifest_a["panel_hash"], "schedule_hash": manifest_a["schedule_hash"],
                 "git_sha": manifest_a["git_sha"], "config_hash": manifest_a["config_hash"],
-                "result_sha256": result_sha256, "justification": None,
+                "result_sha256": result_sha256, "justification": justification,
             })
         except LedgerError as exc:
             raise GateBAbort(f"ledger append failed, refusing to publish: {exc}") from exc
