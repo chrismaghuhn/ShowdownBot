@@ -1514,19 +1514,29 @@ def combine_strength_holdout_arms(
     # by oversight. "One abort class" describes the upstream-verdict/pairing/ledger/row-schema
     # trust chain specifically, not this whole function's entire exception surface -- an earlier
     # draft of this exact comment claimed the broader, false version of this sentence.
+    # Combine-root fix (candidate a7d5330, Phase-5 combine): the I8-D/coverage canonical schedules
+    # the two verifiers rebuild live under showdown_bot/ (their panel team paths are relative to a
+    # teams_root of "showdown_bot"), whereas Gate B's own teams_root/repo_root is the repo root
+    # (holdout/baseline/leakage/near-duplicate paths carry the showdown_bot/ prefix themselves). The
+    # live combine handed the verifiers its Gate B teams_root ("."), so build_i8d_canonical_schedule/
+    # build_coverage_live_schedule could never find the I8-D/coverage team files and BOTH valid
+    # upstream PASSes failed to verify. Derive the upstream root canonically from the existing
+    # repo_root -- never a CWD-relative literal, never a new CLI flag -- and hand ONLY that to the two
+    # upstream verifiers. Every Gate B-own check below keeps the unchanged teams_root/repo_root.
+    upstream_teams_root = str(Path(repo_root) / "showdown_bot")
     try:
         # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend is now the manifest-bound value
         # Task 9 actually derived for this run (arm A and arm B already proven equal above) --
         # never the hardcoded literal "oneshot", which would silently pass an unverified backend
         # claim through to both upstream verifiers regardless of what the run actually used.
         verify_i8d_verdict_artifact(
-            verdict_path=i8d_verdict_path, teams_root=teams_root,
+            verdict_path=i8d_verdict_path, teams_root=upstream_teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
             config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
             calc_backend=manifest_a["calc_backend"],
         )
         verify_coverage_verdict_artifact(
-            verdict_path=coverage_verdict_path, teams_root=teams_root,
+            verdict_path=coverage_verdict_path, teams_root=upstream_teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
             config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
             calc_backend=manifest_a["calc_backend"],
