@@ -3064,3 +3064,90 @@ def test_combine_publish_routes_through_the_helper_inside_the_ledger_lock(tmp_pa
     # called exactly once, and the ledger lock was held at the moment of publish (inside the lock)
     assert lock_held_at_publish == [True]
     assert (tmp_path / "combined" / "verdict.json").exists()
+
+
+def test_combine_passes_the_showdown_bot_derived_root_to_both_upstream_verifiers(tmp_path, monkeypatch):
+    # Bug (candidate a7d5330, Phase-5 combine): the I8-D/coverage panels are relative to
+    # showdown_bot/, but combine handed the upstream verifiers its own Gate B teams_root ('.'),
+    # so build_i8d_canonical_schedule/build_coverage_live_schedule could never find the team files
+    # -> upstream PASSes could never be verified. The verifiers must instead receive the root
+    # derived canonically from repo_root: Path(repo_root)/'showdown_bot'. Both, not just one.
+    _patch_upstream_verdicts_as_pass(monkeypatch)  # baseline + git patched; verifiers re-patched below
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    seen = {}
+
+    def spy_i8d(**kw):
+        seen["i8d"] = kw["teams_root"]; return {"verdict": "PASS"}
+
+    def spy_cov(**kw):
+        seen["cov"] = kw["teams_root"]; return {"verdict": "PASS"}
+
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", spy_i8d)
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_coverage_verdict_artifact", spy_cov)
+
+    # CLI geometry: repo_root and teams_root are the SAME value (both args.teams_root).
+    combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, stratum_env_override="windows",
+        repo_root=teams_root, teams_root=teams_root, ledger_path=str(tmp_path / "ledger.jsonl"),
+    )
+    expected = str(Path(teams_root) / "showdown_bot")
+    assert seen["i8d"] == expected  # NOT the bare Gate B teams_root
+    assert seen["cov"] == expected  # both verifiers, independently
+
+
+def test_combine_upstream_root_rebuilds_the_real_canonical_schedules_but_the_bare_root_fails(monkeypatch):
+    # Production-fidelity regression: exactly the CLI geometry (run from the repo root,
+    # repo_root='.'). The derived upstream root Path(repo_root)/'showdown_bot' must rebuild BOTH
+    # real canonical schedules from the actual checkout, and the bare Gate B root '.' must FAIL --
+    # reproducing the original PanelError. This can't be masked by a preflight that calls the
+    # verifiers with a hand-picked 'showdown_bot' root: it derives the root the same way combine does.
+    from showdown_bot.eval.coverage_runner import build_coverage_live_schedule, build_i8d_canonical_schedule
+    from showdown_bot.eval.panel import PanelError
+
+    repo_root_dir = Path(__file__).resolve().parents[2]  # <repo>/showdown_bot/tests/x.py -> <repo>
+    monkeypatch.chdir(repo_root_dir)                      # as the CLI runs: from the repo root
+    repo_root = "."
+    upstream_root = str(Path(repo_root) / "showdown_bot")
+
+    assert len(build_i8d_canonical_schedule(teams_root=upstream_root).rows) == 200
+    assert len(build_coverage_live_schedule(teams_root=upstream_root).rows) == 200
+    # the bare Gate B root is exactly what broke the live combine -- prove the derivation matters
+    with pytest.raises(PanelError):
+        build_i8d_canonical_schedule(teams_root=repo_root)
+    with pytest.raises(PanelError):
+        build_coverage_live_schedule(teams_root=repo_root)
+
+
+def test_upstream_verifier_failure_still_aborts_before_ledger_pairing_and_publish(tmp_path, monkeypatch):
+    # The root fix must not weaken the fail-closed ordering: an upstream-verifier failure must
+    # abort BEFORE any ledger reservation, pairing, or publish (exactly what the live combine did).
+    from showdown_bot.eval.strength_holdout_verdict import StrengthHoldoutRunError
+
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+
+    def boom(**kw):
+        raise StrengthHoldoutRunError("simulated upstream rebuild failure")
+
+    monkeypatch.setattr("showdown_bot.eval.strength_holdout_runner.verify_i8d_verdict_artifact", boom)
+    ledger_path = tmp_path / "ledger.jsonl"
+    out_dir = tmp_path / "combined"
+
+    with pytest.raises(GateBAbort, match="upstream verdict verification failed"):
+        combine_strength_holdout_arms(
+            arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(out_dir),
+            i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+            holdout_content_hashes=hashes, stratum_env_override="windows",
+            repo_root=teams_root, teams_root=teams_root, ledger_path=str(ledger_path),
+        )
+    assert not ledger_path.exists()  # no reservation was made -> the attempt is not consumed
+    assert not out_dir.exists()       # nothing published
+    assert not out_dir.with_name(out_dir.name + ".staging").exists()
