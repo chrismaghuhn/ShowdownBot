@@ -169,6 +169,14 @@ def test_forced_switch_still_offers_bench_even_when_maybe_trapped():
 # canTerastallize, canMegaEvoX, canMegaEvoY, canDynamax and maxMoves.
 # --------------------------------------------------------------------------------------------
 
+# The sim commit SIM_REQUEST_SLOT_FIELDS below was transcribed from. The set is a HAND
+# TRANSCRIPTION and is valid ONLY for this commit -- it is not derived at test time, deliberately:
+# the sim clone lives outside this repo (~/.cache/showdownbot/pokemon-showdown) and does not exist
+# in CI, so reading it here would make this guard skip (vacuous) or flaky. Instead
+# test_sim_field_set_is_anchored_to_the_recorded_pin below fails if the project's recorded pin ever
+# moves away from this commit, which is what forces the set to be re-derived.
+SIM_FIELDS_DERIVED_FROM_COMMIT = "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
+
 SIM_REQUEST_SLOT_FIELDS = frozenset({
     "moves",
     "trapped",
@@ -203,6 +211,58 @@ UNMODELLED_WITH_REASON = {
     "canMegaEvoX": "gen6 split Mega (X); supported Mega path uses canMegaEvo",
     "canMegaEvoY": "gen6 split Mega (Y); supported Mega path uses canMegaEvo",
 }
+
+
+def _recorded_showdown_pin() -> str:
+    """The sim commit this repo records that its eval runs play against. Read from the in-repo
+    provenance file rather than hardcoded a second time, so there is exactly one source of truth.
+    Fails closed: a missing file or missing key must never let the anchor pass silently."""
+    provenance = Path(__file__).resolve().parents[2] / "config" / "eval" / "provenance.yaml"
+    assert provenance.is_file(), (
+        f"cannot read the recorded sim pin: {provenance} does not exist. This anchor must fail "
+        "closed -- without it SIM_REQUEST_SLOT_FIELDS could silently go stale."
+    )
+    for line in provenance.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or ":" not in stripped:
+            continue
+        key, _, value = stripped.partition(":")
+        if key.strip() == "showdown_commit":
+            pin = value.strip().strip('"').strip("'")
+            assert pin, f"showdown_commit in {provenance} is empty"
+            return pin
+    raise AssertionError(
+        f"no `showdown_commit` key in {provenance} -- the sim pin anchor cannot be verified, and "
+        "this test fails closed rather than passing on an unverifiable set."
+    )
+
+
+def test_sim_field_set_is_anchored_to_the_recorded_pin():
+    """SIM_REQUEST_SLOT_FIELDS is a HAND TRANSCRIPTION of one specific sim commit. If the pin moves
+    and the transcription does not, this guard keeps passing while the new sim emits a field nobody
+    modelled -- pydantic drops it, and that is precisely the root cause of the Gate B SAFETY-FAIL,
+    now with false assurance on top. So: pin moved => this test fails.
+
+    The sim checkout is deliberately NOT read here (it does not exist in CI, so the test would skip
+    or go flaky); the in-repo recorded pin is the anchor instead."""
+    recorded = _recorded_showdown_pin()
+    derived_from = SIM_FIELDS_DERIVED_FROM_COMMIT
+    # Accept full-SHA vs short-SHA on either side by comparing a normalized common prefix.
+    n = min(len(recorded), len(derived_from))
+    assert n >= 7, f"implausibly short sim commit id: {recorded!r} vs {derived_from!r}"
+    assert recorded[:n].lower() == derived_from[:n].lower(), (
+        f"the recorded pokemon-showdown pin has MOVED: config/eval/provenance.yaml records "
+        f"{recorded!r}, but SIM_REQUEST_SLOT_FIELDS was transcribed from "
+        f"{derived_from!r}.\n"
+        "SIM_REQUEST_SLOT_FIELDS must now be RE-DERIVED from the new sim, from BOTH:\n"
+        "  1. the declared return type of getMoveRequestData in sim/global-types.ts, AND\n"
+        "  2. every `data.<field> =` assignment in the body of getMoveRequestData in "
+        "sim/pokemon.ts\n"
+        "     (the declared type is incomplete -- the body assigns strictly more fields).\n"
+        "Then re-review UNMODELLED_WITH_REASON: a field that is newly emitted, or that newly "
+        "matters in a supported format, must be modelled on ActiveSlot rather than allowlisted. "
+        "Finally update SIM_FIELDS_DERIVED_FROM_COMMIT to the new pin."
+    )
 
 
 def test_active_slot_models_or_acknowledges_every_sim_request_field():
