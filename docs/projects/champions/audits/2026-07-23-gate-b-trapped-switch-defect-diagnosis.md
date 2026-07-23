@@ -1,8 +1,9 @@
 # Gate B SAFETY-FAIL — trapped-switch defect: root-cause diagnosis
 
 **Status:** DIAGNOSIS ONLY — **no fix is implemented here**. The mechanism is now sim-verified (§5)
-and the owner has **decided fix shape B1** (§8, 2026-07-23); B1 lands as a separate TDD slice under
-its own authorization.
+and the owner **decided fix shape B1** (§8, 2026-07-23). **B1 has since LANDED** in its own TDD
+slice: PR #60 @ `7dafde8` (production + tests), with the schema guard's pin anchor in PR #61 @
+`a9475e5`. This document is unchanged as a diagnosis; only the status of the follow-on slice moved.
 **Type:** docs-only audit. No production code, config, sealed file, or data is changed.
 **Subject:** the single illegal action (`invalid_choices` = 1) that made the Gate B independent
 strength-holdout run a **SAFETY-FAIL** (candidate `bc2d6df`, identity `32f79b8e52444aa3`; evidence
@@ -205,8 +206,11 @@ safety** — and strength is already NO-GO while the fail-closed safety gate is 
 already handled correctly by B1, and the genuinely-uncertain case is information the simulator
 **deliberately withholds** (§5c), so public-information modelling cannot resolve it.
 
-**This decision is recorded, not implemented.** B1 lands as a **separate TDD slice** under its own
-authorization; this document changes no production code.
+**This decision is recorded here, not implemented here** — this document changes no production code.
+**B1 has since LANDED** in its own TDD slice: **PR #60 @ `7dafde8`** (`ActiveSlot.maybe_trapped`
+plus the `_voluntary_switches` guard, forced path untouched) and **PR #61 @ `a9475e5`** (the sim-pin
+anchor for the schema-coverage guard). See the ROADMAP reconciliation for the landed detail,
+including the `exclude_if` serialization fix that keeps non-`maybeTrapped` boards byte-identical.
 
 ## 9. What remains UNVERIFIED
 
@@ -281,14 +285,21 @@ for l in gzip.open(p,'rt',encoding='utf-8',errors='replace'):
 "
 ```
 
-## 11. Next step (NOT taken here)
+## 11. Next step — LANDED (not taken *in this document*)
 
-The defect is identified and the fix shape is decided (**B1**, §8). What remains is the
-implementation slice, under its own authorization and strict TDD: a RED test that reconstructs the
-frozen `rqid` 12 request offline and asserts that **no switch action is enumerated for a
-`maybeTrapped` slot**, then the minimal change to `_voluntary_switches` (and the `ActiveSlot` model,
-which must first learn the field at all — see §2b). An offline/hermetic reconstruction is
-sufficient; a **live battle replay is not required** and is not proposed.
+The defect was identified and the fix shape decided (**B1**, §8). The implementation slice has since
+been executed under its own authorization and strict TDD, exactly as scoped here: a RED test that
+reconstructs the frozen `rqid` 12 request offline and asserts **no switch action is enumerated for a
+`maybeTrapped` slot**, then the minimal change to `_voluntary_switches` plus the `ActiveSlot` model
+learning the field at all (§2b). An offline/hermetic reconstruction was sufficient — **no live
+battle replay was run**, as anticipated.
+
+Landed in **PR #60 @ `7dafde8`** (production + tests) and **PR #61 @ `a9475e5`** (sim-pin anchor for
+the schema-coverage guard). Two things worth carrying forward that this diagnosis did not predict:
+the new field needed `exclude_if` because `model_dump(..., exclude_none=False)` is **hashed** by
+`eval/decision_profile.py` (it moved a pinned fixture hash until fixed at source), and the root
+cause — a silently dropped request key — is now guarded by a schema-coverage test anchored to
+`showdown_commit`. The remaining §9 unverified items are unchanged by the fix.
 
 This diagnosis makes **no strength claim**, does not change the run's `SAFETY-FAIL`, and Champions
 Strength remains **NO-GO**.
