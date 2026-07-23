@@ -1,0 +1,45 @@
+{
+  "calc_backend": "oneshot",
+  "candidate_identity": "870e2b81ea833b07",
+  "config_hash": "ccac8a92bc71ee80",
+  "date_stratum_id": "2026-07-23-windows-gate-b-bc2d6df",
+  "git_sha": "bc2d6df1fcfa61c7a8bda9fe52a6899f93d27aee",
+  "hero_agent": "max_damage",
+  "holdout_teams": {
+    "gbh_a": {
+      "content_hash": "e3e2c1c1dce08a57",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_a.txt"
+    },
+    "gbh_b": {
+      "content_hash": "7f026166ceb58d38",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_b.txt"
+    },
+    "gbh_c": {
+      "content_hash": "cb76e5fbf51a992d",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_c.txt"
+    },
+    "gbh_d": {
+      "content_hash": "5cff8b4cad64c6dc",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_d.txt"
+    },
+    "gbh_e": {
+      "content_hash": "14965e1f2a0d36c3",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_e.txt"
+    },
+    "gbh_f": {
+      "content_hash": "b46b101c7c25c768",
+      "team_path": "showdown_bot/teams/panel_champions_strength_holdout_v0/gbh_f.txt"
+    }
+  },
+  "n_rows": 180,
+  "panel_hash": "122764211b6db3ba",
+  "platform_attestation": "Windows-11-10.0.26200-SP0",
+  "pythonhashseed": "0",
+  "schedule_hash": "37df91c10c24801d",
+  "seed_base": "champions-strength-holdout-v0",
+  "seed_log_n_lines": 180,
+  "seed_log_relpath": "seeds.jsonl",
+  "seed_log_sha256": "29f8d198d39ad2b3dd922764176a8146e9ca87cedf1f9222356c7de4e01c8303",
+  "seed_log_verified": true,
+  "stratum": "windows"
+}
