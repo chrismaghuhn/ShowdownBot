@@ -12,6 +12,7 @@ STRENGTH_HOLDOUT_SEED_BASE = "champions-strength-holdout-v0"  # PROPOSED, DESIGN
 STRENGTH_HOLDOUT_FORMAT_ID = "gen9championsvgc2026regma"
 STRENGTH_HOLDOUT_N_SEEDS = 15
 STRENGTH_HOLDOUT_OPPONENT_POLICIES = ("heuristic", "max_damage")
+_SH_TEAM_COUNT = 6  # the holdout is exactly six teams (spec §3.2); matches baseline.SH_OPPONENT_TEAM_COUNT
 # PROPOSED (grounding report sec 3): reuses I8-D/Coverage's standing Champions hero team.
 STRENGTH_HOLDOUT_HERO_TEAM_PATH = "showdown_bot/teams/fixed_champions_v0.txt"
 
@@ -46,8 +47,16 @@ def strength_holdout_manifest_hash(manifest_path: str) -> str:
         raise ValueError(f"holdout manifest at {manifest_path!r} could not be read: {exc}") from exc
     if not isinstance(man, dict) or not isinstance(man.get("teams"), list):
         raise ValueError("holdout manifest must be an object with a 'teams' list")
+    teams = man["teams"]
+    # The manifest hash is not a bare digest: it refuses to bless a structurally invalid holdout so
+    # a frozen constant can never certify one. Exactly six teams, selection_index the CLOSED set
+    # {1..6}, and unique team_ids AND team_paths -- the same invariants the loader/verifier enforce.
+    if len(teams) != _SH_TEAM_COUNT:
+        raise ValueError(
+            f"holdout manifest must register exactly six teams, got {len(teams)}"
+        )
     projection = []
-    for i, t in enumerate(man["teams"]):
+    for i, t in enumerate(teams):
         if not isinstance(t, dict):
             raise ValueError(f"holdout manifest teams[{i}] must be an object")
         try:
@@ -62,6 +71,15 @@ def strength_holdout_manifest_hash(manifest_path: str) -> str:
                 f"holdout manifest teams[{i}] has a blank/non-string source_team_id/id/path/hash"
             )
         projection.append([selection_index, *strings])
+    if sorted(p[0] for p in projection) != list(range(1, _SH_TEAM_COUNT + 1)):
+        raise ValueError(
+            f"holdout manifest selection_index must be the closed 1..{_SH_TEAM_COUNT} set, got "
+            f"{sorted(p[0] for p in projection)}"
+        )
+    for field, idx in (("team_id", 2), ("team_path", 3)):
+        values = [p[idx] for p in projection]
+        if len(set(values)) != len(values):
+            raise ValueError(f"holdout manifest has a duplicate {field}")
     return _sha16(json.dumps(sorted(projection), sort_keys=True, separators=(",", ":")))
 
 

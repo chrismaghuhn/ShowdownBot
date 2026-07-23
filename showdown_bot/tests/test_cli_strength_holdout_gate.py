@@ -260,6 +260,28 @@ def test_combine_cli_sources_manifest_hashes_and_passes_override_as_expectation_
     assert captured["arm_a_dir"] == "a" and captured["arm_b_dir"] == "b"
 
 
+def test_arm_cli_verifies_the_baseline_before_playing_any_battle(monkeypatch):
+    # P1: a wrong hero / schedule / showdown_commit / server_patch_hash must be caught BEFORE the
+    # 180 battles, not only at combine (after they have already run). The arm loads and fully
+    # verifies the baseline against the real tree; simulate drift and assert it aborts before the
+    # runner is ever reached.
+    ran = {"v": False}
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.run_strength_holdout_arm",
+        lambda **kw: ran.__setitem__("v", True),
+    )
+    from showdown_bot.eval.baseline import BaselineDriftError
+
+    def _drift(*a, **k):
+        raise BaselineDriftError("baseline drift: hero_team_hash")
+
+    monkeypatch.setattr("showdown_bot.eval.baseline.verify_strength_holdout_baseline", _drift)
+    from showdown_bot.cli import run_strength_holdout_arm_cli
+    rc = run_strength_holdout_arm_cli(_arm_args())
+    assert rc == 1
+    assert ran["v"] is False
+
+
 def test_arm_cli_aborts_before_battle_1_when_the_panel_drifts_from_the_frozen_hash(monkeypatch):
     # P1: sourcing the panel/manifest is not enough -- the on-disk identity must equal the FROZEN
     # constants before the arm plays. Simulate drift by moving the frozen panel-hash constant; the

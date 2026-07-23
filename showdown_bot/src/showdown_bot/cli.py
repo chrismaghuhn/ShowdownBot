@@ -853,6 +853,33 @@ def _load_and_verify_frozen_gate_b_identity(teams_root: str) -> str:
     return panel_hash
 
 
+def _verify_gate_b_baseline(teams_root: str) -> None:
+    """Load and FULLY verify the Gate B static baseline against the current tree before the arm
+    plays.
+
+    P1 fix: the frozen-identity check binds panel + manifest, but the baseline pins more -- the
+    hero team, the canonical schedule, the showdown_commit and the server_patch_hash. Without this,
+    a wrong hero/schedule/showdown/patch value is only caught by combine's own
+    verify_strength_holdout_baseline -- i.e. AFTER all 180 battles have already run. Running it here,
+    before the schedule build and the runner, moves that failure to before battle 1. Fail-closed
+    ``GateBAbort`` (``BaselineDriftError`` is a ``BaselineError`` subclass, so both are caught).
+    """
+    import os
+
+    from showdown_bot.eval.baseline import (
+        BaselineError, load_strength_holdout_baseline, verify_strength_holdout_baseline,
+    )
+    from showdown_bot.eval.strength_holdout_runner import GateBAbort
+
+    root = teams_root or "."
+    baseline_path = os.path.join(root, "config/eval/baselines/champions-strength-holdout-v0.json")
+    try:
+        baseline = load_strength_holdout_baseline(baseline_path)
+        verify_strength_holdout_baseline(baseline, repo_root=root)
+    except BaselineError as exc:
+        raise GateBAbort(f"Gate B baseline verification failed before battle 1: {exc}") from exc
+
+
 def run_strength_holdout_arm_cli(args) -> int:
     """Gate B, one arm of the 180-battle-key strength holdout (plan §14, Task 11; WIRED in Task 13
     step 3).
@@ -874,8 +901,11 @@ def run_strength_holdout_arm_cli(args) -> int:
 
     try:
         content_hashes = _load_holdout_content_hashes(args.teams_root)
-        # P1: bind the frozen panel + manifest identity BEFORE building the schedule or playing.
+        # P1: bind the frozen panel + manifest identity AND fully verify the baseline (hero,
+        # schedule, showdown_commit, server_patch_hash, opponents) BEFORE building the schedule or
+        # playing -- so any drift is refused before battle 1, not discovered at combine after 180.
         panel_hash = _load_and_verify_frozen_gate_b_identity(args.teams_root)
+        _verify_gate_b_baseline(args.teams_root)
         schedule = build_strength_holdout_schedule(
             holdout_team_ids=sorted(content_hashes), panel_hash=panel_hash,
             seed_base=STRENGTH_HOLDOUT_SEED_BASE,

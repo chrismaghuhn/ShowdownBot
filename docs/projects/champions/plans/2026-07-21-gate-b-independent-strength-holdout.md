@@ -344,24 +344,31 @@
 > sealed hash exists.~~ **Superseded — see the current status immediately below.** That paragraph
 > described the branch as of Rev. 18 and is kept only so the progression is traceable.
 >
-> **Implementation status as of Rev. 22 (2026-07-22).** **Tasks 1–12 are implemented, tested,
-> reviewed (Codex PASS) and committed** on branch `feat/champions-gate-b-task-1-schedule` — not yet
-> merged to `main`. **Task 13 is the active slice and is partly complete.** Its source condition is
-> **SATISFIED** (§2a — the six VGCPastes teams are frozen, complete, and `validate-team`-legal).
+> **Implementation status as of Rev. 24 (2026-07-23).** **Tasks 1–12 AND all of Task 13 (steps
+> 1–3) are implemented, tested and committed** on branch `feat/champions-gate-b-task-1-schedule` —
+> not yet merged to `main`. Tasks 1–12 and Task 13 steps 1–2 are Codex-PASS; **step 3 is
+> code-complete and UNDER REVIEW.** Its source condition is **SATISFIED** (§2a — the six VGCPastes
+> teams are frozen, complete, and `validate-team`-legal).
 >
 > **Done:** the six `.txt`/`.packed` artifacts exist under the canonical holdout team directory,
 > byte-identical to their frozen sources; every team is sealed via `seal_team` with its
 > `content_hash` proven equal to `panel.team_content_hash`; all six return exit 0 from the pinned
 > `validate-team`; the holdout manifest exists and is the single home of the public-to-internal ID
 > mapping (Amendment A1.1); the real leakage scan (identifier **and** raw-payload legs) reports zero
-> hits outside the allowlisted artifacts, and `assert_disjoint_from_coverage` passes.
+> hits outside the allowlisted artifacts, and `assert_disjoint_from_coverage` passes. **Step 3 adds:**
+> the Gate-B static baseline contract (A1.3) with real frozen VALUES verifying clean; the panel YAML
+> with real content; the hash freeze into `strength_holdout_schedule.py`'s constants
+> (`STRENGTH_HOLDOUT_EXPECTED_PANEL_HASH` / `STRENGTH_HOLDOUT_EXPECTED_MANIFEST_HASH`, the latter
+> binding the frozen selection order + public→internal mapping and refusing a non-six-team /
+> non-`1..6` / duplicate manifest); the CLI data wiring that removes both named Task-13 blockers and,
+> before battle 1, binds the frozen panel/manifest identity and fully verifies the baseline; and the
+> near-duplicate audit against the nine reference teams with a written disposition per flag
+> (selection audit §5a).
 >
-> **Outstanding:** the Gate-B-specific static baseline contract (A1.3), the panel YAML, the hash
-> freeze into `strength_holdout_schedule.py`'s empty constants, the CLI data wiring that removes
-> both named Task-13 blockers, the near-duplicate audit against the nine reference teams with a
-> written disposition per flag, and the whole-suite verification. **No `.packed` or sealed hash is
-> claimed beyond what is committed**, and **no Gate-B server has been started and no Gate-B battle has been played** — every task so far is code, tests, docs and frozen
-> source evidence only.
+> **Outstanding:** the whole-suite verification and Codex review of this branch. **No `.packed` or
+> sealed hash is claimed beyond what is committed**, and **no Gate-B server has been started and no
+> Gate-B battle has been played** — every task so far is code, tests, docs and frozen source evidence
+> only.
 >
 > **For agentic workers:** REQUIRED SUB-SKILL: use `superpowers:subagent-driven-development`
 > (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
@@ -1151,11 +1158,11 @@ showdown_bot/src/showdown_bot/eval/
   cli.py                         MODIFY  Task 11 -- arm + combine CLI subcommands
 
 config/eval/
-  panels/panel_champions_strength_holdout_v0.yaml     NEW  Task 1 (schema)  / Task 13 (real content)
-  holdout/champions_strength_holdout_v0_manifest.json NEW  Task 5 (schema)  / Task 13 (real content)
-  baselines/champions-strength-holdout-v0.json        NEW  Task 6 (real schema) / Task 13 (real hashes)
+  panels/panel_champions_strength_holdout_v0.yaml     NEW  Task 1 (schema)  / Task 13 step 3 (real content — DONE)
+  holdout/champions_strength_holdout_v0_manifest.json NEW  Task 5 (schema)  / Task 13 step 3 (real content — DONE)
+  baselines/champions-strength-holdout-v0.json        NEW  Task 6 (real schema) / Task 13 step 3 (real closed-schema values — DONE)
 
-showdown_bot/teams/panel_champions_strength_holdout_v0/   NEW, empty until Task 13
+showdown_bot/teams/panel_champions_strength_holdout_v0/   NEW  — the six sealed gbh_* .txt/.packed (Task 13 step 2 — DONE)
 
 showdown_bot/tests/
   test_strength_holdout_schedule.py    NEW  Task 1

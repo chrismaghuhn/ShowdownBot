@@ -176,13 +176,19 @@ def _manifest_team(sel, src, tid):
             "team_content_hash": f"hash_{tid}"}
 
 
+def _six_manifest_teams():
+    return [_manifest_team(i + 1, f"PC{i}", f"g{i}") for i in range(6)]
+
+
 def test_manifest_hash_covers_the_frozen_selection_order(tmp_path):
     # Swapping which team holds which selection_index (the frozen order) MUST move the hash -- the
     # order is part of the frozen identity (Amendment A1.1: assigned in the frozen selection order).
-    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
-        _manifest_team(1, "PC1", "gx"), _manifest_team(2, "PC2", "gy")]))
-    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
-        _manifest_team(2, "PC1", "gx"), _manifest_team(1, "PC2", "gy")]))  # order swapped
+    base = _six_manifest_teams()
+    swapped = [dict(t) for t in base]
+    swapped[0]["selection_index"], swapped[1]["selection_index"] = (
+        swapped[1]["selection_index"], swapped[0]["selection_index"])
+    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, base))
+    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, swapped))
     assert a != b
 
 
@@ -190,11 +196,39 @@ def test_manifest_hash_covers_the_public_to_internal_mapping(tmp_path):
     # Remapping which PUBLIC source id backs an internal id MUST move the hash -- the public->internal
     # mapping is the one thing the manifest is the sole home of (Amendment A1.1), and pinning it is
     # what a frozen-identity hash exists to protect.
-    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
-        _manifest_team(1, "PC1", "gx"), _manifest_team(2, "PC2", "gy")]))
-    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, [
-        _manifest_team(1, "PC2", "gx"), _manifest_team(2, "PC1", "gy")]))  # sources swapped
+    base = _six_manifest_teams()
+    swapped = [dict(t) for t in base]
+    swapped[0]["source_team_id"], swapped[1]["source_team_id"] = (
+        swapped[1]["source_team_id"], swapped[0]["source_team_id"])
+    a = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, base))
+    b = strength_holdout_manifest_hash(_minimal_manifest(tmp_path, swapped))
     assert a != b
+
+
+def test_manifest_hash_rejects_a_manifest_without_exactly_six_teams(tmp_path):
+    with pytest.raises(ValueError, match="six|6"):
+        strength_holdout_manifest_hash(_minimal_manifest(tmp_path, _six_manifest_teams()[:5]))
+
+
+def test_manifest_hash_rejects_a_duplicate_team_id(tmp_path):
+    teams = _six_manifest_teams()
+    teams[5]["team_id"] = teams[0]["team_id"]  # duplicate id (path stays distinct)
+    with pytest.raises(ValueError, match="duplicate"):
+        strength_holdout_manifest_hash(_minimal_manifest(tmp_path, teams))
+
+
+def test_manifest_hash_rejects_a_duplicate_team_path(tmp_path):
+    teams = _six_manifest_teams()
+    teams[5]["team_path"] = teams[0]["team_path"]  # duplicate path (id stays distinct)
+    with pytest.raises(ValueError, match="duplicate"):
+        strength_holdout_manifest_hash(_minimal_manifest(tmp_path, teams))
+
+
+def test_manifest_hash_rejects_a_selection_index_that_is_not_the_closed_1_to_6_set(tmp_path):
+    teams = _six_manifest_teams()
+    teams[5]["selection_index"] = 99  # unique but not a closed 1..6 set
+    with pytest.raises(ValueError, match="1..6|closed|selection_index"):
+        strength_holdout_manifest_hash(_minimal_manifest(tmp_path, teams))
 
 
 def test_reference_near_duplicate_audit_is_reproducible_and_diagnostic():
