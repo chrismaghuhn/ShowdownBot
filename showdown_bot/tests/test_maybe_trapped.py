@@ -24,9 +24,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from showdown_bot.battle.actions import _voluntary_switches, enumerate_my_actions
 from showdown_bot.battle.legal_actions import _slot_move_actions
-from showdown_bot.models.request import ActiveSlot, BattleRequest
+from showdown_bot.models.request import (
+    ActiveSlot,
+    BattleRequest,
+    MoveSlot,
+    PokemonSlot,
+    SideInfo,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -169,7 +177,7 @@ def test_forced_switch_still_offers_bench_even_when_maybe_trapped():
 # canTerastallize, canMegaEvoX, canMegaEvoY, canDynamax and maxMoves.
 # --------------------------------------------------------------------------------------------
 
-# The sim commit SIM_REQUEST_SLOT_FIELDS below was transcribed from. The set is a HAND
+# The sim commit the pinned per-model field sets below was transcribed from. The set is a HAND
 # TRANSCRIPTION and is valid ONLY for this commit -- it is not derived at test time, deliberately:
 # the sim clone lives outside this repo (~/.cache/showdownbot/pokemon-showdown) and does not exist
 # in CI, so reading it here would make this guard skip (vacuous) or flaky. Instead
@@ -177,7 +185,7 @@ def test_forced_switch_still_offers_bench_even_when_maybe_trapped():
 # moves away from this commit, which is what forces the set to be re-derived.
 SIM_FIELDS_DERIVED_FROM_COMMIT = "f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5"
 
-SIM_REQUEST_SLOT_FIELDS = frozenset({
+ACTIVE_SLOT_FIELDS = frozenset({
     "moves",
     "trapped",
     "maybeTrapped",
@@ -196,7 +204,7 @@ SIM_REQUEST_SLOT_FIELDS = frozenset({
 # Known to the sim, deliberately NOT modelled by ActiveSlot. Each entry needs a reason: this
 # allowlist exists so the test fails on a NEW/unknown field, not so gaps can accumulate silently.
 # Closing these is explicitly OUT OF SCOPE for this slice.
-UNMODELLED_WITH_REASON = {
+ACTIVE_SLOT_UNMODELLED = {
     # Display/UX hints about which moves the client should grey out. The bot re-derives
     # legality from `moves[].disabled`, so these add nothing to action enumeration.
     "maybeDisabled": "advisory move-greying hint; legality comes from moves[].disabled",
@@ -220,7 +228,7 @@ def _recorded_showdown_pin() -> str:
     provenance = Path(__file__).resolve().parents[2] / "config" / "eval" / "provenance.yaml"
     assert provenance.is_file(), (
         f"cannot read the recorded sim pin: {provenance} does not exist. This anchor must fail "
-        "closed -- without it SIM_REQUEST_SLOT_FIELDS could silently go stale."
+        "closed -- without it the pinned per-model field sets could silently go stale."
     )
     for line in provenance.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
@@ -238,7 +246,7 @@ def _recorded_showdown_pin() -> str:
 
 
 def test_sim_field_set_is_anchored_to_the_recorded_pin():
-    """SIM_REQUEST_SLOT_FIELDS is a HAND TRANSCRIPTION of one specific sim commit. If the pin moves
+    """the pinned per-model field sets is a HAND TRANSCRIPTION of one specific sim commit. If the pin moves
     and the transcription does not, this guard keeps passing while the new sim emits a field nobody
     modelled -- pydantic drops it, and that is precisely the root cause of the Gate B SAFETY-FAIL,
     now with false assurance on top. So: pin moved => this test fails.
@@ -252,9 +260,9 @@ def test_sim_field_set_is_anchored_to_the_recorded_pin():
     assert n >= 7, f"implausibly short sim commit id: {recorded!r} vs {derived_from!r}"
     assert recorded[:n].lower() == derived_from[:n].lower(), (
         f"the recorded pokemon-showdown pin has MOVED: config/eval/provenance.yaml records "
-        f"{recorded!r}, but SIM_REQUEST_SLOT_FIELDS was transcribed from "
+        f"{recorded!r}, but the pinned per-model field sets was transcribed from "
         f"{derived_from!r}.\n"
-        "SIM_REQUEST_SLOT_FIELDS must now be RE-DERIVED from the new sim, from BOTH:\n"
+        "the pinned per-model field sets must now be RE-DERIVED from the new sim, from BOTH:\n"
         "  1. the declared return type of getMoveRequestData in sim/global-types.ts, AND\n"
         "  2. every `data.<field> =` assignment in the body of getMoveRequestData in "
         "sim/pokemon.ts\n"
@@ -265,25 +273,160 @@ def test_sim_field_set_is_anchored_to_the_recorded_pin():
     )
 
 
-def test_active_slot_models_or_acknowledges_every_sim_request_field():
+# ==============================================================================================
+# The SAME guard, generalised to EVERY model in models/request.py.
+#
+# PR #60/#61 guarded ActiveSlot only. All five models ignore unknown keys, so the same
+# silently-dropped-field defect was still possible elsewhere -- and demonstrably was: measured
+# against the 4258 real requests frozen in the merged Gate B evidence on `main`, PokemonSlot drops
+# ability/baseAbility/commanding/pokeball/reviving and BattleRequest drops
+# maxChosenTeamSize/noCancel/update.
+#
+# Each field set is derived from the pinned sim f8ac140, from BOTH the declared type AND the actual
+# construction site (the declared type proved incomplete for ActiveSlot), and CROSS-CHECKED against
+# those frozen requests -- ground truth for what the server really emits.
+# ==============================================================================================
+
+MOVE_SLOT_FIELDS = frozenset({
+    # sim/pokemon.ts getMoves(): move, id, pp, maxpp, target, disabled, disabledSource.
+    # All but disabledSource observed in the frozen corpus (22894 move entries).
+    "move", "id", "pp", "maxpp", "target", "disabled", "disabledSource",
+})
+MOVE_SLOT_UNMODELLED = {
+    "disabledSource": "diagnostic string naming WHAT disabled the move; the bot only needs the "
+                      "boolean `disabled`, which is modelled",
+}
+
+POKEMON_SLOT_FIELDS = frozenset({
+    # sim/pokemon.ts getSwitchRequestData(): always ident/details/condition/active/stats/moves/
+    # baseAbility/item/pokeball; gen>6 adds ability; gen>=9 adds commanding/reviving; gen==9 adds
+    # teraType/terastallized ONLY when the mod does NOT start with "champions" -- which is why the
+    # frozen champions corpus shows neither.
+    "ident", "details", "condition", "active", "stats", "moves",
+    "baseAbility", "item", "pokeball", "ability", "commanding", "reviving",
+    "teraType", "terastallized",
+})
+POKEMON_SLOT_UNMODELLED = {
+    "ability": "current ability; the bot models opponent abilities through its own belief/"
+               "projection path and never reads it off its own side's request",
+    "baseAbility": "pre-change ability; same reason as `ability`",
+    "pokeball": "cosmetic only; no legality or scoring effect",
+    # NOT dismissals -- tracked risks. Both are legality-relevant and are unmodelled ONLY because
+    # no team this bot currently plays can produce them.
+    "commanding": "LEGALITY-RELEVANT and deliberately unmodelled: a commanding Pokemon (Tatsugiri "
+                  "under Commander) cannot act, so a request carrying commanding=true would need "
+                  "that slot treated as unable to choose. Unreachable today because no Champions "
+                  "Reg-MA team the bot plays contains Tatsugiri/Dondozo. TRACKED RISK: model it "
+                  "before any format or team that can trigger Commander.",
+    "reviving": "LEGALITY-RELEVANT and deliberately unmodelled: during a Revival Blessing "
+                "replacement phase, reviving=true marks a fainted Pokemon as a LEGAL switch "
+                "target, inverting the usual 'fnt' exclusion the bot applies. Unreachable today "
+                "because no current team carries Revival Blessing. TRACKED RISK: model it before "
+                "any team that does.",
+    "teraType": "gen9 Tera; getSwitchRequestData explicitly omits it for champions mods, so it "
+                "cannot appear in the formats this bot plays",
+    "terastallized": "gen9 Tera; omitted for champions mods for the same reason as teraType",
+}
+
+SIDE_INFO_FIELDS = frozenset({
+    # sim/side.ts getRequestData(): exactly these three. No gap.
+    "name", "id", "pokemon",
+})
+SIDE_INFO_UNMODELLED: dict[str, str] = {}
+
+BATTLE_REQUEST_FIELDS = frozenset({
+    # sim/battle.ts getRequests(): forceSwitch/side (switch); teamPreview/maxChosenTeamSize/side
+    # (teampreview); active/side/ally (move); noCancel (conditional); wait (no request).
+    # sim/side.ts:505 stamps `update`; `rqid` is stamped on emit. All but `ally` observed frozen.
+    "active", "side", "rqid", "forceSwitch", "teamPreview", "wait",
+    "maxChosenTeamSize", "noCancel", "update", "ally",
+})
+BATTLE_REQUEST_UNMODELLED = {
+    "noCancel": "tells the CLIENT not to offer an undo button; no effect on what is legal or what "
+                "is chosen, and this bot never cancels a submitted choice",
+    "update": "marks a re-issued request after a rejected choice; the bot already re-reads the "
+              "request it is handed, so the flag adds nothing to its behaviour",
+    "ally": "the ALLY side's request data in multi-battle formats with partners; side.allySide is "
+            "never set in the singles/doubles formats this bot plays",
+    "maxChosenTeamSize": "team-preview pick limit. NOTE: BattleRequest models `max_team_size` "
+                         "(alias `maxTeamSize`), but the sim emits `maxChosenTeamSize` -- the "
+                         "modelled alias never matches, so the real key is dropped AND the "
+                         "modelled one is never populated. Inert today because the bot brings six "
+                         "and picks four by the panel's fixed rule rather than reading a server "
+                         "limit. TRACKED RISK: reconcile the two names before relying on a "
+                         "server-supplied team-size limit.",
+}
+
+# model -> (field set, allowlist). One table, so a new model cannot be added without a decision.
+REQUEST_MODEL_SCHEMAS = {
+    MoveSlot: (MOVE_SLOT_FIELDS, MOVE_SLOT_UNMODELLED),
+    ActiveSlot: (ACTIVE_SLOT_FIELDS, ACTIVE_SLOT_UNMODELLED),
+    PokemonSlot: (POKEMON_SLOT_FIELDS, POKEMON_SLOT_UNMODELLED),
+    SideInfo: (SIDE_INFO_FIELDS, SIDE_INFO_UNMODELLED),
+    BattleRequest: (BATTLE_REQUEST_FIELDS, BATTLE_REQUEST_UNMODELLED),
+}
+
+
+@pytest.mark.parametrize("model", list(REQUEST_MODEL_SCHEMAS), ids=lambda m: m.__name__)
+def test_model_models_or_acknowledges_every_sim_request_field(model):
+    """The generalised dropped-field guard. Fails when the pinned sim can emit a field that is
+    neither modelled nor explicitly acknowledged with a reason -- pydantic IGNORES unknown keys, so
+    such a field is silently dropped, which is exactly the root cause of the Gate B SAFETY-FAIL."""
+    fields, allowlist = REQUEST_MODEL_SCHEMAS[model]
     modelled = set()
-    for name, field in ActiveSlot.model_fields.items():
+    for name, field in model.model_fields.items():
         modelled.add(field.alias or name)
         modelled.add(name)
-    unhandled = {
-        f for f in SIM_REQUEST_SLOT_FIELDS
-        if f not in modelled and f not in UNMODELLED_WITH_REASON
-    }
+    unhandled = {f for f in fields if f not in modelled and f not in allowlist}
     assert not unhandled, (
-        f"request slot field(s) {sorted(unhandled)} are emitted by the pinned sim but are neither "
-        "modelled on ActiveSlot nor listed in UNMODELLED_WITH_REASON. pydantic IGNORES unknown "
-        "keys, so such a field is silently dropped -- exactly the root cause of the Gate B "
-        "SAFETY-FAIL. Model it, or add it to the allowlist with a reason."
+        f"request field(s) {sorted(unhandled)} are emitted by the pinned sim but are neither "
+        f"modelled on {model.__name__} nor listed in its allowlist. pydantic IGNORES unknown keys, "
+        "so such a field is silently dropped -- exactly the root cause of the Gate B SAFETY-FAIL. "
+        "Model it, or add it to the allowlist with a reason."
     )
 
 
+@pytest.mark.parametrize("model", list(REQUEST_MODEL_SCHEMAS), ids=lambda m: m.__name__)
+def test_every_allowlist_entry_has_a_real_reason(model):
+    """An allowlist is only a TRACKED risk if each entry says why. A blank or drifted reason would
+    turn this guard back into the silent drop it exists to prevent."""
+    fields, allowlist = REQUEST_MODEL_SCHEMAS[model]
+    for field, reason in allowlist.items():
+        assert isinstance(reason, str) and len(reason.strip()) >= 20, (
+            f"{model.__name__}.{field} is allowlisted with no real rationale: {reason!r}"
+        )
+        assert field in fields, (
+            f"{model.__name__}.{field} is allowlisted but is not in that model's pinned sim field "
+            "set -- the allowlist has drifted from the set it annotates."
+        )
+
+
+@pytest.mark.parametrize("model", list(REQUEST_MODEL_SCHEMAS), ids=lambda m: m.__name__)
+def test_no_request_model_forbids_or_allows_extras(model):
+    """`extra="forbid"` must never be used here: an unknown FUTURE server field would then crash
+    the bot mid-battle, which is why the allowlist guards above are the chosen mechanism instead.
+    `extra="allow"` is equally refused -- it would serialize extras into model_dump, which
+    eval/decision_profile.py HASHES, re-breaking the fixture_input_hash byte-identity that the
+    maybeTrapped `exclude_if` had to fix."""
+    configured = (model.model_config or {}).get("extra")
+    assert configured in (None, "ignore"), (
+        f"{model.__name__} sets extra={configured!r}; this guard assumes the pydantic default "
+        "(ignore). See the docstring for why neither forbid nor allow is acceptable here."
+    )
+
+
+def test_legality_relevant_unmodelled_fields_are_flagged_as_tracked_risks():
+    """`commanding` and `reviving` change what is LEGAL, unlike the cosmetic/advisory entries.
+    Their reasons must say so explicitly, so a future reader treats them as tracked risks rather
+    than settled dismissals."""
+    for field in ("commanding", "reviving"):
+        reason = POKEMON_SLOT_UNMODELLED[field]
+        assert "LEGALITY-RELEVANT" in reason, f"{field} must be marked legality-relevant"
+        assert "TRACKED RISK" in reason, f"{field} must carry an explicit tracked-risk note"
+
+
 def test_trapping_flags_are_actually_modelled():
-    """The two fields this slice exists for must be real, not allowlisted away."""
+    """The two fields the B1 slice existed for must be real, not allowlisted away."""
     aliases = {f.alias or n for n, f in ActiveSlot.model_fields.items()}
     assert {"trapped", "maybeTrapped"} <= aliases
-    assert not ({"trapped", "maybeTrapped"} & set(UNMODELLED_WITH_REASON))
+    assert not ({"trapped", "maybeTrapped"} & set(ACTIVE_SLOT_UNMODELLED))
