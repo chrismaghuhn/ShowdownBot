@@ -4,14 +4,27 @@
 intra-holdout diversity caveat (§3.6) that does not change the recommendation.
 **Type:** docs-only audit. Nothing sealed is changed by this document.
 
+**Reference convention (leakage discipline — read before editing).** This review refers to the six
+sealed holdout teams positionally as **H1–H6**, where **H*n*** is the team at manifest
+`selection_index` *n* (H1 = `selection_index` 1 … H6 = `selection_index` 6). The map from `H#` to
+the sealed opaque `gbh_*` holdout IDs — and onward to their public sources — lives **only** in the
+holdout manifest (`config/eval/holdout/champions_strength_holdout_v0_manifest.json`; spec §3.3 /
+Amendment A1.1 `internal_id_scheme`). This document deliberately does **not** name the sealed
+`gbh_*` IDs or their content hashes. Reason: those IDs and hashes are Gate B **leakage-scan
+identifiers** — `holdout_leakage_scan.assert_no_holdout_leakage` greps every non-allowlisted
+git-tracked file for them, and this audit is **not** on that allowlist
+(`ALLOWED_EXACT_PATHS` / `ALLOWED_DIRECTORY_PREFIXES`). A copy here that named them would make the
+next `combine_strength_holdout_arms` fail closed with `LeakageDriftError`. Do **not** reintroduce
+the `gbh_*` IDs or the sealed content hashes into this file.
+
 ## 1. Scope & decision
 
 The Gate B independent strength holdout
 ([spec §3.3/§3.4](../specs/2026-07-20-champions-coverage-strength-holdout-design.md)) runs a
 content-overlap check at sealing that *"flags any holdout team whose species set substantially
 overlaps a touched or coverage team for **manual disjointness review** (near-duplicates are not
-independent)."* The sealing check flagged **3 of the 6** sealed holdout teams (`gbh_b`, `gbh_d`,
-`gbh_e`) as species-level near-duplicates of **2 engineered coverage teams** (`cov_foe_both`,
+independent)."* The sealing check flagged **3 of the 6** sealed holdout teams (`H2`, `H4`,
+`H5`) as species-level near-duplicates of **2 engineered coverage teams** (`cov_foe_both`,
 `cov_foe_tie`). Per spec, these flags are **diagnostic-only** — they trigger a manual review, they
 do **not** auto-reject (`near_duplicate.py`: `find_near_duplicate_flags` returns flags;
 `combine` records them in `verdict.json.near_duplicate_flags` and continues with `reasons:[]`).
@@ -43,7 +56,7 @@ from showdown_bot.eval.near_duplicate import load_team_species, find_near_duplic
 from showdown_bot.eval.strength_holdout_runner import CANONICAL_REFERENCE_TEAM_PATHS
 from showdown_bot.cli import _load_holdout_content_hashes
 HD = "showdown_bot/teams/panel_champions_strength_holdout_v0"
-holdout = sorted(_load_holdout_content_hashes("."))                       # gbh_a..gbh_f
+holdout = sorted(_load_holdout_content_hashes("."))                       # H1..H6
 hs = {t: load_team_species(f"{HD}/{t}.txt", teams_root=".") for t in holdout}
 rs = {r: load_team_species(p, teams_root=".") for r, p in CANONICAL_REFERENCE_TEAM_PATHS.items()}  # 9 refs
 flags = sorted(({"candidate_team_id": f.candidate_team_id, "reference_team_id": f.reference_team_id,
@@ -69,12 +82,12 @@ diagnostic-only by contract.
 
 | holdout | reference | kind | `overlap_fraction` (Jaccard) | shared species |
 |---|---|---|---|---|
-| `gbh_b` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
-| `gbh_b` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
-| `gbh_d` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
-| `gbh_d` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
-| `gbh_e` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
-| `gbh_e` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| `H2` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
+| `H2` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Basculegion, Garchomp, Kingambit |
+| `H4` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| `H4` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| `H5` | `cov_foe_both` | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
+| `H5` | `cov_foe_tie`  | coverage | 0.500 | Aerodactyl, Garchomp, Kingambit, Sneasler |
 
 Every flag is **exactly at** the 0.5 threshold (4/6 shared). There is no flag above it.
 
@@ -82,9 +95,9 @@ Every flag is **exactly at** the 0.5 threshold (4/6 shared). There is no flag ab
 
 | team | species (6) |
 |---|---|
-| `gbh_b` (holdout) | Aerodactyl, Basculegion, **Charizard**, Garchomp, Kingambit, **Sylveon** |
-| `gbh_d` (holdout) | Aerodactyl, **Charizard**, **Floette-Eternal**, Garchomp, Kingambit, Sneasler |
-| `gbh_e` (holdout) | Aerodactyl, **Charizard**, **Floette-Eternal**, Garchomp, Kingambit, Sneasler |
+| `H2` (holdout) | Aerodactyl, Basculegion, **Charizard**, Garchomp, Kingambit, **Sylveon** |
+| `H4` (holdout) | Aerodactyl, **Charizard**, **Floette-Eternal**, Garchomp, Kingambit, Sneasler |
+| `H5` (holdout) | Aerodactyl, **Charizard**, **Floette-Eternal**, Garchomp, Kingambit, Sneasler |
 | `cov_foe_both` (coverage) | Aerodactyl, Basculegion, Garchomp, Kingambit, **Meganium**, Sneasler |
 | `cov_foe_tie` (coverage)  | Aerodactyl, Basculegion, Garchomp, Kingambit, **Pelipper**, Sneasler |
 
@@ -97,7 +110,7 @@ coverage team does not, and vice-versa.
   `panel_champions_v0` dev-panel teams (disruption, goodstuff, rain_offense, tailwind_offense,
   trick_room): computed dev-panel flags = **0**.
 - The **best** (largest) holdout↔dev-panel species overlap across all 30 holdout×dev pairs is
-  **Jaccard 0.333** (`gbh_d` vs `goodstuff`) — a full **0.167 below** the 0.5 review threshold. The
+  **Jaccard 0.333** (`H4` vs `goodstuff`) — a full **0.167 below** the 0.5 review threshold. The
   dev panel is comfortably clear, not a near-miss.
 
 ### 3.4 Non-species differences on the shared staples (distinct strategic objects)
@@ -108,14 +121,14 @@ item, ability, EV/nature spread, and moves**. The shared staple species are buil
 objects across the holdout and coverage teams:
 
 **Mega identity (the load-bearing difference).** In the coverage teams the shared **Aerodactyl is
-the Mega** (`Aerodactylite`). In `gbh_d`/`gbh_e` the shared **Aerodactyl holds `Focus Sash`** (a
+the Mega** (`Aerodactylite`). In `H4`/`H5` the shared **Aerodactyl holds `Focus Sash`** (a
 non-Mega utility lead) and the team's Mega is elsewhere (`Charizardite Y` and/or `Floettite` on
-Floette-Eternal). `gbh_b` carries a *different* Mega pair again (`Aerodactylite` + `Charizardite Y`).
+Floette-Eternal). `H2` carries a *different* Mega pair again (`Aerodactylite` + `Charizardite Y`).
 Same species, opposite role.
 
 Per-shared-species build comparison (item / ability / nature / notable moves):
 
-| shared species | `gbh_b` (holdout) | `gbh_d` (holdout) | `gbh_e` (holdout) | `cov_foe_both` | `cov_foe_tie` |
+| shared species | `H2` (holdout) | `H4` (holdout) | `H5` (holdout) | `cov_foe_both` | `cov_foe_tie` |
 |---|---|---|---|---|---|
 | **Aerodactyl** | Aerodactylite (**Mega**), Unnerve, Jolly, +Wide Guard | **Focus Sash** (non-Mega), Unnerve, Jolly, +Protect | **Focus Sash** (non-Mega), Unnerve, Jolly, +Dual Wingbeat | Aerodactylite (**Mega**), Unnerve, Jolly, +Protect | Aerodactylite (**Mega**), Unnerve, Jolly, +Protect |
 | **Garchomp** | **Choice Scarf**, Adamant, Stomping Tantrum/Rock Tomb | **Choice Scarf**, **Jolly**, Stomping Tantrum/Rock Slide | **Choice Scarf**, Adamant, Dragon Rush/Rock Slide | **Sitrus Berry**, Adamant, +Protect | **Sitrus Berry**, Adamant, +Protect |
@@ -139,35 +152,35 @@ The §3.3 near-duplicate check compares each holdout team against the nine touch
 teams; it does **not** compare holdout teams against each other. A reviewer-requested holdout×holdout
 pass surfaces an adjacent fact that must be recorded but is **outside** §3.3's scope.
 
-**`gbh_d` and `gbh_e` are two variants of one archetype.** Computed holdout×holdout species Jaccard
+**`H4` and `H5` are two variants of one archetype.** Computed holdout×holdout species Jaccard
 matrix (from the sealed `.packed`, via `near_duplicate.load_team_species`):
 
-|        | gbh_a | gbh_b | gbh_c | gbh_d | gbh_e | gbh_f |
+|        | H1 | H2 | H3 | H4 | H5 | H6 |
 |---|---|---|---|---|---|---|
-| **gbh_a** | 1.000 | 0.500 | 0.000 | 0.500 | 0.500 | 0.000 |
-| **gbh_b** | 0.500 | 1.000 | 0.000 | 0.500 | 0.500 | 0.000 |
-| **gbh_c** | 0.000 | 0.000 | 1.000 | 0.000 | 0.000 | 0.091 |
-| **gbh_d** | 0.500 | 0.500 | 0.000 | 1.000 | **1.000** | 0.000 |
-| **gbh_e** | 0.500 | 0.500 | 0.000 | **1.000** | 1.000 | 0.000 |
-| **gbh_f** | 0.000 | 0.000 | 0.091 | 0.000 | 0.000 | 1.000 |
+| **H1** | 1.000 | 0.500 | 0.000 | 0.500 | 0.500 | 0.000 |
+| **H2** | 0.500 | 1.000 | 0.000 | 0.500 | 0.500 | 0.000 |
+| **H3** | 0.000 | 0.000 | 1.000 | 0.000 | 0.000 | 0.091 |
+| **H4** | 0.500 | 0.500 | 0.000 | 1.000 | **1.000** | 0.000 |
+| **H5** | 0.500 | 0.500 | 0.000 | **1.000** | 1.000 | 0.000 |
+| **H6** | 0.000 | 0.000 | 0.091 | 0.000 | 0.000 | 1.000 |
 
-- The **only** off-diagonal pair at Jaccard **1.0** is (`gbh_d`, `gbh_e`) — species-identical
+- The **only** off-diagonal pair at Jaccard **1.0** is (`H4`, `H5`) — species-identical
   {Aerodactyl, Charizard, Floette-Eternal, Garchomp, Kingambit, Sneasler}. The **next-highest** pair
-  is **0.500** (e.g. `gbh_b`↔`gbh_e`; `gbh_a`/`gbh_b`/`gbh_d`/`gbh_e` form a 0.5 staple cluster).
-- **Items: 5 of 6 identical** between `gbh_d` and `gbh_e` (only **Kingambit** differs — `Chople
+  is **0.500** (e.g. `H2`↔`H5`; `H1`/`H2`/`H4`/`H5` form a 0.5 staple cluster).
+- **Items: 5 of 6 identical** between `H4` and `H5` (only **Kingambit** differs — `Chople
   Berry` vs `Black Glasses`).
-- **0 of 6 mon blocks are byte-identical** (diff of `gbh_d.txt` vs `gbh_e.txt`): they differ in EV
-  spreads, in natures (**Garchomp** and **Sneasler** are Jolly in `gbh_d` vs Adamant in `gbh_e`), and
-  in 1–2 moves each (e.g. Floette-Eternal: `gbh_d` Moonblast/Light-of-Ruin vs `gbh_e`
+- **0 of 6 mon blocks are byte-identical** (diff of `H4.txt` vs `H5.txt`): they differ in EV
+  spreads, in natures (**Garchomp** and **Sneasler** are Jolly in `H4` vs Adamant in `H5`), and
+  in 1–2 moves each (e.g. Floette-Eternal: `H4` Moonblast/Light-of-Ruin vs `H5`
   Draining-Kiss/Calm-Mind). Two distinct **builds** of one archetype — not duplicate teams.
 
 **Scope.** This is holdout-vs-holdout, **outside** the §3.3 near-duplicate check (holdout-vs-
 touched/coverage). It is therefore **not** a disjointness or leakage finding and **does not change
 the ACCEPT recommendation (§6)** or the owner sign-off block (§7). The hard content-hash firewall
-(§3.5) already proves `gbh_d` and `gbh_e` are distinct sealed teams.
+(§3.5) already proves `H4` and `H5` are distinct sealed teams.
 
 **Effect on the holdout as a measurement instrument (record for interpreting any future strength
-result).** Effective **archetype** diversity is **~5 distinct, not 6** (`gbh_d`/`gbh_e` collapse to
+result).** Effective **archetype** diversity is **~5 distinct, not 6** (`H4`/`H5` collapse to
 one archetype). That archetype occupies **2 of 6 teams = 60 of 180 schedule battle-keys (1/3)** of
 the strength schedule (180 = 6 teams × 2 policies × 15 seeds ⇒ 30 keys/team). A future McNemar
 strength verdict would therefore draw ~**1/3** of its paired evidence from a single archetype
@@ -216,7 +229,7 @@ PY
    with an engineered staple-dense team is therefore the *expected* direction of a false-positive,
    not a signature of contamination.
 4. **Different strategic role for the shared staples (§3.4).** Most decisively, the shared Aerodactyl
-   is the **Mega** on the coverage teams but a **non-Mega Focus-Sash lead** on `gbh_d`/`gbh_e`; the
+   is the **Mega** on the coverage teams but a **non-Mega Focus-Sash lead** on `H4`/`H5`; the
    holdout Megas are Charizard-Y / Floette-Eternal. Sharing a species while assigning it the opposite
    role is the opposite of near-duplication.
 5. **Selection was blind, positional, and mechanical (§3.4).** From the holdout manifest
@@ -257,8 +270,8 @@ panel), re-sealed before first access — a new independent holdout, not an edit
 separate, owner-authorized work item, and it also interacts with the already-consumed ledger budget
 for this `config_hash` (see the SAFETY-FAIL evidence record).
 
-Separately from §3.3 disjointness, see **§3.6** for an adjacent intra-holdout observation (`gbh_d`
-and `gbh_e` are two builds of one archetype): outside this check's scope, not a leakage/disjointness
+Separately from §3.3 disjointness, see **§3.6** for an adjacent intra-holdout observation (`H4`
+and `H5` are two builds of one archetype): outside this check's scope, not a leakage/disjointness
 finding, no change to the recommendation below — but a recorded interpretation caveat (~5 effective
 archetypes; that archetype carries 1/3 of the schedule) for any eventual strength result.
 
