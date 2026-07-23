@@ -14,10 +14,14 @@
 > mapping); both **CLI subcommands are wired** to real manifest/panel data and enforce the frozen
 > identity before battle 1 / before any verdict (no Task-13 blocker remains); and the **reference
 > near-duplicate audit** against the nine reference teams is recorded (selection audit §5a). The full
-> offline suite is green (**3582 passed / 3 skipped / 1 xfailed**) and the branch is merged. **No
-> Gate-B server has been started and no Gate-B battle has been played, no I8-D/coverage/Strength run
-> was taken, no evidence was frozen, and no Strength claim is made; the live Gate B run remains a
-> separate authorization (§17).**
+> offline suite is green (**3582 passed / 3 skipped / 1 xfailed**) and the branch is merged. **Live
+> Gate-B runs have since been attempted on later candidate SHAs: I8-D latency and opponent-Mega
+> coverage PASSed and both Strength arms were played, but the combine aborted twice on separate
+> technical defects — a Windows atomic-publish failure (on `c8752b3`) and a combine `teams_root`
+> defect (on `a7d5330`), each fixed on its own branch. No valid Gate-B combine verdict has ever been
+> produced, no evidence was frozen, and no Strength claim is made; Champions Strength remains NO-GO.
+> The next live run sequence restarts on the post-fix final SHA under a fresh candidate identity and
+> remains a separate authorization (§17).**
 >
 > This header, the implementation-status block further down, §16 and §19 are kept in agreement;
 > if they ever disagree, the deepest one (§19) is the one to fix first.
@@ -7080,19 +7084,26 @@ def combine_strength_holdout_arms(
     # by oversight. "One abort class" describes the upstream-verdict/pairing/ledger/row-schema
     # trust chain specifically, not this whole function's entire exception surface -- an earlier
     # draft of this exact comment claimed the broader, false version of this sentence.
+    # Combine-root fix (candidate a7d5330, Phase-5 combine): the I8-D/coverage canonical schedules
+    # the two verifiers rebuild live under showdown_bot/ (their panel team paths are relative to a
+    # teams_root of "showdown_bot"), whereas Gate B's own teams_root/repo_root is the repo root.
+    # Passing the Gate B teams_root (".") to the verifiers made build_i8d_canonical_schedule/
+    # build_coverage_live_schedule fail to find the I8-D/coverage team files. Derive the upstream
+    # root canonically from repo_root and hand ONLY that to the two upstream verifiers.
+    upstream_teams_root = str(Path(repo_root) / "showdown_bot")
     try:
         # Rev. 19 fix (Task 9 review-fix sync, §1r): calc_backend is now the manifest-bound value
         # Task 9 actually derived for this run (arm A and arm B already proven equal above) --
         # never the hardcoded literal "oneshot", which would silently pass an unverified backend
         # claim through to both upstream verifiers regardless of what the run actually used.
         verify_i8d_verdict_artifact(
-            verdict_path=i8d_verdict_path, teams_root=teams_root,
+            verdict_path=i8d_verdict_path, teams_root=upstream_teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
             config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
             calc_backend=manifest_a["calc_backend"],
         )
         verify_coverage_verdict_artifact(
-            verdict_path=coverage_verdict_path, teams_root=teams_root,
+            verdict_path=coverage_verdict_path, teams_root=upstream_teams_root,
             candidate_identity=manifest_a["candidate_identity"], git_sha=manifest_a["git_sha"],
             config_hash=manifest_a["config_hash"], hero_agent=manifest_a["hero_agent"],
             calc_backend=manifest_a["calc_backend"],
@@ -8139,8 +8150,12 @@ blocker remains); and the reference near-duplicate audit against the nine refere
 (selection audit §5a).
 
 The whole-suite verification is green (**3582 passed / 3 skipped / 1 xfailed**), code review is PASS,
-and the branch is merged (PR #52 @ `7a9685c`). What remains is the separately-authorized **live run
-sequence** — I8-D latency PASS → coverage PASS → the Gate B holdout run — on **one and the same
+and the branch is merged (PR #52 @ `7a9685c`). The separately-authorized **live run sequence** —
+I8-D latency PASS → coverage PASS → the Gate B holdout run — has since been attempted on later
+candidate SHAs: I8-D and coverage PASSed and both Strength arms played, but the combine aborted twice
+on separate technical defects (a Windows atomic-publish failure on `c8752b3`, then a combine
+`teams_root` defect on `a7d5330`), each fixed on its own branch; no valid combine verdict was produced
+and no evidence was frozen. It must restart on the post-fix final SHA — on **one and the same
 candidate identity, with no commits between those gates** (a new `git_sha` breaks the shared-identity
 requirement, §5/§17/DESIGN §5). **No live Gate B run is authorized by this document**; that is a
 separate decision (§17). No run has been taken, no evidence frozen, no Strength claim made.
