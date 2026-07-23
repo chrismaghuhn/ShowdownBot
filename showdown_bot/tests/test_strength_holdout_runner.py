@@ -3008,3 +3008,59 @@ def test_hash_randomization_seam_reflects_the_real_interpreter_state():
     run1 = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env1)
     assert run0.stdout.strip() == "0 0", run0.stderr   # started with =0: randomization OFF
     assert run1.stdout.strip() == "1 1", run1.stderr   # started with =1: randomization ON
+
+
+def test_arm_publish_routes_through_the_atomic_publish_helper(tmp_path, monkeypatch):
+    # The arm's final publish must go through _atomic_publish_dir (the Windows-retry-safe rename),
+    # not a bare os.replace -- otherwise a completed 180-battle arm can still be thrown away by a
+    # transient WinError 5 at the very last step (candidate c8752b3, Arm A).
+    import showdown_bot.eval.strength_holdout_runner as shr
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    calls = []
+    real = shr._atomic_publish_dir
+
+    def spy(staging, out, **kwargs):
+        calls.append((staging, out))
+        return real(staging, out, **kwargs)
+
+    monkeypatch.setattr(shr, "_atomic_publish_dir", spy)
+    run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+        seed_log_path=seed_log_path, teams_root=str(tmp_path),
+        gauntlet_runner=_fake_gauntlet_runner_factory(seed_log_path=seed_log_path, seed_base=schedule.seed_base),
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+    assert calls == [(str(out_dir) + ".staging", str(out_dir))]  # exactly one publish, via the helper
+    assert out_dir.exists()  # and it still really publishes
+
+
+def test_combine_publish_routes_through_the_helper_inside_the_ledger_lock(tmp_path, monkeypatch):
+    # combine's publish must ALSO use the helper, and it must stay inside the ledger lock (a
+    # reservation must never be observable without the bundle it belongs to being on its way).
+    import showdown_bot.eval.strength_holdout_runner as shr
+    _patch_upstream_verdicts_as_pass(monkeypatch)
+    teams_root, hashes = _write_holdout_teams_repo(tmp_path)
+    holdout_teams = _holdout_teams_mapping(hashes)
+    arm_a = _write_arm(tmp_path, "arm_a", hero_agent="heuristic", config_hash="cfgA", holdout_teams=holdout_teams)
+    arm_b = _write_arm(tmp_path, "arm_b", hero_agent="max_damage", config_hash="cfgB", winner="villain", holdout_teams=holdout_teams)
+    ledger_path = str(tmp_path / "ledger.jsonl")
+    lock_held_at_publish = []
+    real = shr._atomic_publish_dir
+
+    def spy(staging, out, **kwargs):
+        lock_held_at_publish.append(os.path.exists(ledger_path + ".lock"))
+        return real(staging, out, **kwargs)
+
+    monkeypatch.setattr(shr, "_atomic_publish_dir", spy)
+    combine_strength_holdout_arms(
+        arm_a_dir=arm_a, arm_b_dir=arm_b, out_dir=str(tmp_path / "combined"),
+        i8d_verdict_path=str(tmp_path / "i8d.json"), coverage_verdict_path=str(tmp_path / "cov.json"),
+        holdout_content_hashes=hashes, stratum_env_override="windows", teams_root=teams_root,
+        ledger_path=ledger_path,
+    )
+    # called exactly once, and the ledger lock was held at the moment of publish (inside the lock)
+    assert lock_held_at_publish == [True]
+    assert (tmp_path / "combined" / "verdict.json").exists()
