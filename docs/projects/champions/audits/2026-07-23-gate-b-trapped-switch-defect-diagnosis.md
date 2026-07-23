@@ -1,7 +1,8 @@
 # Gate B SAFETY-FAIL — trapped-switch defect: root-cause diagnosis
 
-**Status:** DIAGNOSIS ONLY — **no fix is implemented or proposed as chosen**. The fix shape is a
-design decision reserved to the project owner (§7).
+**Status:** DIAGNOSIS ONLY — **no fix is implemented here**. The mechanism is now sim-verified (§5)
+and the owner has **decided fix shape B1** (§8, 2026-07-23); B1 lands as a separate TDD slice under
+its own authorization.
 **Type:** docs-only audit. No production code, config, sealed file, or data is changed.
 **Subject:** the single illegal action (`invalid_choices` = 1) that made the Gate B independent
 strength-holdout run a **SAFETY-FAIL** (candidate `bc2d6df`, identity `32f79b8e52444aa3`; evidence
@@ -26,7 +27,7 @@ therefore could not have been submitted. This is settled by static analysis of t
 action-enumeration path plus the frozen request bytes; it is **not** an inference from the
 `maybeTrapped → trapped` upgrade.
 
-Consequently the failing case is **fix shape (B)** in §7 — a design decision, **not** a one-line
+Consequently the failing case is **fix shape (B)** in §8 — a design decision, **not** a one-line
 legality bug.
 
 ## 2. Code evidence (verified by reading the production path)
@@ -94,15 +95,52 @@ present in it, in this battle or any other. The work order's premise was correct
 not readable from the log. What settles the question is not the log but the **action-enumeration
 code**, which proves a slot-0 switch was never a candidate. No additional artifact is required.
 
-## 5. Corroboration (inference, not proof)
+## 5. The sim mechanism — why one slot was masked (VERIFIED against the pinned sim)
 
-- The server's `maybeTrapped → trapped` upgrade on the re-request (`rqid` 14, `update: true`) is
-  consistent with slot 1 having been probed: the probe resolved the ambiguity and the server
-  restated the slot as definitively trapped.
-- On the accepted resubmission both slots played moves (slot 1 `Tailwind`, slot 0 `Dire Claw`),
-  i.e. the switch intent disappeared once switching was no longer offered.
+The slot-0 / slot-1 asymmetry initially looked unexplained. It is now **fully explained**, verified
+by reading the pinned simulator (`~/.cache/showdownbot/pokemon-showdown` at **`f8ac140`**, the
+commit pinned in `config/eval/provenance.yaml`).
 
-Neither observation is needed for the verdict; both are consistent with it.
+**(a) Ability traps are recorded as a distinct, masked state.** `sim/pokemon.ts:1613-1618`:
+
+```ts
+tryTrap(isHidden = false) {
+    if (!this.runStatusImmunity('trapped')) return false;
+    if (this.trapped && isHidden) return true;
+    this.trapped = isHidden ? 'hidden' : true;
+    return true;
+}
+```
+
+The field is typed `trapped: boolean | "hidden"` (`sim/pokemon.ts:131`). All three trapping
+abilities call `tryTrap(true)`, i.e. the **hidden** form — `data/abilities.ts`: **Arena Trap**
+(line 200), **Magnet Pull** (2509), **Shadow Tag** (4149).
+
+**(b) The request serializer deliberately restricts information for the LAST active slot.**
+`sim/pokemon.ts:1098` — `// Information should be restricted for the last active Pokémon`. The two
+branches then differ in strictness:
+
+- non-last active (`sim/pokemon.ts:1124`): `if (this.trapped) data.trapped = true;` — a **loose**
+  check; `'hidden'` is truthy, so the slot is reported as **`trapped: true`**.
+- last active (`sim/pokemon.ts:1135-1138`): `if (this.trapped === true) { data.trapped = true; }
+  else if (this.maybeTrapped) { data.maybeTrapped = true; }` — a **strict** check; `'hidden'` is not
+  `=== true`, so it falls through and the slot is reported as **`maybeTrapped: true`**.
+
+**(c) The masking exists to prevent ability-leaking.** `sim/battle.ts:1728-1736`:
+*"canceling switches would leak information / if a foe might have a trapping ability"* — and the
+`FoeMaybeTrapPokemon` loop explicitly **skips the foe's actual ability**
+(`if (abilityName === source.ability) { continue; }`), because that case was already handled.
+
+**Conclusion.** Both hero actives were equally and genuinely trapped by the **revealed** Mega
+Gengar's Shadow Tag. Slot 1 was merely the *last active* and therefore received the masked form.
+
+> **For ability traps, `maybeTrapped` does not mean "uncertain" — it means "actually trapped,
+> withheld".** The bot was not making a reasonable gamble on an ambiguous flag; it was switching a
+> Pokémon the simulator already knew was trapped, and merely declined to say so plainly.
+
+**Corroboration (inference, consistent with the above):** the `maybeTrapped → trapped` upgrade on
+the re-request (`rqid` 14, `update: true`) is what one expects once the probe forces the issue; and
+on the accepted resubmission both slots played moves (slot 1 `Tailwind`, slot 0 `Dire Claw`).
 
 ## 6. Root cause statement
 
@@ -114,43 +152,110 @@ silently discarded by `ActiveSlot`'s pydantic parse. The bot correctly honors th
 server rejection counts as one illegal candidate action and fails the entire run regardless of
 margin.
 
-## 7. The two fix shapes, and which one applies
+## 7. Measured exposure across the frozen run (verified)
+
+Scanned all 360 frozen hero logs on `main` (command in §10):
+
+| arm | battles with a `maybeTrapped` slot | `maybeTrapped` slot-occurrences | battles with an explicit `trapped` slot | `Can't switch` rejections |
+|---|---|---|---|---|
+| A (heuristic) | **26 / 180 (14.4 %)** | **76** | 26 / 180 | **1** |
+| B (max_damage) | 15 / 180 (8.3 %) | 34 | 15 / 180 | 0 |
+
+Two things follow:
+
+- **The exposure is real but not dominant** — the flag appeared in ~1 in 7 of the candidate's
+  battles, yet produced exactly **one** rejection in 180. So the heuristic rarely *wanted* to
+  switch in these spots.
+- **The battle counts for `maybeTrapped` and explicit `trapped` are identical within each arm**
+  (26 = 26, 15 = 15). That is exactly what §5's mechanism predicts: when an ability trap is live in
+  doubles, one active slot is reported truthfully and the other (the last active) is masked. This is
+  an independent confirmation of the mechanism, derived from the frozen bytes rather than the source.
+
+**Honest bound.** These logs record what the server *offered*, not what the bot *wanted*. They
+cannot distinguish "did not want to switch" from "switched successfully because it was not actually
+trapped". The forfeit cost of B1 is therefore **bounded above** by these counts, **not measured**.
+
+## 8. Options considered, and the owner's decision
 
 **(A) An explicit `trapped: true` slot was enumerated for switching → the legality filter must honor
-the per-slot flag.** **DOES NOT APPLY.** §2(a) shows the filter already honors it, and §3 shows slot
-0 was correctly excluded. There is no bug of this shape here.
+the per-slot flag.** **DID NOT APPLY.** §2(a) shows the filter already honors it and §3 shows slot 0
+was correctly excluded. There was no bug of this shape.
 
-**(B) A `maybeTrapped: true` slot was probed → design decision.** **THIS IS THE CASE.** It is
-genuinely a design question, and the two options trade against each other:
+**(B) A `maybeTrapped: true` slot was probed.** This was the case, and it was a design decision.
 
-| Option | Effect | Cost |
-|---|---|---|
-| **B1** — treat `maybeTrapped` as non-switchable during enumeration | No illegal action can ever be emitted from this cause; safe under a fail-closed gate | **Forfeits every legitimate switch** whenever the bot is flagged `maybeTrapped` but is not actually trapped. This is a real play-strength cost, not a theoretical one |
-| **B2** — allow the probe, but add a client-side legal resubmit so a rejected probe never reaches `invalid_choices` | Preserves the switch option when it is in fact legal; the server's rejection becomes information rather than a gate failure | Adds a retry path on the live decision loop (latency implication against the 1000 ms p95 budget), and changes what `invalid_choices` means — that counter is the Gate B safety signal, so suppressing entries in it needs an explicit, documented contract or it weakens the gate |
+### DECIDED: B1 — treat `maybeTrapped` as non-switchable. Owner, 2026-07-23.
 
-**This choice is the owner's and is deliberately not made here.** One consideration that bears on it,
-flagged as **inference**: in this Mega-enabled format `maybeTrapped` is plausibly **not rare** — the
-opposing side had a Gengar on the field at the failing turn, and a Gengar that may still Mega-Evolve
-is a canonical `maybeTrapped` trigger. If that generalizes, **B1's forfeit cost would recur across
-many battles**, not just this one. I did not verify the trap mechanism (see §8), and the choice
-should not be made on my inference alone.
+**B1 (CHOSEN).** Given §5's mechanism, for the ability-trap class this is **correct rather than
+over-conservative**: a `maybeTrapped` slot under an ability trap *is* trapped, so declining to
+enumerate its switches removes an action that was never legal. The §7 figures are an **upper bound**
+on what it forfeits, and the mechanism substantially reduces even that bound, since much of the
+flagged exposure is masked-real-trap rather than genuine uncertainty. It costs **strength, not
+safety** — and strength is already NO-GO while the fail-closed safety gate is the binding constraint.
 
-## 8. What remains UNVERIFIED
+**B2 (REJECTED)** — allow the probe, add a client-side legal resubmit. Two independent reasons:
+1. Its "harmless probe" premise **does not hold** for ability traps. The rejection is not a cheap
+   query returning information; the Pokémon really is trapped, so the probe is simply an illegal
+   action that the server refuses.
+2. It would **redefine `invalid_choices`**, which is the Gate B safety signal itself. Changing a
+   safety metric in response to that metric failing is **not acceptable here**. If the metric is
+   genuinely too broad, that belongs in a deliberate, pre-registered spec change — not in the
+   reaction to the failure it just reported.
 
-1. **The trap source itself.** No trapping ability is visible in the log — only `Unnerve` (ours),
-   `Intimidate` and `Stamina` (theirs). Why slot 0 was definitively `trapped` while slot 1 was only
-   `maybeTrapped` is **not established**. The Mega-Gengar/Shadow-Tag hypothesis in §7 is untested
-   inference. Per the work order this was noted, not chased.
+**B3 (DEFERRED, largely moot)** — model trapping from public information. The *revealed* case is
+already handled correctly by B1, and the genuinely-uncertain case is information the simulator
+**deliberately withholds** (§5c), so public-information modelling cannot resolve it.
+
+**This decision is recorded, not implemented.** B1 lands as a **separate TDD slice** under its own
+authorization; this document changes no production code.
+
+## 9. What remains UNVERIFIED
+
+1. **The split within the measured exposure.** What fraction of the 76 (arm A) / 34 (arm B)
+   `maybeTrapped` slot-occurrences were **masked real traps** versus **genuine unrevealed-ability
+   uncertainty** is **not** established. This is the quantity that would turn B1's bounded forfeit
+   into a measured one.
 2. **The exact submitted `/choose` string.** Still absent from the evidence (§4). The verdict does
    not depend on it, but no artifact in the frozen set records the bot's literal submission.
 3. **The counterfactual.** What the heuristic would have played had slot 1's switches been withheld
    is unknown; no behavioural claim is made about whether the battle outcome would have differed.
-4. **Frequency.** Whether other battles in the 180-matchup schedule encountered `maybeTrapped`
-   without producing an illegal action is **not** measured here. Only one row in either arm has
-   `invalid_choices` > 0, but that counts *rejections*, not `maybeTrapped` *occurrences*.
-5. **B2's latency cost** against the 1000 ms p95 budget is unquantified.
+4. **B2's latency cost** against the 1000 ms p95 budget is unquantified (moot under the B1 decision,
+   recorded for completeness).
 
-## 9. Reproduction (read-only; no run, no server)
+## 10. Reproduction (read-only; no run, no server)
+
+Sim mechanism (§5), against the pinned checkout — verify it is at `f8ac140` first:
+
+```bash
+SIM=~/.cache/showdownbot/pokemon-showdown
+git -C "$SIM" rev-parse --short HEAD                      # -> f8ac140
+sed -n '131p;1098p;1124p;1135,1138p;1613,1618p' "$SIM/sim/pokemon.ts"
+sed -n '1728,1737p' "$SIM/sim/battle.ts"
+grep -n "tryTrap(true)" "$SIM/data/abilities.ts"          # -> 200, 2509, 4149
+```
+
+Measured exposure (§7) over the 360 frozen hero logs, from the repo root on `main`:
+
+```bash
+python -c "
+import gzip,json,glob
+b='data/eval/champions-panel-v0/strength-holdout-v0/windows/gate-b-safety-fail-bc2d6df/hero-logs'
+for arm in ('arm-a','arm-b'):
+    bm=bt=om=ot=rej=0
+    for f in sorted(glob.glob(f'{b}/{arm}/*.log.gz')):
+        hm=ht=False
+        for line in gzip.open(f,'rt',encoding='utf-8',errors='replace'):
+            if line.startswith('|error|') and \"Can't switch\" in line: rej+=1
+            if not line.startswith('|request|'): continue
+            try: r=json.loads(line[9:] or '{}')
+            except Exception: continue
+            for a in (r.get('active') or []):
+                if not a: continue
+                if a.get('maybeTrapped'): om+=1; hm=True
+                if a.get('trapped'): ot+=1; ht=True
+        bm+=hm; bt+=ht
+    print(arm,'maybeTrapped',bm,'battles',om,'occ |trapped',bt,'battles',ot,'occ | rejections',rej)
+"
+```
 
 Static facts, from the repo root on `main`:
 
@@ -176,13 +281,14 @@ for l in gzip.open(p,'rt',encoding='utf-8',errors='replace'):
 "
 ```
 
-## 10. Recommended next step (NOT taken)
+## 11. Next step (NOT taken here)
 
-No further evidence is needed to identify the defect. The open item is the **owner's choice between
-B1 and B2** (§7), after which a fix would be implemented under strict TDD in its own slice, with a
-RED test that reconstructs the `rqid` 12 request offline and asserts no switch is enumerated (B1) or
-that a rejection is legally resubmitted (B2). An offline/hermetic reconstruction is sufficient — a
-**live battle replay is not required** and is not proposed.
+The defect is identified and the fix shape is decided (**B1**, §8). What remains is the
+implementation slice, under its own authorization and strict TDD: a RED test that reconstructs the
+frozen `rqid` 12 request offline and asserts that **no switch action is enumerated for a
+`maybeTrapped` slot**, then the minimal change to `_voluntary_switches` (and the `ActiveSlot` model,
+which must first learn the field at all — see §2b). An offline/hermetic reconstruction is
+sufficient; a **live battle replay is not required** and is not proposed.
 
 This diagnosis makes **no strength claim**, does not change the run's `SAFETY-FAIL`, and Champions
 Strength remains **NO-GO**.
