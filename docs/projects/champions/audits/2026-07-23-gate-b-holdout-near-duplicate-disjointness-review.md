@@ -290,9 +290,9 @@ the run's `SAFETY-FAIL` or the `NO-GO` status.
 
 The acceptance ruling belongs to the project owner, not the implementer. Please record the decision:
 
-- Decision (ACCEPT / RE-SELECT / OTHER): `________________________________`
-- Rationale / conditions: `________________________________________________`
-- Owner: `______________________`   Date: `________________`   Commit/branch at decision: `______________`
+- Decision (ACCEPT / RE-SELECT / OTHER): `ACCEPT`
+- Rationale / conditions: `Species overlap is metagame-staple, confined to engineered coverage teams, zero dev-panel overlap; residual risk per §5 accepted; H4/H5 effective-diversity caveat (§3.6) noted for strength interpretation.`
+- Owner: `chris`   Date: `2026-07-23`   Commit/branch at decision: `82234a8`
 
 *Until this block is signed, this document is a reviewer recommendation only, not an accepted ruling.*
 
