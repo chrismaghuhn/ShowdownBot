@@ -1,13 +1,16 @@
 extends GdUnitTestSuite
 
 ## Plan E §5.3 — DiagnosticsDock.
-## Task E2 scope only: 3 of the 4 named §5.3 cases. `test_hash_surfaces_use_monospace`
-## and `StudioMonoFont` are Task E6 scope (plan §6 Task E2 GREEN line lists
-## ProvenancePresenter / DiagnosticsPresenter / DiagnosticsDock only; Task E6 owns the
-## monospace RED/GREEN + helper) and are deliberately NOT part of this branch.
+## All 4 named §5.3 cases. `test_hash_surfaces_use_monospace` is Task E6 scope
+## (plan §6 Task E6 owns the monospace RED/GREEN + StudioMonoFont helper).
 
 const _FIXTURES_ROOT := "res://../fixtures/viewer-v0"
 const _DOCK_SCENE := preload("res://src/diagnostics/diagnostics_dock.tscn")
+
+## §0.9 hash-like provenance fields — must render monospace (§4.6 Auflage).
+const _HASH_LABELS := [
+	"git_sha", "config_hash", "source_hashes_battle_log", "source_hashes_decision_trace"
+]
 
 
 func _fixture_path(relative: String) -> String:
@@ -64,3 +67,27 @@ func test_no_filesystem_paths_in_raw() -> void:
 
 	var raw := dock.get_raw_text()
 	assert_str(raw).not_contains(_fixture_path("bundles/fixture-01"))
+
+
+func _assert_control_is_monospace(control: Control) -> void:
+	assert_bool(control.has_theme_font_override(&"font")).is_true()
+	var font := control.get_theme_font(&"font")
+	assert_bool(font is SystemFont).is_true()
+	assert_bool("monospace" in (font as SystemFont).font_names).is_true()
+
+
+func test_hash_surfaces_use_monospace() -> void:
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var dock := _spawn_dock()
+	await await_idle_frame()
+	dock.bind_bundle(bundle)
+
+	var checked_hash_row := false
+	for i in range(dock.get_provenance_row_count()):
+		var label := dock.get_provenance_label_at(i).trim_suffix(":")
+		if label in _HASH_LABELS:
+			checked_hash_row = true
+			_assert_control_is_monospace(dock.get_provenance_value_control_at(i))
+	assert_bool(checked_hash_row).is_true()
+
+	_assert_control_is_monospace(dock.get_raw_control())

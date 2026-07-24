@@ -24,10 +24,33 @@ Result: _(unfilled)_
 
 Notes: _(unfilled)_
 
-## Screen-reader checklist (Task E6 scope — placeholder only)
+## Screen-reader checklist (Task E6 draft — unfilled, filled at acceptance)
 
-`ponytail:` Task E6 owns adding the actual SR steps to this file (plan §6 Task
-E6 / §0.10) — this section is a placeholder heading only, left unfilled by
-Task E5.
+Best effort only (plan §0.10). Report what worked / failed; this checklist
+**must not** be used to claim screen-reader completeness. Godot 4.5.2 has no
+dedicated accessibility/SR backend in this branch — expect partial or no
+support and record that honestly rather than skip the attempt.
 
-Result: _(unfilled — Task E6)_
+Try Godot 4.5.2 (`AppShell`, fixture-01 loaded) with one OS screen reader
+(Windows: Narrator, `Win+Ctrl+Enter` to start; or NVDA if installed) and
+record:
+
+- [ ] Launch: does the screen reader announce anything when the `AppShell`
+      window gains focus (window title, any control)?
+- [ ] State banner: moving focus to/near the `StateBanner`, is its text
+      (e.g. `TEAM PREVIEW`, `DECISION RECORDED`) announced?
+- [ ] Keyboard navigation: using Tab / Shift+Tab, does focus move between
+      controls (PathRow / Open, timeline transport, candidate table,
+      filter `LineEdit`, `DiagnosticsDock` tabs) in a sensible order, and is
+      each focused control announced (name/role/value)?
+- [ ] Candidate table: selecting a row via keyboard, is the selection or its
+      content announced?
+- [ ] Provenance/diagnostics tabs: switching `DiagnosticsDock` tabs via
+      keyboard, is the active tab announced?
+- [ ] Live updates: after a keyboard action changes the state banner or
+      selected decision, is the change announced without manually re-focusing?
+
+Result: _(unfilled)_
+
+Notes: _(unfilled — record engine/SR versions used, and any controls found
+completely silent or unreachable by keyboard)_

@@ -6,9 +6,9 @@ extends TabContainer
 ## local paths) and is bounded: over MAX_RAW_CHARS is truncated with an explicit
 ## marker (§0.9 / §5.3 test_raw_tab_bounded).
 ##
-## Note (Task E2 scope): value/text controls below intentionally do NOT call
-## StudioMonoFont.apply_to() yet — that helper and its RED/GREEN cycle are Task E6
-## (plan §6), not this task.
+## Hash-like provenance values (git_sha, config_hash, source_hashes_*) and the
+## raw-evidence TextEdit render with StudioMonoFont (§4.6 / §0.9); UI chrome
+## (labels, warning text) keeps the default sans system stack.
 
 const TRUNCATION_MARKER := "… truncated"
 const MAX_RAW_CHARS := 20000
@@ -21,6 +21,10 @@ const MAX_RAW_CHARS := 20000
 @onready var _provenance_list: VBoxContainer = $Provenance/Rows
 @onready var _warnings_list: VBoxContainer = $Warnings/Rows
 @onready var _raw_text: TextEdit = $Raw
+
+
+func _ready() -> void:
+	StudioMonoFont.apply_to(_raw_text)
 
 
 func bind_bundle(bundle: BundleDTO) -> void:
@@ -75,7 +79,10 @@ func get_warning_icon_control_at(i: int) -> Control:
 func _rebuild_provenance(bundle: BundleDTO) -> void:
 	_clear(_provenance_list)
 	for row in ProvenancePresenter.present(bundle):
-		_provenance_list.add_child(_make_row("Label", "%s:" % row.label, "Value", row.value))
+		var provenance_row := _make_row("Label", "%s:" % row.label, "Value", row.value)
+		if row.mono:
+			StudioMonoFont.apply_to(provenance_row.get_node("Value"))
+		_provenance_list.add_child(provenance_row)
 
 
 func _rebuild_warnings(bundle: BundleDTO) -> void:
