@@ -4,8 +4,11 @@
 this plan APPROVED. **Implementation is still NOT authorized** — approval satisfies index §7 step 1
 only; the hard dependency in index §3.2 (Plans A–E green and merged) is **not yet satisfied**, and a
 separate implementation go-ahead is still required. See Depends-on below and §0.10.
-**Date:** 2026-07-21 · **Rev.:** 4 (2026-07-24 — owner closed all four §0.11 choice points and
-approved the plan; implementation remains gated on Plans A–E per §0.10/§3.2; see §9)
+Amended Rev. 5 (additive F1 verification pass: §3's gate table corrected against the real pytest
+suite, §0.11 Choice Point 2's re-check obligation resolved — same precedent as Plan E's own
+additive amendments; APPROVED status unchanged, no choice point reopened; see §9).
+**Date:** 2026-07-21 · **Rev.:** 5 (2026-07-24 — F1 verification pass: gate-table correction +
+CP2 re-check resolution; see §9)
 **Depends on:** Plans A–E complete and green (implementation index §3.2). As of this expansion,
 **A–D are merged on `main`; Plan E is APPROVED with only Task E1 merged** (`e757772`, state banner).
 E2–E7 are in progress on an unmerged branch (`studio/plan-e-layout-shell`). **Plan F code cannot
@@ -65,8 +68,8 @@ signature drifted, stop and amend this plan.
 | 104-candidate real row | `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` has 20 rows, candidate counts 0–104, **2 rows at exactly 104**, 2 rows at 0; **no companion battle log** in that directory | counted directly, 2026-07-24 (see §0.11 point 3) |
 | Exporter surface | `export_bundle(out=, battle_log=, decision_trace=, results=, run_manifest=, config_manifest=)`, `validate_bundle_dir(path)` | `python/src/showdownbot_studio_exporter/export_bundle.py`, `validate_bundle.py`; usage pattern in `tests/python/test_a8_fixtures.py:32–38` |
 | Exporter refuse reasons (sample, not exhaustive) | `ExportRefuse(reason, message)`; observed reasons include `unsupported_trace_version`, `unsupported_trace_v1`, `non_finite_value`, `duplicate_decision_identity`, `chosen_integrity`, `config_hash_mismatch`, `missing_mode_inputs`, `missing_provenance`, `our_side_mismatch`, `battle_id_mismatch`, `ambiguous_battle_id` | `errors.py:6–15`; grepped call sites across `export_decisions.py`, `join.py`, `provenance.py`, `validate_bundle.py` |
-| pytest baseline | **77** test functions across **17** files | counted `tests/python/test_*.py`, 2026-07-24 |
-| gdUnit baseline | **207** test functions across **20** files | counted `godot/tests/**/test_*.gd`, 2026-07-24 |
+| pytest baseline (corrected, Rev. 5 — see note below) | ~~77 test functions across 17 files~~ → **18 files, 80 `def test_*`, 82 pytest-collected IDs** (one parametrized function, `test_a5_request_hash_recipes.py::test_fixture_bytes_pinned`, expands ×3) | original count against `main @ a2ede11`, 2026-07-24; corrected against this worktree's actual base `main @ 5feaa7c`, re-verified directly (`pytest --collect-only -q` → `82 tests collected`), 2026-07-24 — see [gate-coverage audit](evidence/viewer-v0-f-gate-coverage-audit.md) §0 |
+| gdUnit baseline (corrected, Rev. 5 — see note below) | ~~207 test functions across 20 files~~ → **26 files, 255 gdUnit test cases** | original count against `main @ a2ede11`, 2026-07-24; corrected by a direct `run_gdunit_headless.ps1 -a "res://tests/"` run against this worktree's base, 2026-07-24 — `255 test cases \| 0 errors \| 0 failures \| 0 flaky \| 2 skipped \| 0 orphans`, all 26 suites executed, exit code 0 |
 | Test helper pattern | `_fixture_path`, `_unit_fixture_path`, `_spawn_shell_ready`, `_await_shell_settled`, `_make_candidate` — **duplicated per suite file**, not a shared base class | e.g. `godot/tests/bundle/test_bundle_validator.gd:7–12`; same four/five functions re-defined in 13+ other suite files (grep) — Plan F must follow this repo convention, not invent a shared helper module |
 | Bundle hash gate ordering | `BundleValidator.validate_dir()` computes sha256 of **every** `present` file and compares to the manifest's declared `sha256`, returning `hash_mismatch` **before** any decision-row parsing (duplicate-index, chosen-key, warning-shape checks all happen later) | `godot/src/bundle/bundle_validator.gd:216–227` |
 | fixture-06 real path | `sources/fixture-06/bundle` (there is **no** `bundles/fixture-06` — it is a refuse fixture, never exported as a bundle) | `godot/tests/bundle/test_bundle_validator.gd:96` (`test_fixture06_hash_mismatch`), `godot/tests/workspace/test_app_shell_smoke.gd` (`test_fixture06_refuse_reason`) |
@@ -79,6 +82,17 @@ signature drifted, stop and amend this plan.
 | `StateBanner` / `StateBannerPresenter` (Task E1, merged) | banner mounted in `AppShell`, refreshed on load/refuse/selection change | `godot/src/diagnostics/state_banner.gd`, `state_banner_presenter.gd`; wired at `app_shell.gd:219–226` |
 | CI coverage today | `.github/workflows/pytest.yml` runs three jobs, **all** `working-directory: showdown_bot`; **zero** jobs touch `showdownbot_studio/`, pytest or gdUnit | `.github/workflows/pytest.yml` (repo root) |
 | Engine pin is Windows-only | `ENGINE_SHA256SUMS` lists exactly one editor `.exe`, one console `.exe`, one `.exe.zip`, all `win64` — no Linux or macOS entry | `godot/tools/ENGINE_SHA256SUMS` |
+
+**Baseline counts moved, corrected 2026-07-24 (Rev. 5, F1 verification pass).** The pytest and
+gdUnit baseline rows above were counted against `main @ a2ede11` when this plan was drafted. F1's
+own first task (§4) required verifying §3's coverage table against the real suite; doing that
+verification also surfaced that the counts themselves had moved, because three PRs landed on
+`main` between `a2ede11` and this worktree's actual base `main @ 5feaa7c` — none of them Plan F's
+own work: PR #70 (`fix/studio-fixture-hash-integrity`, +3 pytest tests / +1 gdUnit suite, see
+§3.1's resolution below), PR #71 (Plan E merge), PR #72 (the Plan F draft-approval merge itself).
+Both corrected numbers above were re-counted directly in this revision, not copied from the audit
+doc's pytest recount alone (the gdUnit recount is this revision's own rerun). Neither change
+reflects new Plan F work.
 
 **E2–E7 surfaces are cited from Plan E, not independently re-verified here.** `WorkspaceLayout`,
 `WorkspaceShortcuts`, `DiagnosticsDock`, `StudioMonoFont`, `ShortcutLabels` (Plan E §3/§4) do not
@@ -218,6 +232,26 @@ truncate. At minimum it must run with fail-fast disabled (the `-c` flag demonstr
 otherwise assert, per suite, that executed-plus-skipped test count equals the suite's declared
 test count — so a truncated run fails closed instead of reporting a misleadingly small green
 summary. This is not a trade-off with a legitimate other side; it is not a choice point.
+
+**Addendum, 2026-07-24 (Rev. 5, F1 verification pass) — a second, distinct pre-existing drift,
+not this section's unit-fixture drift.** Running the full pytest suite surfaced a second hash-drift
+class, unrelated to the `godot/tests/fixtures/unit/` drift above: `SOURCES.md`'s recorded sha256
+for **14 files across 4 fixture directories** — `fixture-03` (`decision_trace.jsonl`,
+`results.jsonl`, `results.manifest.json`, `results.config-manifest.json`), `fixture-05` (the same
+four), `fixture-10` (`battle.log`, `results.jsonl`), `fixture-16` (the same four as 03/05) — no
+longer match the committed bytes (`test_source_immutability.py`'s two tests fail; re-verified
+directly, 2026-07-24, by walking `SOURCES.md`'s own parsed entries against `hashlib.sha256` of the
+files on disk). **Correction to the audit doc:** the gate-coverage audit's §4 states this as "12
+files across 4 fixture directories" — a direct recount in this revision found **14**, not 12 (same
+four directories, same root cause). This is pre-existing drift (predates this plan's own work,
+`git status` on this worktree is clean), outside Plan F's scope fence (§0.4: "No fix for the
+pre-existing gdUnit fail-fast default or the fixture hash drift documented in §0.6"), and belongs
+to the same already-scoped repair work as the `godot/tests/fixtures/unit/` drift and the other
+pre-existing pytest failures the audit catalogued (`test_a1_canonicalize.py::test_jcs_vectors_sha256sums`,
+`test_a3_privacy.py::test_privacy_leak_matches_fixture10_source`,
+`test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned` — all CRLF/pinned-hash drift
+outside `showdownbot_studio/` or otherwise out of scope). Recorded here so it is not lost; **not
+fixed by this revision**.
 
 ### 0.7 Visual-capture procedure (binding recipe)
 
@@ -375,6 +409,7 @@ making Plan F's closeout depend on a fix explicitly scheduled for later by someo
 | **Decision** | **G1 — advisory only** (reports mismatches, does not fail CI), against this plan's own G3 recommendation. |
 | **Rationale** | The owner chose the simpler G1 shape over the recommended two-speed G3. |
 | **Amendment — premise change (binding, must be re-checked at F1)** | Choice Point 2's grounding was that a *blocking* gate would fail immediately and permanently against the 5 pre-existing drifted `godot/tests/fixtures/unit/` fixtures (§0.6). **That premise is being removed concurrently with this decision:** a separate, independent branch `fix/studio-fixture-hash-integrity` (off `main`, **not merged**, **not part of Plan F**) reseals those 5 manifests, null-guards the two crashing tests identified in §0.6, and stops `run_gdunit_headless.ps1` truncating on first failure. The decision recorded here is advisory, exactly as the owner chose — but **the reason for choosing advisory may no longer hold by the time F1 is implemented**. F1 (§3.1, §4) must therefore re-check, at implementation time, whether `fix/studio-fixture-hash-integrity` has landed and blocking has become free before building the advisory shape sketched in §3.1. This is **not** a silent upgrade to blocking — that stays the owner's call — it is a re-check obligation on F1, not a new decision made here. |
+| **Re-check outcome (F1, 2026-07-24 — full record in §3.1, Rev. 5)** | The re-check row above has been performed. `fix/studio-fixture-hash-integrity` merged as PR #70 (`main @ ca08ad4`, confirmed ancestor of this worktree's base). The shipped guard (`tests/python/test_fixture_manifest_hash_guard.py` **and** `godot/tests/bundle/test_fixture_manifest_hash_guard.gd`) is unconditionally blocking, implements every essential this section's own sketch called for, and runs green (3/3 pytest; 3/3 and the full 255-case gdUnit suite, 0 errors/0 failures). **Resolution taken: keep the existing blocking guard, do not build a second advisory implementation** — the premise for G1 no longer holds, and downgrading a passing blocking gate would weaken it for no remaining reason. This is the re-check clause producing its intended result, not a silent override of the Decision row above; the Decision/Rationale/Status rows are left exactly as the owner wrote them. **Owner review point** (detail in §3.1): the owner may still choose to weaken the shipped guard to literal G1/advisory, but that is now a decision to make with the premise gone, not a default. |
 | **Status** | **CLOSED (owner, 2026-07-24).** |
 
 #### Choice Point 3 — 104-candidate bounded-render fixture: derive or author fresh
@@ -511,23 +546,124 @@ Bundle contract §15 lists 37 numbered gates. The table below maps each to where
 Gates already covered by Plan A's existing 77 pytest tests are marked **existing**; F1's job is the
 **new** rows, plus the two integrity/truncation gates from §0.6.
 
-| §15 gate(s) | What it proves | Coverage |
-|---|---|---|
-| 1–5 (determinism) | byte-identical re-export; file-list/digest comparison; one-byte mutation changes digest; no absolute paths; cross-machine determinism | **existing** — `test_a7_atomic_export.py`, `test_a8_fixtures.py::test_two_exports_fixture01_identical` |
-| 6–9 (canonical form) | RFC 8785 JCS; JSONL `\n`-only; non-finite fails (fixture 11); `candidate_key` round-trips | 6–7, 9 **existing** (`test_a1_canonicalize.py`); **8 new** — pair with fixture 11 |
-| 10–14 (identity/integrity) | chosen-key resolution; `chosen_rank`; chosen/`normalized_action` agreement; duplicate refuse (fixtures 9, 14); sort stability | **existing** on the real v3 fixture (`test_a4_decisions_v3.py`); **fixtures 9/14 new** |
-| 15–17 (versioning) | unknown major/capability refuse (fixtures 7, 12); minor bump preserves unknowns; required-field minor bump rejected by schema test | **fixtures 7/12 new**; 16–17 likely **existing** in `test_a6_provenance_modes.py` — verify at F1 start, do not assume |
-| 18–21 (privacy) | fixture-10 counterexample; seat pseudonym consistency; no credential-shaped keys; no nickname/`LogEvent.raw` | **existing** — `test_a3_privacy.py`, `test_a8_fixtures.py::test_fixture10_bundle_has_no_leaks` |
-| 22–25 (provenance) | `git_sha=="unknown"` → `dirty:null` (fixture 15); `source_hashes` real; `config-manifest.json` hash agreement; no `config_hash` reverse-lookup | 22 **existing** (`test_a8_fixtures.py::test_synthetic_fixture_reports_git_and_dirty_unknown`) — fixture 15's own catalogue slot per §1 is a naming question, not new coverage; 23–25 likely **existing** in `test_a6_provenance_modes.py`/`test_a2_manifest_hash.py` — verify |
-| 26–29 (degradation) | all 3 modes reachable (fixtures 1, 4, 5); `not recorded` never `0`/`false`/`[]`; `aggregation.mode:null` visible; `suspected` never rendered at 1.0 | 26 **existing**; 29 is Godot-side, folds into F3 (§4 honesty rules) |
-| 30–37 (modes/join/identity) | `request_hash` byte-identical live/offline; §11.1.1 truth table incl. fixtures 4/5/20/22a/22b/23; §11.1.2 nullability (fixture 20); provenance disagreement refuses (fixture 21); `protocol_index` sparse (fixture 17); `rqid`/`wait` skip (fixture 18); empty candidate set (fixture 16, existing); trace-v1 rejected + replay-only fallback (fixture 13) | **30 existing** (`test_a5_request_hash_recipes.py`); **20, 21, 17, 18, 13 new**; 36 **existing** (fixture-16) |
+**Corrected 2026-07-24 (Rev. 5).** The "Coverage" column below is the table exactly as Rev. 1–4
+wrote it — preserved so the correction is auditable, not a silent rewrite. It is split into what
+the plan originally claimed and what F1's verification pass actually found, gate-by-gate, reading
+every test body under `tests/python/test_*.py` against bundle contract §15's own wording (not
+grepped for names). Full per-gate evidence, including exact test names and citations, is in
+[`evidence/viewer-v0-f-gate-coverage-audit.md`](evidence/viewer-v0-f-gate-coverage-audit.md) §1 —
+this table summarizes it, the audit doc is authoritative for any dispute.
 
-**F1 must verify the "existing" cells above before relying on them** — this table was built by
-reading test *names* and fixture *usage*, not by re-running every one of the 77 pytest tests
-line-by-line against every gate's exact wording. Treat "existing" as a strong prior, not a closed
-box.
+| §15 gate(s) | What it proves | Plan originally claimed | Verified status (audit, 2026-07-24) |
+|---|---|---|---|
+| 1–5 (determinism) | byte-identical re-export; file-list/digest comparison; one-byte mutation changes digest; no absolute paths; cross-machine determinism | **existing** — `test_a7_atomic_export.py`, `test_a8_fixtures.py::test_two_exports_fixture01_identical` | gate 1 **COVERED**; gates 2, 4, 5 **PARTIAL** (each touches the area but doesn't assert the full requirement — e.g. gate 4's absolute-path/URL check covers one hardcoded literal in one fixture file, not comprehensively, and has no hostname/wall-clock check); gate 3 **MISSING** (no test mutates a source byte and confirms the re-export digest changes) |
+| 6–9 (canonical form) | RFC 8785 JCS; JSONL `\n`-only; non-finite fails (fixture 11); `candidate_key` round-trips | 6–7, 9 **existing** (`test_a1_canonicalize.py`); **8 new** — pair with fixture 11 | gate 6 **COVERED**; gate 7 **MISSING** (no test inspects emitted JSONL bytes for newline shape — citation gave no actual coverage); gate 8 **PARTIAL** (consistent with the plan's own "new" flag — not a discrepancy); gate 9 **MISSING, citation wrong** — `test_a1_canonicalize.py` has no relation to `candidate_key` at all, it is pure `dumps()` JCS-vector conformance |
+| 10–14 (identity/integrity) | chosen-key resolution; `chosen_rank`; chosen/`normalized_action` agreement; duplicate refuse (fixtures 9, 14); sort stability | **existing** on the real v3 fixture (`test_a4_decisions_v3.py`); **fixtures 9/14 new** | gates 10–12 **PARTIAL, over-claimed as existing** — `test_a4_decisions_v3.py` never asserts any of the three directly, coverage is only implicit (would raise on broken real data; nothing exercises `chosen_rank_mismatch`/`chosen_integrity`/`ambiguous_chosen_candidate`); gate 13 **MISSING** (consistent with the "new" flag — genuinely new work, not a discrepancy; see the open contract question below re: its "fixtures 9, 14" citation); gate 14 **MISSING from pytest scope** — no Python surface (sorting is Godot/UI); `godot/tests/decision/test_candidate_table_view.gd`/`test_decision_presenter.gd` are topically named but reading gdUnit bodies was outside this audit's pytest-scoped task, so status there is genuinely unverified, not credited from names |
+| 15–17 (versioning) | unknown major/capability refuse (fixtures 7, 12); minor bump preserves unknowns; required-field minor bump rejected by schema test | **fixtures 7/12 new**; 16–17 likely **existing** in `test_a6_provenance_modes.py` — verify at F1 start, do not assume | gate 15 **MISSING** (consistent with the "new" flag); gates **16, 17 MISSING — the flagged "verify" guess is confirmed wrong**. `test_a6_provenance_modes.py` was read in full (5 tests, all `git_sha`/`dirty`/provenance-disagreement) — zero minor-version-bump or unknown-field logic anywhere. F1 must build real schema tests here from scratch |
+| 18–21 (privacy) | fixture-10 counterexample; seat pseudonym consistency; no credential-shaped keys; no nickname/`LogEvent.raw` | **existing** — `test_a3_privacy.py`, `test_a8_fixtures.py::test_fixture10_bundle_has_no_leaks` | gate 18 **COVERED**; gates 19, 21 **PARTIAL** (each checked for one literal in one file — e.g. gate 21's `LogEvent.raw` half has zero coverage anywhere); gate 20 **MISSING** (no credential-shaped-key pattern check anywhere) |
+| 22–25 (provenance) | `git_sha=="unknown"` → `dirty:null` (fixture 15); `source_hashes` real; `config-manifest.json` hash agreement; no `config_hash` reverse-lookup | 22 **existing** (`test_a8_fixtures.py::test_synthetic_fixture_reports_git_and_dirty_unknown`) — fixture 15's own catalogue slot per §1 is a naming question, not new coverage; 23–25 likely **existing** in `test_a6_provenance_modes.py`/`test_a2_manifest_hash.py` — verify | gate 22 **COVERED — citation confirmed accurate**; gate 24 **PARTIAL** (refuse mechanism implemented and its positive path exercised implicitly, but zero tests exercise the mismatch/refuse path); gates **23, 25 MISSING — same flagged guess, also wrong**. Neither cited file asserts `source_hashes` against a recomputed real digest or the absence of a reverse-lookup; gate 25 in particular has zero trace anywhere (`grep -rn "reverse" tests/python/` is empty) |
+| 26–29 (degradation) | all 3 modes reachable (fixtures 1, 4, 5); `not recorded` never `0`/`false`/`[]`; `aggregation.mode:null` visible; `suspected` never rendered at 1.0 | 26 **existing**; 29 is Godot-side, folds into F3 (§4 honesty rules) | gate 26 **PARTIAL** (reachability of all 3 modes genuinely tested; "visually distinct" is a Godot/UI claim outside pytest, untested here); gate 27 **MISSING from pytest scope** (UI-rendering text, Godot-side, not found under `tests/python/`); gate 28 **PARTIAL** (the data half — `aggregation.mode is None` plus a warning — is tested; the "visible without raw JSON" UI half is not); gate 29 **MISSING from pytest scope, consistent with the plan** — not a discrepancy |
+| 30–37 (modes/join/identity) | `request_hash` byte-identical live/offline; §11.1.1 truth table incl. fixtures 4/5/20/22a/22b/23; §11.1.2 nullability (fixture 20); provenance disagreement refuses (fixture 21); `protocol_index` sparse (fixture 17); `rqid`/`wait` skip (fixture 18); empty candidate set (fixture 16, existing); trace-v1 rejected + replay-only fallback (fixture 13) | **30 existing** (`test_a5_request_hash_recipes.py`); **20, 21, 17, 18, 13 new**; 36 **existing** (fixture-16) | gate 30 **COVERED**; gate 31 **SPLIT, not classified at all in the plan's own coverage cell** — legal-combo half **COVERED**, malformed-refuse half **MISSING** (`validate_bundle.py`'s two refuse checks are implemented, zero tests exercise either); gates **32 ("20 new"), 33 ("21 new"), 37 ("13 new") — actually COVERED, plan is wrong**: `test_a6_provenance_modes.py::test_frozen_fixture04_replay_only_nullability` already asserts all 3 of gate 32's §11.1.2 fields against the real fixture-04 bundle; `test_provenance_disagreement_refuses` + `test_trace_rows_disagreeing_config_hash_refuses` + `test_a7_cli.py::test_cli_refuse_provenance_disagreement` already cover gate 33; `test_a4_decisions_v1_refuse.py` already covers both halves of gate 37. **F1 must not build fixtures 20, 21, or 13's assertions from scratch** — only naming/catalogue-wrapper work remains; gate 34 ("17 new") **PARTIAL**, consistent with "new" but real coverage exists (`test_a5_battle_join.py::test_sparse_protocol_index_gaps`) — not against a purpose-built mixed-line-type log, and doesn't rule out non-strict monotonicity or assert gaps land exactly on filtered lines; gate 35 ("18 new") **PARTIAL, materially stronger than "new" implies** — `test_a5_battle_join.py::test_request_skip_rules` already directly proves both skip rules (rqid resend, `wait` request) at the `index_requests_from_log` level with an exact count assertion; only the full-pipeline/fixture-catalogue wrapper is new; gate 36 **PARTIAL — citation wrong, substance covered elsewhere**: "fixture-16" is never referenced by name in any pytest test (confirmed by grep), but `test_a4_decisions_v3.py::test_v3_empty_candidates_team_preview_ok` and `test_a4_smoke_trace_integrity.py::test_smoke_empty_candidate_rows_export_clean` both prove the underlying claim |
+
+**Tally (audit §1): 8 COVERED / 15 PARTIAL / 14 MISSING of 37.** (Gate 31's split status is tallied
+within the MISSING count above per the audit's own totals; see the audit doc if the per-bucket
+attribution matters for a specific task.) Read the audit doc before starting any F1 task that cites
+a specific gate — this table is a summary, not a replacement for it.
+
+**Open question against the bundle contract itself, not resolved here.** Gate 13's own §15 text
+cites "fixtures 9, 14" for "duplicate identity and duplicate candidate keys refuse," but §14's
+catalogue defines fixture 14 as *chosen-candidate desync* (`chosen_*` vs. `normalized_action`
+disagreement — gate 12's subject, not gate 13's). No fixture in the 23-row §14 catalogue is
+described as "duplicate candidate keys within one row." This is an authoring inconsistency in
+[`viewer-v0-bundle-contract-design.md`](../specs/viewer-v0-bundle-contract-design.md) itself (§15
+line vs. §14 line), not something Plan F resolves unilaterally — it needs the contract's author.
+**Plan F proceeds on §14's catalogue definition** (fixture 14 = chosen-candidate desync, already
+this plan's own §1 row 14) **since it is the more specific text**; this choice is recorded here
+rather than silently assumed, and §1's fixture 9/13 rows already carry the "duplicate identity"
+half of gate 13 correctly regardless of how the fixture-14 citation is eventually resolved.
+
+**Verification has now happened (F1's first task, done, 2026-07-24).** This paragraph originally
+warned that the table above was built by reading test *names* and fixture *usage*, not by
+re-running every one of the (then-counted) 77 pytest tests line-by-line against every gate's exact
+wording, and told F1 to treat "existing" as a strong prior, not a closed box. That verification —
+F1's own first task-list bullet (§4) — ran 2026-07-24: every test body under
+`tests/python/test_*.py` was read in full against bundle contract §15's exact wording, and the
+result is committed as
+[`evidence/viewer-v0-f-gate-coverage-audit.md`](evidence/viewer-v0-f-gate-coverage-audit.md).
+**Result: the table above is corrected to match the verified reality** — several of the original
+"existing" claims were wrong (gates 16, 17, 23, 25, 9, 10–12, 3, 7), and several "new" claims turned
+out to already be covered (gates 32, 33, 37, and materially so for 35). Treat the corrected table
+above as the new strong prior for F1's remaining work — it is itself a coverage audit, not a
+re-verification of the underlying production correctness (audit doc §5).
 
 ### 3.1 Fixture-integrity gate (§0.6, binding shape)
+
+**Resolution, 2026-07-24 (Rev. 5) — the re-check §0.11 Choice Point 2 mandated on F1 has now
+happened; this section's sketch below is superseded by shipped code.** Choice Point 2's own
+amendment (§0.11) required F1 to re-check, at implementation time, whether
+`fix/studio-fixture-hash-integrity` had landed and blocking had become free before building the
+advisory shape sketched below. That branch **is now merged**: PR #70, `main @ ca08ad4` (an ancestor
+of this worktree's own base, `main @ 5feaa7c` — confirmed with `git merge-base --is-ancestor`). The
+five previously-drifted `godot/tests/fixtures/unit/` manifests are resealed (diff confirmed: exactly
+the five named in §0.6 — `chosen-key-missing-invalid`, `refuse-duplicate-decision-index`,
+`refuse-jsonl-parse-error`, `refuse-non-integral-decision-index`, `unknown-optional-preserved`).
+`run_gdunit_headless.ps1` now always passes `-c` unconditionally (no longer an opt-in flag),
+closing §3.2's truncation requirement as a side effect.
+
+The PR shipped **both** a Python guard (`tests/python/test_fixture_manifest_hash_guard.py`) and a
+Godot guard (`godot/tests/bundle/test_fixture_manifest_hash_guard.gd`) — this section's own sketch
+only anticipated one. F1's own second task-list bullet (§4, "Write
+`test_f1_fixture_integrity.py` per §3.1... Prove the fixture-integrity gate detects drift")
+therefore describes work that **already exists** under a different filename. Both were read in
+full and both re-run directly, 2026-07-24:
+
+- **Essentials from this section verified present in both**, not just recognized by name: recursive
+  glob (`_ROOTS`/`_find_manifests` walk `sources/`, `bundles/`, and `godot/tests/fixtures/unit/`
+  recursively — the Python side calls `root.rglob("manifest.json")` directly), the
+  minimum-manifest-count assertion (`_MIN_MANIFEST_COUNT = 18`, matching this section's own
+  1+6+11 = 18 floor), and fixture-06's positive mismatch assertion — both files independently
+  define a `test_fixture06_bundle_is_still_deliberately_mismatched` (same name in both the Python
+  and gdUnit copies) that asserts the mismatch set equals exactly `{"decision_trace"}`, not merely
+  non-empty. **Nothing from this section's essentials is missing** from either implementation.
+- **Both are unconditionally blocking**, not advisory: the Python guard's
+  `test_all_fixture_manifest_hashes_match_except_known_exception` does a bare
+  `assert not mismatches`; the Godot guard's `test_all_fixture_manifest_hashes_match_except_known_exception`
+  does a bare `assert_dict(mismatches).is_empty()`. Neither has an advisory/warning branch — this
+  contradicts §0.11 Choice Point 2's recorded decision (**G1 — advisory only**, across all roots).
+- **Both run green today**, re-run directly in this worktree: the 3 Python tests pass
+  (`pytest tests/python/test_fixture_manifest_hash_guard.py -q` → `3 passed`); the isolated Godot
+  suite passes (`run_gdunit_headless.ps1 -a "res://tests/bundle/test_fixture_manifest_hash_guard.gd"`
+  → `3 test cases | 0 errors | 0 failures | 0 flaky | 0 skipped | 0 orphans`, exit 0); the full
+  gdUnit suite is green (`run_gdunit_headless.ps1 -a "res://tests/"` →
+  `255 test cases | 0 errors | 0 failures | 0 flaky | 2 skipped | 0 orphans`, all 26 suites
+  executed, exit 0 — the 2 skips are the same Windows symlink-privilege skips as the pytest side).
+
+**Therefore: the premise for G1/advisory no longer exists, and the shipped guard is blocking and
+passing.**
+
+**Resolution taken: keep the existing blocking guard (both the Python and Godot copies). Do not
+build a second, advisory implementation from the sketch below.** Downgrading a passing blocking
+gate to advisory would weaken a working guard for no remaining reason, and would conflict with §5's
+own acceptance requirement that the gate demonstrably detect injected drift — an advisory gate that
+only logs is a strictly weaker proof of detection than one that fails the build. This is the outcome
+the plan's own re-check clause (§0.11 Choice Point 2's amendment) was written to produce; it is
+**not** a silent override of the owner's G1 decision — the decision text itself anticipated exactly
+this scenario and instructed F1 to re-check, not to keep the advisory shape unconditionally.
+
+> **Owner review point:** CP2 was closed as G1/advisory on a premise — that a blocking gate would
+> fail immediately and permanently against 5 pre-existing drifted fixtures — that has since been
+> removed (those 5 fixtures are resealed, PR #70). The re-check mandated by this section's own
+> amendment resolves to blocking. Flagged, not assumed; the owner may still prefer to weaken the
+> shipped guard to match the literal G1 text, but that is a choice to make now with the premise
+> gone, not a default this revision takes silently.
+
+**F1's second checkbox is updated in §4** to read as satisfied-by-existing-work rather than new
+work to build, citing both real filenames. The sketch below (P1-1, P1-2, and the code block) is
+**preserved verbatim as Rev. 1–4 wrote it** — its reasoning is exactly what the shipped guards
+implement, and the two defects it identifies (P1-1, P1-2) are confirmed fixed in both shipped
+copies — but it is historical design rationale now, not a task remaining for F1 to execute.
+
+---
 
 **Two defects in the sketched gate itself, corrected here (P1-1, P1-2 — verified against the real
 fixture layout, 2026-07-24):**
@@ -633,6 +769,14 @@ and fixture-06's positive assertion above are **not** part of that choice point:
 regardless of Choice Point 2's outcome — an empty scan and a silently "repaired" refuse fixture are
 bugs in the gate itself, not a blocking-vs-advisory policy question.
 
+**This paragraph and the code sketch above it are preserved as Rev. 1–4 wrote them, per this
+section's own top-of-section resolution note (2026-07-24, Rev. 5).** The re-check they call for has
+happened: `fix/studio-fixture-hash-integrity` is merged (PR #70, `main @ ca08ad4`), and the shipped
+guard (both Python and Godot copies, real filenames in the resolution note above) is blocking, not
+advisory, and runs green. See the resolution note at the top of this section and §0.11 Choice
+Point 2's cross-referenced re-check outcome for the full record — nothing below this point should
+be read as still-open guidance for what F1 is to build.
+
 ### 3.2 CI truncation guard (§0.6, binding, not a choice point)
 
 The CI script (location depends on Choice Point 1) must invoke gdUnit with fail-fast disabled
@@ -657,12 +801,25 @@ on its own; whoever adds the first parameterized test must update this guard by 
 
 ### F1 — Automated gate suite
 
-- [ ] Verify the "existing" cells in §3's gate table against the actual 77 pytest tests (do not
-      assume from names)
+- [x] Verify the "existing" cells in §3's gate table against the actual 77 pytest tests (do not
+      assume from names) — **done, 2026-07-24 (Rev. 5).** Verified against the real 82 collected
+      tests (baseline moved, §0.1), not the plan's stale 77. Result committed as
+      [`evidence/viewer-v0-f-gate-coverage-audit.md`](evidence/viewer-v0-f-gate-coverage-audit.md);
+      §3's table corrected to match (8 COVERED / 15 PARTIAL / 14 MISSING of 37)
 - [ ] Author fixtures 2, 7–9, 11–15, 17–23 per §1, extending `SOURCES.md` in the existing format
 - [ ] Author the 104-candidate bounded-render fixture per Choice Point 3's resolution
-- [ ] Write the new-gate pytest rows from §3 (11, 7, 12, 9, 14, 20, 21, 17, 18, 13)
-- [ ] Write `test_f1_fixture_integrity.py` per §3.1, scoped per Choice Point 2's resolution
+- [ ] Write the new-gate pytest rows from §3 (11, 7, 12, 9, 14, 20, 21, 17, 18, 13) — **note (Rev.
+      5):** fixtures 20, 21, 13 are now verified largely already covered by existing tests (§3,
+      gates 32/33/37 respectively) — see the corrected gate table before building these from
+      scratch; only the catalogue-fixture wrapper is genuinely new for those three
+- [x] Write `test_f1_fixture_integrity.py` per §3.1, scoped per Choice Point 2's resolution —
+      **satisfied by existing work, not new work (Rev. 5, 2026-07-24).** This already exists,
+      functionally equivalent, as `tests/python/test_fixture_manifest_hash_guard.py` **and**
+      `godot/tests/bundle/test_fixture_manifest_hash_guard.gd` (both landed via merged PR #70,
+      `main @ ca08ad4`). Both verified to implement every essential this section specifies
+      (recursive glob, minimum-count assertion, fixture-06 positive assertion) and both run green.
+      See §3.1's resolution note for the full record. F1 should point at these files, not duplicate
+      them
 - [ ] Prove the fixture-integrity gate detects drift (P1-3): mutate one byte of a fixture file in a
       **temporary copy** (never a committed fixture), run the gate against the copy, assert it
       fails; delete the copy after. "The gate runs" is not evidence it detects anything
@@ -794,6 +951,66 @@ require their own approved design + plan. This document must not grow those task
 ---
 
 ## 9. Changelog
+
+### Rev. 5 — F1 verification pass: gate-table correction + CP2 re-check resolution (2026-07-24)
+
+Additive in-implementation amendment, same precedent as Plan E's own Rev. 5 (an additive amend of
+an APPROVED plan during implementation, not a re-plan). **Status stays APPROVED**; no choice point
+is reopened; §8's stop line is untouched. This revision corrects §3's own coverage table, which F1's
+first task-list bullet already mandated verifying — that verification is now done.
+
+- **§3 gate-table correction.** F1's first task (verify the "existing" cells against the real
+  pytest suite, not names) was executed: every test body under `tests/python/test_*.py` was read in
+  full against bundle contract §15's exact wording, committed as
+  [`evidence/viewer-v0-f-gate-coverage-audit.md`](evidence/viewer-v0-f-gate-coverage-audit.md).
+  **Result: 8 COVERED / 15 PARTIAL / 14 MISSING of 37.** The table was substantially wrong in both
+  directions: gates 16, 17, 23, 25 (flagged "likely existing, verify") are confirmed **MISSING** —
+  the cited file (`test_a6_provenance_modes.py`) has zero minor-version-bump, unknown-field, or
+  source-hash-recompute logic; gates 9, 3, 7 (folded into blanket "existing" claims) are also
+  **MISSING**, gate 9's citation pointing at an unrelated file; gates 10–12 are **PARTIAL, not
+  existing** — coverage is implicit only, no refuse-path test exists. Conversely, gates 32, 33, 37
+  (all flagged "new") are **COVERED already** — F1 must not build these twice — and gate 35
+  ("new") is **materially stronger than "new" implies**, with its core assertion already proven.
+  §3's table now carries both the original claim and the verified status side by side, citing the
+  audit doc, so the correction is auditable rather than a silent rewrite. §3's own "F1 must verify"
+  caveat paragraph is updated to record that the verification happened, not deleted.
+- **§0.11 Choice Point 2 re-check resolution.** The choice point's own binding amendment required
+  F1 to re-check, at implementation time, whether `fix/studio-fixture-hash-integrity` had landed
+  and blocking had become free before building the advisory gate sketched in §3.1. That branch is
+  now merged (PR #70, `main @ ca08ad4`, confirmed ancestor of this worktree's base). The shipped
+  guard — `tests/python/test_fixture_manifest_hash_guard.py` **and**
+  `godot/tests/bundle/test_fixture_manifest_hash_guard.gd`, both previously unknown to this plan —
+  implements every essential §3.1 specifies (recursive glob, minimum-manifest-count assertion,
+  fixture-06 positive mismatch assertion) and is **unconditionally blocking**, not advisory,
+  contradicting CP2's recorded G1 decision. Both copies re-run green in this revision (3/3 pytest;
+  3/3 isolated gdUnit; full 255-case gdUnit suite 0 errors/0 failures). **Resolution taken: keep
+  the existing blocking guard, do not build a second advisory implementation** — the premise for
+  G1 no longer holds, and downgrading a passing blocking gate would weaken it for no remaining
+  reason. Flagged explicitly as an **owner review point** in §3.1 (cross-referenced from §0.11) —
+  this is the re-check clause producing its intended result, not a silent override of the owner's
+  G1 decision, and the Decision/Rationale/Status rows of CP2 are left exactly as the owner wrote
+  them. F1's own second task-list checkbox (§4) is updated to read satisfied-by-existing-work,
+  citing both real filenames.
+- **Bundle-contract inconsistency, flagged for the owner, not resolved here.** §15's gate 13 cites
+  "fixtures 9, 14" for "duplicate identity and duplicate candidate keys refuse," but §14's own
+  catalogue defines fixture 14 as *chosen-candidate desync* (gate 12's subject, not gate 13's) — no
+  fixture in the 23-row catalogue matches gate 13's "duplicate candidate keys" description. This is
+  an authoring inconsistency in the bundle-contract design doc itself. Plan F proceeds on §14's
+  catalogue definition (the more specific text) and records that choice in §3, rather than silently
+  assuming it; the contract itself is not amended here.
+- **`SOURCES.md` drift is broader than the audit doc scoped it.** The audit doc's own §4 states the
+  pre-existing `test_source_immutability.py` failures span "12 files across 4 fixture directories."
+  A direct recount in this revision found **14 files**, not 12, across the same four directories
+  (`fixture-03`, `fixture-05`, `fixture-10`, `fixture-16`) — the audit doc undercounted its own
+  finding by 2. Recorded in §0.6 with the corrected count; still pre-existing, still outside Plan
+  F's scope fence (§0.4), still not fixed here.
+- **§0.1 baseline counts corrected.** The plan's own pytest/gdUnit baseline rows were counted
+  against `main @ a2ede11`; this worktree's actual base is `main @ 5feaa7c`, three merged PRs later
+  (#70 fixture-hash-integrity, #71 Plan E, #72 Plan F draft-approval). Corrected in place: pytest
+  **77/17 → 18 files, 80 `def test_*`, 82 collected** (re-verified directly,
+  `pytest --collect-only`); gdUnit **207/20 → 26 files, 255 test cases** (re-verified directly, a
+  full `run_gdunit_headless.ps1 -a "res://tests/"` run, 0 errors/0 failures/2 skipped, exit 0).
+  Neither change is new Plan F work.
 
 ### Rev. 4 — owner marked the plan APPROVED (2026-07-24)
 
