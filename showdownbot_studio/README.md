@@ -17,8 +17,21 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
 - **Plan A** merged via PR **#41** (exporter + fixtures).
 - **Plan B** merged via PR **#44** (Godot shell + sealed DTO loader).
 - **Plan C** merged via PR **#46** (replay board + timeline) @ `1b0be1d`.
-- **Plans D–F** remain DRAFT. **Next:** Plan D implementation (APPROVED Rev. 5).
-- Live client, plugins, mods, and external bots: future phases only.
+- **Plan D** merged via PR **#47** (+ follow-ups PR **#48**) @ `0256602` (candidate table +
+  decision detail).
+- **Plan E** merged: E1 shipped as `e757772`, E2–E7 merged via PR **#71** (`4ed406c`)
+  (diagnostics, scale/density, keyboard shortcuts, layout shell).
+- **Plan F** APPROVED (Rev. 6) and its implementation is running on branch
+  `studio/plan-f-acceptance` — **not yet merged to `main`, and not complete.** F1–F3 (fixture
+  catalogue, automated gates, honesty audit) and F4 (this docs closeout) are done on that branch;
+  F1's own CI-wiring task is still open (no `showdownbot_studio/` job exists in
+  `.github/workflows/` yet — every green count reported anywhere in this plan set is a local
+  measurement, not CI-verified) and the gate fail-check pass is partial. See
+  [`docs/plans/evidence/viewer-v0-f-merge-readiness.md`](docs/plans/evidence/viewer-v0-f-merge-readiness.md)
+  for the full state before any merge decision.
+- **Phase 1+ (Live Spectator, Team Analyzer, full client, add-ons, external bots) remain explicitly
+  unauthorized** — Plan F's own stop line (§8) forbids growing this plan set toward them; each
+  needs its own approved design + plan first.
 - Active ShowdownBot work remains governed by [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Start here

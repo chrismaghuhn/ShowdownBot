@@ -330,6 +330,16 @@ and `focus_diagnostics` exist on `WorkspaceLayout` and are invoked from `Workspa
 is a read, not a re-implementation — if either is still missing, that is Plan E's own regression
 task (E7) failing to close its own deferral, not something F4 fixes.
 
+**F4 re-check performed, 2026-07-24 — both landed, cited by `file:line`.**
+`StudioMonoFont.apply_to()` is called at `godot/src/diagnostics/diagnostics_dock.gd:27` (the Raw
+tab `TextEdit`) and `:84` (mono provenance `Value` labels, gated on `row.mono`); the deferral
+comment this section quotes is no longer present anywhere in that file.
+`WorkspaceLayout.reset_to_safe()` (`godot/src/workspace/workspace_layout.gd:116`) is invoked from
+`WorkspaceShortcuts` at `godot/src/workspace/workspace_shortcuts.gd:68` (Ctrl+Shift+0);
+`WorkspaceLayout.focus_diagnostics()` (`workspace_layout.gd:130`) is invoked from
+`workspace_shortcuts.gd:64` (Ctrl+Shift+D). No regression — both deferrals closed as Plan E's own
+text promised.
+
 ### 0.10 Implementation gate
 
 This Rev. 1 is **DRAFT**. Code still starts only after: (1) Plans A–E are green and merged (index
@@ -864,14 +874,27 @@ on its own; whoever adds the first parameterized test must update this guard by 
 
 ### F4 — Docs closeout
 
-- [ ] Re-verify Plan E's deferred work landed per §0.9 (`StudioMonoFont` wired, `reset_to_safe` /
-      `focus_diagnostics` wired) by reading the merged source, not Plan E's own plan text
-- [ ] Flip plan statuses A–F from DRAFT→APPROVED only for plans already approved earlier; else
-      leave history untouched
-- [ ] Update [`../README.md`](../README.md) Studio status lines
-- [ ] Update [`README.md`](README.md) plans index
-- [ ] Explicitly state Phase 1+ still unauthorized
-- [ ] **Commit:** `docs(studio): Plan F documentation closeout`
+- [x] Re-verify Plan E's deferred work landed per §0.9 (`StudioMonoFont` wired, `reset_to_safe` /
+      `focus_diagnostics` wired) by reading the merged source, not Plan E's own plan text —
+      **done, 2026-07-24.** All three confirmed present in the real merged source, cited by
+      `file:line`: `StudioMonoFont.apply_to()` called at
+      `godot/src/diagnostics/diagnostics_dock.gd:27` (Raw tab `TextEdit`) and `:84` (mono
+      provenance `Value` labels) — the E2-era deferral comment quoting "do NOT call
+      `StudioMonoFont.apply_to()` yet" is gone from the file; `WorkspaceLayout.reset_to_safe()` at
+      `godot/src/workspace/workspace_layout.gd:116`, invoked from
+      `godot/src/workspace/workspace_shortcuts.gd:68` (Ctrl+Shift+0); `WorkspaceLayout.focus_diagnostics()`
+      at `godot/src/workspace/workspace_layout.gd:130`, invoked from
+      `godot/src/workspace/workspace_shortcuts.gd:64` (Ctrl+Shift+D). No regression found
+- [x] Flip plan statuses A–F from DRAFT→APPROVED only for plans already approved earlier; else
+      leave history untouched — **checked, none flipped.** All six plan documents' own `Status:`
+      header lines already read APPROVED (A Rev. 6, B Rev. 6, C Rev. 5, D Rev. 5, E Rev. 3, F
+      Rev. 4/6) — none is DRAFT in this worktree, so there was nothing to flip. Plan A–E documents
+      were not edited
+- [x] Update [`../README.md`](../README.md) Studio status lines — done; also corrected the stale
+      Plan D/E "DRAFT" status and merge PR citations it still carried
+- [x] Update [`README.md`](README.md) plans index — done; same correction
+- [x] Explicitly state Phase 1+ still unauthorized — done in both READMEs above
+- [x] **Commit:** `docs(studio): Plan F documentation closeout`
 
 ### F5 — Merge readiness packet
 
