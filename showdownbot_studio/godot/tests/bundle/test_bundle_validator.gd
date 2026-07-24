@@ -223,6 +223,10 @@ func test_refuse_malformed_warning_object() -> void:
 func test_chosen_key_missing_marks_invalid() -> void:
 	var result: ValidationResult = BundleValidator.validate_dir(_unit_fixture_path("chosen-key-missing-invalid"))
 	assert_bool(result.ok).is_true()
+	# gdUnit4 assertions record and continue rather than abort; a refused result leaves
+	# result.bundle null, so guard the dereference instead of crashing the whole run.
+	if not result.ok:
+		return
 	var found_invalid := false
 	for row in result.bundle.decisions:
 		if row is DecisionRowDTO and not row.decision_valid:
@@ -233,6 +237,8 @@ func test_chosen_key_missing_marks_invalid() -> void:
 func test_unknown_optional_preserved() -> void:
 	var result: ValidationResult = BundleValidator.validate_dir(_unit_fixture_path("unknown-optional-preserved"))
 	assert_bool(result.ok).is_true()
+	if not result.ok:
+		return
 	assert_int(result.bundle.decisions.size()).is_greater(0)
 	var row: DecisionRowDTO = result.bundle.decisions[0]
 	assert_bool(row.unknown_fields.has("future_trace_field")).is_true()

@@ -42,11 +42,16 @@ if (-not (Test-Path -LiteralPath (Join-Path $godotCache "global_script_class_cac
 Push-Location $ProjectRoot
 try {
     # --ignoreHeadlessMode: Studio Plan B tests are non-UI; gdUnit4 otherwise exits 103.
+    # -c: gdUnit4's GdUnitTestCIRunner defaults fail_fast(true) (GdUnitTestCIRunner.gd:109),
+    # so a suite aborts at its first failure and every remaining test goes silently
+    # unattempted -- neither the summary line nor the exit code says so. Always pass -c so a
+    # truncated run can't happen by accident; it is not exposed as an opt-in switch on purpose.
     $argList = @(
         "--path", $ProjectRoot,
         "--headless",
         "-s", "res://addons/gdUnit4/bin/GdUnitCmdTool.gd",
-        "--ignoreHeadlessMode"
+        "--ignoreHeadlessMode",
+        "-c"
     )
     if ($GdUnitArgs -and $GdUnitArgs.Count -gt 0) {
         $argList += $GdUnitArgs
