@@ -13,8 +13,13 @@ extends TabContainer
 const TRUNCATION_MARKER := "… truncated"
 const MAX_RAW_CHARS := 20000
 
-@onready var _provenance_list: VBoxContainer = $Provenance
-@onready var _warnings_list: VBoxContainer = $Warnings
+## Provenance/Warnings tabs are ScrollContainer > VBoxContainer("Rows") so
+## per-row content (11 provenance rows, N warning rows) never inflates the
+## TabContainer's own minimum size and forces MainSplit taller than the
+## window (root cause of the 1280x720 transport-row overflow — see
+## fix(studio) commit message). Raw stays a bare TextEdit; it already scrolls.
+@onready var _provenance_list: VBoxContainer = $Provenance/Rows
+@onready var _warnings_list: VBoxContainer = $Warnings/Rows
 @onready var _raw_text: TextEdit = $Raw
 
 

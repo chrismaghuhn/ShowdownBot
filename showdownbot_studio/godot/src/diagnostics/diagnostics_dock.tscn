@@ -6,11 +6,21 @@
 layout_mode = 2
 script = ExtResource("1_dock")
 
-[node name="Provenance" type="VBoxContainer" parent="."]
+[node name="Provenance" type="ScrollContainer" parent="."]
 layout_mode = 2
+horizontal_scroll_mode = 0
 
-[node name="Warnings" type="VBoxContainer" parent="."]
+[node name="Rows" type="VBoxContainer" parent="Provenance"]
 layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Warnings" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="Warnings"]
+layout_mode = 2
+size_flags_horizontal = 3
 
 [node name="Raw" type="TextEdit" parent="."]
 layout_mode = 2

@@ -68,6 +68,10 @@ func _ctrl_key(keycode: int) -> InputEventKey:
 	return e
 
 
+func _global_rect(control: Control) -> Rect2:
+	return Rect2(control.global_position, control.size)
+
+
 func test_banner_visible_fixture01() -> void:
 	# Plan D selects decision_index=0 (team_preview) by default (§5.6).
 	var shell: AppShell = await _spawn_shell_ready()
@@ -172,3 +176,57 @@ func test_keyboard_only_smoke_fixture01() -> void:
 
 	shortcuts._unhandled_input(_ctrl_key(KEY_L))
 	assert_int(table.get_selected_candidate_index()).is_greater_equal(0)
+
+
+func test_primary_controls_reachable_at_1280x720() -> void:
+	# Plan §0.7 binding: "timeline controls and path/open (file) row remain
+	# reachable"; Plan E §7 acceptance: "primary controls reachable at
+	# 1280x720". DisplayServer window geometry is stubbed headless
+	# (test_workspace_layout.gd:111-118), but Window/Control layout math is
+	# not — resize the root Window directly and let containers re-layout.
+	var shell: AppShell = await _spawn_shell_ready()
+	get_tree().root.size = Vector2i(1280, 720)
+	await await_idle_frame()
+	await await_idle_frame()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	await await_idle_frame()
+	await await_idle_frame()
+
+	var viewport_rect := Rect2(Vector2.ZERO, Vector2(get_tree().root.size))
+
+	var play_button: Control = (
+		shell.get_replay_workspace().get_timeline_view().get_node("Controls/PlayButton")
+	)
+	assert_bool(viewport_rect.encloses(_global_rect(play_button))).override_failure_message(
+		"transport PlayButton at %s must stay inside the %s window (was it pushed off the bottom?)"
+		% [str(_global_rect(play_button)), str(viewport_rect)]
+	).is_true()
+
+	var path_row: Control = shell.get_node("VBox/PathRow")
+	assert_bool(viewport_rect.encloses(_global_rect(path_row))).override_failure_message(
+		"PathRow (Open) at %s must stay inside the %s window"
+		% [str(_global_rect(path_row)), str(viewport_rect)]
+	).is_true()
+
+	# DiagnosticsDock Provenance: the dock itself must not overflow the window,
+	# and its last row ("dirty") must be reachable by scrolling within it —
+	# not merely present somewhere off-screen (§0.9 / §5.3).
+	var diagnostics := shell.get_layout().get_diagnostics_dock()
+	diagnostics.current_tab = 0  # Provenance
+	await await_idle_frame()
+	assert_bool(viewport_rect.encloses(_global_rect(diagnostics))).override_failure_message(
+		"DiagnosticsDock at %s must stay inside the %s window"
+		% [str(_global_rect(diagnostics)), str(viewport_rect)]
+	).is_true()
+
+	var scroll: ScrollContainer = diagnostics.get_node("Provenance")
+	scroll.scroll_vertical = 1000000
+	await await_idle_frame()
+	var last_row := diagnostics.get_provenance_value_control_at(
+		diagnostics.get_provenance_row_count() - 1
+	)
+	assert_bool(_global_rect(scroll).encloses(_global_rect(last_row))).override_failure_message(
+		"provenance 'dirty' row at %s must be reachable by scrolling within %s"
+		% [str(_global_rect(last_row)), str(_global_rect(scroll))]
+	).is_true()
