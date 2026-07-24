@@ -170,3 +170,65 @@ def test_validate_refuses_string_booleans(tmp_path):
     with pytest.raises(BundleValidationError) as exc:
         validate_bundle_dir(dst)
     assert exc.value.reason == "malformed_type"
+
+
+def test_higher_minor_with_known_capabilities_opens_and_preserves_unknown_optional_field(tmp_path):
+    """Bundle contract §15 gate 16 / §6: "A higher minor with only known capabilities opens
+    and preserves unknown optional fields." The audit found the plan's own "likely existing,
+    verify" guess for this gate confirmed wrong -- genuinely MISSING. Schema 1.0 defines
+    zero known capabilities (§6: "Capability names are reserved, not implemented"), so
+    "only known capabilities" is exercised here by the only case the current schema can
+    produce: required_capabilities stays empty. The reader must still open a bundle whose
+    minor is bumped above what this exporter writes, and must preserve an unfamiliar
+    top-level field verbatim (for raw display) rather than stripping or rejecting it --
+    validate_bundle_dir returns the full parsed manifest dict, so "preserved" is asserted by
+    reading the unknown field back out of the return value, not merely "did not raise".
+    """
+    import shutil
+
+    dst = tmp_path / "copy"
+    shutil.copytree(BUNDLE, dst)
+
+    def mutate(manifest, _dst):
+        manifest["viewer_bundle_schema"]["minor"] = 7
+        manifest["a_future_optional_field"] = {"nested": "preserved-verbatim"}
+
+    _rewrite_manifest(dst, mutate)
+    manifest = validate_bundle_dir(dst)
+    assert manifest["viewer_bundle_schema"]["minor"] == 7
+    assert manifest["a_future_optional_field"] == {"nested": "preserved-verbatim"}
+
+
+def test_minor_bump_declaring_new_required_capability_refuses_naming_it(tmp_path):
+    """Bundle contract §15 gate 17 / §6: "A minor bump that adds a required field is
+    rejected by a schema test -- the rule is enforced, not documented." The audit found the
+    plan's own "likely existing, verify" guess for this gate confirmed wrong -- genuinely
+    MISSING.
+
+    Finding: the current reader has exactly one mechanism for rejecting something a minor
+    bump introduces that it does not understand -- required_capabilities. §6's own text ties
+    the two together directly ("a minor bump may only add optional fields or optional
+    capabilities... may never add a required field", immediately followed by "unknown entry
+    in required_capabilities -> refuse"). There is no separate "unknown required top-level
+    field" detector in validate_bundle_dir: an unnamed extra field is always treated as
+    optional and silently preserved regardless of minor (see the gate-16 test above, same
+    manifest shape). So the only way a minor bump can validly signal "this bundle needs
+    something you don't have" is a named capability, and this test proves that path refuses
+    under an explicitly bumped minor -- not just capability refusal in isolation, which
+    gate 15 already covers on the Godot side against fixture-12
+    (test_fixture12_unknown_required_capability_refuses).
+    """
+    import shutil
+
+    dst = tmp_path / "copy"
+    shutil.copytree(BUNDLE, dst)
+
+    def mutate(manifest, _dst):
+        manifest["viewer_bundle_schema"]["minor"] = 3
+        manifest["required_capabilities"] = ["new_required_thing_v1"]
+
+    _rewrite_manifest(dst, mutate)
+    with pytest.raises(BundleValidationError) as exc:
+        validate_bundle_dir(dst)
+    assert exc.value.reason == "unsupported_capability"
+    assert "new_required_thing_v1" in exc.value.message

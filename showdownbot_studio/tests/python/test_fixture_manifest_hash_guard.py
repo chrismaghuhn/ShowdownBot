@@ -2,11 +2,19 @@
 
 Verify-only -- never recomputes or rewrites a mismatch (that would delete the check it
 exists to be; see python/reseal_manifest_hashes.py for the deliberate, hand-run tool that
-does the healing). The one known exception is fixtures/viewer-v0/sources/fixture-06/bundle,
-which is DELIBERATELY mismatched -- it is what test_fixture06_hash_mismatch in
-godot/tests/bundle/test_bundle_validator.gd and test_app_shell_smoke.gd's
-test_fixture06_refuse_reason exist to exercise. That exception is asserted positively
-below (its own test proves it still mismatches), not just excluded from the sweep.
+does the healing). Two known exceptions exist, both asserted positively below (their own
+tests prove the expected condition still holds), never just excluded from the sweep:
+
+- fixtures/viewer-v0/sources/fixture-06/bundle is DELIBERATELY hash-mismatched -- it is
+  what test_fixture06_hash_mismatch in godot/tests/bundle/test_bundle_validator.gd and
+  test_app_shell_smoke.gd's test_fixture06_refuse_reason exist to exercise.
+- fixtures/viewer-v0/sources/fixture-08/bundle DELIBERATELY declares decision_trace
+  present:true while the file is absent from disk (bundle contract §14 fixture 8 / §11.1.1
+  invariant 5) -- it is what test_fixture08_missing_mandatory_file_refuses in
+  test_bundle_validator.gd exercises. This is a distinct condition from a hash mismatch (the
+  file doesn't exist to hash at all), so it gets its own label, "missing_on_disk", rather
+  than being folded into "hash_mismatch" -- collapsing the two would make a future "file
+  deleted by accident" indistinguishable from "file's bytes drifted" in this guard's output.
 """
 
 # ruff: noqa: S101 -- pytest assertion rewriting needs bare `assert`, matches every
@@ -29,12 +37,23 @@ _ROOTS = (
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles",
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources",
 )
-_MIN_MANIFEST_COUNT = 18  # measured: 11 unit + 6 bundles + 1 sources/fixture-06/bundle
+# measured: 11 unit + 10 bundles (fixture-19, 02, 17, 18 added) + 8 sources-bundle dirs
+# (fixture-06 plus Plan F's fixtures 7, 8, 9, 12, 22a, 22b, 23). Fixtures 11, 14, 19, 21's
+# sources/ raw-input dirs, and fixture-02/17/18's own sources/ dirs, do not have a
+# manifest.json (raw producer inputs, not exported bundle copies), so they do not add to
+# this count.
+_MIN_MANIFEST_COUNT = 29
 
 _FIXTURE06_MANIFEST = (
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-06" / "bundle" / "manifest.json"
 )
-_EXPECTED_MISMATCH = {_FIXTURE06_MANIFEST: {"decision_trace"}}
+_FIXTURE08_MANIFEST = (
+    STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-08" / "bundle" / "manifest.json"
+)
+_EXPECTED_BAD = {
+    _FIXTURE06_MANIFEST: {"decision_trace": "hash_mismatch"},
+    _FIXTURE08_MANIFEST: {"decision_trace": "missing_on_disk"},
+}
 
 
 def _manifests() -> list[Path]:
@@ -44,15 +63,26 @@ def _manifests() -> list[Path]:
     return found
 
 
-def _mismatched_keys(manifest_path: Path) -> set[str]:
+def _bad_keys(manifest_path: Path) -> dict[str, str]:
+    """Map each present:true logical key to its problem, if any.
+
+    A file that's absent on disk ("missing_on_disk") is a distinct, legitimate fixture
+    state (fixture-08's own condition, contract §14 fixture 8) from a byte-level hash
+    drift ("hash_mismatch", fixture-06's condition) -- they get different labels rather
+    than being folded into one, so real drift can never be masked as an expected miss.
+    """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    bad = set()
+    bad: dict[str, str] = {}
     for key, entry in manifest.get("files", {}).items():
         if not entry.get("present"):
             continue
-        actual = sha256_file(manifest_path.parent / entry["path"])
+        file_path = manifest_path.parent / entry["path"]
+        if not file_path.is_file():
+            bad[key] = "missing_on_disk"
+            continue
+        actual = sha256_file(file_path)
         if actual != entry.get("sha256"):
-            bad.add(key)
+            bad[key] = "hash_mismatch"
     return bad
 
 
@@ -64,15 +94,20 @@ def test_manifest_scan_finds_expected_fixtures():
 
 
 def test_all_fixture_manifest_hashes_match_except_known_exception():
-    mismatches: dict[str, set[str]] = {}
+    mismatches: dict[str, dict[str, str]] = {}
     for manifest_path in _manifests():
-        bad = _mismatched_keys(manifest_path)
-        expected = _EXPECTED_MISMATCH.get(manifest_path, set())
+        bad = _bad_keys(manifest_path)
+        expected = _EXPECTED_BAD.get(manifest_path, {})
         if bad != expected:
             mismatches[str(manifest_path)] = bad
-    assert not mismatches, f"unexpected hash drift (or a healed fixture-06): {mismatches}"
+    assert not mismatches, f"unexpected hash drift or missing file (or a healed known exception): {mismatches}"
 
 
 def test_fixture06_bundle_is_still_deliberately_mismatched():
     assert _FIXTURE06_MANIFEST.is_file(), _FIXTURE06_MANIFEST
-    assert _mismatched_keys(_FIXTURE06_MANIFEST) == {"decision_trace"}
+    assert _bad_keys(_FIXTURE06_MANIFEST) == {"decision_trace": "hash_mismatch"}
+
+
+def test_fixture08_bundle_still_declares_missing_required_file():
+    assert _FIXTURE08_MANIFEST.is_file(), _FIXTURE08_MANIFEST
+    assert _bad_keys(_FIXTURE08_MANIFEST) == {"decision_trace": "missing_on_disk"}

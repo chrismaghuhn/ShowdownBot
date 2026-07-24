@@ -12,8 +12,9 @@ here; the status line on each document is authoritative.
 | Plan A | **APPROVED** + **merged** via PR **#41** |
 | Plan B | **APPROVED** + **merged** via PR **#44** |
 | Plan C | **APPROVED** + **merged** via PR **#46** @ `1b0be1d` |
-| Plan D | **APPROVED** — Rev. 5; implementation authorized |
-| Plans E–F | **DRAFT** — each needs its own APPROVED mark before its code may start |
+| Plan D | **APPROVED** — Rev. 5; **merged** via PR **#47** (+ follow-ups PR **#48**) @ `0256602` |
+| Plan E | **APPROVED** — Rev. 3; **merged** — E1 shipped as `e757772`, E2–E7 via PR **#71** (`4ed406c`) |
+| Plan F | **APPROVED** — Rev. 6; implementation running on `studio/plan-f-acceptance`, **not yet merged to `main`, not complete** — see [`evidence/viewer-v0-f-merge-readiness.md`](evidence/viewer-v0-f-merge-readiness.md) |
 
 **Planning authorization:** Viewer v0 design + bundle contract are APPROVED and authorize these
 plans. The master spec is non-binding context for Phase 0 (index §2.2).
@@ -32,11 +33,14 @@ plans. The master spec is non-binding context for Phase 0 (index §2.2).
 | A | [`2026-07-21-viewer-v0-a-exporter-and-fixtures.md`](2026-07-21-viewer-v0-a-exporter-and-fixtures.md) | Python exporter + contract fixtures | **merged** PR #41 |
 | B | [`2026-07-21-viewer-v0-b-godot-shell-and-loader.md`](2026-07-21-viewer-v0-b-godot-shell-and-loader.md) | Godot project + typed DTO loader | **merged** PR #44 |
 | C | [`2026-07-21-viewer-v0-c-replay-and-timeline.md`](2026-07-21-viewer-v0-c-replay-and-timeline.md) | Abstract board + timeline | **merged** PR #46 |
-| D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | **DRAFT** |
-| E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | DRAFT |
-| F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | DRAFT |
+| D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | **merged** PR #47 + #48 |
+| E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | **merged** PR #71 |
+| F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | **APPROVED**, implementing on `studio/plan-f-acceptance`, **not merged, not complete** |
 
-**Next:** Plan D implementation (APPROVED Rev. 5). Plans E–F remain DRAFT until their own APPROVED marks.
+**Next:** Plan F's remaining open items (F1's CI-wiring task; the partial fail-check pass; owner
+review of the F5 merge-readiness packet) before any merge to `main` is considered. **Phase 1+
+(Live Spectator, Team Analyzer, full client, add-ons, external bots) remain explicitly
+unauthorized** — Plan F's own stop line (§8) — and have no plans here.
 
 ## Authority for this plan set
 

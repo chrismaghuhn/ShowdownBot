@@ -60,6 +60,131 @@
 - `fixtures/viewer-v0/sources/fixture-06/bundle/manifest.json` sha256 `c42b843880a09fd88aa9a712d8e51f4ac46223e15e616bc02f30db9371d6d369`
 - `fixtures/viewer-v0/sources/fixture-06/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
 
+## fixture-07
+- source_kind: unsupported major (bundle copy)
+- note: copy of bundles/fixture-01 with viewer_bundle_schema.major mutated 1 -> 2; every
+  data file is byte-identical to bundle/fixture-01 (unchanged, correctly-hashed); only
+  manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-07/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/manifest.json` sha256 `b981eaeb816a8bae600898bbee34fa9eaa27f8c42aae6aa7a6f953a3209bf5ca`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-08
+- source_kind: missing mandatory file (bundle copy)
+- note: copy of bundles/fixture-01 with decisions.jsonl deleted from disk; manifest.json is
+  BYTE-IDENTICAL to bundle/fixture-01's (same sha256 as fixture-01's own manifest.json) --
+  files.decision_trace still declares present:true/required:true with its original,
+  correct sha256, which is now unreachable on disk. This is the fixture-integrity guard's
+  second known exception (tests/python/test_fixture_manifest_hash_guard.py,
+  godot/tests/bundle/test_fixture_manifest_hash_guard.gd): a present:true entry whose file
+  is absent is reported as "missing_on_disk", asserted positively, not excluded
+- `fixtures/viewer-v0/sources/fixture-08/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/decisions.jsonl` -- deleted; manifest still declares sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0` (unreachable on disk, by design)
+- `fixtures/viewer-v0/sources/fixture-08/bundle/manifest.json` sha256 `c42b843880a09fd88aa9a712d8e51f4ac46223e15e616bc02f30db9371d6d369`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-09
+- source_kind: duplicate decision identity (bundle copy)
+- note: copy of bundles/fixture-01 with decisions.jsonl mutated to duplicate the last row
+  (decision_index 2 appended a second time, byte-identical to the first occurrence);
+  manifest.json's decision_trace hash is correctly recomputed for the mutated bytes via
+  python/reseal_manifest_hashes.py -- other files unchanged/correctly-hashed. Same shape as
+  godot/tests/fixtures/unit/refuse-duplicate-decision-index, but owned by Plan F's own §14
+  catalogue (§0.2) with its own correctly-hashed manifest; does not repeat the §0.6 drift
+- `fixtures/viewer-v0/sources/fixture-09/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-09/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-09/bundle/decisions.jsonl` sha256 `1b3f2285901fedd008e2b098769f95f760fb3392b8002bade796f7d99258b32a`
+- `fixtures/viewer-v0/sources/fixture-09/bundle/manifest.json` sha256 `eb21dbb3c3c6d846129ff97ceda5483dc18c6b782ca15eab5a4e7c475cf7682c`
+- `fixtures/viewer-v0/sources/fixture-09/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-11
+- source_kind: non-finite value (exporter-side refuse, no bundle produced)
+- note: copy of fixture-01/decision_trace.jsonl with row 1's decision_latency_ms mutated to
+  NaN. Proved via tests/python/test_f1_fixture_catalogue.py::test_fixture11_non_finite_value_fails_export.
+  Finding: through the real load_trace_rows pipeline this is intercepted by
+  showdown_bot.eval.decision_capture.validate_trace_row before export_decisions_jsonl's own
+  non_finite_value check is ever reached, so the observed refuse reason is "trace_validation",
+  not "non_finite_value" as the plan's §1 recipe column assumed -- see the test docstring and
+  the task report for the full finding. Bundle contract §15 gate 8 itself only requires
+  "fails export" and does not name a reason string, so this is satisfied regardless
+- `fixtures/viewer-v0/sources/fixture-11/decision_trace.jsonl` sha256 `c7140dc550f0605215399508a863f688f1545597d78957c1b72a6376ca950f79`
+
+## fixture-14
+- source_kind: chosen-candidate desync (exporter-side refuse, no bundle produced)
+- note: copy of fixture-01/decision_trace.jsonl with row 2's chosen (and matching candidate)
+  candidate_key move_index mutated 1 -> 2; normalized_action left untouched (still move_index
+  1), so the resolved chosen candidate disagrees with normalized_action (§11.4). Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture14_chosen_candidate_desync_refuses
+  (reason "chosen_integrity")
+- `fixtures/viewer-v0/sources/fixture-14/decision_trace.jsonl` sha256 `5980b324fed9ae386bb47962f75eaf23a4db1e177cee258bd676e456a59cf8c5`
+
+## fixture-19
+- source_kind: unjoinable decision (exports cleanly; not a refuse fixture)
+- note: fixture-01's battle.log unchanged; decision_trace.jsonl's row 2 (decision_index 2)
+  request_hash mutated to 64 `f` characters, matching no `|request|` line in the log. The
+  decision stays a distinct timeline entry with request_protocol_index null, never dropped.
+  Proved via tests/python/test_f1_fixture_catalogue.py::test_fixture19_unjoinable_decision_not_dropped
+  and godot/tests/bundle/test_bundle_validator.gd::test_fixture19_unjoinable_decision_stays_in_timeline
+- `fixtures/viewer-v0/sources/fixture-19/battle.log` sha256 `883a930a78e7b9a4f193b7846c826a8f992682c1ce1ed77f4da89021e0b933dc`
+- `fixtures/viewer-v0/sources/fixture-19/decision_trace.jsonl` sha256 `8f0b0ed8c0dde0813513bf166ad6eb620db60f4afb32100ccffd25683188b2f0`
+
+## fixture-21
+- source_kind: provenance disagreement (exporter-side refuse, no bundle produced)
+- note: fixture-01's decision_trace.jsonl unchanged; results.jsonl's config_hash mutated to
+  `deadbeefdeadbeef` (disagreeing with the trace rows' `bbbbbbbbbbbbbbbb`). §14 completeness
+  fixture only -- gate 33 is already COVERED by three existing tests (Rev. 5 gate-coverage
+  audit, §3), no duplicate test is added here:
+  tests/python/test_a6_provenance_modes.py::test_provenance_disagreement_refuses,
+  tests/python/test_a6_provenance_modes.py::test_trace_rows_disagreeing_config_hash_refuses,
+  tests/python/test_a7_cli.py::test_cli_refuse_provenance_disagreement
+- `fixtures/viewer-v0/sources/fixture-21/decision_trace.jsonl` sha256 `54bd449414199dfac7c2cbaf0f995f3114df296ae4d95619d94f1e4bab5ec8ca`
+- `fixtures/viewer-v0/sources/fixture-21/results.jsonl` sha256 `ec7f9dc9cfc54f8c7691ba1edad9af8e7b3e93151abce6e91c7eefade88dc4a3`
+
+## fixture-12
+- source_kind: unknown required capability (bundle copy)
+- note: copy of bundles/fixture-01 with required_capabilities mutated [] -> ["belief_v2"];
+  data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-12/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/manifest.json` sha256 `647fd0321401432735878816427d97dabb8665251db72dff21610223e7e95f68`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-22a
+- source_kind: mode key required:false present:true (bundle copy, §11.1.1 invariant 1)
+- note: copy of bundles/fixture-01 with files.battle_log.required mutated true -> false
+  (present stays true); data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/manifest.json` sha256 `c92f2842a0eef0164134113261ac1130c9767fe4e95c16f27a303663561de0d1`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-22b
+- source_kind: mode key required:true present:false (bundle copy, §11.1.1 invariant 1)
+- note: copy of bundles/fixture-01 with files.battle_log.present mutated true -> false
+  (path/sha256 nulled per §5.2; required stays true) and battle.jsonl deleted from disk to
+  match the declared absence. Distinct from fixture-08, where the file *is* declared
+  present and is merely missing on disk (invariant 5)
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/battle.jsonl` -- deleted (files.battle_log.present:false)
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/manifest.json` sha256 `74d1078fcaca495ebfcc292406ea1759052ab97e06d47914ed42d80d80e9b971`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-23
+- source_kind: optional key required:true (bundle copy, §11.1.1 invariant 2)
+- note: copy of bundles/fixture-01 with files.warnings.required mutated false -> true
+  (present stays true); data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-23/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/manifest.json` sha256 `526c6f9aedc29547b5590a67ffdc72e58fd142d249a6980dd96acff2848cd5b9`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
 ## fixture-10
 - source_kind: privacy counterexample
 - `fixtures/viewer-v0/sources/fixture-10/battle.log` sha256 `14f5217bf1d0dd420e79d7d5fec6dbe5a9e850d0d1f6f49a315698c1c7c342f6`
@@ -106,3 +231,244 @@
 - `fixtures/viewer-v0/bundles/fixture-16/decisions.jsonl` sha256 `2523603f04deb59de8e30295a5a15586e122f7a2c4742b98e4b19a422e580784`
 - `fixtures/viewer-v0/bundles/fixture-16/manifest.json` sha256 `4ecc71685848fed65a45f4e3ac0926c8ec6dab2056216d0f047d11aeda20c8d5`
 - `fixtures/viewer-v0/bundles/fixture-16/warnings.json` sha256 `2a1e15bb8e71a2f7ed99f6a7774081207e9e496b4b6406ed0e2778eebdea0155`
+
+## bundle/fixture-19
+- produced by a real `export_bundle()` call against `sources/fixture-19/` (battle_log +
+  decision_trace, no results/config-manifest); fixture 19 exports cleanly (not a refuse
+  fixture), so this is the actual exporter output, not a hand-mutated manifest
+- `fixtures/viewer-v0/bundles/fixture-19/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/bundles/fixture-19/decisions.jsonl` sha256 `8b644676a28b8e7800d8d4f96983f728599df7306f9201c60d96b43de1216e42`
+- `fixtures/viewer-v0/bundles/fixture-19/manifest.json` sha256 `43ca63c9d8c5f9b9a307b6b5bffb80a28e168455ebd3c7c9a21182799497cd8f`
+- `fixtures/viewer-v0/bundles/fixture-19/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-02
+- source_kind: close decision / margin (fixture-01's three rows, one candidate score mutated)
+- note: fixture-01/decision_trace.jsonl's three rows unchanged except row 2 (decision_index 2):
+  its second candidate ("pass", rank 1) aggregate_score changed 0.5 -> 3.487, so the top two
+  candidates (3.5, 3.487) are 0.013 apart -- small, non-zero, and not a round number, so a
+  passing test cannot be explained by an implicit exporter cutoff. Real committed rows with a
+  small top1_top2_margin already exist elsewhere in this repo (fixture-05/16's real committed
+  data, itself derived from data/eval/champions-panel-v0/smoke-i7a-mega -- see the 104-candidate
+  entry below), but only at large candidate counts (45/104) or as an exact tie (margin 0.0 on
+  every real 2-candidate forced_replacement row sampled). Constructed instead, per §14's own
+  second recipe option ("construct if none exists with a small-enough gap"), to keep the fixture
+  minimal and to exercise a hand-verifiable non-zero value. Row 0 (team_preview, 0 candidates)
+  and row 1 (forced_replacement, exactly 1 candidate) both exercise "fewer than two candidates"
+  with two different counts, not just the zero case. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture02_close_decision_margin_small_correct_no_threshold
+- `fixtures/viewer-v0/sources/fixture-02/decision_trace.jsonl` sha256 `d149f3ecf7861abec379604641e77126ac545012b87bd5842fcd64c0e7e79e41`
+
+## fixture-17
+- source_kind: filtered protocol lines / sparse protocol_index (replay-only, results.jsonl reused
+  from fixture-01)
+- note: a fresh 11-line battle.log interleaving `|player|` (line 0), `|j|` (1), `|t:|` (2),
+  `|request|` (3, 7, 10), and `|c|` chat (5) -- all filtered -- with real `|turn|` (4, 8),
+  `|switch|` (6), and `|move|` (9) event lines. `export_battle_jsonl`'s resulting
+  `protocol_index` sequence is `[4, 6, 8, 9]`; the gap positions (`{0,1,2,3,5,7,10}`) equal
+  exactly the filtered-line positions, not merely "somewhere". results.jsonl is a byte-identical
+  copy of fixture-01/results.jsonl (same synthetic sentinel provenance), matching fixture-04's
+  precedent for a replay-only export with no decision_trace. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture17_protocol_index_gaps_land_exactly_on_filtered_lines
+- `fixtures/viewer-v0/sources/fixture-17/battle.log` sha256 `97f175eecbb788456f5cf8d07a8e24fafed6b569d0982cf7e92406d4c5e01501`
+- `fixtures/viewer-v0/sources/fixture-17/results.jsonl` sha256 `5c12db6757eb7bada142b63efa4b3bae7fd9b2908e633cb3ca60b696329345a0`
+
+## fixture-18
+- source_kind: synthetic-coherent-v1 (`|request|` skip rules: rqid resend + req.wait)
+- battle_id: synthetic00000001 (reused sentinel, same as fixture-01 -- §14.1 condition 3: not a
+  real `data/eval/` battle_id, so reuse is not a false producer claim)
+- git_sha: unknown (§14.1 condition 4)
+- note: a fresh 7-line battle.log with an `rqid=1` request (line 0), a verbatim resend of the
+  same `rqid=1` payload (line 2, skipped by the resend rule), an `rqid=2, wait:true` request
+  (line 3, skipped by the wait rule), and a surviving `rqid=3` request (line 5) --
+  `index_requests_from_log` keeps exactly the two surviving requests (protocol_index 0 and 5).
+  decision_trace.jsonl has two rows (fixture-01's own row 0 verbatim -- its request_hash already
+  equals the hash of the line-0 payload used here unchanged -- and fixture-01's row 2 reused with
+  decision_index/turn_number/request_hash/state_summary updated to match the line-5 payload), so
+  both requests join to a real decision (`request_protocol_index` 0 and 5 in the exported
+  bundle, neither null) -- internal coherence per §14.1 condition 2. §15 gate 35 (this fixture's
+  own gate) is already directly proved by
+  tests/python/test_a5_battle_join.py::test_request_skip_rules (Rev. 5 gate-coverage audit:
+  "materially stronger than 'new' implies"); no duplicate test is added here, only the catalogue
+  directory
+- `fixtures/viewer-v0/sources/fixture-18/battle.log` sha256 `2fd8e17a2bd85c55149274c42ab9871f15caace376a132e2c95301b6facafd9f`
+- `fixtures/viewer-v0/sources/fixture-18/decision_trace.jsonl` sha256 `2897e71366b42a96ff18f5ca2d4c5c41b5220130d9b7002db1cbe15401cb8373`
+
+## 104-candidate bounded-render (cross-cutting rule 7, index §5; §0.11 Choice Point 3, CLOSED: L1)
+- not a numbered §14 fixture; no new directory added under this entry -- **already satisfied**
+  by the pre-existing `sources/fixture-16` / `bundles/fixture-16` (Plan A, unmodified by Plan F)
+- derivation confirmed: `sources/fixture-16/decision_trace.jsonl`,
+  `sources/fixture-05/decision_trace.jsonl` and the committed
+  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` all hash to
+  `546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f` in this checkout --
+  byte-identical, confirmed by direct `sha256sum` on all three, 2026-07-24, and by comparing the
+  parsed rows (`20 == 20`, objects equal, same `battle_id 3e6a178b0900195e`).
+  **This ledger is internally inconsistent about that file, and the inconsistency predates Plan F.**
+  The `## fixture-05` entry above records `7070338b...` for
+  `sources/fixture-05/decision_trace.jsonl` -- the same file that measures `546693fc...` here.
+  `7070338b...` is the value the whole Plan A ledger was written against; it is reproducible only
+  in a checkout whose working copy of these files differs from this one (see the out-of-scope note
+  at the end of this entry). It is **not** a typo and not an artifact of this batch: it is exactly
+  the drift that the pre-existing failure
+  `tests/python/test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned` and
+  `test_source_immutability.py::test_sources_md_hashes_match_committed_files` report. The value
+  recorded here (`546693fc...`) is what this checkout actually contains, measured from inside the
+  worktree; the Plan A entries above are left untouched because rewriting them is the separately
+  scoped repair, not Plan F's (§0.4). Per-row candidate counts, enumerated
+  directly: `[0, 104, 45, 45, 2, 41, 41, 2, 5, 5, 5, 0, 104, 45, 45, 2, 41, 41, 1, 25]`, matching
+  bundle contract §2.5's own citation exactly; decision_index 1 (first battle) carries 104
+  candidates, and `bundles/fixture-16/decisions.jsonl` (already committed) carries that same
+  104-candidate row through export un-truncated
+- proof, Godot side (rendering bound): `godot/tests/decision/test_candidate_table_view.gd::test_table_bounded_104_candidates`
+  opens `bundles/fixture-16`, finds the 104-candidate row, binds it to `CandidateTableView`, and
+  asserts `get_item_count() == 104` -- already existing, already passing, not added by this batch
+- proof, Python side (export does not truncate first, new this batch):
+  tests/python/test_f1_fixture_catalogue.py::test_fixture16_104_candidate_row_export_not_truncated
+- **known gap (accepted by owner, §0.11 Choice Point 3 / §1 fixture matrix), preserved here**:
+  the `smoke-i7a-mega` corpus directory has no companion battle log, so `fixture-16` is
+  `TRACE_ONLY` -- bounded rendering is never exercised together with active replay mode by this
+  fixture. A defect only reproducible with board + timeline + a live 104-row candidate table
+  simultaneously would not be caught here
+- **out of scope, recorded not fixed (Plan F §0.4 excludes `data/eval/`):** the corpus file
+  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` has **different bytes in
+  different checkouts of this repository** -- 281588 bytes / sha256 `546693fc...` here, 281608
+  bytes / sha256 `7070338b...` in the main checkout -- while `git status` reports the file
+  unmodified in both and `git diff` against `main` reports no difference for that path. The
+  20-byte delta over 20 lines is one byte per line, the signature of a CRLF-vs-LF working-copy
+  difference between two checkouts of the same blob; the older checkout predates this repo's
+  `text eol=lf` attribute rules. The same delta applies to `sources/fixture-05` and
+  `sources/fixture-16`'s `decision_trace.jsonl`, which are byte-identical to this corpus file.
+  This is the root cause of **three** of the five known pre-existing Python failures:
+  `test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned` (its `PINNED` constant is the
+  older checkout's `7070338b...`) and both `test_source_immutability.py` functions. It belongs to
+  the same already-scoped repair as the other pre-existing failures, not to Plan F. Flagged so the
+  fixture-16 provenance above is read as "byte-identical **within this checkout**", which is what
+  was measured, rather than as an unqualified claim
+
+## bundle/fixture-02
+- produced by a real `export_bundle()` call against `sources/fixture-02/decision_trace.jsonl`
+  (TRACE_ONLY, no battle_log); fixture 2 exports cleanly (not a refuse fixture), so this is the
+  actual exporter output
+- `fixtures/viewer-v0/bundles/fixture-02/decisions.jsonl` sha256 `96d17baf4d095dd205f041d44d0703bf761966ba1db9a7c1bf8682e8286fcfcb`
+- `fixtures/viewer-v0/bundles/fixture-02/manifest.json` sha256 `c3b23a68d5229c462e2dcf8f0186082c643c63d19924cda366ee60282fabf881`
+- `fixtures/viewer-v0/bundles/fixture-02/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## bundle/fixture-17
+- produced by a real `export_bundle()` call against `sources/fixture-17/` (battle_log + results,
+  no decision_trace -- replay-only, same mode as bundle/fixture-04); fixture 17 exports cleanly
+- `fixtures/viewer-v0/bundles/fixture-17/battle.jsonl` sha256 `ff79b8a7ebda06ebe1b72732b3083f5259cd5dd64aab609ce3cfcbef99741add`
+- `fixtures/viewer-v0/bundles/fixture-17/manifest.json` sha256 `0570383090e77d98c58b7005f7b51843133d29c440dcf4f7b27a905645f40da4`
+
+## bundle/fixture-18
+- produced by a real `export_bundle()` call against `sources/fixture-18/` (battle_log +
+  decision_trace, no results/config-manifest); fixture 18 exports cleanly. `decisions.jsonl`'s
+  two rows both carry a non-null `request_protocol_index` (0 and 5), confirming the surviving
+  joins resolve
+- `fixtures/viewer-v0/bundles/fixture-18/battle.jsonl` sha256 `9f2b330e6bcbad24c19924a9a9abdfd4cc0c1518b1ecb2743164db0478361d7b`
+- `fixtures/viewer-v0/bundles/fixture-18/decisions.jsonl` sha256 `07da4f9b91ed1ac4d4a35fdc29ffdc9ba66fc138b70e3f9b21112c13e47ed855`
+- `fixtures/viewer-v0/bundles/fixture-18/manifest.json` sha256 `6c7d098d324e76f46790f805c592dc24aad1992b7374fe12c1c3991fdc9f5c62`
+- `fixtures/viewer-v0/bundles/fixture-18/warnings.json` sha256 `44ceb752d7a26dd6b9091035975b12c12d667a752f1794a0523c51f2755c85eb`
+
+## fixture-13
+- source_kind: legacy trace-v1 (exporter-side refuse, no bundle produced)
+- note: fixture-01's three decision_trace.jsonl rows, unchanged except every row's
+  `trace_schema_version` set to `decision-trace-v1` and `chosen_candidate_key` removed (no
+  validated candidate_key -- §14's own wording for this fixture). Mirrors
+  tests/python/test_a4_decisions_v1_refuse.py's mutation exactly (same two fields), but as a
+  committed, hash-pinned catalogue fixture rather than an ephemeral tmp_path row. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture13_legacy_trace_v1_refuses_and_replay_only_fallback
+  (reason `unsupported_trace_v1`, both for a bare trace-export attempt and for a full
+  `export_bundle()` call with `battle_log` + `decision_trace` + `results`; a repeat call with
+  the same `battle_log` + `results` and no `decision_trace` still exports cleanly as
+  replay-only). §15 gate 37 itself was already COVERED before this batch (Rev. 5 gate-coverage
+  audit) by the ephemeral-row test above; this entry documents the additional, genuinely-new
+  catalogue-directory proof, not a new gate finding
+- no `bundles/fixture-13/` is committed: the replay-only bundle this fixture's own recipe would
+  produce (fixture-01's `battle_log` + `results`, no trace) is byte-identical in shape to the
+  already-committed `bundles/fixture-04` (same source files, same replay-only mode) --
+  committing a second copy would be pure duplication with no incremental proof value. The
+  replay-only half of this fixture's own recipe is instead proved via a throwaway
+  `export_bundle()` call to a pytest `tmp_path` in the test above, never committed
+- `fixtures/viewer-v0/sources/fixture-13/decision_trace.jsonl` sha256 `b65791387913877f735c84fc6b8b642ab289c10ec59fa9d654cc5fbeaa586d56`
+
+## fixture-20 -- §14 catalogue completeness, no new directory (analysis, not authored)
+- §14's own text for fixture 20: "`trace_schema_version`, `our_side`, and
+  `source_hashes.decision_trace` are all `null`; `config_hash`/`git_sha`/`config_id`/
+  `schedule_hash`/`seed_index` resolve from the result row (§11.1.3)"
+- the null half was already COVERED before this batch (Rev. 5 gate-coverage audit, gate 32) by
+  `tests/python/test_a6_provenance_modes.py::test_frozen_fixture04_replay_only_nullability`
+  against the already-committed `bundles/fixture-04` -- but that test, and every other test in
+  the suite, only asserted the three `null` fields. Nothing asserted the "resolve from the
+  result row" half (§11.1.3) at all: the five named fields being merely *present* is not the
+  same claim as them being *sourced from the result row specifically* (as opposed to, say, a
+  bug that hardcoded them or read them from the wrong precedence-order source). That is a real
+  gap, not merely a citation error like several others the audit found
+- resolved by extending the existing test, not authoring a new fixture directory, per §1's own
+  fixture-20 recipe ("fixture-04 ... is close precedent -- 20 needs the explicit nullability
+  assertions named, likely a pytest extension over the existing fixture-04 export rather than a
+  new bundle"): a new `test_frozen_fixture04_replay_only_resolves_shared_fields_from_result_row`
+  in the same file compares `bundles/fixture-04/manifest.json`'s `config_hash`/`git_sha`/
+  `source_provenance.{config_id,schedule_hash,seed_index}` against
+  `sources/fixture-04/results.jsonl`'s own fields directly, proving the resolution, not just
+  the presence
+- a fresh `fixture-20` bundle authored under this same replay-only recipe (fixture-01's
+  `battle_log` + `results`, no trace -- the only recipe §14 or the plan names) would be
+  content-identical in shape to `bundles/fixture-04`, so no new directory is added; this entry
+  is the dedicated "why not" record the task's precedent (the 104-candidate entry above) calls
+  for
+
+## fixture-15 -- §14 catalogue completeness, OWNER DECISION POINT (not settled here)
+- §14's own text for fixture 15: "`dirty` is `null`, never `false`; the viewer shows `dirty
+  state not recorded`" -- two claims, one exporter-side (the emitted value) and one Godot/UI-side
+  (the rendered text)
+- **evidence for "redundant, no new directory needed":**
+  - exporter half: `tests/python/test_a8_fixtures.py::test_synthetic_fixture_reports_git_and_dirty_unknown`
+    asserts `manifest["git_sha"] == "unknown"` and
+    `manifest["source_provenance"]["dirty"] is None` against the already-exported, already-committed
+    `bundles/fixture-01` and `bundles/fixture-03`; a second unit-level check,
+    `tests/python/test_a6_provenance_modes.py::test_unknown_git_sha_dirty_null`, asserts the same
+    at the `resolve_provenance()` level
+  - viewer half (not checked by the Rev. 5 gate-coverage audit, which was scoped to pytest only
+    -- checked directly for this batch):
+    `godot/tests/diagnostics/test_provenance_presenter.gd::test_dirty_tri_state_null` opens
+    `bundles/fixture-01`, asserts `bundle.manifest.source_provenance.dirty` is null, runs it
+    through `ProvenancePresenter.present()`, and asserts the rendered `dirty` row value is
+    exactly `"dirty state not recorded"` (and explicitly not `"dirty: false"` or `"clean"`) --
+    this is the full §14 claim for fixture 15, both halves, proved end to end, already passing,
+    already using an existing catalogued fixture (fixture-01, Plan A)
+  - fixture-01 is fixture 15's own recipe with no variation: any fresh `fixture-15` authored
+    per fixture 15's own "must prove" text would be another synthetic-coherent source with
+    `git_sha: "unknown"` -- i.e. fixture-01's recipe verbatim. A fresh directory would be
+    content-identical in every particular §14 cares about, not merely gate-adjacent
+- **evidence for "author fixture-15 anyway":**
+  - §14 lists 15 as its own numbered catalogue row, and the repo's own established convention
+    (fixtures 21, 18 earlier in this file) has been to author the catalogue directory even when
+    the underlying gate assertion is fully covered elsewhere, specifically so the catalogue
+    stays a browsable, self-describing proof artifact -- a reader scanning
+    `fixtures/viewer-v0/sources/` for "the git_sha-unknown fixture" finds nothing numbered 15
+    even though the behaviour is proven
+  - fixture 15's proof currently depends entirely on fixture-01 continuing to carry
+    `git_sha: "unknown"` forever; if fixture-01's own recipe or role ever changes (e.g. it is
+    later regenerated from a real committed run with a known SHA), gate 22/fixture 15's proof
+    would silently vanish with no dedicated fixture to fall back on -- one fixture number
+    quietly doing double duty for two catalogue rows (1 and 15) it was not obviously assigned
+    to cover
+  - unlike fixture 20 (where a fresh directory would be a literal content-duplicate of an
+    already-committed bundle in the same mode) and fixture 13 (where the interesting artifact
+    -- a v1-labeled trace row -- did not exist anywhere in the catalogue before this batch), a
+    fresh fixture-15 source dir authored per fixture-01's own recipe would be near-identical to
+    fixture-01 but not necessarily byte-identical (a fresh `run_id`/`battle_id` sentinel would
+    make it a distinct, non-duplicate artifact), so the "pure duplication" argument that ruled
+    out a new fixture-20/fixture-13 bundle does not transfer cleanly here
+- **recommendation:** redundant -- do not author `fixtures/viewer-v0/sources/fixture-15/`. Both
+  halves of §14's fixture-15 text are proved, completely and independently, by existing tests
+  against an existing catalogued Plan A fixture (fixture-01), which is stronger evidence than
+  fixture 13 or 20 had (neither of which had a passing Godot-side assertion of the full claim
+  before this batch). The "double duty" risk above is real but low-probability and cheaply
+  mitigated later (add fixture-15 the day fixture-01's recipe ever changes, rather than
+  pre-emptively duplicating it now)
+- **this is not settled here.** Per the task brief, fixture 15 is an explicit owner decision
+  point the plan asked to be surfaced, not resolved silently by whichever agent authors this
+  batch. The recommendation above is reversible: authoring `fixtures/viewer-v0/sources/fixture-15/`
+  later (copying fixture-01's recipe with a fresh sentinel battle_id/run_id, per §14.1) is a
+  small, additive change if the owner decides the catalogue-completeness argument outweighs the
+  redundancy argument

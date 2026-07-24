@@ -1,0 +1,7 @@
+|request|{"teamPreview": true, "side": {"name": "p1", "id": "p1", "pokemon": []}, "rqid": 1}
+|turn|1
+|request|{"teamPreview": true, "side": {"name": "p1", "id": "p1", "pokemon": []}, "rqid": 1}
+|request|{"forceSwitch": [true], "side": {"name": "p1", "id": "p1", "pokemon": []}, "rqid": 2, "wait": true}
+|switch|p1a: Pikachu|Pikachu, L50|35/35
+|request|{"active": [{"moves": [{"move": "Tackle", "id": "tackle", "pp": 35, "maxpp": 35, "target": "normal", "disabled": false}]}], "side": {"name": "p1", "id": "p1", "pokemon": []}, "rqid": 3}
+|move|p1a: Pikachu|Tackle|p2a: Bulbasaur
