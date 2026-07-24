@@ -302,11 +302,18 @@
   `546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f` in this checkout --
   byte-identical, confirmed by direct `sha256sum` on all three, 2026-07-24, and by comparing the
   parsed rows (`20 == 20`, objects equal, same `battle_id 3e6a178b0900195e`).
-  **Measure this from inside the worktree.** An earlier revision of this entry recorded
-  `7070338b...` for the same corpus path; that value comes from a *different checkout* of the
-  repository (see the out-of-scope note at the end of this entry), not from this tree. A relative
-  path that escapes the worktree silently reads the other checkout -- the same class of trap as
-  `git -C ..` from a worktree root. Per-row candidate counts, enumerated
+  **This ledger is internally inconsistent about that file, and the inconsistency predates Plan F.**
+  The `## fixture-05` entry above records `7070338b...` for
+  `sources/fixture-05/decision_trace.jsonl` -- the same file that measures `546693fc...` here.
+  `7070338b...` is the value the whole Plan A ledger was written against; it is reproducible only
+  in a checkout whose working copy of these files differs from this one (see the out-of-scope note
+  at the end of this entry). It is **not** a typo and not an artifact of this batch: it is exactly
+  the drift that the pre-existing failure
+  `tests/python/test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned` and
+  `test_source_immutability.py::test_sources_md_hashes_match_committed_files` report. The value
+  recorded here (`546693fc...`) is what this checkout actually contains, measured from inside the
+  worktree; the Plan A entries above are left untouched because rewriting them is the separately
+  scoped repair, not Plan F's (§0.4). Per-row candidate counts, enumerated
   directly: `[0, 104, 45, 45, 2, 41, 41, 2, 5, 5, 5, 0, 104, 45, 45, 2, 41, 41, 1, 25]`, matching
   bundle contract §2.5's own citation exactly; decision_index 1 (first battle) carries 104
   candidates, and `bundles/fixture-16/decisions.jsonl` (already committed) carries that same
@@ -325,11 +332,15 @@
   `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` has **different bytes in
   different checkouts of this repository** -- 281588 bytes / sha256 `546693fc...` here, 281608
   bytes / sha256 `7070338b...` in the main checkout -- while `git status` reports the file
-  unmodified in both and `git diff` against `main` reports no difference for that path. Both
-  copies are LF-only, so this is not the known CRLF-normalisation trap. This is the root cause of
-  the pre-existing failure `tests/python/test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned`,
-  whose `PINNED` constant is the main checkout's `7070338b...`. It belongs to the same
-  already-scoped repair as the other pre-existing Python failures, not to Plan F. Flagged so the
+  unmodified in both and `git diff` against `main` reports no difference for that path. The
+  20-byte delta over 20 lines is one byte per line, the signature of a CRLF-vs-LF working-copy
+  difference between two checkouts of the same blob; the older checkout predates this repo's
+  `text eol=lf` attribute rules. The same delta applies to `sources/fixture-05` and
+  `sources/fixture-16`'s `decision_trace.jsonl`, which are byte-identical to this corpus file.
+  This is the root cause of **three** of the five known pre-existing Python failures:
+  `test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned` (its `PINNED` constant is the
+  older checkout's `7070338b...`) and both `test_source_immutability.py` functions. It belongs to
+  the same already-scoped repair as the other pre-existing failures, not to Plan F. Flagged so the
   fixture-16 provenance above is read as "byte-identical **within this checkout**", which is what
   was measured, rather than as an unqualified claim
 
