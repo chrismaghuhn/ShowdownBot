@@ -89,6 +89,10 @@ _SAFE_TEAM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _CALLBACK_RECORD_FIELDS = frozenset({
     "winner", "turns", "end_reason", "end_hp_diff", "invalid_choices", "crashes",
     "decision_latency_p95_ms", "room_raw_path", "normalized_room_log_sha256",
+    # Gate B finding 4: per-seat degraded-decision counts. An EXACT set -- any unexpected OR
+    # missing field makes the arm refuse the battle -- so these must be listed here in lockstep
+    # with _battle_result_record, or every Gate B battle aborts.
+    "hero_degraded_decisions", "villain_degraded_decisions",
 })
 
 
@@ -96,6 +100,65 @@ class GateBAbort(Exception):
     """A technical abort -- dirty tree, hash mismatch, infra failure, or zero-battle timeout.
     NOT a verdict (ports Gate A's DESIGN sec 2.6 taxonomy, since Gate B has no equivalent
     dedicated section -- grounding report sec 2)."""
+
+
+def _default_calc_factory():
+    """The same CalcClient the battle loop builds, constructed exactly the same way."""
+    from showdown_bot.engine.calc.client import CalcClient
+
+    return CalcClient()
+
+
+def assert_calc_answers(*, calc_factory=_default_calc_factory) -> None:
+    """Prove the damage calculator ANSWERS before battle 1, or abort (Gate B finding 4).
+
+    This does NOT replace the per-decision degraded counter -- calc can die mid-run, and only the
+    counter sees that. It catches the common case (a worktree with no `npm ci --prefix tools/calc`,
+    a missing node, a dead transport) before 180 battles are spent producing rows that look clean.
+
+    The check is a real probe damage call whose result must be a positive number. Deliberately
+    NOT checked: whether `node_modules` exists, whether a binary is on PATH, or what
+    `calc_backend` says -- `calc_backend` is derived from CONFIGURATION and records intent, which
+    is precisely why a 30-battle run with the calc backend dead still stamped itself
+    `calc_backend: oneshot`. Existence is not an answer; a number is.
+    """
+    from showdown_bot.engine.calc.models import CalcMon, DamageRequest
+
+    try:
+        calc = calc_factory()
+    except Exception as exc:
+        raise GateBAbort(
+            f"calc preflight: the damage-calc backend could not be built ({exc}) -- refusing to "
+            "play before battle 1, because every decision would silently fall back to a legal "
+            "default and the run would publish clean-looking rows"
+        ) from exc
+
+    try:
+        result = calc.damage(DamageRequest(
+            attacker=CalcMon(species="Pikachu", level=50),
+            defender=CalcMon(species="Blissey", level=50),
+            move="Thunderbolt",
+        ))
+        damage = getattr(result, "max_damage", None)
+        error = getattr(result, "error", None)
+        if error or not isinstance(damage, int) or isinstance(damage, bool) or damage <= 0:
+            raise GateBAbort(
+                f"calc preflight: probe damage call did not answer (max_damage={damage!r}, "
+                f"error={error!r}) -- refusing to play before battle 1"
+            )
+    except GateBAbort:
+        raise
+    except Exception as exc:
+        raise GateBAbort(
+            f"calc preflight: probe damage call failed ({exc}) -- refusing to play before battle 1"
+        ) from exc
+    finally:
+        # The arm builds one calc per battle; leaking the probe's subprocess would regress the
+        # very path the Kaggle-OOM per-battle-teardown fix exists to protect.
+        try:
+            calc.close()
+        except Exception:  # noqa: BLE001 - teardown is best-effort; never masks the verdict above
+            pass
 
 
 # Windows-only transient directory-rename failures that a fully-valid ``os.replace(staging, out)``
@@ -582,6 +645,11 @@ def run_strength_holdout_arm(
         teams_root=teams_root, scheduled_team_ids=scheduled_team_ids,
         holdout_team_content_hashes=holdout_team_content_hashes,
     )
+
+    # Cheap insurance (Gate B finding 4): prove calc ANSWERS before battle 1 rather than reading
+    # it off 180 silently-degraded rows afterwards. The per-seat degraded counter on every row
+    # remains the real guard -- calc can die mid-run and only that sees it.
+    assert_calc_answers()
 
     os.makedirs(staging_dir)
     writer = BattleResultWriter(os.path.join(staging_dir, "rows.jsonl"))

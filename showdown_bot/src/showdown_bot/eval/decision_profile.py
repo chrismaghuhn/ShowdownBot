@@ -235,6 +235,40 @@ LIVE_FALLBACK_STAGES = frozenset(
 )
 
 
+# Gate B's Baseline B arm is `max_damage`, whose decision does NOT go through
+# `choose_with_fallback` at all -- `agent_choose`'s own `max_damage` branch catches everything and
+# returns a legal `/choose default`. That degradation was therefore invisible to every stage-based
+# signal. These two names are its equivalent of LIVE_OK_STAGE/LIVE_FALLBACK_STAGES and are
+# deliberately DISJOINT from them: the LIVE_* sets are the frozen I8-D live-profile vocabulary that
+# `classify_live_outcome` validates against, and reusing a name there would silently reclassify
+# frozen I8-D evidence.
+BASELINE_OK_STAGE = "max_damage_baseline"
+BASELINE_FALLBACK_STAGES = frozenset({"max_damage_baseline_default"})
+
+# The two stages that mean "this decision completed on its agent's INTENDED path". Everything
+# else -- a fallback layer, team preview, an unknown future stage, no stage at all -- is degraded.
+_INTENDED_COMPLETION_STAGES = frozenset({LIVE_OK_STAGE, BASELINE_OK_STAGE})
+
+
+def is_degraded_decision(*, crashed: bool, state_degraded: bool,
+                         selection_stage: str | None) -> bool:
+    """True when a decision did NOT complete on its agent's intended path (Gate B finding 4).
+
+    Same inputs and the same dominance order as `classify_live_outcome` -- `crashed` and
+    `state_degraded` are authoritative and are read BEFORE the stage sink, so a crash whose
+    partial sink still reads `"heuristic"` is never mistaken for a completed decision.
+
+    ONE deliberate difference from `classify_live_outcome`: an unknown or absent stage FAILS
+    CLOSED to `True` here instead of raising. `classify_live_outcome` runs inside a best-effort
+    sidecar writer where an exception costs one dropped row; this runs in the battle loop, where
+    raising would kill the battle -- and killing battles is precisely what the fallback chain
+    exists to prevent. Refusing to guess "clean" gets the same safety without that cost.
+    """
+    if crashed or state_degraded:
+        return True
+    return selection_stage not in _INTENDED_COMPLETION_STAGES
+
+
 def classify_live_outcome(*, crashed: bool, state_degraded: bool,
                           selection_stage: str | None) -> str:
     """Map a live decision to its `outcome`, from EXISTING signals only (I8-D, §2.6).

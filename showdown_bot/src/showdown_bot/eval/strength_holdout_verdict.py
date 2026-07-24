@@ -556,6 +556,27 @@ def compute_safety_pass(rows_a: list[dict], rows_b: list[dict]) -> bool:
                 return False
             if not _is_clean_safety_counter(row.get("crashes")):
                 return False
+            # Gate B finding 4: a run whose decisions fell back is not a clean run, even though
+            # every fallback returned a LEGAL move and nothing raised. `_is_clean_safety_counter`
+            # already refuses None, so an ABSENT counter fails closed -- deliberately, because a
+            # row that cannot show the bot computed anything is exactly how a calc-dead run
+            # published 30 clean-looking rows.
+            #
+            # BOTH seats block a verdict, for DIFFERENT reasons, and the two counters are
+            # therefore checked separately and never summed -- summing them would recreate
+            # finding 5 in a brand-new field:
+            #   * hero degraded  -> the measurement of the thing this arm evaluates is
+            #     contaminated (Candidate A = 'heuristic', Baseline B = 'max_damage'; a degraded
+            #     baseline corrupts the paired comparison as thoroughly as a degraded candidate).
+            #   * villain degraded -> the ENVIRONMENT was not the one the schedule specified;
+            #     the opponent the candidate actually faced is not the opponent on the row.
+            # `_is_clean_safety_counter` refuses None, so an ABSENT counter fails closed for both
+            # -- deliberately, because a row that cannot show the bot computed anything is
+            # exactly how a calc-dead run published 30 clean-looking rows.
+            if not _is_clean_safety_counter(row.get("hero_degraded_decisions")):
+                return False
+            if not _is_clean_safety_counter(row.get("villain_degraded_decisions")):
+                return False
             if row["end_reason"] != "normal":
                 return False
     return True

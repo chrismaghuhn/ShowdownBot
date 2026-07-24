@@ -32,7 +32,13 @@ NULLABLE_FIELDS = frozenset({
     # sidecar file. Both null/absent when decision capture is off (the default) or for
     # legacy rows written before this field existed -- every consumer must tolerate both.
     "decision_trace_count", "decision_trace_sha256",
+    # Gate B finding 4: per-SEAT counts of decisions that did not complete on the agent's
+    # intended path. Nullable because rows written before this field existed must still
+    # validate -- but see compute_safety_pass: for a GATE run, absent is refused, never read
+    # as zero.
+    "hero_degraded_decisions", "villain_degraded_decisions",
 })
+_DEGRADED_COUNTERS = ("hero_degraded_decisions", "villain_degraded_decisions")
 _WINNERS = frozenset({"hero", "villain", "tie"})
 # T3f Task 5: how the battle ended. "normal" = ordinary |win|/|tie|; the others are
 # detected from room_raw markers (see eval.battle_parse._detect_end_reason).
@@ -92,6 +98,15 @@ def validate_battle_row(row: dict) -> None:
         raise ResultRowError("decision_trace_count must be a positive int")
     if digest is not None and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None):
         raise ResultRowError("decision_trace_sha256 must be lowercase sha256 hex")
+    for name in _DEGRADED_COUNTERS:
+        value = row.get(name)
+        if value is None:
+            continue
+        # bool is an int in Python and 0.0 == 0, so both must be refused explicitly or a
+        # type-wrong counter reads as a clean zero -- the exact failure mode this slice exists
+        # to close.
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ResultRowError(f"{name} must be a non-negative int, got {value!r}")
 
 
 def to_jsonl_line(row: dict) -> str:
