@@ -4,7 +4,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from conftest import STUDIO_ROOT
+from conftest import STUDIO_ROOT, read_normalized_bytes
 
 from showdownbot_studio_exporter.cli import main
 
@@ -48,7 +48,7 @@ def test_sources_md_hashes_match_committed_files():
     assert not extra_in_md, f"SOURCES.md paths not on disk: {extra_in_md}"
     mismatches = []
     for path, want in entries:
-        got = hashlib.sha256(path.read_bytes()).hexdigest()
+        got = hashlib.sha256(read_normalized_bytes(path)).hexdigest()
         if got != want:
             mismatches.append(f"{path.relative_to(STUDIO_ROOT).as_posix()}: {got} != {want}")
     assert not mismatches, "SOURCES.md hash mismatches:\n" + "\n".join(mismatches)
@@ -61,7 +61,7 @@ def test_all_plan_a_sources_unchanged_after_export(tmp_path):
         if "fixtures/viewer-v0/sources/" in path.as_posix().replace("\\", "/")
     ]
     assert entries, "SOURCES.md must list source files under fixtures/viewer-v0/sources/"
-    before = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path, _ in entries}
+    before = {path: hashlib.sha256(read_normalized_bytes(path)).hexdigest() for path, _ in entries}
     for path, want in entries:
         assert before[path] == want
 
@@ -79,5 +79,5 @@ def test_all_plan_a_sources_unchanged_after_export(tmp_path):
             str(fix01 / "results.jsonl"),
         ]
     )
-    after = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path, _ in entries}
+    after = {path: hashlib.sha256(read_normalized_bytes(path)).hexdigest() for path, _ in entries}
     assert before == after

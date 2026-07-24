@@ -33,10 +33,10 @@
 - our_side: p1
 - note: bundle emits source_provenance.dirty null because git_sha is unknown (§8.4)
 - `fixtures/viewer-v0/sources/fixture-03/battle.log` sha256 `883a930a78e7b9a4f193b7846c826a8f992682c1ce1ed77f4da89021e0b933dc`
-- `fixtures/viewer-v0/sources/fixture-03/decision_trace.jsonl` sha256 `41cb296906d8e287adbb3c4eb50f9ea07909e51c1333be378a2484ca9eb98a96`
-- `fixtures/viewer-v0/sources/fixture-03/results.config-manifest.json` sha256 `eed9e311925f5623d5b33e50119f66492a82d8a538a8104c606484ff3146ba36`
-- `fixtures/viewer-v0/sources/fixture-03/results.jsonl` sha256 `999866bb0982450776485866b3bf6581f759de1c2c497224755210ba5bf1a484`
-- `fixtures/viewer-v0/sources/fixture-03/results.manifest.json` sha256 `023852a15512f1f1e1bfbc08bcae6921d800b65742b82fcd0470797efe683677`
+- `fixtures/viewer-v0/sources/fixture-03/decision_trace.jsonl` sha256 `120cbde8090a07f3868af782bfa8f6b4f52af461365c1632dc824ad969318175`
+- `fixtures/viewer-v0/sources/fixture-03/results.config-manifest.json` sha256 `60cc06bc7d9d741b79ab6e40fa123047a757b2aa895ee8204eeaa0f5ab4f3fb5`
+- `fixtures/viewer-v0/sources/fixture-03/results.jsonl` sha256 `df30da61445e8145fca5d01ce72091ace18ab5ec528315f483597dbe99385637`
+- `fixtures/viewer-v0/sources/fixture-03/results.manifest.json` sha256 `b929fee3568f68eda10e6d575df08a303e7c760105fe23fbe627e30946228216`
 
 ## fixture-04
 - source_kind: replay-only (fixture-01 battle slice)
@@ -47,10 +47,10 @@
 
 ## fixture-05
 - source_kind: smoke trace-only
-- `fixtures/viewer-v0/sources/fixture-05/decision_trace.jsonl` sha256 `7070338b77425621b6c3720e1f5cea651dff832dc6a0a8884de047c6647ff197`
-- `fixtures/viewer-v0/sources/fixture-05/results.config-manifest.json` sha256 `c953a619529338c8b3ed26d68042b5ee1a4de4323b94bba3324b847f408b70c7`
-- `fixtures/viewer-v0/sources/fixture-05/results.jsonl` sha256 `f4da66b80d700343998da818cc3c89aa239fb8b3c3ecbd214930f209c8bd7cb0`
-- `fixtures/viewer-v0/sources/fixture-05/results.manifest.json` sha256 `1224ceac19eb7fa97e0b32bb844b9e95a9aa3eb97de2f1387c5a8a00a1cdf957`
+- `fixtures/viewer-v0/sources/fixture-05/decision_trace.jsonl` sha256 `546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f`
+- `fixtures/viewer-v0/sources/fixture-05/results.config-manifest.json` sha256 `8f57db6d3da95c236962804c60baaabd94cf48c2748e2aa8b6eea57ae42958ef`
+- `fixtures/viewer-v0/sources/fixture-05/results.jsonl` sha256 `7a1df9f80874662edf96b1d2ef5315fc1ffc795bc8ac3e29b35fefb9da5ae251`
+- `fixtures/viewer-v0/sources/fixture-05/results.manifest.json` sha256 `01d8ef178b80da17d40897afb821b8e09ee8b8966fa82ad08b756727b9ae8967`
 
 ## fixture-06
 - source_kind: invalid hash (bundle copy)
@@ -187,15 +187,15 @@
 
 ## fixture-10
 - source_kind: privacy counterexample
-- `fixtures/viewer-v0/sources/fixture-10/battle.log` sha256 `14f5217bf1d0dd420e79d7d5fec6dbe5a9e850d0d1f6f49a315698c1c7c342f6`
-- `fixtures/viewer-v0/sources/fixture-10/results.jsonl` sha256 `914f9d3e644886f07592e2e83c4adbc160ba096b756fe78b16e93f1842962933`
+- `fixtures/viewer-v0/sources/fixture-10/battle.log` sha256 `77511b9d03d63525f74f60dae91825e528e4b5c9cb8283f18f673c7d9e8a38e3`
+- `fixtures/viewer-v0/sources/fixture-10/results.jsonl` sha256 `07d07f0f797626c54a11477369354e99737a4737c8eafeb41eea8ea5220b1941`
 
 ## fixture-16
 - source_kind: smoke team-preview empty candidates
-- `fixtures/viewer-v0/sources/fixture-16/decision_trace.jsonl` sha256 `7070338b77425621b6c3720e1f5cea651dff832dc6a0a8884de047c6647ff197`
-- `fixtures/viewer-v0/sources/fixture-16/results.config-manifest.json` sha256 `c953a619529338c8b3ed26d68042b5ee1a4de4323b94bba3324b847f408b70c7`
-- `fixtures/viewer-v0/sources/fixture-16/results.jsonl` sha256 `f4da66b80d700343998da818cc3c89aa239fb8b3c3ecbd214930f209c8bd7cb0`
-- `fixtures/viewer-v0/sources/fixture-16/results.manifest.json` sha256 `1224ceac19eb7fa97e0b32bb844b9e95a9aa3eb97de2f1387c5a8a00a1cdf957`
+- `fixtures/viewer-v0/sources/fixture-16/decision_trace.jsonl` sha256 `546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f`
+- `fixtures/viewer-v0/sources/fixture-16/results.config-manifest.json` sha256 `8f57db6d3da95c236962804c60baaabd94cf48c2748e2aa8b6eea57ae42958ef`
+- `fixtures/viewer-v0/sources/fixture-16/results.jsonl` sha256 `7a1df9f80874662edf96b1d2ef5315fc1ffc795bc8ac3e29b35fefb9da5ae251`
+- `fixtures/viewer-v0/sources/fixture-16/results.manifest.json` sha256 `01d8ef178b80da17d40897afb821b8e09ee8b8966fa82ad08b756727b9ae8967`
 
 ## bundle/fixture-01
 - `fixtures/viewer-v0/bundles/fixture-01/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
@@ -343,6 +343,16 @@
   the same already-scoped repair as the other pre-existing failures, not to Plan F. Flagged so the
   fixture-16 provenance above is read as "byte-identical **within this checkout**", which is what
   was measured, rather than as an unqualified claim
+- **resolved (checkout-independent hashing repair, 2026-07-24):** the separately-scoped repair
+  flagged above has landed. `tests/python/conftest.py::read_normalized_bytes` normalizes CRLF to
+  LF before hashing, and `test_a4_smoke_trace_integrity.py`, `test_source_immutability.py`, and
+  `test_a1_canonicalize.py::test_jcs_vectors_sha256sums` now hash through it, so the same digest
+  is produced on a CRLF or an LF checkout of the same commit. The `## fixture-03`, `## fixture-05`,
+  `## fixture-10`, and `## fixture-16` entries above were rewritten to the checkout-independent
+  values (`fixture-05`/`fixture-16`'s `decision_trace.jsonl` now both read `546693fc...`, matching
+  what this entry already measured); the ledger no longer disagrees with itself. `data/eval/` is
+  still untouched, per Plan F §0.4 and this repair's own scope -- only the reading side and this
+  ledger changed
 
 ## bundle/fixture-02
 - produced by a real `export_bundle()` call against `sources/fixture-02/decision_trace.jsonl`
