@@ -366,6 +366,13 @@ class _Client:
         self._decision_speed_oracle = None
         self._decision_dex = None
         self.room_raw: dict[str, list[str]] = {}
+        # Diagnostic-only companion to room_raw: the choices this seat SENT, each tagged with the
+        # rqid of the request it was computed from. Deliberately a SEPARATE dict, never appended
+        # into room_raw -- room_raw is fed to BattleState.from_log_text (_state_for below), so a
+        # synthetic frame there would change parsing and therefore how the bot plays. Merged into
+        # the diagnostic dump only, via dump_frames(). No decision path reads it, and the dump is
+        # not hashed by eval/decision_profile.py.
+        self.choose_log: dict[str, list[str]] = {}
         self.last_choose: dict[str, str] = {}
         # Task 6: the decision_index of the choice last SENT per room (recorded at send time), and
         # this seat's own invalid-choice decision indices (a -1 = unattributable |error|).
@@ -571,6 +578,21 @@ class _Client:
         self.invalid += 1
         self._invalid_decision_indices.append(self._last_choice_decision_index.get(room, -1))
 
+    def dump_frames(self, room: str) -> list[str]:
+        """Frames for the DIAGNOSTIC room dump: the server stream plus this seat's own sent
+        choices, each tagged with the rqid it was computed from.
+
+        Kept out of ``room_raw`` on purpose -- that list is parsed by
+        ``BattleState.from_log_text`` in ``_state_for``, so a synthetic frame there would change
+        how the bot reads the board. This merge is read by the dump writer only; nothing in the
+        decision path calls it, and the dump is not an input to ``eval/decision_profile.py``.
+
+        The choices are appended AFTER the server frames rather than interleaved: each line
+        already carries its own ``rqid``, which is what binds it to a request, so position adds
+        nothing and splicing would risk disturbing the server stream the seed proof compares.
+        """
+        return list(self.room_raw.get(room, [])) + list(self.choose_log.get(room, []))
+
     async def handle_request(self, room: str, payload: str) -> None:
         req = BattleRequest.model_validate(json.loads(payload))
         if req.wait:
@@ -715,6 +737,11 @@ class _Client:
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         self._last_choice_decision_index[room] = decision_seq  # Task 6: bind the SENT choice's index
+        # Diagnostic: the choice, tagged with the rqid of the request it was COMPUTED FROM. If the
+        # server later rejects it against a newer request, the mismatch between this rqid and the
+        # one the |error| follows is the stale-dispatch signature -- previously unanswerable,
+        # because the room dump carries only the server->client direction.
+        self.choose_log.setdefault(room, []).append(f">choose rqid={req.rqid} {choose}")
         await self.conn.send(f"{room}|{choose}")
         # [P1] The request has been answered, so it has consumed its slot -- advance the
         # shared sequence here, BEFORE the sidecar writes below (which already captured
@@ -962,7 +989,7 @@ async def _run_client(
                         if parsed.prefix in ("win", "tie"):
                             winner = parsed.args[0].strip() if (parsed.prefix == "win" and parsed.args) else None
                             # Snapshot frames BEFORE pop (T2 result parse + T1a dump both need them).
-                            room_frames = list(client.room_raw.get(parsed.room, []))
+                            room_frames = client.dump_frames(parsed.room)
                             room_raw_path = None
                             # T1a seed-proof: env-gated raw dump. Unset -> no-op (bit-identical path).
                             _dump_dir = os.environ.get("SHOWDOWN_ROOM_RAW_DUMP")
@@ -974,6 +1001,7 @@ async def _run_client(
                                 except Exception as exc:  # noqa: BLE001 - diagnostic dump is best-effort
                                     logger.debug("[%s] room_raw dump failed: %s", client.name, exc)
                             client.room_raw.pop(parsed.room, None)
+                            client.choose_log.pop(parsed.room, None)
                             if client._export is not None:
                                 client._export.flush()
                             if on_result is not None:
