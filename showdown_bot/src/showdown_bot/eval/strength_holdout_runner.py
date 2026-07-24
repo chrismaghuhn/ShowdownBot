@@ -93,6 +93,9 @@ _CALLBACK_RECORD_FIELDS = frozenset({
     # missing field makes the arm refuse the battle -- so these must be listed here in lockstep
     # with _battle_result_record, or every Gate B battle aborts.
     "hero_degraded_decisions", "villain_degraded_decisions",
+    # Gate B finding 5: per-seat invalid-choice counts, same lockstep requirement.
+    # `invalid_choices` (above) stays required and unchanged.
+    "hero_invalid_choices", "villain_invalid_choices",
 })
 
 

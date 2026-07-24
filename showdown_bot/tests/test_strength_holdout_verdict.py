@@ -636,17 +636,23 @@ from showdown_bot.eval.strength_holdout_verdict import compute_safety_pass, rend
 
 
 def _row(config_hash, seed_index, opp_policy, opp_team_hash, winner, invalid_choices=0, crashes=0,
-         end_reason="normal", hero_degraded_decisions=0, villain_degraded_decisions=0):
+         end_reason="normal", hero_degraded_decisions=0, villain_degraded_decisions=0,
+         hero_invalid_choices=0, villain_invalid_choices=0):
     return {
         "battle_id": f"b{seed_index}", "run_id": "r", "config_id": config_hash, "format_id": "gen9championsvgc2026regma",
         "config_hash": config_hash, "schedule_hash": "sched1", "seed_index": seed_index,
         "opp_policy": opp_policy, "hero_team_path": "hero.txt", "opp_team_path": "opp.txt",
         "seed": seed_index, "seed_base": "champions-strength-holdout-v0", "winner": winner,
+        # invalid_choices (Gate B finding 5): SUM, historical, kept for byte-for-byte row shape --
+        # compute_safety_pass no longer reads it; see hero_invalid_choices/villain_invalid_choices.
         "turns": 5, "invalid_choices": invalid_choices, "crashes": crashes,
         # Gate B finding 4: compute_safety_pass refuses a row that cannot show the bot actually
         # computed -- an ABSENT counter is not clean, so every fixture row must carry one.
         "hero_degraded_decisions": hero_degraded_decisions,
         "villain_degraded_decisions": villain_degraded_decisions,
+        # Gate B finding 5: per-seat, checked instead of the summed invalid_choices above.
+        "hero_invalid_choices": hero_invalid_choices,
+        "villain_invalid_choices": villain_invalid_choices,
         "decision_latency_p95_ms": 10.0, "git_sha": "deadbeef", "dirty": False, "end_reason": end_reason,
         "opp_team_hash": opp_team_hash,
     }
@@ -697,7 +703,8 @@ def test_compute_safety_pass_true_when_both_arms_clean():
 
 
 def test_compute_safety_pass_false_on_any_invalid_choice():
-    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=1)]
+    # Gate B finding 5: the field that gates is hero_invalid_choices, not the historical sum.
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", hero_invalid_choices=1)]
     rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
     assert compute_safety_pass(rows_a, rows_b) is False
 
@@ -719,7 +726,7 @@ def test_compute_safety_pass_false_on_a_non_normal_end_reason():
 # value that happens to compare equal to 0 must not silently be accepted as "clean".
 
 def test_compute_safety_pass_false_on_a_bool_invalid_choices():
-    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=False)]
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", hero_invalid_choices=False)]
     rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
     assert compute_safety_pass(rows_a, rows_b) is False
 
@@ -731,7 +738,7 @@ def test_compute_safety_pass_false_on_a_bool_crashes():
 
 
 def test_compute_safety_pass_false_on_a_float_invalid_choices():
-    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", invalid_choices=0.0)]
+    rows_a = [_row("cfgA", 0, "heuristic", "t1", "hero", hero_invalid_choices=0.0)]
     rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
     assert compute_safety_pass(rows_a, rows_b) is False
 
@@ -743,8 +750,10 @@ def test_compute_safety_pass_false_on_a_float_crashes():
 
 
 def test_compute_safety_pass_false_on_a_missing_invalid_choices():
+    # Gate B finding 5: hero_invalid_choices is what compute_safety_pass reads; deleting it
+    # (not the historical invalid_choices sum) is what must fail closed.
     row_a = _row("cfgA", 0, "heuristic", "t1", "hero")
-    del row_a["invalid_choices"]
+    del row_a["hero_invalid_choices"]
     rows_b = [_row("cfgB", 0, "heuristic", "t1", "villain")]
     assert compute_safety_pass([row_a], rows_b) is False
 

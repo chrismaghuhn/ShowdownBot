@@ -37,8 +37,15 @@ NULLABLE_FIELDS = frozenset({
     # validate -- but see compute_safety_pass: for a GATE run, absent is refused, never read
     # as zero.
     "hero_degraded_decisions", "villain_degraded_decisions",
+    # Gate B finding 5: per-SEAT invalid-choice counts. `invalid_choices` (REQUIRED, above) is
+    # the historical SUM and is kept unchanged -- these are ADDITIVE, so a baseline-side illegal
+    # action is attributable to that seat rather than failing the candidate with nothing on the
+    # row able to show it. Nullable for the same reason as the degraded counters: legacy rows,
+    # including every frozen Gate B row, carry no such field and must still validate.
+    "hero_invalid_choices", "villain_invalid_choices",
 })
 _DEGRADED_COUNTERS = ("hero_degraded_decisions", "villain_degraded_decisions")
+_SEAT_INVALID_COUNTERS = ("hero_invalid_choices", "villain_invalid_choices")
 _WINNERS = frozenset({"hero", "villain", "tie"})
 # T3f Task 5: how the battle ended. "normal" = ordinary |win|/|tie|; the others are
 # detected from room_raw markers (see eval.battle_parse._detect_end_reason).
@@ -98,13 +105,13 @@ def validate_battle_row(row: dict) -> None:
         raise ResultRowError("decision_trace_count must be a positive int")
     if digest is not None and (not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None):
         raise ResultRowError("decision_trace_sha256 must be lowercase sha256 hex")
-    for name in _DEGRADED_COUNTERS:
+    # Same non-negative-int check for both counter families -- reused, not duplicated, because
+    # the type-safety requirement is identical: bool is an int in Python and 0.0 == 0, so both
+    # must be refused explicitly or a type-wrong counter reads as a clean zero.
+    for name in (*_DEGRADED_COUNTERS, *_SEAT_INVALID_COUNTERS):
         value = row.get(name)
         if value is None:
             continue
-        # bool is an int in Python and 0.0 == 0, so both must be refused explicitly or a
-        # type-wrong counter reads as a clean zero -- the exact failure mode this slice exists
-        # to close.
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ResultRowError(f"{name} must be a non-negative int, got {value!r}")
 

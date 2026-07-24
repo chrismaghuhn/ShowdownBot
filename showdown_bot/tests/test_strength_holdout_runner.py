@@ -234,13 +234,15 @@ def _fake_gauntlet_runner_factory(*, winner="hero", end_reason="normal", seed_lo
         if on_battle_result is not None:
             # Matches gauntlet.py's real on_battle_result(record) contract exactly (called
             # synchronously with one positional dict arg, built by _battle_result_record):
-            # 11 keys -- winner/turns/end_reason/end_hp_diff/invalid_choices/crashes/
-            # hero_degraded_decisions/villain_degraded_decisions/decision_latency_p95_ms/
-            # room_raw_path/normalized_room_log_sha256.
+            # 13 keys -- winner/turns/end_reason/end_hp_diff/invalid_choices/crashes/
+            # hero_degraded_decisions/villain_degraded_decisions/hero_invalid_choices/
+            # villain_invalid_choices/decision_latency_p95_ms/room_raw_path/
+            # normalized_room_log_sha256.
             on_battle_result({
                 "winner": winner, "turns": 5, "end_reason": end_reason, "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
                 "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                "hero_invalid_choices": 0, "villain_invalid_choices": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             })
         return _FakeGauntletStats(games=1)
@@ -374,6 +376,7 @@ def test_run_strength_holdout_arm_aborts_cleanly_on_a_row_that_fails_schema_vali
                 "winner": "not_a_real_winner_value", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
                 "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                "hero_invalid_choices": 0, "villain_invalid_choices": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             })
         return _FakeGauntletStats(games=1)
@@ -647,6 +650,7 @@ def test_run_strength_holdout_arm_rejects_a_callback_with_an_unexpected_field(tm
                 "winner": "hero", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
                 "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                "hero_invalid_choices": 0, "villain_invalid_choices": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
                 "git_sha": "attacker-controlled-sha",  # a runner-owned field name, injected
             })
@@ -673,6 +677,7 @@ def test_run_strength_holdout_arm_rejects_a_callback_missing_a_required_field(tm
                 "winner": "hero", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
                 "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                "hero_invalid_choices": 0, "villain_invalid_choices": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             }
             del record["crashes"]
