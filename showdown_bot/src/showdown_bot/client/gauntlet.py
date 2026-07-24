@@ -15,7 +15,22 @@ from showdown_bot.battle.decision import (
     choose_with_fallback,
 )
 from showdown_bot.battle.mega_scoring import MegaShapeCounts
-from showdown_bot.eval.decision_profile import snapshot_calc_counters
+from showdown_bot.eval.decision_profile import (
+    BASELINE_FALLBACK_STAGES,
+    BASELINE_OK_STAGE,
+    is_degraded_decision,
+    snapshot_calc_counters,
+)
+
+# The single member of BASELINE_FALLBACK_STAGES, unpacked once so `agent_choose` marks the
+# set's own value rather than a second literal that could drift away from it.
+(_BASELINE_DEFAULT_STAGE,) = BASELINE_FALLBACK_STAGES
+
+# The agents whose decisions run through a calc-backed chain and can therefore DEGRADE.
+# The eval-only opponent policies (greedy_protect/simple_heuristic/scripted_vgc/random) are
+# request-only: they have no fallback chain and no calc, so they have nothing to degrade and
+# are correctly counted as 0 rather than as unmeasured.
+_DEGRADABLE_AGENTS = frozenset({"heuristic", "heuristic_reranker", "max_damage"})
 from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.battle.opponent import SpeciesDex
 from showdown_bot.battle.oracle import DamageOracle
@@ -130,14 +145,25 @@ def agent_choose(
         # Eval-deterministic (T3c): paired seed comparison needs a deterministic opponent,
         # so max_damage's rare fallbacks use `/choose default` (not pick_random_pair). The
         # live path (decision.py) calls max_damage_choice with the default fallback -> unchanged.
+        # Gate B finding 4: this except branch is the BASELINE arm's silent-degradation path --
+        # max_damage_choice raising (a dead calc subprocess, say) is swallowed here and answered
+        # with a legal `/choose default`, so nothing downstream could tell a computed baseline
+        # from a blind one. Mark the same sink choose_with_fallback marks; the returned choice is
+        # byte-identical either way, and the sink stays None for every caller that wants none.
         try:
-            return max_damage_choice(
+            choice = max_damage_choice(
                 req, state=state, book=book, our_side=our_side,
                 calc=calc, oracle=oracle, speed_oracle=speed_oracle,
                 format_config=format_config, our_spreads=our_spreads,
                 fallback=lambda r: f"/choose default|{r.rqid}",
             )
+            if stage_sink is not None:
+                stage_sink.selection_stage = BASELINE_OK_STAGE
+            return choice
         except Exception:  # noqa: BLE001
+            if stage_sink is not None:
+                stage_sink.selection_stage = _BASELINE_DEFAULT_STAGE
+                stage_sink.fallback_reason = "max_damage_error"
             return f"/choose default|{req.rqid}"
     if agent == "heuristic_reranker":
         # Run the heuristic core EXACTLY ONCE -- reuse a caller-supplied trace
@@ -205,17 +231,27 @@ class _PerBattleCounters:
         self._invalid = 0
         self._crashes = 0
         self._lat_len = 0
+        self._hero_degraded = 0
+        self._villain_degraded = 0
 
-    def emit(self, *, invalid: int, crashes: int, latencies: list[float]) -> dict:
+    def emit(self, *, invalid: int, crashes: int, latencies: list[float],
+             hero_degraded: int = 0, villain_degraded: int = 0) -> dict:
         new_lat = latencies[self._lat_len:]
         record = {
             "invalid_choices": invalid - self._invalid,
             "crashes": crashes - self._crashes,
             "decision_latency_p95_ms": round(_latency_p95(new_lat) * 1000),
+            # PER SEAT, deliberately not summed (Gate B finding 5): `invalid_choices` above sums
+            # both seats, so an opponent-seat violation fails the candidate with nothing on the
+            # row able to show it. The counter added here must not inherit that defect.
+            "hero_degraded_decisions": hero_degraded - self._hero_degraded,
+            "villain_degraded_decisions": villain_degraded - self._villain_degraded,
         }
         self._invalid = invalid
         self._crashes = crashes
         self._lat_len = len(latencies)
+        self._hero_degraded = hero_degraded
+        self._villain_degraded = villain_degraded
         return record
 
 
@@ -382,6 +418,10 @@ class _Client:
         self.latencies: list[float] = []
         self.invalid = 0
         self.crashes = 0
+        # Gate B finding 4: this seat's decisions that did NOT complete on its agent's intended
+        # path. Run-lifetime cumulative like .invalid/.crashes; _PerBattleCounters turns it into
+        # the per-battle delta that reaches the row.
+        self.degraded = 0
         # Dataset export seam (2b-2.5a run-scoped fix): a caller (cli.run_schedule) can BORROW
         # a runtime that spans multiple sequential run_local_gauntlet() calls/battles -- this
         # client must then never build its own AND close() must never close a runtime it does
@@ -689,7 +729,11 @@ class _Client:
             and not req.team_preview
             and self.agent in ("heuristic", "heuristic_reranker")
         )
-        profile_stage_sink = SelectionStageSink() if profile_on else None
+        # Allocated for EVERY scored decision now, not only when the I8-D profile writer is on:
+        # the degraded counter below is what makes a degraded gate run refusable, and it must not
+        # depend on an off-by-default sidecar being enabled. Cost is one small dataclass and two
+        # scalar assignments; it never touches the returned action.
+        profile_stage_sink = SelectionStageSink()
         profile_shape_sink = MegaShapeCounts() if profile_on else None
         profile_before = (
             snapshot_calc_counters(oracle, calc.backend)
@@ -734,6 +778,20 @@ class _Client:
             snapshot_calc_counters(oracle, calc.backend)
             if (profile_on and calc is not None) else None
         )
+        # Gate B finding 4: classify THIS decision. Deliberately placed AFTER the latency window
+        # above -- the I8-D gate measures decision latency against a 1000 ms p95 budget with the
+        # frozen evidence at 864.94/873.762 ms (~13% headroom), so per-decision work added
+        # between `start` and the `perf_counter()` above would both eat that headroom and make a
+        # future run incomparable with the frozen numbers. Nothing here touches the returned
+        # action or the measurement. Team preview is excluded (not a calc decision; it marks its
+        # own `team_preview` stage), as are the request-only opponent policies, which have no
+        # fallback chain to degrade from.
+        if not req.team_preview and self.agent in _DEGRADABLE_AGENTS and is_degraded_decision(
+            crashed=agent_crashed,
+            state_degraded=(state is None),
+            selection_stage=profile_stage_sink.selection_stage,
+        ):
+            self.degraded += 1
         self.latencies.append(decision_latency_ms / 1000)
         self.last_choose[room] = choose
         self._last_choice_decision_index[room] = decision_seq  # Task 6: bind the SENT choice's index
@@ -1156,7 +1214,8 @@ def _normalized_room_log_sha256(frames) -> str | None:
 
 
 def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, crashes,
-                          decision_latency_p95_ms, room_raw_path):
+                          decision_latency_p95_ms, room_raw_path,
+                          hero_degraded_decisions=0, villain_degraded_decisions=0):
     """Assemble the battle-derived T2 fields with EXPLICIT hero/villain/tie mapping (Fix 2).
 
     Unknown winner -> ResultRowError (never guessed). ``end_hp_diff`` is hero-side minus
@@ -1183,6 +1242,10 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
         "end_hp_diff": _end_hp_diff(p, hero_name, villain_name),
         "invalid_choices": invalid_choices,
         "crashes": crashes,
+        # Gate B finding 4: decisions that did NOT complete on the agent's intended path. A
+        # non-zero count means the seat answered with a fallback -- legal, but not computed.
+        "hero_degraded_decisions": hero_degraded_decisions,
+        "villain_degraded_decisions": villain_degraded_decisions,
         "decision_latency_p95_ms": decision_latency_p95_ms,
         "room_raw_path": room_raw_path,
         # T4c R1: binds this row to its room log; None on any hashing failure (never
@@ -1399,6 +1462,8 @@ async def run_local_gauntlet(
                     invalid=hero.invalid + villain.invalid,
                     crashes=hero.crashes + villain.crashes,
                     latencies=hero.latencies,
+                    hero_degraded=hero.degraded,
+                    villain_degraded=villain.degraded,
                 )
                 record = _battle_result_record(
                     hero.name, villain.name, room_frames,
@@ -1406,6 +1471,8 @@ async def run_local_gauntlet(
                     crashes=deltas["crashes"],
                     decision_latency_p95_ms=deltas["decision_latency_p95_ms"],
                     room_raw_path=room_raw_path,
+                    hero_degraded_decisions=deltas["hero_degraded_decisions"],
+                    villain_degraded_decisions=deltas["villain_degraded_decisions"],
                 )
                 on_battle_result(record)
             except Exception as exc:  # noqa: BLE001 - never stall the run; runner row-count catches it

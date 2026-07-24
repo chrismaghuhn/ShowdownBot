@@ -234,11 +234,13 @@ def _fake_gauntlet_runner_factory(*, winner="hero", end_reason="normal", seed_lo
         if on_battle_result is not None:
             # Matches gauntlet.py's real on_battle_result(record) contract exactly (called
             # synchronously with one positional dict arg, built by _battle_result_record):
-            # 9 keys -- winner/turns/end_reason/end_hp_diff/invalid_choices/crashes/
-            # decision_latency_p95_ms/room_raw_path/normalized_room_log_sha256.
+            # 11 keys -- winner/turns/end_reason/end_hp_diff/invalid_choices/crashes/
+            # hero_degraded_decisions/villain_degraded_decisions/decision_latency_p95_ms/
+            # room_raw_path/normalized_room_log_sha256.
             on_battle_result({
                 "winner": winner, "turns": 5, "end_reason": end_reason, "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
+                "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             })
         return _FakeGauntletStats(games=1)
@@ -271,6 +273,22 @@ def _setup_common(monkeypatch, tmp_path, schedule, *, calc_backend="oneshot"):
     seed_log_path = tmp_path / "seeds.jsonl"
     monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(seed_log_path))
     return str(seed_log_path)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_calc_preflight(monkeypatch):
+    """Gate B finding 4 added a real damage-calc probe before battle 1 (`assert_calc_answers`).
+    Every test in this module injects a FAKE gauntlet_runner and plays no real battle, so a live
+    calc backend is not what any of them is about -- and requiring one would make the whole arm
+    suite depend on `npm ci --prefix tools/calc`.
+
+    Neutralised HERE, in one place, rather than by threading a second injection parameter through
+    32 call sites. The preflight's own behaviour is covered by its unit tests, and that the arm
+    really calls it is covered by an explicit test -- see
+    test_calc_degradation_visibility.py::test_the_arm_runs_the_calc_preflight_before_battle_1.
+    """
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.assert_calc_answers", lambda **kw: None)
 
 
 def _arm_out_dir(tmp_path, name, stratum="windows"):
@@ -355,6 +373,7 @@ def test_run_strength_holdout_arm_aborts_cleanly_on_a_row_that_fails_schema_vali
             on_battle_result({
                 "winner": "not_a_real_winner_value", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
+                "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             })
         return _FakeGauntletStats(games=1)
@@ -627,6 +646,7 @@ def test_run_strength_holdout_arm_rejects_a_callback_with_an_unexpected_field(tm
             on_battle_result({
                 "winner": "hero", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
+                "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
                 "git_sha": "attacker-controlled-sha",  # a runner-owned field name, injected
             })
@@ -652,6 +672,7 @@ def test_run_strength_holdout_arm_rejects_a_callback_missing_a_required_field(tm
             record = {
                 "winner": "hero", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
                 "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
+                "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
                 "room_raw_path": None, "normalized_room_log_sha256": None,
             }
             del record["crashes"]

@@ -635,13 +635,18 @@ from showdown_bot.eval.pairing import Pair
 from showdown_bot.eval.strength_holdout_verdict import compute_safety_pass, render_strength_holdout_verdict
 
 
-def _row(config_hash, seed_index, opp_policy, opp_team_hash, winner, invalid_choices=0, crashes=0, end_reason="normal"):
+def _row(config_hash, seed_index, opp_policy, opp_team_hash, winner, invalid_choices=0, crashes=0,
+         end_reason="normal", hero_degraded_decisions=0, villain_degraded_decisions=0):
     return {
         "battle_id": f"b{seed_index}", "run_id": "r", "config_id": config_hash, "format_id": "gen9championsvgc2026regma",
         "config_hash": config_hash, "schedule_hash": "sched1", "seed_index": seed_index,
         "opp_policy": opp_policy, "hero_team_path": "hero.txt", "opp_team_path": "opp.txt",
         "seed": seed_index, "seed_base": "champions-strength-holdout-v0", "winner": winner,
         "turns": 5, "invalid_choices": invalid_choices, "crashes": crashes,
+        # Gate B finding 4: compute_safety_pass refuses a row that cannot show the bot actually
+        # computed -- an ABSENT counter is not clean, so every fixture row must carry one.
+        "hero_degraded_decisions": hero_degraded_decisions,
+        "villain_degraded_decisions": villain_degraded_decisions,
         "decision_latency_p95_ms": 10.0, "git_sha": "deadbeef", "dirty": False, "end_reason": end_reason,
         "opp_team_hash": opp_team_hash,
     }
