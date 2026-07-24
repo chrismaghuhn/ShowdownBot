@@ -279,8 +279,16 @@ any shipped string," does not apply).
   [gate-coverage audit](viewer-v0-f-gate-coverage-audit.md) (8 COVERED / 15 PARTIAL / 14 MISSING of
   37) and [fail-check pass](viewer-v0-f-gate-test-failcheck.md) (PARTIAL — only gates 10–12
   fail-checked). This document only speaks to the six F3 checklist items and the §7 contradiction.
-- **Fixtures 2, 7–9, 11–15, 17–23.** None exist yet — F1's own task, still unchecked in the plan.
-  Nothing in this audit exercises them because there is nothing to exercise.
+- **Fixtures 2, 7–9, 11–15, 17–23.** ~~None exist yet — F1's own task, still unchecked in the plan.
+  Nothing in this audit exercises them because there is nothing to exercise.~~
+  **Corrected 2026-07-24 — the struck sentence was false when written.** All of those fixtures were
+  already authored and committed on this branch (`8027fc2`, `3b57d09`, `4f72227`, `da431e6`) before
+  this audit was written, and `fixtures/viewer-v0/sources/` holds every one of them. What is true is
+  the narrower claim: **this audit did not exercise them.** Its six checklist items are about shipped
+  UI copy and rendered surfaces, and it worked from the fixture-01 captures only. Their existence and
+  correctness are established elsewhere — `SOURCES.md` for provenance, the §14 catalogue tests for
+  behaviour. The error is left visible rather than silently rewritten, because an evidence file that
+  quietly edits its own past claims is worth less than one that shows where it was wrong.
 - **Exhaustiveness of the string sweep.** The sweep covered every `.gd` file under `godot/src/` read
   in full, every `.tscn` static-text literal, and a targeted assignment-site/word-list grep. A
   string built through some other, unswept mechanism (e.g., composed at runtime from data not
