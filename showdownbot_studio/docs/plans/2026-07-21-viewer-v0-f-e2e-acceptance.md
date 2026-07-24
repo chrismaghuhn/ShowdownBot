@@ -1,8 +1,8 @@
 # Viewer v0 — Plan F: End-to-End Acceptance
 
 **Status:** DRAFT — expanded to an executable draft; **implementation not authorized**
-**Date:** 2026-07-21 · **Rev.:** 2 (2026-07-24 — review amendments: P1/P2 gate-defect findings +
-Choice Point 1 platform-decision reasoning; see §9)
+**Date:** 2026-07-21 · **Rev.:** 3 (2026-07-24 — owner closed all four §0.11 choice points; status
+remains DRAFT, implementation still gated on Plans A–E per §0.10/§3.2; see §9)
 **Depends on:** Plans A–E complete and green (implementation index §3.2). As of this expansion,
 **A–D are merged on `main`; Plan E is APPROVED with only Task E1 merged** (`e757772`, state banner).
 E2–E7 are in progress on an unmerged branch (`studio/plan-e-layout-shell`). **Plan F code cannot
@@ -205,7 +205,8 @@ plan's).** A single check that walks **every** fixture manifest under both
 every entry with `present: true`, asserts declared `sha256` equals the actual sha256 of the file
 at `path`. One guard covering all fixtures, not per-fixture whack-a-mole (same shape as the
 informal note above independently proposed). **Whether this gate is blocking or advisory on Plan F
-landing is Open Choice Point 2 (§0.11)** — the 5 already-drifted unit fixtures are not part of
+landing is Choice Point 2 (§0.11, CLOSED: G1/advisory — with a binding F1 re-check obligation, see
+the amendment there)** — the 5 already-drifted unit fixtures are not part of
 Plan F's own fixture ownership (§0.2) and their repair is explicitly out of scope here (§0.4), so a
 naively blocking gate would fail on day one against fixtures Plan F does not own.
 
@@ -296,10 +297,15 @@ This Rev. 1 is **DRAFT**. Code still starts only after: (1) Plans A–E are gree
 **APPROVED** in a docs-only commit by the project owner, (3) a separate implementation go-ahead.
 Approve-commit precedes code, same sequencing Plan E bound on itself (Plan E header).
 
-### 0.11 Open choice points for the OWNER
+### 0.11 Choice points — CLOSED (owner, 2026-07-24)
 
-None of these are closed by this expansion. Each carries options, trade-offs, and a
-recommendation — the recommendation is not a decision.
+All four choice points below are now closed by owner decision, 2026-07-24. Option tables and
+trade-offs are retained as protocol — closing a choice point is not deleting the record of what
+was weighed, and it is **not** the same act as approving this plan (§0.10/§7 — this document's
+`Status:` line stays **DRAFT**, unchanged by this section). Each point now carries a **Decision** /
+**Rationale** / **Status** block after its option table, following the pattern
+[Plan E §0.13](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md#0-13) established for closed
+choice points.
 
 #### Choice Point 1 — CI platform/runner scope
 
@@ -336,7 +342,14 @@ recommendation is **unchanged** by the platform decision itself: Windows being t
 makes K1 more *valuable* once it lands, it does not make it cheaper to stand up today — the two
 costs above are the owner's to weigh against that value, not new information that flips the
 recommendation on its own. This revision corrects the reasoning behind the K2 recommendation, not
-the choice itself; the owner has deferred the choice to Plan F review. **Status: OPEN.**
+the choice itself; the owner has deferred the choice to Plan F review.
+
+| | |
+|---|---|
+| **Decision** | **K1 — Windows CI lane.** Add a `windows-latest` GH Actions job that downloads the pinned engine zip, verifies it against `ENGINE_SHA256SUMS`, then runs pytest + gdUnit as one job (mirroring the existing per-track job convention). |
+| **Rationale** | Grounded in the §0.12 platform decision — Windows is the actual target (Linux out, macOS possible later) — not in the shape of today's ubuntu-only `showdown_bot` workflow, which predates that decision and is not itself an argument either way. This closes the choice **against** this plan's own K2 recommendation: the owner weighed the two named costs (engine not committed → download+verify every run; Windows runner minutes billed at roughly double) against the value of real CI coverage on the actual target platform and chose K1 anyway. Both costs stand, accepted, not waived. |
+| **Scope note (binding)** | Wiring `showdownbot_studio/` into `.github/workflows/` is itself an F1 implementation step — it is still gated by this plan's `Status:` line staying **DRAFT** (§0.10) and by Plans A–E being green and merged (index §3.2). Closing this choice point authorizes what F1 will build, not building it now. |
+| **Status** | **CLOSED (owner, 2026-07-24).** |
 
 #### Choice Point 2 — Fixture-integrity gate: blocking or advisory
 
@@ -352,8 +365,14 @@ noted as deferred work ("fix after E5/E6/E7 + PRs" per the informal note in §0.
 | G3 | Blocking for the **new** catalogue fixtures Plan F authors (2, 7–9, 11–15, 17–23) from day one; advisory for the pre-existing `godot/tests/fixtures/unit/` set until the separate fix lands, then flip that half to blocking too | New fixtures never rot silently even before the old ones are cleaned up; two-speed gate is slightly more code than a single flag |
 
 **Recommendation:** G3 — it protects everything Plan F actually authors immediately, without
-making Plan F's closeout depend on a fix explicitly scheduled for later by someone else. **Status:
-OPEN.**
+making Plan F's closeout depend on a fix explicitly scheduled for later by someone else.
+
+| | |
+|---|---|
+| **Decision** | **G1 — advisory only** (reports mismatches, does not fail CI), against this plan's own G3 recommendation. |
+| **Rationale** | The owner chose the simpler G1 shape over the recommended two-speed G3. |
+| **Amendment — premise change (binding, must be re-checked at F1)** | Choice Point 2's grounding was that a *blocking* gate would fail immediately and permanently against the 5 pre-existing drifted `godot/tests/fixtures/unit/` fixtures (§0.6). **That premise is being removed concurrently with this decision:** a separate, independent branch `fix/studio-fixture-hash-integrity` (off `main`, **not merged**, **not part of Plan F**) reseals those 5 manifests, null-guards the two crashing tests identified in §0.6, and stops `run_gdunit_headless.ps1` truncating on first failure. The decision recorded here is advisory, exactly as the owner chose — but **the reason for choosing advisory may no longer hold by the time F1 is implemented**. F1 (§3.1, §4) must therefore re-check, at implementation time, whether `fix/studio-fixture-hash-integrity` has landed and blocking has become free before building the advisory shape sketched in §3.1. This is **not** a silent upgrade to blocking — that stays the owner's call — it is a re-check obligation on F1, not a new decision made here. |
+| **Status** | **CLOSED (owner, 2026-07-24).** |
 
 #### Choice Point 3 — 104-candidate bounded-render fixture: derive or author fresh
 
@@ -370,7 +389,14 @@ directory has **no** companion battle log, so a derived fixture from it can only
 
 **Recommendation:** L1 — the real row already exists and is committed; inventing a synthetic one
 when a real one covers the claim is exactly the kind of unrequested extra work the fixture-01/03
-synthetic exception was never meant to normalize. **Status: OPEN.**
+synthetic exception was never meant to normalize.
+
+| | |
+|---|---|
+| **Decision** | **L1 — derive.** `TRACE_ONLY` from the real committed 104-candidate row in `smoke-i7a-mega/decision_trace.jsonl` (§0.1), following the `fixture-05`/`fixture-16` `SOURCES.md` pattern exactly. |
+| **Rationale** | Derived-from-committed-evidence beats fabricated, and this repo has direct same-session evidence for it: every one of the 5 fixtures that drifted (§0.6) was **hand-authored** (`godot/tests/fixtures/unit/`), while every exporter-produced catalogue fixture under `fixtures/viewer-v0/bundles/` was correct. Hand-made fixtures rot; derived ones don't. L2 would also invoke the §14.1 synthetic-coherent exception permanently for a claim a real row already proves more cheaply — a burden every future maintainer then has to understand. |
+| **Known gap (accepted by owner, not silently absorbed)** | The `smoke-i7a-mega` corpus directory has **no companion battle log** (§0.1), so a fixture derived from it can only be `TRACE_ONLY` — never a replay+trace pairing. **Bounded rendering is therefore never exercised together with active replay mode by this fixture.** A defect that only manifests with board + timeline + a live 104-row candidate table simultaneously would not be caught here. Also recorded in §1's fixture matrix and §5's acceptance table so it stays visible at implementation and closeout time, not buried in this choice point alone. |
+| **Status** | **CLOSED (owner, 2026-07-24).** |
 
 #### Choice Point 4 — How much manual evidence is required before "green"
 
@@ -385,7 +411,14 @@ synthetic exception was never meant to normalize. **Status: OPEN.**
 
 **Recommendation:** J1 — Plan F cannot retroactively turn Plan E's own stated non-goal into a hard
 gate; J2's sign-off is a low-cost addition the owner can add unilaterally at review time without
-needing to be baked into this plan. **Status: OPEN.**
+needing to be baked into this plan.
+
+| | |
+|---|---|
+| **Decision** | **J2 — filed, plus explicit owner sign-off.** Every manual check (screen-reader smoke note, mixed-DPI checklist) must be **filed**: attempted, non-empty, and honest about failures — plus an explicit owner sign-off checkbox in F5's merge-readiness packet (§4 F5) before merge, against the plan's own J1 recommendation. |
+| **Rationale** | The owner added the sign-off gate J1 called optional; the cost (one checkbox, solo-developer project) is low against the value of an explicit human checkpoint before merge. |
+| **Binding constraint (must be unambiguous — state with this closure)** | **J2 means everything is *filed and signed off*, NOT that everything must *pass*.** Plan E §1 lists "screen-reader completeness as a hard release gate" as an explicit non-goal, and Plan E §0.10 frames screen-reader evidence as best-effort, never claiming completeness. A partially-failing screen-reader result is therefore an **honest recorded outcome**, not a release blocker. The F5 sign-off attests that the evidence was **produced and reviewed** — it never attests that it all **passed**. No later reader of this plan, F5's packet, or the sign-off checkbox itself may treat J2 as "SR must pass"; F5's task list (§4) and the acceptance table (§5) must phrase the sign-off requirement accordingly. |
+| **Status** | **CLOSED (owner, 2026-07-24).** |
 
 ### 0.12 Target platform (binding, owner decision — 2026-07-24, item 8 review)
 
@@ -393,8 +426,8 @@ The repo owner has decided Studio's target platforms: **Windows is the target pl
 out. macOS is possible later.** This supersedes any reasoning in this plan that argued from the
 shape of today's CI rather than from the product's actual target — in particular Choice Point 1
 (§0.11), which is about CI *runner* scope, not about which platform is in scope; that reasoning has
-been rewritten above to reflect this decision, but Choice Point 1 itself **remains OPEN** — the
-owner has deferred it to Plan F review.
+been rewritten above to reflect this decision. Choice Point 1 itself was **OPEN** at the time this
+section was first written and is now **CLOSED (owner, 2026-07-24) — K1, see §0.11**.
 
 Two things this decision does **not** do:
 
@@ -402,8 +435,9 @@ Two things this decision does **not** do:
   `ShortcutLabels.mod_key()` (Plan E §4, cited per §0.1 — not yet merged code, only Plan E's own
   plan text at this point) returns `"Cmd"` on macOS and `"Ctrl"` elsewhere. That branch **retains
   its purpose** under this decision and is not dead code to be pruned by F3 or anyone else.
-- It does not resolve Choice Point 1 on its own — K1/K2/K3 (§0.11) stay open; this section only
-  fixes what the choice point's reasoning is grounded in, not the choice.
+- It does not resolve Choice Point 1 on its own — K1/K2/K3 (§0.11) stayed open until the owner
+  closed the choice separately (§0.11, K1, 2026-07-24); this section only fixes what the choice
+  point's reasoning is grounded in, not the choice.
 
 **Binding on F3 (§4):** the honesty audit must not let UI copy, docs, or CI job naming imply Linux
 support that does not exist anywhere in this repo.
@@ -434,7 +468,7 @@ paraphrased. "Status" and "recipe" are Plan F's job to execute once approved.
 | 22a | mode key `required:false, present:true` | refuse as malformed (invariant 1) | absent | mutate a manifest's `battle_log` entry |
 | 22b | mode key `required:true, present:false` | refuse as malformed (invariant 1); distinct from fixture 8 (8 = declared present, missing on disk; 22b = declared not-present while required) | absent | mutate a manifest's `battle_log` entry, opposite direction from 22a |
 | 23 | optional key `required:true` | `warnings` declared `required: true`; refuse (invariant 2) | absent | mutate a manifest's `warnings` entry |
-| — | 104-candidate bounded-render | cross-cutting rule 7 (index §5), not a numbered §14 fixture | absent | Choice Point 3 (§0.11) — recommend deriving `TRACE_ONLY` from the real committed row |
+| — | 104-candidate bounded-render | cross-cutting rule 7 (index §5), not a numbered §14 fixture | absent | Choice Point 3 (§0.11, **CLOSED: L1**) — derive `TRACE_ONLY` from the real committed row (`smoke-i7a-mega`, §0.1). **Known gap (accepted by owner):** no companion battle log in that corpus ⇒ this fixture can only be `TRACE_ONLY`; bounded rendering is never exercised together with active replay mode. A defect only reproducible with board + timeline + a live 104-row candidate table simultaneously would not be caught by this fixture |
 
 Fixtures **9, 22a, 22b, 23** already have structural precedent in `godot/tests/fixtures/unit/`
 (`refuse-duplicate-decision-index`, `refuse-extra-files-key`, others) — Plan F's catalogue copies
@@ -570,10 +604,14 @@ def test_every_declared_sha256_matches_actual_bytes():
                     seen_expected.add(identity)
                 else:
                     unexpected_mismatches.append((str(target), entry.get("sha256"), actual))
-    # Choice Point 2 (§0.11) decides whether the line below asserts or only reports for the
-    # godot/tests/fixtures/unit/ root specifically; it does not touch fixture-06's assertion,
-    # which is unconditional regardless of Choice Point 2's outcome (P1-2).
-    assert not unexpected_mismatches, unexpected_mismatches
+    # Choice Point 2 (§0.11) is CLOSED: G1/advisory (all roots, not the two-speed G3 this sketch
+    # originally assumed) — the line below is advisory-only shape: report unexpected_mismatches
+    # (log / warning), do not fail CI on it. Re-check at F1 implementation time whether
+    # fix/studio-fixture-hash-integrity has landed and blocking has become free before keeping this
+    # advisory (§0.11 amendment). This does not touch fixture-06's assertion below, which stays
+    # unconditional regardless of Choice Point 2's outcome (P1-2).
+    if unexpected_mismatches:
+        print(f"[advisory] fixture hash mismatches: {unexpected_mismatches}")  # does not fail CI
     # Fixture-06 must still mismatch. If this fails, someone "repaired" the deliberate refuse
     # fixture and silently broke the two tests cited above that depend on it staying wrong (P1-2).
     assert seen_expected == EXPECTED_MISMATCHES, EXPECTED_MISMATCHES - seen_expected
@@ -581,11 +619,16 @@ def test_every_declared_sha256_matches_actual_bytes():
 
 Whether `unexpected_mismatches` is asserted unconditionally (G2/blocking), replaced with a warning
 log (G1/advisory), or scoped so only `fixtures/viewer-v0/` roots are blocking while
-`godot/tests/fixtures/unit/` is collected-and-reported-only (G3, recommended) is Choice Point 2 —
-not decided here. The minimum-count assertions and fixture-06's positive assertion above are **not**
-part of that choice point: they are binding regardless of how Choice Point 2 resolves — an empty
-scan and a silently "repaired" refuse fixture are bugs in the gate itself, not a blocking-vs-advisory
-policy question.
+`godot/tests/fixtures/unit/` is collected-and-reported-only (G3, this plan's own recommendation)
+was Choice Point 2 — now **CLOSED (owner, 2026-07-24): G1**, plain advisory across all roots, not
+the two-speed G3 shape this section originally sketched around. See §0.11's closure block for the
+binding amendment: the premise for choosing advisory (5 pre-existing drifted unit fixtures would
+make a blocking gate red on day one) is itself being removed by a separate, unmerged branch
+(`fix/studio-fixture-hash-integrity`), so F1 must re-check at implementation time whether blocking
+has become free before building the advisory shape below unchanged. The minimum-count assertions
+and fixture-06's positive assertion above are **not** part of that choice point: they are binding
+regardless of Choice Point 2's outcome — an empty scan and a silently "repaired" refuse fixture are
+bugs in the gate itself, not a blocking-vs-advisory policy question.
 
 ### 3.2 CI truncation guard (§0.6, binding, not a choice point)
 
@@ -674,7 +717,9 @@ Produce a short review note listing:
 1. Specs implemented (A–E scope)
 2. Fixture digests / paths (all 23, not just F's 17)
 3. CI command + last green counts, including the truncation-guard result
-4. Manual checklist results, with Choice Point 4's required-vs-filed distinction stated explicitly
+4. Manual checklist results, filed and reviewed per Choice Point 4 (§0.11, CLOSED: J2), plus an
+   explicit owner sign-off checkbox — stated as "filed and signed off," never as "passed" (§0.11's
+   binding constraint)
 5. Known §16 gaps still open
 6. Residual privacy linkability reminder (bundle contract §12.6)
 7. The §0.8 scale/density/hash-truncation gaps, named as open items against Plan E's own §9.2
@@ -695,7 +740,8 @@ Produce a short review note listing:
 | Primary controls reachable at 1280×720 | fresh §0.7 capture, not the §0.8 note carried forward |
 | No Studio writes into frozen eval sources | unchanged from sketch |
 | No network in runtime paths | unchanged from sketch; §0.7's capture script is dev tooling, not runtime |
-| Screen-reader / mixed-DPI evidence filed | Choice Point 4's resolution decides "filed" vs "filed + signed off" |
+| Screen-reader / mixed-DPI evidence filed **and reviewed**, with an explicit owner sign-off checkbox (Choice Point 4, §0.11, CLOSED: J2) — filed-and-signed-off is not the same claim as "passed" (binding constraint, §0.11) | F5 packet, sign-off checkbox |
+| 104-candidate bounded-render fixture proves bounded rendering against a real committed producer row (Choice Point 3, §0.11, CLOSED: L1) — **known gap:** `TRACE_ONLY` only (no companion battle log), so bounded rendering is never exercised together with active replay mode by this fixture | §1 matrix (104-candidate row); §0.11 Choice Point 3 |
 | Plan E's E2→E6, E3/E4→E5 deferrals verified landed | §0.9 |
 | User review before merge; user review before any Phase 1 design kickoff | unchanged from sketch |
 
@@ -719,11 +765,16 @@ Produce a short review note listing:
 
 ## 7. Handoff
 
-1. Owner reviews this DRAFT against Plan E's actual merged state (currently E1 only) and the four
-   open choice points in §0.11.
-2. Owner closes Choice Points 1–4, or leaves them for a later revision.
-3. Status → **APPROVED** in a **docs-only** commit (owner) — only after Plans A–E are actually
-   green and merged (index §3.2); approving this draft's text does not waive that dependency.
+1. ~~Owner reviews this DRAFT against Plan E's actual merged state (currently E1 only) and the
+   four open choice points in §0.11~~ — the four choice points are now closed (§0.11, Rev. 3,
+   2026-07-24); Plan E's actual merged state is still only E1 as of this revision and still needs
+   owner review against whatever lands.
+2. ~~Owner closes Choice Points 1–4, or leaves them for a later revision~~ — **done**, 2026-07-24
+   (§0.11; Rev. 3 changelog entry, §9).
+3. Status → **APPROVED** in a **docs-only** commit (owner) — **a separate, later act from closing
+   the choice points above** (§0.11's own intro states this explicitly) — only after Plans A–E are
+   actually green and merged (index §3.2); approving this draft's text does not waive that
+   dependency.
 4. Separate go-ahead → isolated branch/worktree → F1…F5, same task-level TDD discipline as every
    other plan in this set.
 
@@ -740,6 +791,57 @@ require their own approved design + plan. This document must not grow those task
 ---
 
 ## 9. Changelog
+
+### Rev. 3 — owner closed all four §0.11 choice points; status stays DRAFT (2026-07-24)
+
+All four Rev. 1/Rev. 2 choice points are now **CLOSED (owner, 2026-07-24)**. Full option tables are
+retained as protocol; each choice point gained a **Decision** / **Rationale** / **Status** block,
+following the pattern Plan E §0.13 uses for its own closed choice points. **Closing these choice
+points is not approving this plan** — the `Status:` line above is deliberately left unchanged
+(**DRAFT — implementation not authorized**); marking APPROVED is a separate, later act by the owner
+per §0.10/§7, gated independently on Plans A–E being green and merged (index §3.2, still not true —
+only Task E1 is on `main`).
+
+- **Choice Point 1** (§0.11) → **K1**: a `windows-latest` CI job (pytest + gdUnit, download+verify
+  the pinned engine), against this plan's own K2 recommendation. Grounded in the §0.12 platform
+  decision (Windows target, Linux out), not in today's ubuntu-only workflow shape. The two named
+  costs (engine not committed → download+verify every run; Windows runner minutes billed at
+  roughly double) are accepted, not waived. Wiring `showdownbot_studio/` into
+  `.github/workflows/` remains an F1 implementation step, still gated by `Status: DRAFT`.
+- **Choice Point 2** (§0.11) → **G1**: advisory only (reports mismatches, does not fail CI), against
+  this plan's own G3 recommendation. **Binding amendment:** the grounding for advisory — that a
+  blocking gate would fail immediately and permanently against the 5 pre-existing drifted
+  `godot/tests/fixtures/unit/` fixtures (§0.6) — is being removed concurrently by a separate,
+  unmerged branch `fix/studio-fixture-hash-integrity` (off `main`, not part of Plan F) that
+  reseals those 5 manifests, null-guards the two crashing tests, and stops the gdUnit wrapper
+  truncating on first failure. The decision is advisory as the owner chose, but the reason for it
+  may no longer hold by the time F1 is implemented — F1 must re-check whether blocking has become
+  free before building the advisory shape in §3.1. Not a silent upgrade to blocking; that stays the
+  owner's call. §3.1's code-shape comment and surrounding prose updated to match (advisory-report
+  shape, not an unconditional assert, for `unexpected_mismatches`).
+- **Choice Point 3** (§0.11) → **L1**: derive `TRACE_ONLY` from the real committed 104-candidate row
+  in `smoke-i7a-mega/decision_trace.jsonl`, following the `fixture-05`/`fixture-16` `SOURCES.md`
+  pattern — matching this plan's own recommendation. Rationale: every one of the 5 hand-authored
+  fixtures that drifted (§0.6) came from `godot/tests/fixtures/unit/`, while every
+  exporter-produced fixture under `fixtures/viewer-v0/bundles/` was correct — derived beats
+  hand-authored on this repo's own evidence, and L2 would also invoke the §14.1 synthetic-coherent
+  exception permanently for a claim a real row already proves. **Known gap, accepted by the owner,
+  not silently absorbed:** that corpus directory has no companion battle log, so the derived
+  fixture can only be `TRACE_ONLY` — bounded rendering is never exercised together with active
+  replay mode by this fixture. Recorded in §1's fixture matrix (104-candidate row) and as its own
+  row in §5's acceptance table, not buried in the choice point alone.
+- **Choice Point 4** (§0.11) → **J2**: every manual check (SR smoke note, mixed-DPI checklist) must
+  be filed (attempted, non-empty, honest about failures) plus an explicit owner sign-off checkbox
+  in F5's merge-readiness packet, against this plan's own J1 recommendation. **Binding constraint,
+  stated unambiguously:** J2 means *filed and signed off*, **not** that everything must *pass* —
+  Plan E §1 lists screen-reader completeness as a hard release gate among its explicit non-goals,
+  and Plan E §0.10 frames SR evidence as best-effort only. A partially-failing SR result is an
+  honest recorded outcome, not a release blocker; F5's sign-off attests the evidence was produced
+  and reviewed, never that it all passed. F5's own task list (§4) and §5's acceptance table were
+  reworded to state "filed and signed off," never "passed."
+- §7 Handoff's steps 1–2 (owner reviews/closes the choice points) marked done via strikethrough,
+  matching Plan E §7's own style for closed items; step 3 (Status → APPROVED) reworded to state
+  explicitly that it remains a separate, later act, not a consequence of this revision.
 
 ### Rev. 2 — review amendments: P1/P2 gate-defect findings + platform-decision reasoning (2026-07-24)
 
