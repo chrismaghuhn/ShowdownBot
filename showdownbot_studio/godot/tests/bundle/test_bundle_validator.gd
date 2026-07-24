@@ -138,6 +138,39 @@ func test_fixture23_optional_key_required_true_refuses() -> void:
 	assert_str(result.diagnostic.message).is_equal("warnings must not be required")
 
 
+# Plan F fixture 9 (bundle contract §14) -- copy of bundles/fixture-01 with decisions.jsonl
+# mutated to duplicate the last row's decision_index; manifest.json's decision_trace hash is
+# correctly recomputed for the mutated bytes. Same shape as
+# godot/tests/fixtures/unit/refuse-duplicate-decision-index, but owned by Plan F's own §14
+# catalogue (§0.2) with its own correctly-hashed manifest -- §1's own warning is not to repeat
+# the §0.6 drift in a fresh fixture.
+
+func test_fixture09_duplicate_decision_index_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-09/bundle"))
+	_assert_refuse(result, "duplicate_decision_index")
+	assert_str(result.diagnostic.message).is_equal("duplicate decision_index 2")
+
+
+# Plan F fixture 19 (bundle contract §14) -- one decision's request_hash matches no raw
+# request line in battle.jsonl. This is NOT a refuse case (§14's own "must prove" text): the
+# bundle opens normally and the unjoinable decision stays a distinct timeline entry with
+# request_protocol_index null, never dropped and never merged into a neighbouring turn.
+
+func test_fixture19_unjoinable_decision_stays_in_timeline() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("bundles/fixture-19"))
+	assert_bool(result.ok).is_true()
+	# gdUnit4 assertions record and continue rather than abort; a refused result leaves
+	# result.bundle null, so guard the dereference instead of crashing the whole run.
+	if not result.ok:
+		return
+	assert_int(result.bundle.decisions.size()).is_equal(3)
+	var unjoined_count := 0
+	for row in result.bundle.decisions:
+		if row is DecisionRowDTO and row.request_protocol_index == null:
+			unjoined_count += 1
+	assert_int(unjoined_count).is_equal(1)
+
+
 func test_refuse_string_boolean_present() -> void:
 	var bundle_dir := _copy_fixture01_to_temp("string_bool")
 	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))

@@ -37,9 +37,11 @@ _ROOTS = (
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles",
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources",
 )
-# measured: 11 unit + 6 bundles + 7 sources-bundle dirs (fixture-06 plus Plan F's
-# fixtures 7, 8, 12, 22a, 22b, 23)
-_MIN_MANIFEST_COUNT = 24
+# measured: 11 unit + 7 bundles (fixture-19 added) + 8 sources-bundle dirs (fixture-06 plus
+# Plan F's fixtures 7, 8, 9, 12, 22a, 22b, 23). Fixtures 11, 14, 19, and 21's sources/
+# raw-input dirs do not have a manifest.json (raw producer inputs, not exported bundle
+# copies), so they do not add to this count.
+_MIN_MANIFEST_COUNT = 26
 
 _FIXTURE06_MANIFEST = (
     STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-06" / "bundle" / "manifest.json"
