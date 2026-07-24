@@ -40,6 +40,13 @@ _FORFEIT_FRAMES = [
 
 
 def test_hash_is_identical_with_and_without_choose_lines():
+    # This is the guard for normalize_battle_log's ">"-line drop, not a style pin: the
+    # 360 normalized_room_log_sha256 values frozen in the Gate B evidence on main
+    # (data/eval/.../gate-b-safety-fail-bc2d6df/{arm-a-heuristic,arm-b-max-damage}/rows.jsonl,
+    # 180 rows each) were all computed before dump_frames() started appending >choose
+    # lines. If this test ever goes red, something started letting >choose content
+    # into the hash -- the fix is in normalize_battle_log, never re-pinning this
+    # expectation or the frozen values.
     without = list(_BASE_FRAMES)
     with_choose = list(_BASE_FRAMES) + list(_CHOOSE_LINES)
     assert normalized_room_log_sha256(without) == normalized_room_log_sha256(with_choose)
