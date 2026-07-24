@@ -549,12 +549,30 @@ def compute_safety_pass(rows_a: list[dict], rows_b: list[dict]) -> bool:
     not a silent one.
 
     invalid_choices/crashes must be genuine non-negative ints, never bool -- a missing or
-    type-wrong counter is treated as unsafe, never as passing."""
+    type-wrong counter is treated as unsafe, never as passing.
+
+    Gate B finding 5: `invalid_choices` (checked here until this fix) SUMS both seats, so a
+    baseline-side illegal action failed the CANDIDATE and consumed a held-out ledger slot with
+    nothing on the row able to show it. This gate now reads the per-seat
+    hero_invalid_choices/villain_invalid_choices fields instead -- `invalid_choices` itself is
+    UNCHANGED and NOT removed (the frozen Gate B evidence and any existing consumer still reads
+    it as the historical sum); the gate simply stops depending on it."""
     for rows in (rows_a, rows_b):
         for row in rows:
-            if not _is_clean_safety_counter(row.get("invalid_choices")):
-                return False
             if not _is_clean_safety_counter(row.get("crashes")):
+                return False
+            # Gate B finding 5: BOTH seats block a verdict, for DIFFERENT reasons, checked
+            # SEPARATELY and never summed -- summing them would recreate the defect being fixed
+            # in a brand-new field pair:
+            #   * hero invalid   -> the CANDIDATE emitted an illegal action; its own decision is
+            #     not trustworthy.
+            #   * villain invalid -> the ENVIRONMENT was not the one the schedule specified; the
+            #     opponent the candidate actually faced is not the opponent on the row.
+            # `_is_clean_safety_counter` refuses None, so an ABSENT counter fails closed for both,
+            # consistent with the degraded-decision counters below.
+            if not _is_clean_safety_counter(row.get("hero_invalid_choices")):
+                return False
+            if not _is_clean_safety_counter(row.get("villain_invalid_choices")):
                 return False
             # Gate B finding 4: a run whose decisions fell back is not a clean run, even though
             # every fallback returned a LEGAL move and nothing raised. `_is_clean_safety_counter`

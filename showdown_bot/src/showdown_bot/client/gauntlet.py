@@ -233,11 +233,18 @@ class _PerBattleCounters:
         self._lat_len = 0
         self._hero_degraded = 0
         self._villain_degraded = 0
+        self._hero_invalid = 0
+        self._villain_invalid = 0
 
     def emit(self, *, invalid: int, crashes: int, latencies: list[float],
-             hero_degraded: int = 0, villain_degraded: int = 0) -> dict:
+             hero_degraded: int = 0, villain_degraded: int = 0,
+             hero_invalid: int = 0, villain_invalid: int = 0) -> dict:
         new_lat = latencies[self._lat_len:]
         record = {
+            # SUM, historical (Gate B finding 5). Kept UNCHANGED, not removed or repurposed --
+            # the frozen Gate B evidence and any existing consumer reads this field, and its
+            # meaning stays "sum". compute_safety_pass stops depending on it; see
+            # hero_invalid_choices/villain_invalid_choices below for what it uses instead.
             "invalid_choices": invalid - self._invalid,
             "crashes": crashes - self._crashes,
             "decision_latency_p95_ms": round(_latency_p95(new_lat) * 1000),
@@ -246,12 +253,19 @@ class _PerBattleCounters:
             # row able to show it. The counter added here must not inherit that defect.
             "hero_degraded_decisions": hero_degraded - self._hero_degraded,
             "villain_degraded_decisions": villain_degraded - self._villain_degraded,
+            # PER SEAT (Gate B finding 5, this slice): mirrors hero_degraded/villain_degraded
+            # exactly, for the same reason -- a baseline-side illegal action must not be
+            # attributable to the candidate.
+            "hero_invalid_choices": hero_invalid - self._hero_invalid,
+            "villain_invalid_choices": villain_invalid - self._villain_invalid,
         }
         self._invalid = invalid
         self._crashes = crashes
         self._lat_len = len(latencies)
         self._hero_degraded = hero_degraded
         self._villain_degraded = villain_degraded
+        self._hero_invalid = hero_invalid
+        self._villain_invalid = villain_invalid
         return record
 
 
@@ -1215,7 +1229,8 @@ def _normalized_room_log_sha256(frames) -> str | None:
 
 def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, crashes,
                           decision_latency_p95_ms, room_raw_path,
-                          hero_degraded_decisions=0, villain_degraded_decisions=0):
+                          hero_degraded_decisions=0, villain_degraded_decisions=0,
+                          hero_invalid_choices=0, villain_invalid_choices=0):
     """Assemble the battle-derived T2 fields with EXPLICIT hero/villain/tie mapping (Fix 2).
 
     Unknown winner -> ResultRowError (never guessed). ``end_hp_diff`` is hero-side minus
@@ -1240,12 +1255,18 @@ def _battle_result_record(hero_name, villain_name, frames, *, invalid_choices, c
         "turns": p["turns"],
         "end_reason": p["end_reason"],  # T3f Task 5: normal/timeout/forfeit/crash from room_raw
         "end_hp_diff": _end_hp_diff(p, hero_name, villain_name),
+        # SUM, historical (Gate B finding 5): UNCHANGED, not removed or repurposed -- see the
+        # matching comment in _PerBattleCounters.emit.
         "invalid_choices": invalid_choices,
         "crashes": crashes,
         # Gate B finding 4: decisions that did NOT complete on the agent's intended path. A
         # non-zero count means the seat answered with a fallback -- legal, but not computed.
         "hero_degraded_decisions": hero_degraded_decisions,
         "villain_degraded_decisions": villain_degraded_decisions,
+        # PER SEAT (Gate B finding 5, this slice): an illegal action attributable to the seat
+        # that made it, never summed into invalid_choices above.
+        "hero_invalid_choices": hero_invalid_choices,
+        "villain_invalid_choices": villain_invalid_choices,
         "decision_latency_p95_ms": decision_latency_p95_ms,
         "room_raw_path": room_raw_path,
         # T4c R1: binds this row to its room log; None on any hashing failure (never
@@ -1464,6 +1485,8 @@ async def run_local_gauntlet(
                     latencies=hero.latencies,
                     hero_degraded=hero.degraded,
                     villain_degraded=villain.degraded,
+                    hero_invalid=hero.invalid,
+                    villain_invalid=villain.invalid,
                 )
                 record = _battle_result_record(
                     hero.name, villain.name, room_frames,
@@ -1473,6 +1496,8 @@ async def run_local_gauntlet(
                     room_raw_path=room_raw_path,
                     hero_degraded_decisions=deltas["hero_degraded_decisions"],
                     villain_degraded_decisions=deltas["villain_degraded_decisions"],
+                    hero_invalid_choices=deltas["hero_invalid_choices"],
+                    villain_invalid_choices=deltas["villain_invalid_choices"],
                 )
                 on_battle_result(record)
             except Exception as exc:  # noqa: BLE001 - never stall the run; runner row-count catches it

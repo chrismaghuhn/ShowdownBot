@@ -17,9 +17,11 @@ def test_two_battles_are_per_battle_not_cumulative():
     # Battle 0: 1 invalid, 0 crashes, 3 decisions.
     d0 = c.emit(invalid=1, crashes=0, latencies=[0.10, 0.20, 0.30])
     assert d0 == {"invalid_choices": 1, "crashes": 0, "decision_latency_p95_ms": 300,
-                  # Gate B finding 4: per-SEAT degraded counts ride the same watermark. Both
-                  # default to 0 so a caller that does not track them is unchanged.
-                  "hero_degraded_decisions": 0, "villain_degraded_decisions": 0}
+                  # Gate B finding 4/5: per-SEAT degraded/invalid counts ride the same
+                  # watermark. All default to 0 so a caller that does not track them is
+                  # unchanged.
+                  "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                  "hero_invalid_choices": 0, "villain_invalid_choices": 0}
 
     # Battle 1: NO new invalids (cumulative still 1), 2 NEW crashes (cumulative 2), and two
     # more decisions appended. Row 1 must show THIS battle's counts, not the run totals.
@@ -42,6 +44,8 @@ def test_single_battle_matches_cumulative_behavior_unchanged():
         "decision_latency_p95_ms": round(_latency_p95(lat) * 1000),
         "hero_degraded_decisions": 0,
         "villain_degraded_decisions": 0,
+        "hero_invalid_choices": 0,
+        "villain_invalid_choices": 0,
     }
 
 

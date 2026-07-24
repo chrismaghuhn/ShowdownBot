@@ -255,10 +255,15 @@ def test_the_gate_b_callback_whitelist_admits_the_new_fields():
     assert {"hero_degraded_decisions", "villain_degraded_decisions"} <= _CALLBACK_RECORD_FIELDS
 
 
-def _gate_row(*, hero_degraded=0, villain_degraded=0) -> dict:
+def _gate_row(*, hero_degraded=0, villain_degraded=0,
+              hero_invalid=0, villain_invalid=0) -> dict:
     row = _valid_row()
     row["hero_degraded_decisions"] = hero_degraded
     row["villain_degraded_decisions"] = villain_degraded
+    # Gate B finding 5: compute_safety_pass now also refuses a row missing these -- every row
+    # this file's gate-pass tests build must carry them, mirroring the degraded counters above.
+    row["hero_invalid_choices"] = hero_invalid
+    row["villain_invalid_choices"] = villain_invalid
     return row
 
 
