@@ -1,7 +1,8 @@
 # Viewer v0 — Plan F: End-to-End Acceptance
 
 **Status:** DRAFT — expanded to an executable draft; **implementation not authorized**
-**Date:** 2026-07-21 · **Rev.:** 1 (2026-07-24 — sketch → executable, per Plan E structural template)
+**Date:** 2026-07-21 · **Rev.:** 2 (2026-07-24 — review amendments: P1/P2 gate-defect findings +
+Choice Point 1 platform-decision reasoning; see §9)
 **Depends on:** Plans A–E complete and green (implementation index §3.2). As of this expansion,
 **A–D are merged on `main`; Plan E is APPROVED with only Task E1 merged** (`e757772`, state banner).
 E2–E7 are in progress on an unmerged branch (`studio/plan-e-layout-shell`). **Plan F code cannot
@@ -302,21 +303,40 @@ recommendation — the recommendation is not a decision.
 
 #### Choice Point 1 — CI platform/runner scope
 
-**Grounding:** `.github/workflows/pytest.yml` runs three jobs today, all on `showdown_bot/`, all
-(or matrixed) on `ubuntu-latest`/`windows-latest` per job; **none** touch `showdownbot_studio/`.
-The pinned Godot engine (`ENGINE_SHA256SUMS`) has **Windows-only** artifacts — no Linux or macOS
-binary is pinned or verified anywhere in the repo.
+**Grounding (revised, item 8 review):** the repo owner has decided Studio's target platforms
+(§0.12): **Windows is the target, Linux is out, macOS is possible later.** This choice point is
+about CI *runner* scope, not about which platform the product supports — that question is no
+longer open (§0.12) and does not by itself resolve this one. The previous grounding here reasoned
+from the shape of today's CI — `.github/workflows/pytest.yml` runs three jobs, two `ubuntu-latest`
+-only and one matrixed `[ubuntu-latest, windows-latest]`, **none** touching `showdownbot_studio/` —
+that is a fact about the pre-existing `showdown_bot` lanes, predating the platform decision, and is
+not itself an argument for or against a Studio-side Windows lane. The pinned Godot engine
+(`ENGINE_SHA256SUMS`) has **Windows-only** artifacts, consistent with the platform decision.
 
 | Option | Shape | Consequence |
 |---|---|---|
-| K1 | Add a `windows-latest` GH Actions job that downloads the pinned zip, verifies it against `ENGINE_SHA256SUMS`, then runs pytest + gdUnit as one job (mirroring the existing per-track job convention, e.g. `champions-mega`) | Real CI coverage of the Godot side; adds a new binary-download step to a repo whose stated Phase-0 posture is offline-first at *runtime* (tooling acquisition is a separate concern, but still worth the owner's sign-off) |
-| K2 | Ship only a `showdownbot_studio` **pytest** job now (platform-agnostic, pure Python, same shape as the existing `showdown_bot` jobs); keep gdUnit as a documented local pre-merge command a developer runs on Windows before requesting review | Ships real CI today with zero new infrastructure; gdUnit stays un-gated in CI until someone stands up K1 or K3 later |
-| K3 | Pin a Linux headless Godot export template in addition to the Windows console exe, run both in CI | Matches contributor OS diversity if it ever exists; doubles the engine-pin maintenance burden for a single-developer project (per memory: solo dev) |
+| K1 | Add a `windows-latest` GH Actions job that downloads the pinned zip, verifies it against `ENGINE_SHA256SUMS`, then runs pytest + gdUnit as one job (mirroring the existing per-track job convention, e.g. `champions-mega`) | Real CI coverage of the Godot side, on the platform that is now the actual target (§0.12) — but see the two costs below; neither is free |
+| K2 | Ship only a `showdownbot_studio` **pytest** job now (platform-agnostic, pure Python, same shape as the existing `showdown_bot` jobs); keep gdUnit as a documented local pre-merge command a developer runs on Windows before requesting review | Ships real CI today with zero new infrastructure and zero new runner cost; gdUnit — the half of the suite that actually exercises the target platform — stays un-gated in CI until someone stands up K1 |
+| K3 | Pin a Linux headless Godot export template in addition to the Windows console exe, run both in CI | **Deprioritized by §0.12** — Linux is not a target platform, so K3 would add and maintain a second engine pin for a platform the product does not ship on; kept here for completeness, not a live contender |
 
-**Recommendation:** K2 now, K1 as the natural next step once someone wants gdUnit in CI. Standing
-up a new Windows GH Actions lane and a licensed binary-download step is infrastructure work Plan F
-was not scoped to include, and pytest alone is cheap, real, and immediately actionable. **Status:
-OPEN.**
+**Two honest costs of K1, for the owner to weigh (these do not change the platform decision; they
+bear on whether standing up a Windows CI lane is worth it now):**
+
+- The pinned engine is **not committed** — `showdownbot_studio/godot/.gitignore` excludes
+  `/Godot_*.exe`, `/Godot_*.exe.zip`, `/tools/engine/`, `/tools/engine_cache/`; it is installed via
+  `install_engine.ps1` against `ENGINE_SHA256SUMS` (§0.1, verified present). A CI job must download
+  and verify it every run unless a cache step is added — cacheable, but not free on a first run or
+  a cache miss.
+- GitHub Actions bills **Windows runner minutes at roughly double** the Linux rate. On a free-tier
+  budget (per memory: solo dev) this is a real recurring cost that scales with how often the job
+  runs (every push vs. every PR vs. nightly), not a one-time setup tax.
+
+**Recommendation:** K2 now, K1 as the natural next step once someone wants gdUnit gated in CI. This
+recommendation is **unchanged** by the platform decision itself: Windows being the real target
+makes K1 more *valuable* once it lands, it does not make it cheaper to stand up today — the two
+costs above are the owner's to weigh against that value, not new information that flips the
+recommendation on its own. This revision corrects the reasoning behind the K2 recommendation, not
+the choice itself; the owner has deferred the choice to Plan F review. **Status: OPEN.**
 
 #### Choice Point 2 — Fixture-integrity gate: blocking or advisory
 
@@ -366,6 +386,27 @@ synthetic exception was never meant to normalize. **Status: OPEN.**
 **Recommendation:** J1 — Plan F cannot retroactively turn Plan E's own stated non-goal into a hard
 gate; J2's sign-off is a low-cost addition the owner can add unilaterally at review time without
 needing to be baked into this plan. **Status: OPEN.**
+
+### 0.12 Target platform (binding, owner decision — 2026-07-24, item 8 review)
+
+The repo owner has decided Studio's target platforms: **Windows is the target platform. Linux is
+out. macOS is possible later.** This supersedes any reasoning in this plan that argued from the
+shape of today's CI rather than from the product's actual target — in particular Choice Point 1
+(§0.11), which is about CI *runner* scope, not about which platform is in scope; that reasoning has
+been rewritten above to reflect this decision, but Choice Point 1 itself **remains OPEN** — the
+owner has deferred it to Plan F review.
+
+Two things this decision does **not** do:
+
+- It does not retroactively delete work already aimed at "macOS possible later." Plan E's own
+  `ShortcutLabels.mod_key()` (Plan E §4, cited per §0.1 — not yet merged code, only Plan E's own
+  plan text at this point) returns `"Cmd"` on macOS and `"Ctrl"` elsewhere. That branch **retains
+  its purpose** under this decision and is not dead code to be pruned by F3 or anyone else.
+- It does not resolve Choice Point 1 on its own — K1/K2/K3 (§0.11) stay open; this section only
+  fixes what the choice point's reasoning is grounded in, not the choice.
+
+**Binding on F3 (§4):** the honesty audit must not let UI copy, docs, or CI job naming imply Linux
+support that does not exist anywhere in this repo.
 
 ---
 
@@ -451,37 +492,100 @@ box.
 
 ### 3.1 Fixture-integrity gate (§0.6, binding shape)
 
+**Two defects in the sketched gate itself, corrected here (P1-1, P1-2 — verified against the real
+fixture layout, 2026-07-24):**
+
+**P1-1 — glob depth silently skips the `sources/` root.** Under `fixtures/viewer-v0/sources/`,
+manifests do not sit at `<fixture>/manifest.json`: the only fixture dir currently there is
+`fixture-06`, and its manifest is at `sources/fixture-06/bundle/manifest.json` — one level deeper.
+Verified directly: `sources/*/manifest.json` matches **0** files; `bundles/*/manifest.json`
+matches **6**. A one-level glob against the `sources` root therefore scans zero manifests and
+reports "no mismatches" — not because nothing was wrong, but because the gate never looked at that
+root at all. That is the exact silent-no-coverage failure mode §0.6 exists to close off,
+reintroduced in the gate meant to guard against it. Fixed below with a recursive glob.
+
+A depth-correct glob alone is not sufficient, though: `**/manifest.json` matching zero files (a
+renamed root, a moved directory, a typo'd path after a future refactor) still reports "no
+mismatches" for the identical silent reason. **The recursive glob fixes today's specific miss; a
+minimum-manifest-count assertion is the general guard against the same failure mode recurring in a
+different shape tomorrow** — that is why the count assertion is binding alongside the glob fix, not
+redundant with it.
+
+**P1-2 — fixture-06's mismatch is deliberate, not drift.** §0.1 and §0.6 already establish
+`sources/fixture-06/bundle` as the refuse fixture proving `hash_mismatch`
+(`godot/tests/bundle/test_bundle_validator.gd:96` — `test_fixture06_hash_mismatch`;
+`godot/tests/workspace/test_app_shell_smoke.gd` — `test_fixture06_refuse_reason`). Once the fixed
+glob above actually reaches it, this gate will (correctly) find its `decision_trace` hash disagrees
+with its manifest — and either fail on legitimate data, or tempt a future editor to "repair"
+fixture-06's hash and silently break the two tests that depend on it staying wrong. A bare exclusion
+list (skip fixture-06, don't look) would hide that risk rather than remove it: someone could still
+"fix" the file and the exclusion would keep the gate quiet either way. Asserting the mismatch
+**positively** — check it is still exactly the expected mismatch, fail if it is ever anything else,
+including "no longer mismatched" — makes fixture-06 self-defending instead of merely invisible to
+the gate. That is the concrete difference: an exclusion is a silent hole, a positive assertion is a
+guard.
+
 ```python
 # tests/python/test_f1_fixture_integrity.py (shape, not final code)
 import hashlib, json
 from pathlib import Path
 from conftest import STUDIO_ROOT
 
-ROOTS = [
-    STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources",
-    STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles",
-    STUDIO_ROOT / "godot" / "tests" / "fixtures" / "unit",
-]
+# Minimum manifest count per root (P1-1): today's verified counts. F1 raises these as fixtures
+# 2/7-9/11-15/17-23 land (§1). A floor that isn't bumped is merely loose, not wrong — but a root
+# that silently returns fewer manifests than its floor must fail loudly either way.
+ROOTS = {
+    STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources": 1,   # fixture-06 only, today
+    STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles": 6,   # fixtures 1/3/4/5/10/16, today
+    STUDIO_ROOT / "godot" / "tests" / "fixtures" / "unit": 11,
+}
+
+# P1-2: fixture-06's decision_trace hash is a deliberate mismatch (§0.1, §0.6), asserted
+# positively rather than excluded — see prose above for why an exclusion list is the weaker guard.
+EXPECTED_MISMATCHES = {
+    (STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-06" / "bundle", "decision_trace"),
+}
 
 def test_every_declared_sha256_matches_actual_bytes():
-    mismatches = []
-    for root in ROOTS:
-        for manifest_path in root.glob("*/manifest.json"):
+    unexpected_mismatches = []
+    seen_expected = set()
+    for root, min_manifests in ROOTS.items():
+        manifests = list(root.glob("**/manifest.json"))
+        assert len(manifests) >= min_manifests, (
+            f"{root} matched {len(manifests)} manifest(s), expected >= {min_manifests} — a glob "
+            "that silently under-matches its root is the P1-1 failure mode this gate exists to "
+            "close, not a passing result"
+        )
+        for manifest_path in manifests:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             for key, entry in manifest.get("files", {}).items():
                 if not entry.get("present"):
                     continue
                 target = manifest_path.parent / entry["path"]
                 actual = hashlib.sha256(target.read_bytes()).hexdigest()
-                if actual != entry.get("sha256"):
-                    mismatches.append((str(target), entry.get("sha256"), actual))
-    # Choice Point 2 (§0.11) decides whether this line asserts or only reports.
-    assert not mismatches, mismatches
+                if actual == entry.get("sha256"):
+                    continue
+                identity = (manifest_path.parent, key)
+                if identity in EXPECTED_MISMATCHES:
+                    seen_expected.add(identity)
+                else:
+                    unexpected_mismatches.append((str(target), entry.get("sha256"), actual))
+    # Choice Point 2 (§0.11) decides whether the line below asserts or only reports for the
+    # godot/tests/fixtures/unit/ root specifically; it does not touch fixture-06's assertion,
+    # which is unconditional regardless of Choice Point 2's outcome (P1-2).
+    assert not unexpected_mismatches, unexpected_mismatches
+    # Fixture-06 must still mismatch. If this fails, someone "repaired" the deliberate refuse
+    # fixture and silently broke the two tests cited above that depend on it staying wrong (P1-2).
+    assert seen_expected == EXPECTED_MISMATCHES, EXPECTED_MISMATCHES - seen_expected
 ```
 
-Whether the final `assert` is unconditional (G2/blocking), absent entirely in favor of a warning
-log (G1/advisory), or scoped to only the `fixtures/viewer-v0/` roots while `godot/tests/fixtures/unit/`
-is collected-and-reported-only (G3, recommended) is Choice Point 2 — not decided here.
+Whether `unexpected_mismatches` is asserted unconditionally (G2/blocking), replaced with a warning
+log (G1/advisory), or scoped so only `fixtures/viewer-v0/` roots are blocking while
+`godot/tests/fixtures/unit/` is collected-and-reported-only (G3, recommended) is Choice Point 2 —
+not decided here. The minimum-count assertions and fixture-06's positive assertion above are **not**
+part of that choice point: they are binding regardless of how Choice Point 2 resolves — an empty
+scan and a silently "repaired" refuse fixture are bugs in the gate itself, not a blocking-vs-advisory
+policy question.
 
 ### 3.2 CI truncation guard (§0.6, binding, not a choice point)
 
@@ -491,6 +595,15 @@ The CI script (location depends on Choice Point 1) must invoke gdUnit with fail-
 wrapper script comparing the JUnit XML's outer `tests` attribute against the number of `<testcase>`
 children, or an equivalent pytest-side check over the XML gdUnit already emits
 (`run_gdunit_headless.ps1` already writes `reports/report_N/results.xml`, §0.1).
+
+**Assumption this formula rests on (P2-3):** `executed + skipped == (count of top-level "func
+test_")` holds only while no gdUnit **parameterized** test exists in the suite — a single
+`func test_x` under `@warning_ignore("unused_parameter")`/parameter-source annotation can expand
+into many executed cases at run time, breaking the 1:1 count this guard assumes. Verified absent
+today (`grep -rn "test_parameters" godot/tests` returns nothing, 2026-07-24). If parameterized
+tests are ever introduced, this equality must be redefined per declared parameter set (or read the
+JUnit case count directly rather than counting `func test_` occurrences) — it will not fail loudly
+on its own; whoever adds the first parameterized test must update this guard by hand.
 
 ---
 
@@ -504,6 +617,9 @@ children, or an equivalent pytest-side check over the XML gdUnit already emits
 - [ ] Author the 104-candidate bounded-render fixture per Choice Point 3's resolution
 - [ ] Write the new-gate pytest rows from §3 (11, 7, 12, 9, 14, 20, 21, 17, 18, 13)
 - [ ] Write `test_f1_fixture_integrity.py` per §3.1, scoped per Choice Point 2's resolution
+- [ ] Prove the fixture-integrity gate detects drift (P1-3): mutate one byte of a fixture file in a
+      **temporary copy** (never a committed fixture), run the gate against the copy, assert it
+      fails; delete the copy after. "The gate runs" is not evidence it detects anything
 - [ ] Write the CI truncation guard per §3.2
 - [ ] Map viewer-side §15 rows (bounded rendering, gate 14 sorting) to gdUnit where automatable —
       extend existing suites (`test_bundle_validator.gd`, `test_decision_presenter.gd`), do not
@@ -536,6 +652,8 @@ children, or an equivalent pytest-side check over the XML gdUnit already emits
 - [ ] Explicitly separate "data is honest" from "control/affordance doesn't exist yet" per §0.8 —
       the scale/density inertness and hash-overflow-no-truncation findings are **not** data-honesty
       defects and must not be reported as such, nor silently absorbed as if they were fine
+- [ ] UI copy, docs, and CI job naming never imply Linux support (§0.12) — Windows is the target,
+      macOS is possible later, Linux is not shipped anywhere in this repo
 - [ ] **Commit:** `docs(studio): Plan F honesty and non-claim audit`
 
 ### F4 — Docs closeout
@@ -570,8 +688,9 @@ Produce a short review note listing:
 
 | Criterion | Evidence |
 |---|---|
-| All 23 fixtures green in automated or documented manual form | §1 matrix; §3 gate table |
-| Fixture-integrity gate runs and its scope matches Choice Point 2's resolution | §3.1 |
+| All 23 fixtures have **automated** coverage that is genuinely green (pytest/gdUnit pass); any fixture without automated coverage instead has manual evidence **filed** — the two are never conflated as both being "green" in the closeout packet (P2-1; §0.5/§0.10 lineage, Plan E §0.10) | §1 matrix; §3 gate table; F5 packet states, per fixture, which of the two applies |
+| §3's "existing" gate-coverage cells verified against the actual pytest tests, not left as an assumption from test/fixture names (P2-2) | §3 caveat paragraph; F1 task list |
+| Fixture-integrity gate runs, its scope matches Choice Point 2's resolution, **and it demonstrably detects drift** — mutated one byte of a fixture in a temporary copy, ran the gate against the copy, confirmed it fails (P1-3; "runs" alone is not evidence of detection — the same defect class that let Plan E's `test_scale_presets` pass against a no-op implementation) | §3.1; F1 task list |
 | CI does not silently truncate on first failure | §3.2, demonstrated defect in §0.6 |
 | Primary controls reachable at 1280×720 | fresh §0.7 capture, not the §0.8 note carried forward |
 | No Studio writes into frozen eval sources | unchanged from sketch |
@@ -621,6 +740,53 @@ require their own approved design + plan. This document must not grow those task
 ---
 
 ## 9. Changelog
+
+### Rev. 2 — review amendments: P1/P2 gate-defect findings + platform-decision reasoning (2026-07-24)
+
+Amendments from a review against the real code (repo owner's reviewer). Status stays **DRAFT**; all
+four Rev. 1 choice points remain **OPEN** — this revision corrects reasoning and closes gaps in the
+gate design, it does not close any decision.
+
+- **P1-1** (§3.1): the sketched fixture-integrity gate's `root.glob("*/manifest.json")` silently
+  scanned **zero** manifests under `fixtures/viewer-v0/sources/` — verified directly
+  (`sources/*/manifest.json` matches 0 files; the only manifest there is one level deeper, at
+  `sources/fixture-06/bundle/manifest.json`) — the exact silent-no-coverage failure mode §0.6
+  exists to close, reintroduced in the gate meant to guard against it. Fixed with a recursive glob
+  plus a binding minimum-manifest-count assertion per root, so an empty or under-matching scan
+  fails loudly instead of reporting a spuriously clean "no mismatches."
+- **P1-2** (§3.1): once the glob above actually reaches `fixture-06` — the refuse fixture whose
+  hash mismatch is deliberate (§0.1, §0.6) — a naive gate would either fail on correct data or
+  invite someone to "repair" it and silently break the two tests that depend on it staying wrong.
+  Replaced a bare-exclusion approach with a positive assertion: fixture-06's mismatch must still be
+  exactly the expected one, and the check fails if it is ever anything else, including "no longer
+  mismatched."
+- **P1-3** (§5, §4 F1): the acceptance row "fixture-integrity gate runs..." was satisfiable by a
+  gate that runs but detects nothing — the same defect class that let Plan E's `test_scale_presets`
+  pass against a no-op implementation. Amended to require a demonstrated failure against injected
+  drift (one byte mutated in a temporary fixture copy), with the corresponding F1 task step added.
+- **P2-1** (§5): the acceptance row "All 23 fixtures green in automated or documented manual form"
+  blurred the plan's own automated-vs-manual-evidence discipline (§0.5/§0.10 lineage). Split into
+  an explicit statement that automated coverage is "green" and manual coverage is "evidence filed,"
+  never conflated in the closeout packet.
+- **P2-2** (§5): §3's honest "F1 must verify the existing cells" caveat had no acceptance-table hook
+  forcing that verification to actually happen before program-done is claimed. Added an acceptance
+  row; the corresponding F1 task step already existed in Rev. 1 (§4 F1's first bullet) and was left
+  as-is rather than duplicated (see report — this half of the review finding did not hold up).
+- **P2-3** (§3.2): named the CI truncation guard's unstated assumption that no gdUnit parameterized
+  test exists (`executed + skipped == count of top-level "func test_"` breaks if one ever does),
+  verified still absent today (`grep -rn "test_parameters" godot/tests` — empty), with a note on
+  what breaks and what to do if that changes.
+- **Item 8** (§0.11 Choice Point 1, new §0.12): Choice Point 1's grounding argued from the shape of
+  today's CI (mixed `ubuntu-latest`/`windows-latest` job matrix), which is a fact about pre-existing
+  `showdown_bot` lanes, not about the product. Recorded the owner's actual target-platform decision
+  as binding (§0.12: Windows target, Linux out, macOS possible later) and rewrote Choice Point 1's
+  reasoning to argue from it instead, adding two costs of a Windows CI lane the owner should weigh
+  (the pinned engine is gitignored and not committed, so CI must download-and-verify it per run;
+  GitHub bills Windows runner minutes at roughly double Linux). The choice (K1/K2/K3) itself stays
+  **OPEN**, deferred to Plan F review by the owner. §0.12 also records that Plan E's
+  `ShortcutLabels.mod_key()` macOS branch (Plan E §4, cited — not yet merged code) retains its
+  purpose under "macOS possible later" and is not dead code, and binds F3's honesty audit to never
+  let the codebase imply Linux support.
 
 ### Rev. 1 — sketch → executable draft (2026-07-24)
 
