@@ -911,7 +911,13 @@ Produce a short review note listing:
 7. The §0.8 scale/density/hash-truncation gaps, named as open items against Plan E's own §9.2
    release-gate claims — not silently dropped because they are Plan E's scope, not Plan F's fix
 
-- [ ] **Commit:** `docs(studio): Plan F merge readiness packet`
+Produced as
+[`evidence/viewer-v0-f-merge-readiness.md`](evidence/viewer-v0-f-merge-readiness.md), 2026-07-24.
+States plainly that Plan F is **not** complete (no CI wiring exists yet; the fail-check pass is
+partial; the gate-coverage tally is stale, not re-audited; SR/mixed-DPI are filed templates, not
+performed) and that Viewer v0 acceptance is not claimed — Plan F's own §5 table has unmet rows.
+
+- [x] **Commit:** `docs(studio): Plan F merge readiness packet`
 
 ---
 
