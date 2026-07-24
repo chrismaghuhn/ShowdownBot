@@ -58,6 +58,11 @@ def _detect_end_reason(frames) -> str:
     """
     crash = timeout = forfeit = False
     for line in _iter_lines(frames):
+        if line.startswith(">"):
+            # Client->server/session lines (room-id header, and since the choose-dispatch
+            # log, >choose diagnostic lines) -- never sim output, same classification
+            # normalize_battle_log already applies.
+            continue
         low = line.lower()
         if "crashed" in low:
             crash = True
