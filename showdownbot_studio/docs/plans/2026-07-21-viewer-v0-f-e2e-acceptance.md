@@ -1,19 +1,20 @@
 # Viewer v0 — Plan F: End-to-End Acceptance
 
 **Status:** APPROVED — 2026-07-24 (Rev. 4). Owner closed all four §0.11 choice points and marked
-this plan APPROVED. **Implementation is still NOT authorized** — approval satisfies index §7 step 1
-only; the hard dependency in index §3.2 (Plans A–E green and merged) is **not yet satisfied**, and a
-separate implementation go-ahead is still required. See Depends-on below and §0.10.
+this plan APPROVED. **Implementation authorized 2026-07-24 (Rev. 6)** — all three index §7 gates
+are now satisfied: (1) Plans A–E are green and merged on `main` (`5feaa7c`, via PRs #70/#71/#72),
+(2) the owner marked this plan APPROVED, and (3) the owner gave a separate implementation
+go-ahead. Execution runs on `studio/plan-f-acceptance`.
 Amended Rev. 5 (additive F1 verification pass: §3's gate table corrected against the real pytest
 suite, §0.11 Choice Point 2's re-check obligation resolved — same precedent as Plan E's own
 additive amendments; APPROVED status unchanged, no choice point reopened; see §9).
-**Date:** 2026-07-21 · **Rev.:** 5 (2026-07-24 — F1 verification pass: gate-table correction +
+**Date:** 2026-07-21 · **Rev.:** 6 (2026-07-24 — implementation gate satisfied and authorized; Rev. 5 F1 verification pass: gate-table correction +
 CP2 re-check resolution; see §9)
-**Depends on:** Plans A–E complete and green (implementation index §3.2). As of this expansion,
-**A–D are merged on `main`; Plan E is APPROVED with only Task E1 merged** (`e757772`, state banner).
-E2–E7 are in progress on an unmerged branch (`studio/plan-e-layout-shell`). **Plan F code cannot
-start until all of E1–E7 are green and merged** — this draft may be reviewed and refined now, but
-the hard dependency in index §3.2 is not yet satisfied.
+**Depends on:** Plans A–E complete and green (implementation index §3.2). **SATISFIED 2026-07-24.**
+A–D were already on `main`; Plan E's E1 shipped as `e757772` and E2–E7 merged via PR **#71**
+(`4ed406c`), alongside the fixture-integrity/CI fix PR **#70** (`ca08ad4`) and this plan's own
+expansion PR **#72** (`5feaa7c`). Combined Godot suite at that point: **255 cases, 0 errors,
+0 failures, 2 skipped**, measured with fail-fast disabled. The §3.2 dependency is no longer open.
 **Unblocks:** Viewer v0 merge readiness review (separate user decision)
 
 **Authority:** [`../specs/viewer-v0-bundle-contract-design.md`](../specs/viewer-v0-bundle-contract-design.md)
@@ -24,11 +25,13 @@ the hard dependency in index §3.2 is not yet satisfied.
 (structural template for this expansion; also the E-surface Plan F decorates),
 mockups README binding corrections.
 
-> **For agentic workers:** APPROVED status alone does **not** authorize code. Plan F code starts
-> only after (1) Plans A–E are green and merged (index §3.2 — **not yet true**, see Depends-on
-> above), (2) this plan is APPROVED by the project owner — **done, 2026-07-24**, and (3) a separate
-> implementation go-ahead. Condition (1) is the open one. Do not invent a second fixture catalogue,
-> a second CI runner convention, or a second test-helper module — reuse the patterns cited in §0.1.
+> **For agentic workers:** all three index §7 gates are satisfied as of 2026-07-24 — (1) Plans A–E
+> green and merged, (2) APPROVED by the project owner, (3) separate implementation go-ahead given.
+> Implementation is live on `studio/plan-f-acceptance`. What is still **not** authorized: merging to
+> `main` (owner-gated, as every Studio PR has been), and anything past §8's stop line. Do not invent
+> a second fixture catalogue, a second CI runner convention, or a second test-helper module — reuse
+> the patterns cited in §0.1, and check §3's **corrected** coverage table (Rev. 5) before building a
+> gate: five gates the original table called "new" are already covered.
 
 ## Goal
 
@@ -951,6 +954,18 @@ require their own approved design + plan. This document must not grow those task
 ---
 
 ## 9. Changelog
+
+### Rev. 6 — implementation gate satisfied; execution authorized (2026-07-24)
+
+- Index §7's three gates are now all met: **(1)** Plans A–E are green and merged on `main`
+  (`5feaa7c`, via PRs #70/#71/#72 — combined Godot suite 255 cases / 0 errors / 0 failures /
+  2 skipped, measured with fail-fast disabled), **(2)** the owner marked this plan APPROVED
+  (Rev. 4), **(3)** the owner gave a separate implementation go-ahead.
+- The header, the Depends-on block and the agentic-worker note previously stated the opposite
+  ("implementation not authorized", "condition (1) is the open one") — correct when written, false
+  once A–E merged. Corrected here rather than left to contradict the work being done against it.
+- **Unchanged:** merging to `main` remains owner-gated, and §8's stop line stands. Approval to
+  execute Plan F is not approval to cross it.
 
 ### Rev. 5 — F1 verification pass: gate-table correction + CP2 re-check resolution (2026-07-24)
 
