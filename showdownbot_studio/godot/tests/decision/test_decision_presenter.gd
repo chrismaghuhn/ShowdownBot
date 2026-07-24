@@ -433,3 +433,195 @@ func test_first_row_by_decision_index() -> void:
 	var row := DecisionPresenter.first_row_by_decision_index(bundle)
 	assert_int(row).is_equal(2)
 	assert_int(bundle.decisions[row].decision_index).is_equal(2)
+
+
+# --- Plan E §5.8 T1 — sort order + permutation -----------------------------
+
+
+func test_sort_rank_ascending() -> void:
+	# Real sealed fixture-16 row (first non-empty candidates row) — not constructed.
+	var bundle := _fixture_bundle("bundles/fixture-16")
+	var d: DecisionRowDTO = null
+	for row in bundle.decisions:
+		if row.candidates.size() >= 3:
+			d = row
+			break
+	assert_object(d).is_not_null()
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_RANK)
+	assert_int(order.size()).is_equal(d.candidates.size())
+	for i in range(1, order.size()):
+		var prev: CandidateDTO = d.candidates[order[i - 1]]
+		var cur: CandidateDTO = d.candidates[order[i]]
+		assert_int(cur.rank).is_greater_equal(prev.rank)
+
+
+func test_sort_score_descending_rank_tiebreak() -> void:
+	# Constructed: fixtures do not reliably expose intentional equal-score pairs.
+	var d := _make_decision(0, null, true)
+	d.candidates = [
+		_make_candidate("A", 3, 5.0, "a"),
+		_make_candidate("B", 1, 9.0, "b"),
+		_make_candidate("C", 2, 5.0, "c"),  # ties A's score; lower rank must sort first
+	]
+	d.seal()
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_SCORE)
+	assert_int(order.size()).is_equal(d.candidates.size())
+	for i in range(1, order.size()):
+		var prev: CandidateDTO = d.candidates[order[i - 1]]
+		var cur: CandidateDTO = d.candidates[order[i]]
+		if prev.aggregate_score == cur.aggregate_score:
+			assert_int(cur.rank).is_greater(prev.rank)
+		else:
+			assert_float(cur.aggregate_score).is_less(prev.aggregate_score)
+
+
+func test_sort_label_ascending_rank_tiebreak() -> void:
+	# Constructed: fixtures do not reliably expose intentional equal-id pairs.
+	var d := _make_decision(0, null, true)
+	d.candidates = [
+		_make_candidate("dup", 3, 1.0, "a"),
+		_make_candidate("aaa", 1, 1.0, "b"),
+		_make_candidate("dup", 2, 1.0, "c"),  # ties "dup"; lower rank must sort first
+	]
+	d.seal()
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_LABEL)
+	assert_int(order.size()).is_equal(d.candidates.size())
+	for i in range(1, order.size()):
+		var prev: CandidateDTO = d.candidates[order[i - 1]]
+		var cur: CandidateDTO = d.candidates[order[i]]
+		if prev.candidate_id == cur.candidate_id:
+			assert_int(cur.rank).is_greater(prev.rank)
+		else:
+			assert_bool(cur.candidate_id > prev.candidate_id).is_true()
+
+
+func test_sort_key_ascending_null_empty_rank_tiebreak() -> void:
+	# Constructed: need a null candidate_key (-> "") plus an intentional tie.
+	var d := _make_decision(0, null, true)
+	d.candidates = [
+		_make_candidate("A", 2, 1.0, null),
+		_make_candidate("B", 3, 1.0, "b"),
+		_make_candidate("C", 1, 1.0, null),  # ties A's "" key; lower rank must sort first
+	]
+	d.seal()
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_KEY)
+	assert_int(order.size()).is_equal(d.candidates.size())
+	for i in range(1, order.size()):
+		var prev: CandidateDTO = d.candidates[order[i - 1]]
+		var cur: CandidateDTO = d.candidates[order[i]]
+		var pk := "" if prev.candidate_key == null else str(prev.candidate_key)
+		var ck := "" if cur.candidate_key == null else str(cur.candidate_key)
+		if pk == ck:
+			assert_int(cur.rank).is_greater(prev.rank)
+		else:
+			assert_bool(ck > pk).is_true()
+
+
+func test_sort_chosen_first_then_rank() -> void:
+	# Prefer sealed fixture-16 row with a resolvable chosen candidate.
+	var bundle := _fixture_bundle("bundles/fixture-16")
+	var d: DecisionRowDTO = null
+	var chosen := -1
+	for row in bundle.decisions:
+		if row.candidates.size() >= 3:
+			var idx := DecisionPresenter.resolve_chosen_row_index(row)
+			if idx >= 0:
+				d = row
+				chosen = idx
+				break
+	assert_object(d).is_not_null()
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_CHOSEN_FIRST)
+	assert_int(order[0]).is_equal(chosen)
+	for i in range(2, order.size()):
+		var prev: CandidateDTO = d.candidates[order[i - 1]]
+		var cur: CandidateDTO = d.candidates[order[i]]
+		assert_int(cur.rank).is_greater_equal(prev.rank)
+
+
+func test_sort_all_modes_are_permutation() -> void:
+	# Catches a `return range(n)`-style stub only in combination with the order
+	# tests above — both are required (§5.8).
+	var d := _make_decision(0, null, true)
+	d.candidates = [
+		_make_candidate("A", 1, 3.0, "a"),
+		_make_candidate("B", 2, 1.0, "b"),
+		_make_candidate("C", 3, 2.0, null),
+		_make_candidate("D", 4, 2.0, "b"),
+	]
+	d.seal()
+	for mode in [
+		DecisionPresenter.SORT_RANK, DecisionPresenter.SORT_SCORE,
+		DecisionPresenter.SORT_LABEL, DecisionPresenter.SORT_KEY,
+		DecisionPresenter.SORT_CHOSEN_FIRST,
+	]:
+		var order := DecisionPresenter.sorted_candidate_indices(d, mode)
+		assert_int(order.size()).is_equal(d.candidates.size())
+		var seen := {}
+		for idx in order:
+			assert_bool(seen.has(int(idx))).is_false()
+			seen[int(idx)] = true
+		for i in range(d.candidates.size()):
+			assert_bool(seen.has(i)).is_true()
+
+
+# --- Plan E §5.8 T2 — duplicate chosen-key fail-closed ---------------------
+
+
+func test_resolve_chosen_duplicate_key_fail_closed() -> void:
+	# Constructed: bundle_validator refuses duplicate candidate_key at load time
+	# (ambiguous_chosen_candidate), so no sealed fixture can exercise this path.
+	# resolve_chosen_row_index must still fail closed if ever handed such a row —
+	# never rewrite/reinterpret the recorded selection (mockups README §"Additional
+	# implementation clarification").
+	var d := _make_decision(0, null, true)
+	d.candidates = [
+		_make_candidate("A", 1, 1.0, "dup"),
+		_make_candidate("B", 2, 1.0, "dup"),
+	]
+	d.chosen_candidate_key = "dup"
+	d.seal()
+	assert_int(DecisionPresenter.resolve_chosen_row_index(d)).is_equal(-1)
+
+
+# --- Plan E §5.8 T3 — format_state_summary / header_text -------------------
+
+
+func test_format_state_summary_empty_or_null() -> void:
+	assert_str(DecisionPresenter.format_state_summary(null)).is_equal(
+		DecisionPresenter.NOT_RECORDED
+	)
+	var d := _make_decision(0, null, true)
+	d.state_summary = {}
+	d.seal()
+	assert_str(DecisionPresenter.format_state_summary(d)).is_equal(DecisionPresenter.NOT_RECORDED)
+
+
+func test_format_state_summary_sorted_keys() -> void:
+	var d := _make_decision(0, null, true)
+	d.state_summary = {
+		"zebra": "z",
+		"apple": "a",
+		"mango": "m",
+	}
+	d.seal()
+	var expected := "apple: a\nmango: m\nzebra: z"
+	assert_str(DecisionPresenter.format_state_summary(d)).is_equal(expected)
+
+
+func test_header_text_valid_invalid_null() -> void:
+	assert_str(DecisionPresenter.header_text(null)).is_equal("")
+
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var valid_row: DecisionRowDTO = null
+	for row in bundle.decisions:
+		if row.decision_valid:
+			valid_row = row
+			break
+	assert_object(valid_row).is_not_null()
+	assert_str(DecisionPresenter.header_text(valid_row)).is_equal(
+		"decision #%d" % valid_row.decision_index
+	)
+
+	var invalid := _make_decision(7, null, false)
+	invalid.seal()
+	assert_str(DecisionPresenter.header_text(invalid)).is_equal("decision #7 (invalid)")

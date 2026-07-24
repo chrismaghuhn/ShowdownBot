@@ -248,6 +248,7 @@ func test_primary_controls_reachable_at_1280x720() -> void:
 	await await_idle_frame()
 	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
 	await _await_shell_settled(shell)
+	assert_object(shell.get_loaded_bundle()).is_not_null()
 	await await_idle_frame()
 	await await_idle_frame()
 
