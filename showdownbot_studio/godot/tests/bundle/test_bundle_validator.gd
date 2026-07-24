@@ -512,3 +512,62 @@ func test_refuse_non_string_trace_schema_version() -> void:
 	manifest["trace_schema_version"] = 7
 	_write_json(bundle_dir.path_join("manifest.json"), manifest)
 	_assert_refuse(BundleValidator.validate_dir(bundle_dir), "malformed_type")
+
+
+# Plan F fixture 2 (bundle contract §14) -- close decision (top1_top2_margin). fixture-01's
+# three rows, TRACE_ONLY (no battle_log), row 2's second candidate ("pass", rank 1)
+# aggregate_score changed 0.5 -> 3.487 -- a small, non-zero, exact top1_top2_margin. Not a
+# refuse case; proves the bundle opens and the margin survives the real BundleValidator parse.
+# The margin computation itself (export-side) is proved in
+# tests/python/test_f1_fixture_catalogue.py::test_fixture02_close_decision_margin_small_correct_no_threshold.
+
+func test_fixture02_close_decision_margin_trusted() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("bundles/fixture-02"))
+	assert_bool(result.ok).is_true()
+	# gdUnit4 assertions record and continue rather than abort; a refused result leaves
+	# result.bundle null, so guard the dereference instead of crashing the whole run (§0.6 P1-2).
+	if not result.ok:
+		return
+	assert_str(result.declared_mode).is_equal(BundleMode.TRACE_ONLY)
+	assert_int(result.bundle.decisions.size()).is_equal(3)
+	assert_object(result.bundle.decisions[0].top1_top2_margin).is_null()
+	assert_object(result.bundle.decisions[1].top1_top2_margin).is_null()
+	assert_float(float(result.bundle.decisions[2].top1_top2_margin)).is_equal_approx(0.013, 0.0001)
+
+
+# Plan F fixture 17 (bundle contract §14 / §15 gate 34) -- filtered protocol lines / sparse
+# protocol_index. REPLAY_ONLY bundle built from a battle.log interleaving |player|, |j|, |t:|,
+# |request|, and chat with real |turn|/|switch|/|move| lines. Proves the exact index-by-index
+# claim survives BundleValidator's own independent re-parse of battle.jsonl (which itself
+# separately enforces strict monotonicity, "protocol_index_order"), not just the exporter's own
+# output asserted in tests/python/test_f1_fixture_catalogue.py::test_fixture17_protocol_index_gaps_land_exactly_on_filtered_lines.
+
+func test_fixture17_protocol_index_sparse_exact() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("bundles/fixture-17"))
+	assert_bool(result.ok).is_true()
+	if not result.ok:
+		return
+	assert_str(result.declared_mode).is_equal(BundleMode.REPLAY_ONLY)
+	var indices: Array = []
+	for event in result.bundle.battle_events:
+		indices.append(event.protocol_index)
+	assert_array(indices).is_equal([4, 6, 8, 9])
+
+
+# Plan F fixture 18 (bundle contract §14 / §15 gate 35) -- |request| skip rules (rqid resend +
+# req.wait). REPLAY_TRACE bundle; both decisions must resolve a non-null request_protocol_index
+# (0 and 5), proving the surviving joins resolve. The skip mechanism itself is already proved
+# generically by tests/python/test_a5_battle_join.py::test_request_skip_rules (Rev. 5 audit);
+# this is the catalogue-fixture-specific proof that this bundle's own decisions both survive.
+
+func test_fixture18_request_skip_rules_surviving_joins_resolve() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("bundles/fixture-18"))
+	assert_bool(result.ok).is_true()
+	if not result.ok:
+		return
+	assert_str(result.declared_mode).is_equal(BundleMode.REPLAY_TRACE)
+	assert_int(result.bundle.decisions.size()).is_equal(2)
+	var indices: Array = []
+	for row in result.bundle.decisions:
+		indices.append(row.request_protocol_index)
+	assert_array(indices).is_equal([0, 5])

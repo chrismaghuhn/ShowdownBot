@@ -9,23 +9,34 @@ test_a6_provenance_modes.py::test_trace_rows_disagreeing_config_hash_refuses,
 test_a7_cli.py::test_cli_refuse_provenance_disagreement) -- Plan F only authors fixture 21's
 catalogue directory (fixtures/viewer-v0/sources/fixture-21/), it does not duplicate the gate
 test (Rev. 5 gate-coverage audit, §3: gate 33 already COVERED).
+
+Fixture 18 (`|request|` skip rules) is this batch's own §14 row too, but its gate (§15 gate 35)
+is already directly proved by test_a5_battle_join.py::test_request_skip_rules (Rev. 5
+gate-coverage audit: "materially stronger than 'new' implies"). Plan F only authors fixture 18's
+catalogue directory (fixtures/viewer-v0/sources/fixture-18/, fixtures/viewer-v0/bundles/fixture-18/),
+it does not duplicate the gate test.
 """
 
 # ruff: noqa: S101 -- pytest assertion rewriting needs bare `assert`, matches every
 # sibling file under tests/python/.
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from conftest import STUDIO_ROOT
 
 from showdownbot_studio_exporter.errors import ExportRefuse
-from showdownbot_studio_exporter.export_battle import read_battle_log
-from showdownbot_studio_exporter.export_decisions import load_trace_rows
+from showdownbot_studio_exporter.export_battle import export_battle_jsonl, read_battle_log
+from showdownbot_studio_exporter.export_decisions import export_decisions_jsonl, load_trace_rows
 from showdownbot_studio_exporter.join import join_request_protocol_indices
 
+FIX02 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-02" / "decision_trace.jsonl"
 FIX11 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-11" / "decision_trace.jsonl"
 FIX14 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-14" / "decision_trace.jsonl"
+FIX16_TRACE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-16" / "decision_trace.jsonl"
+FIX17_LOG = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-17" / "battle.log"
 FIX19 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-19"
 
 
@@ -76,3 +87,70 @@ def test_fixture19_unjoinable_decision_not_dropped():
     unjoined = [idx for idx, protocol_index in joined.items() if protocol_index is None]
     assert unjoined == [2]
     assert all(protocol_index is not None for idx, protocol_index in joined.items() if idx != 2)
+
+
+def test_fixture02_close_decision_margin_small_correct_no_threshold():
+    """Bundle contract §14 fixture 2 / §15 (unnumbered completion row): top1_top2_margin small
+    and correct; no threshold implied; margin null when fewer than two candidates.
+
+    fixture-02/decision_trace.jsonl is fixture-01's own three rows with row 2's second candidate
+    ("pass", rank 1) aggregate_score changed 0.5 -> 3.487, so the top two candidates (3.5, 3.487)
+    are 0.013 apart -- small and, unlike fixture-01's original 3.0 gap, not a round number, so a
+    passing assertion here cannot be explained by the exporter applying some implicit cutoff.
+    Row 0 (team_preview, 0 candidates) and row 1 (forced_replacement, exactly 1 candidate) both
+    exercise "fewer than two candidates" -- two different counts below the threshold, not just
+    the zero case.
+    """
+    rows = load_trace_rows(FIX02)
+    decisions_bytes, _, _ = export_decisions_jsonl(rows)
+    by_index = {
+        row["decision_index"]: row for row in (json.loads(ln) for ln in decisions_bytes.decode("utf-8").splitlines())
+    }
+    assert len(by_index[0]["candidates"]) == 0
+    assert by_index[0]["top1_top2_margin"] is None
+    assert len(by_index[1]["candidates"]) == 1
+    assert by_index[1]["top1_top2_margin"] is None
+    assert len(by_index[2]["candidates"]) == 2
+    assert by_index[2]["top1_top2_margin"] == pytest.approx(0.013)
+
+
+def test_fixture17_protocol_index_gaps_land_exactly_on_filtered_lines():
+    """Bundle contract §14 fixture 17 / §15 gate 34: protocol_index is sparse, strictly
+    increasing, and the gaps land exactly on the filtered lines (§11.3.1) -- asserted against the
+    real index values and the real filtered-line positions, not merely that the sequence
+    increases (a test that only checked monotonicity would pass on a completely wrong mapping).
+
+    fixture-17/battle.log has 11 lines: |player| (0), |j| (1), |t:| (2), |request| (3, 7, 10),
+    and |c| chat (5) are all filtered; |turn| (4, 8), |switch| (6), and |move| (9) are real
+    parsed events and the only lines that produce a battle.jsonl row.
+    """
+    lines = read_battle_log(FIX17_LOG)
+    battle_bytes = export_battle_jsonl(lines)
+    rows = [json.loads(ln) for ln in battle_bytes.decode("utf-8").splitlines()]
+    indices = [row["protocol_index"] for row in rows]
+    assert indices == [4, 6, 8, 9]
+    assert indices == sorted(indices)
+    assert len(set(indices)) == len(indices)  # strictly increasing, not merely non-decreasing
+    gap_positions = sorted(set(range(len(lines))) - set(indices))
+    assert gap_positions == [0, 1, 2, 3, 5, 7, 10]
+
+
+def test_fixture16_104_candidate_row_export_not_truncated():
+    """Cross-cutting rule 7 (index §5) / Choice Point 3 (§0.11, CLOSED: L1): the 104-candidate
+    bounded-render fixture. See the task report -- this is already satisfied by the real
+    committed row in fixtures/viewer-v0/sources/fixture-16 (a byte-identical copy of
+    data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl, confirmed by sha256), which
+    fixture-16's own bundle already carries into bundles/fixture-16/decisions.jsonl and which
+    godot/tests/decision/test_candidate_table_view.gd::test_table_bounded_104_candidates already
+    proves the UI *renders* bounded to exactly 104 controls. That test does not touch the
+    exporter; this test proves the complementary half -- export_decisions_jsonl does not truncate
+    the real 104-candidate row before it ever reaches the UI (bundle contract §2.5's
+    TOP_K_TRACE_CANDIDATES only bounds the non-Mega producer branch, not this exporter).
+    """
+    rows = load_trace_rows(FIX16_TRACE)
+    decisions_bytes, _, _ = export_decisions_jsonl(rows)
+    decisions = [json.loads(ln) for ln in decisions_bytes.decode("utf-8").splitlines()]
+    counts = [len(d["candidates"]) for d in decisions]
+    assert 104 in counts
+    hundred_four = next(d for d in decisions if len(d["candidates"]) == 104)
+    assert len(hundred_four["candidates"]) == 104

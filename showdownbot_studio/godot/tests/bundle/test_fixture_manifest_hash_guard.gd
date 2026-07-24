@@ -16,11 +16,12 @@ extends GdUnitTestSuite
 #   file to hash at all), so it gets its own label, "missing_on_disk", rather than being
 #   folded into "hash_mismatch".
 
-# Measured: 11 res://tests/fixtures/unit + 7 bundles/* (fixture-19 added) + 8 sources-bundle
-# dirs (fixture-06 plus Plan F's fixtures 7, 8, 9, 12, 22a, 22b, 23). Fixtures 11, 14, 19, 21's
-# sources/ raw-input dirs do not carry a manifest.json (raw producer inputs, not exported
-# bundle copies), so they do not add to this count.
-const _MIN_MANIFEST_COUNT := 26
+# Measured: 11 res://tests/fixtures/unit + 10 bundles/* (fixture-19, 02, 17, 18 added) + 8
+# sources-bundle dirs (fixture-06 plus Plan F's fixtures 7, 8, 9, 12, 22a, 22b, 23). Fixtures
+# 11, 14, 19, 21's sources/ raw-input dirs, and fixture-02/17/18's own sources/ dirs, do not
+# carry a manifest.json (raw producer inputs, not exported bundle copies), so they do not add
+# to this count.
+const _MIN_MANIFEST_COUNT := 29
 
 
 func _fixture06_manifest_path() -> String:

@@ -240,3 +240,104 @@
 - `fixtures/viewer-v0/bundles/fixture-19/decisions.jsonl` sha256 `8b644676a28b8e7800d8d4f96983f728599df7306f9201c60d96b43de1216e42`
 - `fixtures/viewer-v0/bundles/fixture-19/manifest.json` sha256 `43ca63c9d8c5f9b9a307b6b5bffb80a28e168455ebd3c7c9a21182799497cd8f`
 - `fixtures/viewer-v0/bundles/fixture-19/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-02
+- source_kind: close decision / margin (fixture-01's three rows, one candidate score mutated)
+- note: fixture-01/decision_trace.jsonl's three rows unchanged except row 2 (decision_index 2):
+  its second candidate ("pass", rank 1) aggregate_score changed 0.5 -> 3.487, so the top two
+  candidates (3.5, 3.487) are 0.013 apart -- small, non-zero, and not a round number, so a
+  passing test cannot be explained by an implicit exporter cutoff. Real committed rows with a
+  small top1_top2_margin already exist elsewhere in this repo (fixture-05/16's real committed
+  data, itself derived from data/eval/champions-panel-v0/smoke-i7a-mega -- see the 104-candidate
+  entry below), but only at large candidate counts (45/104) or as an exact tie (margin 0.0 on
+  every real 2-candidate forced_replacement row sampled). Constructed instead, per §14's own
+  second recipe option ("construct if none exists with a small-enough gap"), to keep the fixture
+  minimal and to exercise a hand-verifiable non-zero value. Row 0 (team_preview, 0 candidates)
+  and row 1 (forced_replacement, exactly 1 candidate) both exercise "fewer than two candidates"
+  with two different counts, not just the zero case. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture02_close_decision_margin_small_correct_no_threshold
+- `fixtures/viewer-v0/sources/fixture-02/decision_trace.jsonl` sha256 `d149f3ecf7861abec379604641e77126ac545012b87bd5842fcd64c0e7e79e41`
+
+## fixture-17
+- source_kind: filtered protocol lines / sparse protocol_index (replay-only, results.jsonl reused
+  from fixture-01)
+- note: a fresh 11-line battle.log interleaving `|player|` (line 0), `|j|` (1), `|t:|` (2),
+  `|request|` (3, 7, 10), and `|c|` chat (5) -- all filtered -- with real `|turn|` (4, 8),
+  `|switch|` (6), and `|move|` (9) event lines. `export_battle_jsonl`'s resulting
+  `protocol_index` sequence is `[4, 6, 8, 9]`; the gap positions (`{0,1,2,3,5,7,10}`) equal
+  exactly the filtered-line positions, not merely "somewhere". results.jsonl is a byte-identical
+  copy of fixture-01/results.jsonl (same synthetic sentinel provenance), matching fixture-04's
+  precedent for a replay-only export with no decision_trace. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture17_protocol_index_gaps_land_exactly_on_filtered_lines
+- `fixtures/viewer-v0/sources/fixture-17/battle.log` sha256 `97f175eecbb788456f5cf8d07a8e24fafed6b569d0982cf7e92406d4c5e01501`
+- `fixtures/viewer-v0/sources/fixture-17/results.jsonl` sha256 `5c12db6757eb7bada142b63efa4b3bae7fd9b2908e633cb3ca60b696329345a0`
+
+## fixture-18
+- source_kind: synthetic-coherent-v1 (`|request|` skip rules: rqid resend + req.wait)
+- battle_id: synthetic00000001 (reused sentinel, same as fixture-01 -- §14.1 condition 3: not a
+  real `data/eval/` battle_id, so reuse is not a false producer claim)
+- git_sha: unknown (§14.1 condition 4)
+- note: a fresh 7-line battle.log with an `rqid=1` request (line 0), a verbatim resend of the
+  same `rqid=1` payload (line 2, skipped by the resend rule), an `rqid=2, wait:true` request
+  (line 3, skipped by the wait rule), and a surviving `rqid=3` request (line 5) --
+  `index_requests_from_log` keeps exactly the two surviving requests (protocol_index 0 and 5).
+  decision_trace.jsonl has two rows (fixture-01's own row 0 verbatim -- its request_hash already
+  equals the hash of the line-0 payload used here unchanged -- and fixture-01's row 2 reused with
+  decision_index/turn_number/request_hash/state_summary updated to match the line-5 payload), so
+  both requests join to a real decision (`request_protocol_index` 0 and 5 in the exported
+  bundle, neither null) -- internal coherence per §14.1 condition 2. §15 gate 35 (this fixture's
+  own gate) is already directly proved by
+  tests/python/test_a5_battle_join.py::test_request_skip_rules (Rev. 5 gate-coverage audit:
+  "materially stronger than 'new' implies"); no duplicate test is added here, only the catalogue
+  directory
+- `fixtures/viewer-v0/sources/fixture-18/battle.log` sha256 `2fd8e17a2bd85c55149274c42ab9871f15caace376a132e2c95301b6facafd9f`
+- `fixtures/viewer-v0/sources/fixture-18/decision_trace.jsonl` sha256 `2897e71366b42a96ff18f5ca2d4c5c41b5220130d9b7002db1cbe15401cb8373`
+
+## 104-candidate bounded-render (cross-cutting rule 7, index §5; §0.11 Choice Point 3, CLOSED: L1)
+- not a numbered §14 fixture; no new directory added under this entry -- **already satisfied**
+  by the pre-existing `sources/fixture-16` / `bundles/fixture-16` (Plan A, unmodified by Plan F)
+- derivation confirmed: `sources/fixture-16/decision_trace.jsonl` (sha256
+  `7070338b77425621b6c3720e1f5cea651dff832dc6a0a8884de047c6647ff197`, same file as
+  `sources/fixture-05/decision_trace.jsonl`) is byte-identical
+  (`546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f`, standard 64-hex sha256,
+  computed directly) to the real committed
+  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` -- confirmed with a direct
+  `sha256sum` comparison of both files, 2026-07-24. Per-row candidate counts, enumerated
+  directly: `[0, 104, 45, 45, 2, 41, 41, 2, 5, 5, 5, 0, 104, 45, 45, 2, 41, 41, 1, 25]`, matching
+  bundle contract §2.5's own citation exactly; decision_index 1 (first battle) carries 104
+  candidates, and `bundles/fixture-16/decisions.jsonl` (already committed) carries that same
+  104-candidate row through export un-truncated
+- proof, Godot side (rendering bound): `godot/tests/decision/test_candidate_table_view.gd::test_table_bounded_104_candidates`
+  opens `bundles/fixture-16`, finds the 104-candidate row, binds it to `CandidateTableView`, and
+  asserts `get_item_count() == 104` -- already existing, already passing, not added by this batch
+- proof, Python side (export does not truncate first, new this batch):
+  tests/python/test_f1_fixture_catalogue.py::test_fixture16_104_candidate_row_export_not_truncated
+- **known gap (accepted by owner, §0.11 Choice Point 3 / §1 fixture matrix), preserved here**:
+  the `smoke-i7a-mega` corpus directory has no companion battle log, so `fixture-16` is
+  `TRACE_ONLY` -- bounded rendering is never exercised together with active replay mode by this
+  fixture. A defect only reproducible with board + timeline + a live 104-row candidate table
+  simultaneously would not be caught here
+
+## bundle/fixture-02
+- produced by a real `export_bundle()` call against `sources/fixture-02/decision_trace.jsonl`
+  (TRACE_ONLY, no battle_log); fixture 2 exports cleanly (not a refuse fixture), so this is the
+  actual exporter output
+- `fixtures/viewer-v0/bundles/fixture-02/decisions.jsonl` sha256 `96d17baf4d095dd205f041d44d0703bf761966ba1db9a7c1bf8682e8286fcfcb`
+- `fixtures/viewer-v0/bundles/fixture-02/manifest.json` sha256 `c3b23a68d5229c462e2dcf8f0186082c643c63d19924cda366ee60282fabf881`
+- `fixtures/viewer-v0/bundles/fixture-02/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## bundle/fixture-17
+- produced by a real `export_bundle()` call against `sources/fixture-17/` (battle_log + results,
+  no decision_trace -- replay-only, same mode as bundle/fixture-04); fixture 17 exports cleanly
+- `fixtures/viewer-v0/bundles/fixture-17/battle.jsonl` sha256 `ff79b8a7ebda06ebe1b72732b3083f5259cd5dd64aab609ce3cfcbef99741add`
+- `fixtures/viewer-v0/bundles/fixture-17/manifest.json` sha256 `0570383090e77d98c58b7005f7b51843133d29c440dcf4f7b27a905645f40da4`
+
+## bundle/fixture-18
+- produced by a real `export_bundle()` call against `sources/fixture-18/` (battle_log +
+  decision_trace, no results/config-manifest); fixture 18 exports cleanly. `decisions.jsonl`'s
+  two rows both carry a non-null `request_protocol_index` (0 and 5), confirming the surviving
+  joins resolve
+- `fixtures/viewer-v0/bundles/fixture-18/battle.jsonl` sha256 `9f2b330e6bcbad24c19924a9a9abdfd4cc0c1518b1ecb2743164db0478361d7b`
+- `fixtures/viewer-v0/bundles/fixture-18/decisions.jsonl` sha256 `07da4f9b91ed1ac4d4a35fdc29ffdc9ba66fc138b70e3f9b21112c13e47ed855`
+- `fixtures/viewer-v0/bundles/fixture-18/manifest.json` sha256 `6c7d098d324e76f46790f805c592dc24aad1992b7374fe12c1c3991fdc9f5c62`
+- `fixtures/viewer-v0/bundles/fixture-18/warnings.json` sha256 `44ceb752d7a26dd6b9091035975b12c12d667a752f1794a0523c51f2755c85eb`
