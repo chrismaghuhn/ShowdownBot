@@ -139,3 +139,65 @@ def test_refuse_infinity():
 
     with pytest.raises(CanonicalizeError):
         dumps({"x": float("inf")})
+
+
+def test_jsonl_files_end_with_exactly_one_newline_and_no_cr():
+    """Bundle contract §15 gate 7: "Every JSONL file ends with exactly one \\n and contains
+    no \\r." The audit found this genuinely MISSING -- no test inspected any emitted JSONL
+    bytes for newline shape. Exercised against a FRESH real export of fixture-01 (not just
+    the already-committed bundle bytes), so a regression in export_battle_jsonl or
+    export_decisions_jsonl's own newline handling is caught here directly.
+    """
+    from showdownbot_studio_exporter.export_battle import export_battle_jsonl, read_battle_log
+    from showdownbot_studio_exporter.export_decisions import export_decisions_jsonl, load_trace_rows
+
+    fix01 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01"
+    battle_bytes = export_battle_jsonl(read_battle_log(fix01 / "battle.log"))
+    rows = load_trace_rows(fix01 / "decision_trace.jsonl")
+    decisions_bytes, _, _ = export_decisions_jsonl(rows)
+
+    for name, blob in (("battle.jsonl", battle_bytes), ("decisions.jsonl", decisions_bytes)):
+        assert blob, name  # non-empty, or the "ends with one \n" check below is vacuous
+        assert b"\r" not in blob, name
+        assert blob.endswith(b"\n"), name
+        assert not blob.endswith(b"\n\n"), name
+        lines = blob.split(b"\n")
+        assert lines[-1] == b""  # nothing after the final newline
+        assert all(line for line in lines[:-1]), f"{name}: blank line in body"
+        # Exactly one \n terminates each record: newline count == record count.
+        assert blob.count(b"\n") == len(lines) - 1
+
+
+def test_candidate_key_round_trips_byte_identically_never_reserialized():
+    """Bundle contract §15 gate 9: "candidate_key round-trips byte-identically from source
+    row to bundle; a test asserts the exporter never re-serializes its inner JSON." The
+    audit found the plan's own citation for this gate pointed at a file with no relation to
+    candidate_key at all -- genuinely MISSING. Proven on fixture-01's real rows/candidates:
+    every candidate_key and chosen_candidate_key string in the exported decisions.jsonl is
+    byte-identical to the corresponding string in the source decision_trace.jsonl. This is
+    a real regression test, not a vacuous "didn't raise" -- a bug that re-serialized the
+    inner JSON via e.g. `json.dumps(json.loads(x))` (default separators, which insert a
+    space after every `,`/`:`) would change the string bytes even though the parsed value is
+    unchanged, and this comparison would catch it where a parse-and-compare check would not.
+    """
+    from showdownbot_studio_exporter.export_decisions import export_decisions_jsonl, load_trace_rows
+
+    fix01_trace = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01" / "decision_trace.jsonl"
+    source_rows = [json.loads(ln) for ln in fix01_trace.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    rows = load_trace_rows(fix01_trace)
+    blob, _, _ = export_decisions_jsonl(rows)
+    exported_by_index = {
+        row["decision_index"]: row for row in (json.loads(ln) for ln in blob.decode("utf-8").splitlines())
+    }
+
+    checked = 0
+    for src in source_rows:
+        out = exported_by_index[src["decision_index"]]
+        if src.get("chosen_candidate_key") is not None:
+            assert out["chosen_candidate_key"] == src["chosen_candidate_key"]
+            checked += 1
+        for src_cand, out_cand in zip(src.get("candidates") or [], out["candidates"], strict=True):
+            if src_cand.get("candidate_key") is not None:
+                assert out_cand["candidate_key"] == src_cand["candidate_key"]
+                checked += 1
+    assert checked > 0  # fixture-01 actually exercises candidate_key at least once

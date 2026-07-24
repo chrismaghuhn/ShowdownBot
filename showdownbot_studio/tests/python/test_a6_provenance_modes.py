@@ -14,6 +14,7 @@ from showdownbot_studio_exporter.provenance import ProvenanceSources, resolve_pr
 from showdownbot_studio_exporter.validate_bundle import validate_bundle_dir
 
 FIX01 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01"
+FIX01_BUNDLE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles" / "fixture-01"
 FIX04_BUNDLE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles" / "fixture-04"
 FIX04_SRC = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-04"
 FIX05_BUNDLE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles" / "fixture-05"
@@ -99,3 +100,119 @@ def test_frozen_fixture05_trace_only():
     m = validate_bundle_dir(FIX05_BUNDLE)
     assert not m["files"]["battle_log"]["present"]
     assert m["files"]["decision_trace"]["present"]
+
+
+def test_source_hashes_equal_real_source_digests():
+    """Bundle contract §15 gate 23 (positive half): "source_hashes equal the real source
+    digests." The audit found the plan's own "likely existing, verify" guess for this gate
+    confirmed wrong -- genuinely MISSING. bundle/fixture-01's manifest.source_hashes.
+    {battle_log, decision_trace} equal a fresh sha256 computed directly from the actual
+    SOURCE files on disk -- not the exported battle.jsonl/decisions.jsonl bytes, which are a
+    different digest for a different artifact (proven distinct below, setting up the
+    "never compared to files.*.sha256" half).
+    """
+    import hashlib
+
+    manifest = validate_bundle_dir(FIX01_BUNDLE)
+    expected_battle = hashlib.sha256((FIX01 / "battle.log").read_bytes()).hexdigest()
+    expected_trace = hashlib.sha256((FIX01 / "decision_trace.jsonl").read_bytes()).hexdigest()
+    assert manifest["source_hashes"]["battle_log"] == expected_battle
+    assert manifest["source_hashes"]["decision_trace"] == expected_trace
+    # Source digests and exported-file digests are for different bytes entirely -- proving
+    # they legitimately differ here rules out a test that would pass by accident if the
+    # exporter ever collapsed the two concepts.
+    assert manifest["source_hashes"]["battle_log"] != manifest["files"]["battle_log"]["sha256"]
+    assert manifest["source_hashes"]["decision_trace"] != manifest["files"]["decision_trace"]["sha256"]
+
+
+def test_source_hashes_never_compared_to_files_sha256_by_the_reader(tmp_path):
+    """Bundle contract §15 gate 23 (negative/structural half): "never compared to
+    files.*.sha256." Mutating source_hashes to an arbitrary wrong value must not cause
+    validate_bundle_dir to refuse -- only files.*.sha256 is ever checked against actual file
+    bytes (test_a2_manifest_hash.py::test_frozen_fixture01_hashes_match_manifest already
+    proves that half); source_hashes is pure passthrough provenance the reader never
+    cross-checks. If a future change ever wired the two together, this test would catch it.
+    """
+    import json
+    import shutil
+
+    from showdownbot_studio_exporter.canonicalize import dumps
+
+    dst = tmp_path / "copy"
+    shutil.copytree(FIX01_BUNDLE, dst)
+    manifest = json.loads((dst / "manifest.json").read_text(encoding="utf-8"))
+    manifest["source_hashes"]["battle_log"] = "0" * 64
+    manifest["source_hashes"]["decision_trace"] = "1" * 64
+    (dst / "manifest.json").write_bytes(dumps(manifest))
+
+    result = validate_bundle_dir(dst)  # must not raise
+    assert result["source_hashes"]["battle_log"] == "0" * 64
+    assert result["source_hashes"]["decision_trace"] == "1" * 64
+
+
+def test_config_manifest_hash_matches_row_config_hash():
+    """Bundle contract §15 gate 24 (positive half): "config-manifest.json's config_hash
+    equals the row config_hash." Asserted directly against the real source pre-image and
+    the real exported manifest, rather than only implicitly (several passing tests happen
+    to use fixture-01's own config-manifest without it ever raising).
+    """
+    import json
+
+    manifest = validate_bundle_dir(FIX01_BUNDLE)
+    config_manifest = json.loads((FIX01 / "results.config-manifest.json").read_text(encoding="utf-8"))
+    assert config_manifest["config_hash"] == manifest["config_hash"]
+
+
+def test_config_manifest_hash_mismatch_refuses(tmp_path):
+    """Bundle contract §15 gate 24 (refuse half): a mismatch between config-manifest.json's
+    config_hash and the row's own config_hash must refuse. The audit found zero tests
+    exercised this path even though export_bundle.py's own config_hash_mismatch check
+    (export_bundle.py:138-139) is implemented.
+    """
+    import json
+
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    mutated_config = input_dir / "results.config-manifest.json"
+    original = json.loads((FIX01 / "results.config-manifest.json").read_text(encoding="utf-8"))
+    original["config_hash"] = "deadbeefdeadbeef"
+    mutated_config.write_text(json.dumps(original), encoding="utf-8")
+
+    with pytest.raises(ExportRefuse) as exc:
+        export_bundle(
+            out=tmp_path / "out",
+            battle_log=FIX01 / "battle.log",
+            decision_trace=FIX01 / "decision_trace.jsonl",
+            results=FIX01 / "results.jsonl",
+            config_manifest=mutated_config,
+        )
+    assert exc.value.reason == "config_hash_mismatch"
+
+
+def test_config_hash_never_used_as_a_lookup_key_in_exporter_source():
+    """Bundle contract §15 gate 25 / §6: "Nothing in the bundle is derived from
+    config_hash... No reverse-lookup table exists in the repository, and none may be added
+    to Studio. A test asserts no reverse-lookup exists." The audit found this gate had zero
+    trace anywhere in the test suite.
+
+    This is a structural claim about the repository, not a runtime behaviour -- there is no
+    black-box signal for "was NOT looked up" from the exported bytes alone, so the test is
+    structural too: it walks every exporter source module's AST and asserts no Subscript
+    expression ever uses a `config_hash`-named variable as its index, which is the only way
+    source code could use a config_hash VALUE to look something else up. This is distinct
+    from the common, allowed pattern of storing the value under the string key
+    "config_hash" (a Constant in the slice position, not a Name) -- e.g.
+    `manifest["config_hash"] = ...` in export_bundle.py is fine and does not trip this.
+    """
+    import ast
+
+    exporter_src = STUDIO_ROOT / "python" / "src" / "showdownbot_studio_exporter"
+    offenders = []
+    for path in sorted(exporter_src.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Subscript):
+                names = {n.id for n in ast.walk(node.slice) if isinstance(n, ast.Name)}
+                if "config_hash" in names:
+                    offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == [], f"config_hash used as a subscript/lookup key: {offenders}"

@@ -564,6 +564,53 @@ func test_sort_all_modes_are_permutation() -> void:
 			assert_bool(seen.has(i)).is_true()
 
 
+# --- Bundle contract §15 gate 14 -- sorting never changes chosen/rank ------
+
+
+func test_sort_never_changes_chosen_identity_or_candidate_ranks() -> void:
+	# Real sealed fixture-16 row (multi-candidate, resolvable chosen candidate) -- not
+	# constructed. Proves §15 gate 14 ("Sorting the candidate table by every supported
+	# column never changes which row is chosen and never changes rank") across all five
+	# supported sort modes at once: the chosen candidate's identity (candidate_key) and
+	# every candidate's own rank value are re-read from d.candidates directly after each
+	# sort, never from the permuted `order` array's position -- sorting must only reorder
+	# the VIEW, never mutate the underlying data sorted_candidate_indices() was handed.
+	var bundle := _fixture_bundle("bundles/fixture-16")
+	var d: DecisionRowDTO = null
+	var chosen_idx := -1
+	for row in bundle.decisions:
+		if row.candidates.size() >= 3:
+			var idx := DecisionPresenter.resolve_chosen_row_index(row)
+			if idx >= 0:
+				d = row
+				chosen_idx = idx
+				break
+	assert_object(d).is_not_null()
+
+	var chosen_key_before: String = d.candidates[chosen_idx].candidate_key
+	# Indexed by ARRAY POSITION, not candidate_id: candidate_id is a coarse label
+	# ("move"/"switch"/"pass") repeated across many candidates in a 104-row, so a dict
+	# keyed by candidate_id would silently collapse distinct candidates onto one entry.
+	var ranks_before: Array = []
+	for c in d.candidates:
+		ranks_before.append(c.rank)
+
+	for mode in [
+		DecisionPresenter.SORT_RANK, DecisionPresenter.SORT_SCORE,
+		DecisionPresenter.SORT_LABEL, DecisionPresenter.SORT_KEY,
+		DecisionPresenter.SORT_CHOSEN_FIRST,
+	]:
+		var order := DecisionPresenter.sorted_candidate_indices(d, mode)
+		assert_int(order.size()).is_equal(d.candidates.size())
+		# Re-resolving chosen after each sort must land on the SAME underlying index and
+		# the SAME candidate_key -- sorting the view must never move which object is
+		# "chosen" in the data.
+		assert_int(DecisionPresenter.resolve_chosen_row_index(d)).is_equal(chosen_idx)
+		assert_str(d.candidates[chosen_idx].candidate_key).is_equal(chosen_key_before)
+		for i in range(d.candidates.size()):
+			assert_int(d.candidates[i].rank).is_equal(int(ranks_before[i]))
+
+
 # --- Plan E §5.8 T2 — duplicate chosen-key fail-closed ---------------------
 
 
