@@ -1,8 +1,11 @@
 # Viewer v0 — Plan F: End-to-End Acceptance
 
-**Status:** DRAFT — expanded to an executable draft; **implementation not authorized**
-**Date:** 2026-07-21 · **Rev.:** 3 (2026-07-24 — owner closed all four §0.11 choice points; status
-remains DRAFT, implementation still gated on Plans A–E per §0.10/§3.2; see §9)
+**Status:** APPROVED — 2026-07-24 (Rev. 4). Owner closed all four §0.11 choice points and marked
+this plan APPROVED. **Implementation is still NOT authorized** — approval satisfies index §7 step 1
+only; the hard dependency in index §3.2 (Plans A–E green and merged) is **not yet satisfied**, and a
+separate implementation go-ahead is still required. See Depends-on below and §0.10.
+**Date:** 2026-07-21 · **Rev.:** 4 (2026-07-24 — owner closed all four §0.11 choice points and
+approved the plan; implementation remains gated on Plans A–E per §0.10/§3.2; see §9)
 **Depends on:** Plans A–E complete and green (implementation index §3.2). As of this expansion,
 **A–D are merged on `main`; Plan E is APPROVED with only Task E1 merged** (`e757772`, state banner).
 E2–E7 are in progress on an unmerged branch (`studio/plan-e-layout-shell`). **Plan F code cannot
@@ -18,11 +21,11 @@ the hard dependency in index §3.2 is not yet satisfied.
 (structural template for this expansion; also the E-surface Plan F decorates),
 mockups README binding corrections.
 
-> **For agentic workers:** do **not** implement from this DRAFT. Plan F code starts only after (1)
-> Plans A–E are green and merged (index §3.2 — **not yet true**, see Depends-on above), (2) this
-> plan's status is moved to **APPROVED** by the project owner in a **docs-only** commit, and (3) a
-> separate implementation go-ahead. Do not invent a second fixture catalogue, a second CI runner
-> convention, or a second test-helper module — reuse the patterns cited in §0.1.
+> **For agentic workers:** APPROVED status alone does **not** authorize code. Plan F code starts
+> only after (1) Plans A–E are green and merged (index §3.2 — **not yet true**, see Depends-on
+> above), (2) this plan is APPROVED by the project owner — **done, 2026-07-24**, and (3) a separate
+> implementation go-ahead. Condition (1) is the open one. Do not invent a second fixture catalogue,
+> a second CI runner convention, or a second test-helper module — reuse the patterns cited in §0.1.
 
 ## Goal
 
@@ -791,6 +794,19 @@ require their own approved design + plan. This document must not grow those task
 ---
 
 ## 9. Changelog
+
+### Rev. 4 — owner marked the plan APPROVED (2026-07-24)
+
+- **Status DRAFT → APPROVED**, on the project owner's explicit instruction, satisfying implementation
+  index §7 step 1 ("User reviews and marks the plan APPROVED").
+- **Deliberately unchanged:** the §3.2 hard dependency. Approval is *not* an implementation
+  go-ahead. Plans A–E must be green and merged first, and Plan E is **not** complete — Task E7 is
+  outstanding and no Plan E branch is merged to `main` at the time of this revision. The
+  "For agentic workers" note now states that condition (1) is the open one, so an implementer
+  cannot read APPROVED as permission to start.
+- The §8 explicit stop line is unchanged.
+- Rev. 3's four choice-point closures, the CP2 premise-change note, the CP3 known gap, and the CP4
+  "filed ≠ passed" constraint all carry forward unmodified.
 
 ### Rev. 3 — owner closed all four §0.11 choice points; status stays DRAFT (2026-07-24)
 
