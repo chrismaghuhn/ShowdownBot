@@ -1,29 +1,27 @@
 class_name WorkspaceShortcuts
 extends Node
 
-## Plan E Task E4 — single keyboard-shortcut layer over existing Plan C/D APIs
-## (§0.6 "Input ownership": one WorkspaceShortcuts layer, no scattered _input
-## across Plan D views).
-##
-## ponytail: §4.4 describes a 4-ref end-state constructor that also takes
-## shell.get_layout() -> WorkspaceLayout, wiring "Open diagnostics" and
-## "Reset layout/scale". AppShell has no get_layout() yet (that scene-tree
-## mount is Task E5's job), so this narrows to the 3 refs buildable today.
-## Upgrade to the 4-ref shape once E5 mounts WorkspaceLayout into AppShell.
+## Plan E Task E4/E5 — single keyboard-shortcut layer over existing Plan C/D
+## APIs plus WorkspaceLayout (§0.6 "Input ownership": one WorkspaceShortcuts
+## layer, no scattered _input across Plan D views). §4.4 4-ref shape: layout is
+## optional (defaults null) so pre-E5 call sites with 3 refs still compile.
 
 var _timeline: TimelineController = null
 var _decision: DecisionController = null
 var _table: CandidateTableView = null
+var _layout: WorkspaceLayout = null
 
 
 func configure(
 		timeline: TimelineController,
 		decision: DecisionController,
-		table: CandidateTableView
+		table: CandidateTableView,
+		layout: WorkspaceLayout = null
 ) -> void:
 	_timeline = timeline
 	_decision = decision
 	_table = table
+	_layout = layout
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -60,6 +58,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			if not key.ctrl_pressed or _table == null:
 				return
 			_table.focus_selected()
+		KEY_D:
+			if not (key.ctrl_pressed and key.shift_pressed) or _layout == null:
+				return
+			_layout.focus_diagnostics()
+		KEY_0:
+			if not (key.ctrl_pressed and key.shift_pressed) or _layout == null:
+				return
+			_layout.reset_to_safe()
 		_:
 			return
 	var vp := get_viewport()

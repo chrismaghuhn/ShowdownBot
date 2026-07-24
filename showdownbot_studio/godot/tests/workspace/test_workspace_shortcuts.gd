@@ -34,7 +34,8 @@ func _spawn_shortcuts(shell: AppShell) -> WorkspaceShortcuts:
 	shortcuts.configure(
 		shell.get_replay_workspace().get_timeline_controller(),
 		shell.get_decision_workspace().get_decision_controller(),
-		shell.get_decision_workspace().get_candidate_table_view()
+		shell.get_decision_workspace().get_candidate_table_view(),
+		shell.get_layout()
 	)
 	return shortcuts
 
@@ -49,6 +50,12 @@ func _key(keycode: int) -> InputEventKey:
 func _ctrl_key(keycode: int) -> InputEventKey:
 	var e := _key(keycode)
 	e.ctrl_pressed = true
+	return e
+
+
+func _ctrl_shift_key(keycode: int) -> InputEventKey:
+	var e := _ctrl_key(keycode)
+	e.shift_pressed = true
 	return e
 
 
@@ -139,6 +146,33 @@ func test_focus_selected_candidate() -> void:
 	shortcuts._unhandled_input(_ctrl_key(KEY_L))
 	assert_int(list.get_selected_items().size()).is_equal(1)
 	assert_int(table.get_selected_candidate_index()).is_equal(other)
+
+
+func test_focus_diagnostics() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_object(shell.get_loaded_bundle()).is_not_null()
+	var dock := shell.get_layout().get_diagnostics_dock()
+	assert_object(dock).is_not_null()
+	var shortcuts := _spawn_shortcuts(shell)
+	shortcuts._unhandled_input(_ctrl_shift_key(KEY_D))
+	assert_bool(dock.visible).is_true()
+	assert_object(shell.get_viewport().gui_get_focus_owner()).is_same(dock)
+
+
+func test_reset_layout_shortcut() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	assert_object(shell.get_loaded_bundle()).is_not_null()
+	var layout := shell.get_layout()
+	layout.set_ui_scale(1.5)
+	layout.set_density(WorkspaceLayout.DENSITY_COMPACT)
+	var shortcuts := _spawn_shortcuts(shell)
+	shortcuts._unhandled_input(_ctrl_shift_key(KEY_0))
+	assert_float(layout.get_ui_scale()).is_equal(1.0)
+	assert_str(layout.get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
 
 
 func test_filter_focus_suppresses_space_play() -> void:

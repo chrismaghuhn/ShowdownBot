@@ -1,14 +1,21 @@
 extends GdUnitTestSuite
 
-# Task E3 scope only (plan §6): set_ui_scale / set_density / min window size.
-# test_reset_to_safe_restores_defaults is Task E5 scope (WorkspaceLayout owns no
-# real dock children yet) and is deliberately NOT added here.
+# Task E3: set_ui_scale / set_density / min window size (bare WorkspaceLayout.new(),
+# no real docks needed). Task E5 adds test_reset_to_safe_restores_defaults, which
+# needs the real split/dock scaffold — it spawns workspace_layout.tscn instead.
 
 const _FIXTURES_ROOT := "res://../fixtures/viewer-v0"
+const _LAYOUT_SCENE := preload("res://src/workspace/workspace_layout.tscn")
 
 
 func _fixture_path(relative: String) -> String:
 	return ProjectSettings.globalize_path(_FIXTURES_ROOT.path_join(relative))
+
+
+func _spawn_layout_scene() -> WorkspaceLayout:
+	var layout: WorkspaceLayout = _LAYOUT_SCENE.instantiate()
+	add_child(layout)
+	return layout
 
 
 func _fixture_bundle(rel: String) -> BundleDTO:
@@ -67,6 +74,34 @@ func test_density_preserves_selection() -> void:
 	assert_int(ctl.get_selected_entry_index()).is_equal(timeline_before)
 
 	assert_str(layout.get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
+
+
+func test_reset_to_safe_restores_defaults() -> void:
+	var layout := _spawn_layout_scene()
+	await await_idle_frame()
+	var main_split: SplitContainer = layout.get_node("MainSplit")
+	var right_split: SplitContainer = layout.get_node("MainSplit/RightSplit")
+	var diagnostics := layout.get_diagnostics_dock()
+	assert_object(diagnostics).is_not_null()
+
+	# Drive away from defaults: scale, density, split ratios, collapse, visibility.
+	layout.set_ui_scale(1.5)
+	layout.set_density(WorkspaceLayout.DENSITY_COMPACT)
+	main_split.split_offset = 222
+	main_split.collapsed = true
+	right_split.split_offset = 111
+	right_split.collapsed = true
+	diagnostics.visible = false
+
+	layout.reset_to_safe()
+
+	assert_float(layout.get_ui_scale()).is_equal(1.0)
+	assert_str(layout.get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
+	assert_int(main_split.split_offset).is_equal(0)
+	assert_bool(main_split.collapsed).is_false()
+	assert_int(right_split.split_offset).is_equal(0)
+	assert_bool(right_split.collapsed).is_false()
+	assert_bool(diagnostics.visible).is_true()
 
 
 func test_min_window_set() -> void:

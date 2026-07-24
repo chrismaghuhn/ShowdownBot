@@ -1,10 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://src/workspace/app_shell.gd" id="1_shell"]
 [ext_resource type="Script" path="res://src/bundle/bundle_loader.gd" id="2_loader"]
-[ext_resource type="PackedScene" path="res://src/replay/replay_workspace.tscn" id="3_ws"]
-[ext_resource type="PackedScene" path="res://src/decision/decision_workspace.tscn" id="4_dws"]
 [ext_resource type="PackedScene" path="res://src/diagnostics/state_banner.tscn" id="5_banner"]
+[ext_resource type="PackedScene" path="res://src/workspace/workspace_layout.tscn" id="6_layout"]
+[ext_resource type="Script" path="res://src/workspace/workspace_shortcuts.gd" id="7_shortcuts"]
 
 [node name="AppShell" type="Control"]
 layout_mode = 3
@@ -47,13 +47,12 @@ layout_mode = 2
 text = "No bundle loaded"
 autowrap_mode = 3
 
-[node name="ReplayWorkspace" parent="VBox" instance=ExtResource("3_ws")]
+[node name="WorkspaceLayout" parent="VBox" instance=ExtResource("6_layout")]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="DecisionWorkspace" parent="VBox" instance=ExtResource("4_dws")]
-layout_mode = 2
-size_flags_vertical = 3
+[node name="WorkspaceShortcuts" type="Node" parent="."]
+script = ExtResource("7_shortcuts")
 
 [node name="BundleLoader" type="Node" parent="."]
 script = ExtResource("2_loader")

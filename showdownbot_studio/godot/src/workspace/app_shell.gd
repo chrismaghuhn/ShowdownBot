@@ -5,8 +5,12 @@ extends Control
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
 @onready var _state_banner: StateBanner = $VBox/StateBanner
 @onready var _status_label: Label = $VBox/StatusLabel
-@onready var _replay_workspace: ReplayWorkspace = $VBox/ReplayWorkspace
-@onready var _decision_workspace: DecisionWorkspace = $VBox/DecisionWorkspace
+@onready var _layout: WorkspaceLayout = $VBox/WorkspaceLayout
+@onready var _replay_workspace: ReplayWorkspace = $VBox/WorkspaceLayout/MainSplit/ReplayWorkspace
+@onready var _decision_workspace: DecisionWorkspace = (
+	$VBox/WorkspaceLayout/MainSplit/RightSplit/DecisionWorkspace
+)
+@onready var _shortcuts: WorkspaceShortcuts = $WorkspaceShortcuts
 @onready var _loader: BundleLoader = $BundleLoader
 
 var _current_bundle: BundleDTO = null
@@ -23,6 +27,12 @@ func _ready() -> void:
 	# decision_controller.gd:4 — refresh prominent banner on selection changes.
 	_decision_workspace.get_decision_controller().decision_selection_changed.connect(
 		_on_decision_selection_changed
+	)
+	_shortcuts.configure(
+		_replay_workspace.get_timeline_controller(),
+		_decision_workspace.get_decision_controller(),
+		_decision_workspace.get_candidate_table_view(),
+		_layout
 	)
 	_refresh_state_banner()
 	parse_cli_args()
@@ -75,6 +85,10 @@ func get_replay_workspace() -> ReplayWorkspace:
 
 func get_decision_workspace() -> DecisionWorkspace:
 	return _decision_workspace
+
+
+func get_layout() -> WorkspaceLayout:
+	return _layout
 
 
 func is_loading() -> bool:
@@ -160,6 +174,7 @@ func _start_load(path: String) -> void:
 	_decision_workspace.set_loading(true)
 	_set_status("Loading...")
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 	_loader.load_async(path)
 
 
@@ -173,6 +188,7 @@ func _on_completed(bundle: BundleDTO) -> void:
 	if _deep_link_refuse_reason.is_empty():
 		_set_status(_format_loaded_status(bundle))
 	_refresh_state_banner()
+	_set_diagnostics_bundle(bundle)
 
 
 func _apply_pending_deep_link(bundle: BundleDTO) -> void:
@@ -201,6 +217,7 @@ func _on_refused(diagnostic: RefuseDiagnostic) -> void:
 	_decision_workspace.clear()
 	_set_status("Refused: %s" % diagnostic.reason)
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 
 
 func _on_cancelled() -> void:
@@ -210,6 +227,7 @@ func _on_cancelled() -> void:
 	_decision_workspace.clear()
 	_set_status("Load cancelled")
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 
 
 func _on_decision_selection_changed(_decision_row_index: int) -> void:
@@ -223,6 +241,12 @@ func _refresh_state_banner() -> void:
 		selected = _decision_workspace.get_decision_controller().get_selected_decision()
 	var state := StateBannerPresenter.compute(_current_bundle, selected, _current_refuse)
 	_state_banner.set_banner(state)
+
+
+func _set_diagnostics_bundle(bundle: BundleDTO) -> void:
+	# bind_bundle(null) clears (ProvenancePresenter/DiagnosticsPresenter.present
+	# both return [] for a null bundle) — same shape as Replay/Decision clear().
+	_layout.get_diagnostics_dock().bind_bundle(bundle)
 
 
 func _format_loaded_status(bundle: BundleDTO) -> String:
