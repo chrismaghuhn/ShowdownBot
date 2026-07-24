@@ -3,6 +3,8 @@ extends Control
 
 @onready var _path_edit: LineEdit = $VBox/PathRow/PathEdit
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
+@onready var _scale_option: OptionButton = $VBox/ScaleRow/ScaleOption
+@onready var _density_toggle: Button = $VBox/ScaleRow/DensityToggleButton
 @onready var _state_banner: StateBanner = $VBox/StateBanner
 @onready var _status_label: Label = $VBox/StatusLabel
 @onready var _layout: WorkspaceLayout = $VBox/WorkspaceLayout
@@ -34,6 +36,16 @@ func _ready() -> void:
 		_decision_workspace.get_candidate_table_view(),
 		_layout
 	)
+	# §0.8 reachable presets: OptionButton (75/100/150/200) + density toggle,
+	# both thin wrappers over WorkspaceLayout's own API (no state duplicated
+	# here beyond the widgets' displayed selection).
+	for preset in WorkspaceLayout.SCALE_PRESETS:
+		_scale_option.add_item("%d%%" % int(round(preset * 100.0)))
+	_scale_option.item_selected.connect(_on_scale_option_selected)
+	_density_toggle.pressed.connect(_on_density_toggle_pressed)
+	_layout.scale_changed.connect(_on_layout_scale_changed)
+	_layout.density_changed.connect(_on_layout_density_changed)
+	_sync_scale_density_controls()
 	_refresh_state_banner()
 	parse_cli_args()
 
@@ -264,3 +276,36 @@ func _format_loaded_status(bundle: BundleDTO) -> String:
 
 func _set_status(text: String) -> void:
 	_status_label.text = text
+
+
+func _on_scale_option_selected(index: int) -> void:
+	_layout.set_ui_scale(WorkspaceLayout.SCALE_PRESETS[index])
+
+
+func _on_density_toggle_pressed() -> void:
+	var next := (
+		WorkspaceLayout.DENSITY_COMFORTABLE
+		if _layout.get_density() == WorkspaceLayout.DENSITY_COMPACT
+		else WorkspaceLayout.DENSITY_COMPACT
+	)
+	_layout.set_density(next)
+
+
+func _on_layout_scale_changed(_factor: float) -> void:
+	_sync_scale_density_controls()
+
+
+func _on_layout_density_changed(_mode: String) -> void:
+	_sync_scale_density_controls()
+
+
+## Keeps ScaleOption/DensityToggleButton showing the layout's actual state —
+## including after a keyboard-driven reset_to_safe() (§0.6 Ctrl+Shift+0), not
+## only after a click on these controls themselves.
+func _sync_scale_density_controls() -> void:
+	var current_scale := _layout.get_ui_scale()
+	for i in range(WorkspaceLayout.SCALE_PRESETS.size()):
+		if is_equal_approx(WorkspaceLayout.SCALE_PRESETS[i], current_scale):
+			_scale_option.selected = i
+			break
+	_density_toggle.text = "Density: %s" % _layout.get_density().capitalize()

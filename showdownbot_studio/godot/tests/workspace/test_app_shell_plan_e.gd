@@ -178,6 +178,64 @@ func test_keyboard_only_smoke_fixture01() -> void:
 	assert_int(table.get_selected_candidate_index()).is_greater_equal(0)
 
 
+func test_scale_preset_option_button_drives_layout_scale() -> void:
+	# §0.8 "snap buttons/menu: 75 / 100 / 150 / 200" — the reachable control
+	# surface, not just the WorkspaceLayout API it wraps.
+	var shell: AppShell = await _spawn_shell_ready()
+	var scale_option: OptionButton = shell.get_node("VBox/ScaleRow/ScaleOption")
+	assert_int(scale_option.item_count).is_equal(4)
+
+	var index_150 := WorkspaceLayout.SCALE_PRESETS.find(1.5)
+	scale_option.select(index_150)
+	scale_option.item_selected.emit(index_150)
+	await await_idle_frame()
+
+	assert_float(shell.get_layout().get_ui_scale()).is_equal(1.5)
+
+
+func test_density_toggle_button_flips_layout_density() -> void:
+	var shell: AppShell = await _spawn_shell_ready()
+	var toggle: Button = shell.get_node("VBox/ScaleRow/DensityToggleButton")
+	assert_str(shell.get_layout().get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
+
+	toggle.pressed.emit()
+	await await_idle_frame()
+	assert_str(shell.get_layout().get_density()).is_equal(WorkspaceLayout.DENSITY_COMPACT)
+	assert_str(toggle.text).contains("Compact")
+
+	toggle.pressed.emit()
+	await await_idle_frame()
+	assert_str(shell.get_layout().get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
+	assert_str(toggle.text).contains("Comfortable")
+
+
+func test_reset_shortcut_resyncs_scale_and_density_controls() -> void:
+	# Ctrl+Shift+0 drives WorkspaceLayout directly (not through these widgets);
+	# the preset controls must still reflect the real post-reset state.
+	var shell: AppShell = await _spawn_shell_ready()
+	var scale_option: OptionButton = shell.get_node("VBox/ScaleRow/ScaleOption")
+	var toggle: Button = shell.get_node("VBox/ScaleRow/DensityToggleButton")
+	var shortcuts: WorkspaceShortcuts = shell.get_node("WorkspaceShortcuts")
+
+	shell.get_layout().set_ui_scale(2.0)
+	shell.get_layout().set_density(WorkspaceLayout.DENSITY_COMPACT)
+	await await_idle_frame()
+	assert_int(scale_option.selected).is_equal(WorkspaceLayout.SCALE_PRESETS.find(2.0))
+	assert_str(toggle.text).contains("Compact")
+
+	shortcuts._unhandled_input(_ctrl_shift_key(KEY_0))
+	await await_idle_frame()
+
+	assert_int(scale_option.selected).is_equal(WorkspaceLayout.SCALE_PRESETS.find(1.0))
+	assert_str(toggle.text).contains("Comfortable")
+
+
+func _ctrl_shift_key(keycode: int) -> InputEventKey:
+	var e := _ctrl_key(keycode)
+	e.shift_pressed = true
+	return e
+
+
 func test_primary_controls_reachable_at_1280x720() -> void:
 	# Plan §0.7 binding: "timeline controls and path/open (file) row remain
 	# reachable"; Plan E §7 acceptance: "primary controls reachable at

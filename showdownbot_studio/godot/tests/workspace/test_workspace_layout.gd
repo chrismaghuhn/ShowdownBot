@@ -76,6 +76,111 @@ func test_density_preserves_selection() -> void:
 	assert_str(layout.get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
 
 
+func test_scale_produces_observable_control_size_change() -> void:
+	# Not a setter/getter round-trip: measures a real laid-out control (the
+	# transport PlayButton, owned by WorkspaceLayout's ReplayWorkspace dock)
+	# whose theme-resolved font size and min-size-driven Control.size must
+	# actually differ between 100% and 150% once layout settles.
+	var layout := _spawn_layout_scene()
+	await await_idle_frame()
+	var play_button: Button = layout.get_node(
+		"MainSplit/ReplayWorkspace/Timeline/Controls/PlayButton"
+	)
+
+	layout.set_ui_scale(1.0)
+	await await_idle_frame()
+	await await_idle_frame()
+	var font_size_100 := play_button.get_theme_font_size(&"font_size")
+	var size_100 := play_button.size
+
+	layout.set_ui_scale(1.5)
+	await await_idle_frame()
+	await await_idle_frame()
+	var font_size_150 := play_button.get_theme_font_size(&"font_size")
+	var size_150 := play_button.size
+
+	assert_int(font_size_150).is_greater(font_size_100)
+	assert_float(size_150.x).is_greater(size_100.x)
+	assert_float(size_150.y).is_greater(size_100.y)
+
+
+func test_density_produces_observable_separation_change() -> void:
+	# Not a tautology: measures the theme-resolved "separation" constant on a
+	# real container WorkspaceLayout owns (the transport HBoxContainer), which
+	# must differ between compact and comfortable once layout settles.
+	var layout := _spawn_layout_scene()
+	await await_idle_frame()
+	var controls_row: HBoxContainer = layout.get_node(
+		"MainSplit/ReplayWorkspace/Timeline/Controls"
+	)
+
+	layout.set_density(WorkspaceLayout.DENSITY_COMFORTABLE)
+	await await_idle_frame()
+	var sep_comfortable := controls_row.get_theme_constant(&"separation")
+
+	layout.set_density(WorkspaceLayout.DENSITY_COMPACT)
+	await await_idle_frame()
+	var sep_compact := controls_row.get_theme_constant(&"separation")
+
+	assert_int(sep_compact).is_less(sep_comfortable)
+
+
+func test_density_preserves_information_and_row_counts() -> void:
+	# §0.8: "same information + same selection; only spacing/font metrics
+	# change." Drives the real docks WorkspaceLayout owns (candidate table +
+	# diagnostics provenance) with a loaded fixture and asserts row counts and
+	# selection are byte-for-byte identical across a density flip — compact
+	# must not hide/remove/reorder anything.
+	var layout := _spawn_layout_scene()
+	await await_idle_frame()
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var replay := BattleTimeline.build(bundle)
+
+	var replay_ws: ReplayWorkspace = layout.get_node("MainSplit/ReplayWorkspace")
+	replay_ws.reset(replay, bundle)
+	var decision_ws: DecisionWorkspace = layout.get_node(
+		"MainSplit/RightSplit/DecisionWorkspace"
+	)
+	decision_ws.reset(bundle, replay_ws.get_timeline_controller())
+	var diagnostics := layout.get_diagnostics_dock()
+	diagnostics.bind_bundle(bundle)
+	await await_idle_frame()
+
+	var dec := decision_ws.get_decision_controller()
+	var table := decision_ws.get_candidate_table_view()
+	# fixture-01 decision_index=0 (default selection, team_preview) has zero
+	# candidates; decision_index=2 (regular_turn) has 2 — select it so
+	# candidate_rows_before is actually non-zero and the row-count assertion
+	# below is meaningful.
+	for i in range(bundle.decisions.size()):
+		var row: DecisionRowDTO = bundle.decisions[i]
+		if row.decision_index == 2:
+			dec.select_decision_row(i)
+			break
+	await await_idle_frame()
+	var selected_before := dec.get_selected_decision_row_index()
+	var timeline_before := replay_ws.get_timeline_controller().get_selected_entry_index()
+	var candidate_rows_before := table.get_item_count()
+	var provenance_rows_before := diagnostics.get_provenance_row_count()
+	assert_int(candidate_rows_before).is_greater(0)
+	assert_int(provenance_rows_before).is_greater(0)
+
+	layout.set_density(WorkspaceLayout.DENSITY_COMPACT)
+	await await_idle_frame()
+
+	assert_int(dec.get_selected_decision_row_index()).is_equal(selected_before)
+	assert_int(
+		replay_ws.get_timeline_controller().get_selected_entry_index()
+	).is_equal(timeline_before)
+	assert_int(table.get_item_count()).is_equal(candidate_rows_before)
+	assert_int(diagnostics.get_provenance_row_count()).is_equal(provenance_rows_before)
+
+	layout.set_density(WorkspaceLayout.DENSITY_COMFORTABLE)
+	await await_idle_frame()
+	assert_int(table.get_item_count()).is_equal(candidate_rows_before)
+	assert_int(diagnostics.get_provenance_row_count()).is_equal(provenance_rows_before)
+
+
 func test_reset_to_safe_restores_defaults() -> void:
 	var layout := _spawn_layout_scene()
 	await await_idle_frame()
@@ -83,6 +188,15 @@ func test_reset_to_safe_restores_defaults() -> void:
 	var right_split: SplitContainer = layout.get_node("MainSplit/RightSplit")
 	var diagnostics := layout.get_diagnostics_dock()
 	assert_object(diagnostics).is_not_null()
+	var play_button: Button = layout.get_node(
+		"MainSplit/ReplayWorkspace/Timeline/Controls/PlayButton"
+	)
+	var controls_row: HBoxContainer = layout.get_node(
+		"MainSplit/ReplayWorkspace/Timeline/Controls"
+	)
+	await await_idle_frame()
+	var baseline_font_size := play_button.get_theme_font_size(&"font_size")
+	var baseline_separation := controls_row.get_theme_constant(&"separation")
 
 	# Drive away from defaults: scale, density, split ratios, collapse, visibility.
 	layout.set_ui_scale(1.5)
@@ -92,8 +206,15 @@ func test_reset_to_safe_restores_defaults() -> void:
 	right_split.split_offset = 111
 	right_split.collapsed = true
 	diagnostics.visible = false
+	await await_idle_frame()
+	# Custom state must actually differ before reset — otherwise the reset
+	# assertions below would pass vacuously even against the old no-op.
+	assert_int(play_button.get_theme_font_size(&"font_size")).is_not_equal(baseline_font_size)
+	assert_int(controls_row.get_theme_constant(&"separation")).is_not_equal(baseline_separation)
 
 	layout.reset_to_safe()
+	await await_idle_frame()
+	await await_idle_frame()
 
 	assert_float(layout.get_ui_scale()).is_equal(1.0)
 	assert_str(layout.get_density()).is_equal(WorkspaceLayout.DENSITY_COMFORTABLE)
@@ -102,6 +223,10 @@ func test_reset_to_safe_restores_defaults() -> void:
 	assert_int(right_split.split_offset).is_equal(0)
 	assert_bool(right_split.collapsed).is_false()
 	assert_bool(diagnostics.visible).is_true()
+	# Real effect, not just the stored getters: font size and separation must
+	# actually be back at their pre-custom values.
+	assert_int(play_button.get_theme_font_size(&"font_size")).is_equal(baseline_font_size)
+	assert_int(controls_row.get_theme_constant(&"separation")).is_equal(baseline_separation)
 
 
 func test_min_window_set() -> void:

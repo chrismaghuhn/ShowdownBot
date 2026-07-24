@@ -39,6 +39,20 @@ placeholder_text = "Bundle directory path"
 layout_mode = 2
 text = "Open"
 
+[node name="ScaleRow" type="HBoxContainer" parent="VBox"]
+layout_mode = 2
+
+[node name="ScaleLabel" type="Label" parent="VBox/ScaleRow"]
+layout_mode = 2
+text = "Scale:"
+
+[node name="ScaleOption" type="OptionButton" parent="VBox/ScaleRow"]
+layout_mode = 2
+
+[node name="DensityToggleButton" type="Button" parent="VBox/ScaleRow"]
+layout_mode = 2
+text = "Density: Comfortable"
+
 [node name="StateBanner" parent="VBox" instance=ExtResource("5_banner")]
 layout_mode = 2
 
