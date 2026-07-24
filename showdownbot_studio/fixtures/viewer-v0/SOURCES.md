@@ -296,13 +296,17 @@
 ## 104-candidate bounded-render (cross-cutting rule 7, index §5; §0.11 Choice Point 3, CLOSED: L1)
 - not a numbered §14 fixture; no new directory added under this entry -- **already satisfied**
   by the pre-existing `sources/fixture-16` / `bundles/fixture-16` (Plan A, unmodified by Plan F)
-- derivation confirmed: `sources/fixture-16/decision_trace.jsonl` (sha256
-  `7070338b77425621b6c3720e1f5cea651dff832dc6a0a8884de047c6647ff197`, same file as
-  `sources/fixture-05/decision_trace.jsonl`) is byte-identical
-  (`546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f`, standard 64-hex sha256,
-  computed directly) to the real committed
-  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` -- confirmed with a direct
-  `sha256sum` comparison of both files, 2026-07-24. Per-row candidate counts, enumerated
+- derivation confirmed: `sources/fixture-16/decision_trace.jsonl`,
+  `sources/fixture-05/decision_trace.jsonl` and the committed
+  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` all hash to
+  `546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f` in this checkout --
+  byte-identical, confirmed by direct `sha256sum` on all three, 2026-07-24, and by comparing the
+  parsed rows (`20 == 20`, objects equal, same `battle_id 3e6a178b0900195e`).
+  **Measure this from inside the worktree.** An earlier revision of this entry recorded
+  `7070338b...` for the same corpus path; that value comes from a *different checkout* of the
+  repository (see the out-of-scope note at the end of this entry), not from this tree. A relative
+  path that escapes the worktree silently reads the other checkout -- the same class of trap as
+  `git -C ..` from a worktree root. Per-row candidate counts, enumerated
   directly: `[0, 104, 45, 45, 2, 41, 41, 2, 5, 5, 5, 0, 104, 45, 45, 2, 41, 41, 1, 25]`, matching
   bundle contract §2.5's own citation exactly; decision_index 1 (first battle) carries 104
   candidates, and `bundles/fixture-16/decisions.jsonl` (already committed) carries that same
@@ -317,6 +321,17 @@
   `TRACE_ONLY` -- bounded rendering is never exercised together with active replay mode by this
   fixture. A defect only reproducible with board + timeline + a live 104-row candidate table
   simultaneously would not be caught here
+- **out of scope, recorded not fixed (Plan F §0.4 excludes `data/eval/`):** the corpus file
+  `data/eval/champions-panel-v0/smoke-i7a-mega/decision_trace.jsonl` has **different bytes in
+  different checkouts of this repository** -- 281588 bytes / sha256 `546693fc...` here, 281608
+  bytes / sha256 `7070338b...` in the main checkout -- while `git status` reports the file
+  unmodified in both and `git diff` against `main` reports no difference for that path. Both
+  copies are LF-only, so this is not the known CRLF-normalisation trap. This is the root cause of
+  the pre-existing failure `tests/python/test_a4_smoke_trace_integrity.py::test_smoke_trace_hash_pinned`,
+  whose `PINNED` constant is the main checkout's `7070338b...`. It belongs to the same
+  already-scoped repair as the other pre-existing Python failures, not to Plan F. Flagged so the
+  fixture-16 provenance above is read as "byte-identical **within this checkout**", which is what
+  was measured, rather than as an unqualified claim
 
 ## bundle/fixture-02
 - produced by a real `export_bundle()` call against `sources/fixture-02/decision_trace.jsonl`
