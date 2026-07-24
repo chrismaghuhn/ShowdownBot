@@ -3,10 +3,16 @@ extends Control
 
 @onready var _path_edit: LineEdit = $VBox/PathRow/PathEdit
 @onready var _open_button: Button = $VBox/PathRow/OpenButton
+@onready var _scale_option: OptionButton = $VBox/ScaleRow/ScaleOption
+@onready var _density_toggle: Button = $VBox/ScaleRow/DensityToggleButton
 @onready var _state_banner: StateBanner = $VBox/StateBanner
 @onready var _status_label: Label = $VBox/StatusLabel
-@onready var _replay_workspace: ReplayWorkspace = $VBox/ReplayWorkspace
-@onready var _decision_workspace: DecisionWorkspace = $VBox/DecisionWorkspace
+@onready var _layout: WorkspaceLayout = $VBox/WorkspaceLayout
+@onready var _replay_workspace: ReplayWorkspace = $VBox/WorkspaceLayout/MainSplit/ReplayWorkspace
+@onready var _decision_workspace: DecisionWorkspace = (
+	$VBox/WorkspaceLayout/MainSplit/RightSplit/DecisionWorkspace
+)
+@onready var _shortcuts: WorkspaceShortcuts = $WorkspaceShortcuts
 @onready var _loader: BundleLoader = $BundleLoader
 
 var _current_bundle: BundleDTO = null
@@ -24,6 +30,22 @@ func _ready() -> void:
 	_decision_workspace.get_decision_controller().decision_selection_changed.connect(
 		_on_decision_selection_changed
 	)
+	_shortcuts.configure(
+		_replay_workspace.get_timeline_controller(),
+		_decision_workspace.get_decision_controller(),
+		_decision_workspace.get_candidate_table_view(),
+		_layout
+	)
+	# §0.8 reachable presets: OptionButton (75/100/150/200) + density toggle,
+	# both thin wrappers over WorkspaceLayout's own API (no state duplicated
+	# here beyond the widgets' displayed selection).
+	for preset in WorkspaceLayout.SCALE_PRESETS:
+		_scale_option.add_item("%d%%" % int(round(preset * 100.0)))
+	_scale_option.item_selected.connect(_on_scale_option_selected)
+	_density_toggle.pressed.connect(_on_density_toggle_pressed)
+	_layout.scale_changed.connect(_on_layout_scale_changed)
+	_layout.density_changed.connect(_on_layout_density_changed)
+	_sync_scale_density_controls()
 	_refresh_state_banner()
 	parse_cli_args()
 
@@ -75,6 +97,10 @@ func get_replay_workspace() -> ReplayWorkspace:
 
 func get_decision_workspace() -> DecisionWorkspace:
 	return _decision_workspace
+
+
+func get_layout() -> WorkspaceLayout:
+	return _layout
 
 
 func is_loading() -> bool:
@@ -160,6 +186,7 @@ func _start_load(path: String) -> void:
 	_decision_workspace.set_loading(true)
 	_set_status("Loading...")
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 	_loader.load_async(path)
 
 
@@ -173,6 +200,7 @@ func _on_completed(bundle: BundleDTO) -> void:
 	if _deep_link_refuse_reason.is_empty():
 		_set_status(_format_loaded_status(bundle))
 	_refresh_state_banner()
+	_set_diagnostics_bundle(bundle)
 
 
 func _apply_pending_deep_link(bundle: BundleDTO) -> void:
@@ -201,6 +229,7 @@ func _on_refused(diagnostic: RefuseDiagnostic) -> void:
 	_decision_workspace.clear()
 	_set_status("Refused: %s" % diagnostic.reason)
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 
 
 func _on_cancelled() -> void:
@@ -210,6 +239,7 @@ func _on_cancelled() -> void:
 	_decision_workspace.clear()
 	_set_status("Load cancelled")
 	_refresh_state_banner()
+	_set_diagnostics_bundle(null)
 
 
 func _on_decision_selection_changed(_decision_row_index: int) -> void:
@@ -223,6 +253,12 @@ func _refresh_state_banner() -> void:
 		selected = _decision_workspace.get_decision_controller().get_selected_decision()
 	var state := StateBannerPresenter.compute(_current_bundle, selected, _current_refuse)
 	_state_banner.set_banner(state)
+
+
+func _set_diagnostics_bundle(bundle: BundleDTO) -> void:
+	# bind_bundle(null) clears (ProvenancePresenter/DiagnosticsPresenter.present
+	# both return [] for a null bundle) — same shape as Replay/Decision clear().
+	_layout.get_diagnostics_dock().bind_bundle(bundle)
 
 
 func _format_loaded_status(bundle: BundleDTO) -> String:
@@ -240,3 +276,36 @@ func _format_loaded_status(bundle: BundleDTO) -> String:
 
 func _set_status(text: String) -> void:
 	_status_label.text = text
+
+
+func _on_scale_option_selected(index: int) -> void:
+	_layout.set_ui_scale(WorkspaceLayout.SCALE_PRESETS[index])
+
+
+func _on_density_toggle_pressed() -> void:
+	var next := (
+		WorkspaceLayout.DENSITY_COMFORTABLE
+		if _layout.get_density() == WorkspaceLayout.DENSITY_COMPACT
+		else WorkspaceLayout.DENSITY_COMPACT
+	)
+	_layout.set_density(next)
+
+
+func _on_layout_scale_changed(_factor: float) -> void:
+	_sync_scale_density_controls()
+
+
+func _on_layout_density_changed(_mode: String) -> void:
+	_sync_scale_density_controls()
+
+
+## Keeps ScaleOption/DensityToggleButton showing the layout's actual state —
+## including after a keyboard-driven reset_to_safe() (§0.6 Ctrl+Shift+0), not
+## only after a click on these controls themselves.
+func _sync_scale_density_controls() -> void:
+	var current_scale := _layout.get_ui_scale()
+	for i in range(WorkspaceLayout.SCALE_PRESETS.size()):
+		if is_equal_approx(WorkspaceLayout.SCALE_PRESETS[i], current_scale):
+			_scale_option.selected = i
+			break
+	_density_toggle.text = "Density: %s" % _layout.get_density().capitalize()

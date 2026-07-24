@@ -1,0 +1,41 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/workspace/workspace_layout.gd" id="1_layout"]
+[ext_resource type="PackedScene" path="res://src/replay/replay_workspace.tscn" id="2_ws"]
+[ext_resource type="PackedScene" path="res://src/decision/decision_workspace.tscn" id="3_dws"]
+[ext_resource type="PackedScene" path="res://src/diagnostics/diagnostics_dock.tscn" id="4_diag"]
+
+[node name="WorkspaceLayout" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_layout")
+
+[node name="MainSplit" type="HSplitContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ReplayWorkspace" parent="MainSplit" instance=ExtResource("2_ws")]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="RightSplit" type="VSplitContainer" parent="MainSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="DecisionWorkspace" parent="MainSplit/RightSplit" instance=ExtResource("3_dws")]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="DiagnosticsDock" parent="MainSplit/RightSplit" instance=ExtResource("4_diag")]
+layout_mode = 2
+size_flags_vertical = 3

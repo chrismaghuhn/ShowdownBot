@@ -1,0 +1,27 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/diagnostics/diagnostics_dock.gd" id="1_dock"]
+
+[node name="DiagnosticsDock" type="TabContainer"]
+layout_mode = 2
+script = ExtResource("1_dock")
+
+[node name="Provenance" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="Provenance"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Warnings" type="ScrollContainer" parent="."]
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="Rows" type="VBoxContainer" parent="Warnings"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Raw" type="TextEdit" parent="."]
+layout_mode = 2
+editable = false
