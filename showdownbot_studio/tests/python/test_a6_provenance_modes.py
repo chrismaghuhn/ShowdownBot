@@ -15,6 +15,7 @@ from showdownbot_studio_exporter.validate_bundle import validate_bundle_dir
 
 FIX01 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01"
 FIX04_BUNDLE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles" / "fixture-04"
+FIX04_SRC = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-04"
 FIX05_BUNDLE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "bundles" / "fixture-05"
 
 
@@ -70,6 +71,28 @@ def test_frozen_fixture04_replay_only_nullability():
     assert m["trace_schema_version"] is None
     assert m["source_hashes"]["decision_trace"] is None
     assert m["source_provenance"]["our_side"] is None
+
+
+def test_frozen_fixture04_replay_only_resolves_shared_fields_from_result_row():
+    """Bundle contract §14 fixture 20 / §11.1.3: with no trace row available, config_hash,
+    git_sha, config_id, schedule_hash, and seed_index must resolve from the result row (the
+    2nd-priority source once the trace row -- the 1st -- is absent in replay-only mode).
+
+    test_frozen_fixture04_replay_only_nullability (above) proves the §11.1.2 nullability half
+    of fixture 20's own §14 text; it does not prove this half -- that the non-null shared
+    fields actually come from the result row, not merely that they are present. Extends the
+    existing fixture-04 precedent per §1's own fixture-20 recipe ("a pytest extension over the
+    existing fixture-04 export rather than a new bundle") instead of authoring a new fixture
+    directory -- a fresh fixture-20 bundle in this same replay-only mode would be
+    content-identical in shape to the already-committed bundles/fixture-04.
+    """
+    m = validate_bundle_dir(FIX04_BUNDLE)
+    result_row = json.loads((FIX04_SRC / "results.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert m["config_hash"] == result_row["config_hash"]
+    assert m["git_sha"] == result_row["git_sha"]
+    assert m["source_provenance"]["config_id"] == result_row["config_id"]
+    assert m["source_provenance"]["schedule_hash"] == result_row["schedule_hash"]
+    assert m["source_provenance"]["seed_index"] == result_row["seed_index"]
 
 
 def test_frozen_fixture05_trace_only():

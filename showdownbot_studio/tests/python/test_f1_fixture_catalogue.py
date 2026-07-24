@@ -15,6 +15,16 @@ is already directly proved by test_a5_battle_join.py::test_request_skip_rules (R
 gate-coverage audit: "materially stronger than 'new' implies"). Plan F only authors fixture 18's
 catalogue directory (fixtures/viewer-v0/sources/fixture-18/, fixtures/viewer-v0/bundles/fixture-18/),
 it does not duplicate the gate test.
+
+Fixture 13 (legacy trace-v1) is this batch's own §14 row too. Its gate (§15 gate 37) is already
+proved by test_a4_decisions_v1_refuse.py, but only against an ephemeral row constructed inline in
+a tmp_path, never against a committed catalogue fixture. This file adds fixture-13's own
+catalogue directory (fixtures/viewer-v0/sources/fixture-13/) and re-proves both halves of gate 37
+against it -- "extend[ing] to the fixture catalogue, not a new mechanism" per §1's own recipe --
+without committing a bundles/fixture-13/: the replay-only fallback bundle this fixture's own
+room log would produce is byte-identical in shape to the already-committed bundles/fixture-04
+(fixture-01's battle_log + results, no trace), so a second committed copy would be pure
+duplication (see the task report's fixture-13 disposition).
 """
 
 # ruff: noqa: S101 -- pytest assertion rewriting needs bare `assert`, matches every
@@ -29,11 +39,16 @@ from conftest import STUDIO_ROOT
 
 from showdownbot_studio_exporter.errors import ExportRefuse
 from showdownbot_studio_exporter.export_battle import export_battle_jsonl, read_battle_log
+from showdownbot_studio_exporter.export_bundle import export_bundle
 from showdownbot_studio_exporter.export_decisions import export_decisions_jsonl, load_trace_rows
 from showdownbot_studio_exporter.join import join_request_protocol_indices
+from showdownbot_studio_exporter.validate_bundle import validate_bundle_dir
 
+FIX01_LOG = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01" / "battle.log"
+FIX01_RESULTS = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-01" / "results.jsonl"
 FIX02 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-02" / "decision_trace.jsonl"
 FIX11 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-11" / "decision_trace.jsonl"
+FIX13 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-13" / "decision_trace.jsonl"
 FIX14 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-14" / "decision_trace.jsonl"
 FIX16_TRACE = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-16" / "decision_trace.jsonl"
 FIX17_LOG = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-17" / "battle.log"
@@ -71,6 +86,35 @@ def test_fixture14_chosen_candidate_desync_refuses():
         load_trace_rows(FIX14)
     assert exc.value.reason == "chosen_integrity"
     assert exc.value.message == "chosen_candidate_key move_index mismatch vs normalized_action"
+
+
+def test_fixture13_legacy_trace_v1_refuses_and_replay_only_fallback(tmp_path):
+    """Bundle contract §14 fixture 13 / §15 gate 37: a legacy trace-v1 source's trace export is
+    rejected with a precise reason, and a replay-only bundle is still produced when a room log
+    exists.
+
+    fixture-13/decision_trace.jsonl is fixture-01's own three rows with every row's
+    trace_schema_version changed to "decision-trace-v1" and chosen_candidate_key removed (no
+    validated candidate_key -- §14's own wording), mirroring
+    test_a4_decisions_v1_refuse.py's mutation exactly but as a committed, hash-pinned catalogue
+    fixture rather than an ephemeral tmp_path row.
+    """
+    with pytest.raises(ExportRefuse) as exc:
+        load_trace_rows(FIX13)
+    assert exc.value.reason == "unsupported_trace_v1"
+
+    # Passing the v1 trace alongside a room log still refuses the whole export -- trace export
+    # is rejected outright, never silently downgraded.
+    with pytest.raises(ExportRefuse) as exc:
+        export_bundle(out=tmp_path / "trace-attempt", battle_log=FIX01_LOG, decision_trace=FIX13, results=FIX01_RESULTS)
+    assert exc.value.reason == "unsupported_trace_v1"
+
+    # The same room log, without the v1 trace, still exports as a replay-only bundle.
+    replay_only = tmp_path / "replay-only"
+    export_bundle(out=replay_only, battle_log=FIX01_LOG, results=FIX01_RESULTS)
+    manifest = validate_bundle_dir(replay_only)
+    assert manifest["files"]["battle_log"]["present"]
+    assert not manifest["files"]["decision_trace"]["present"]
 
 
 def test_fixture19_unjoinable_decision_not_dropped():

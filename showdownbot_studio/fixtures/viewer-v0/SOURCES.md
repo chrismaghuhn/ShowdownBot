@@ -356,3 +356,108 @@
 - `fixtures/viewer-v0/bundles/fixture-18/decisions.jsonl` sha256 `07da4f9b91ed1ac4d4a35fdc29ffdc9ba66fc138b70e3f9b21112c13e47ed855`
 - `fixtures/viewer-v0/bundles/fixture-18/manifest.json` sha256 `6c7d098d324e76f46790f805c592dc24aad1992b7374fe12c1c3991fdc9f5c62`
 - `fixtures/viewer-v0/bundles/fixture-18/warnings.json` sha256 `44ceb752d7a26dd6b9091035975b12c12d667a752f1794a0523c51f2755c85eb`
+
+## fixture-13
+- source_kind: legacy trace-v1 (exporter-side refuse, no bundle produced)
+- note: fixture-01's three decision_trace.jsonl rows, unchanged except every row's
+  `trace_schema_version` set to `decision-trace-v1` and `chosen_candidate_key` removed (no
+  validated candidate_key -- §14's own wording for this fixture). Mirrors
+  tests/python/test_a4_decisions_v1_refuse.py's mutation exactly (same two fields), but as a
+  committed, hash-pinned catalogue fixture rather than an ephemeral tmp_path row. Proved via
+  tests/python/test_f1_fixture_catalogue.py::test_fixture13_legacy_trace_v1_refuses_and_replay_only_fallback
+  (reason `unsupported_trace_v1`, both for a bare trace-export attempt and for a full
+  `export_bundle()` call with `battle_log` + `decision_trace` + `results`; a repeat call with
+  the same `battle_log` + `results` and no `decision_trace` still exports cleanly as
+  replay-only). §15 gate 37 itself was already COVERED before this batch (Rev. 5 gate-coverage
+  audit) by the ephemeral-row test above; this entry documents the additional, genuinely-new
+  catalogue-directory proof, not a new gate finding
+- no `bundles/fixture-13/` is committed: the replay-only bundle this fixture's own recipe would
+  produce (fixture-01's `battle_log` + `results`, no trace) is byte-identical in shape to the
+  already-committed `bundles/fixture-04` (same source files, same replay-only mode) --
+  committing a second copy would be pure duplication with no incremental proof value. The
+  replay-only half of this fixture's own recipe is instead proved via a throwaway
+  `export_bundle()` call to a pytest `tmp_path` in the test above, never committed
+- `fixtures/viewer-v0/sources/fixture-13/decision_trace.jsonl` sha256 `b65791387913877f735c84fc6b8b642ab289c10ec59fa9d654cc5fbeaa586d56`
+
+## fixture-20 -- §14 catalogue completeness, no new directory (analysis, not authored)
+- §14's own text for fixture 20: "`trace_schema_version`, `our_side`, and
+  `source_hashes.decision_trace` are all `null`; `config_hash`/`git_sha`/`config_id`/
+  `schedule_hash`/`seed_index` resolve from the result row (§11.1.3)"
+- the null half was already COVERED before this batch (Rev. 5 gate-coverage audit, gate 32) by
+  `tests/python/test_a6_provenance_modes.py::test_frozen_fixture04_replay_only_nullability`
+  against the already-committed `bundles/fixture-04` -- but that test, and every other test in
+  the suite, only asserted the three `null` fields. Nothing asserted the "resolve from the
+  result row" half (§11.1.3) at all: the five named fields being merely *present* is not the
+  same claim as them being *sourced from the result row specifically* (as opposed to, say, a
+  bug that hardcoded them or read them from the wrong precedence-order source). That is a real
+  gap, not merely a citation error like several others the audit found
+- resolved by extending the existing test, not authoring a new fixture directory, per §1's own
+  fixture-20 recipe ("fixture-04 ... is close precedent -- 20 needs the explicit nullability
+  assertions named, likely a pytest extension over the existing fixture-04 export rather than a
+  new bundle"): a new `test_frozen_fixture04_replay_only_resolves_shared_fields_from_result_row`
+  in the same file compares `bundles/fixture-04/manifest.json`'s `config_hash`/`git_sha`/
+  `source_provenance.{config_id,schedule_hash,seed_index}` against
+  `sources/fixture-04/results.jsonl`'s own fields directly, proving the resolution, not just
+  the presence
+- a fresh `fixture-20` bundle authored under this same replay-only recipe (fixture-01's
+  `battle_log` + `results`, no trace -- the only recipe §14 or the plan names) would be
+  content-identical in shape to `bundles/fixture-04`, so no new directory is added; this entry
+  is the dedicated "why not" record the task's precedent (the 104-candidate entry above) calls
+  for
+
+## fixture-15 -- §14 catalogue completeness, OWNER DECISION POINT (not settled here)
+- §14's own text for fixture 15: "`dirty` is `null`, never `false`; the viewer shows `dirty
+  state not recorded`" -- two claims, one exporter-side (the emitted value) and one Godot/UI-side
+  (the rendered text)
+- **evidence for "redundant, no new directory needed":**
+  - exporter half: `tests/python/test_a8_fixtures.py::test_synthetic_fixture_reports_git_and_dirty_unknown`
+    asserts `manifest["git_sha"] == "unknown"` and
+    `manifest["source_provenance"]["dirty"] is None` against the already-exported, already-committed
+    `bundles/fixture-01` and `bundles/fixture-03`; a second unit-level check,
+    `tests/python/test_a6_provenance_modes.py::test_unknown_git_sha_dirty_null`, asserts the same
+    at the `resolve_provenance()` level
+  - viewer half (not checked by the Rev. 5 gate-coverage audit, which was scoped to pytest only
+    -- checked directly for this batch):
+    `godot/tests/diagnostics/test_provenance_presenter.gd::test_dirty_tri_state_null` opens
+    `bundles/fixture-01`, asserts `bundle.manifest.source_provenance.dirty` is null, runs it
+    through `ProvenancePresenter.present()`, and asserts the rendered `dirty` row value is
+    exactly `"dirty state not recorded"` (and explicitly not `"dirty: false"` or `"clean"`) --
+    this is the full §14 claim for fixture 15, both halves, proved end to end, already passing,
+    already using an existing catalogued fixture (fixture-01, Plan A)
+  - fixture-01 is fixture 15's own recipe with no variation: any fresh `fixture-15` authored
+    per fixture 15's own "must prove" text would be another synthetic-coherent source with
+    `git_sha: "unknown"` -- i.e. fixture-01's recipe verbatim. A fresh directory would be
+    content-identical in every particular §14 cares about, not merely gate-adjacent
+- **evidence for "author fixture-15 anyway":**
+  - §14 lists 15 as its own numbered catalogue row, and the repo's own established convention
+    (fixtures 21, 18 earlier in this file) has been to author the catalogue directory even when
+    the underlying gate assertion is fully covered elsewhere, specifically so the catalogue
+    stays a browsable, self-describing proof artifact -- a reader scanning
+    `fixtures/viewer-v0/sources/` for "the git_sha-unknown fixture" finds nothing numbered 15
+    even though the behaviour is proven
+  - fixture 15's proof currently depends entirely on fixture-01 continuing to carry
+    `git_sha: "unknown"` forever; if fixture-01's own recipe or role ever changes (e.g. it is
+    later regenerated from a real committed run with a known SHA), gate 22/fixture 15's proof
+    would silently vanish with no dedicated fixture to fall back on -- one fixture number
+    quietly doing double duty for two catalogue rows (1 and 15) it was not obviously assigned
+    to cover
+  - unlike fixture 20 (where a fresh directory would be a literal content-duplicate of an
+    already-committed bundle in the same mode) and fixture 13 (where the interesting artifact
+    -- a v1-labeled trace row -- did not exist anywhere in the catalogue before this batch), a
+    fresh fixture-15 source dir authored per fixture-01's own recipe would be near-identical to
+    fixture-01 but not necessarily byte-identical (a fresh `run_id`/`battle_id` sentinel would
+    make it a distinct, non-duplicate artifact), so the "pure duplication" argument that ruled
+    out a new fixture-20/fixture-13 bundle does not transfer cleanly here
+- **recommendation:** redundant -- do not author `fixtures/viewer-v0/sources/fixture-15/`. Both
+  halves of §14's fixture-15 text are proved, completely and independently, by existing tests
+  against an existing catalogued Plan A fixture (fixture-01), which is stronger evidence than
+  fixture 13 or 20 had (neither of which had a passing Godot-side assertion of the full claim
+  before this batch). The "double duty" risk above is real but low-probability and cheaply
+  mitigated later (add fixture-15 the day fixture-01's recipe ever changes, rather than
+  pre-emptively duplicating it now)
+- **this is not settled here.** Per the task brief, fixture 15 is an explicit owner decision
+  point the plan asked to be surfaced, not resolved silently by whichever agent authors this
+  batch. The recommendation above is reversible: authoring `fixtures/viewer-v0/sources/fixture-15/`
+  later (copying fixture-01's recipe with a fresh sentinel battle_id/run_id, per §14.1) is a
+  small, additive change if the owner decides the catalogue-completeness argument outweighs the
+  redundancy argument
