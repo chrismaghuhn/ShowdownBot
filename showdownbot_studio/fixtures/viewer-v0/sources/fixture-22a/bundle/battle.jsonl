@@ -1,0 +1,4 @@
+{"amount":1,"protocol_index":4,"type":"turn"}
+{"hp":{"current":35,"fainted":false,"maximum":35,"status":null},"pokemon":{"side":"p1","slot":"a","species":"Pikachu"},"protocol_index":5,"type":"switch"}
+{"amount":2,"protocol_index":7,"type":"turn"}
+{"details":"Tackle","pokemon":{"side":"p1","slot":"a"},"protocol_index":8,"target":{"side":"p2","slot":"a"},"type":"move"}

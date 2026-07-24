@@ -60,6 +60,74 @@
 - `fixtures/viewer-v0/sources/fixture-06/bundle/manifest.json` sha256 `c42b843880a09fd88aa9a712d8e51f4ac46223e15e616bc02f30db9371d6d369`
 - `fixtures/viewer-v0/sources/fixture-06/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
 
+## fixture-07
+- source_kind: unsupported major (bundle copy)
+- note: copy of bundles/fixture-01 with viewer_bundle_schema.major mutated 1 -> 2; every
+  data file is byte-identical to bundle/fixture-01 (unchanged, correctly-hashed); only
+  manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-07/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/manifest.json` sha256 `b981eaeb816a8bae600898bbee34fa9eaa27f8c42aae6aa7a6f953a3209bf5ca`
+- `fixtures/viewer-v0/sources/fixture-07/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-08
+- source_kind: missing mandatory file (bundle copy)
+- note: copy of bundles/fixture-01 with decisions.jsonl deleted from disk; manifest.json is
+  BYTE-IDENTICAL to bundle/fixture-01's (same sha256 as fixture-01's own manifest.json) --
+  files.decision_trace still declares present:true/required:true with its original,
+  correct sha256, which is now unreachable on disk. This is the fixture-integrity guard's
+  second known exception (tests/python/test_fixture_manifest_hash_guard.py,
+  godot/tests/bundle/test_fixture_manifest_hash_guard.gd): a present:true entry whose file
+  is absent is reported as "missing_on_disk", asserted positively, not excluded
+- `fixtures/viewer-v0/sources/fixture-08/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/decisions.jsonl` -- deleted; manifest still declares sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0` (unreachable on disk, by design)
+- `fixtures/viewer-v0/sources/fixture-08/bundle/manifest.json` sha256 `c42b843880a09fd88aa9a712d8e51f4ac46223e15e616bc02f30db9371d6d369`
+- `fixtures/viewer-v0/sources/fixture-08/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-12
+- source_kind: unknown required capability (bundle copy)
+- note: copy of bundles/fixture-01 with required_capabilities mutated [] -> ["belief_v2"];
+  data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-12/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/manifest.json` sha256 `647fd0321401432735878816427d97dabb8665251db72dff21610223e7e95f68`
+- `fixtures/viewer-v0/sources/fixture-12/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-22a
+- source_kind: mode key required:false present:true (bundle copy, §11.1.1 invariant 1)
+- note: copy of bundles/fixture-01 with files.battle_log.required mutated true -> false
+  (present stays true); data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/manifest.json` sha256 `c92f2842a0eef0164134113261ac1130c9767fe4e95c16f27a303663561de0d1`
+- `fixtures/viewer-v0/sources/fixture-22a/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-22b
+- source_kind: mode key required:true present:false (bundle copy, §11.1.1 invariant 1)
+- note: copy of bundles/fixture-01 with files.battle_log.present mutated true -> false
+  (path/sha256 nulled per §5.2; required stays true) and battle.jsonl deleted from disk to
+  match the declared absence. Distinct from fixture-08, where the file *is* declared
+  present and is merely missing on disk (invariant 5)
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/battle.jsonl` -- deleted (files.battle_log.present:false)
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/manifest.json` sha256 `74d1078fcaca495ebfcc292406ea1759052ab97e06d47914ed42d80d80e9b971`
+- `fixtures/viewer-v0/sources/fixture-22b/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
+## fixture-23
+- source_kind: optional key required:true (bundle copy, §11.1.1 invariant 2)
+- note: copy of bundles/fixture-01 with files.warnings.required mutated false -> true
+  (present stays true); data files unchanged/correctly-hashed; only manifest.json differs
+- `fixtures/viewer-v0/sources/fixture-23/bundle/battle.jsonl` sha256 `0083247f928417764d3fa4962f5dc2cee5f7537aea62c9f54e65b8e6496aa070`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/config-manifest.json` sha256 `87df009d9c2b35b553712885dfa66bc15f403c4551a9a6d7283ed6e36d08e27a`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/decisions.jsonl` sha256 `cbd340e8f50f8eed4ac520e0337ab3cad17d070df0b8b406029ad21f7900d0a0`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/manifest.json` sha256 `526c6f9aedc29547b5590a67ffdc72e58fd142d249a6980dd96acff2848cd5b9`
+- `fixtures/viewer-v0/sources/fixture-23/bundle/warnings.json` sha256 `26860e028a1bae69336c966b7b1dcc1e7bce679796fd4e367228fda1c848ceb1`
+
 ## fixture-10
 - source_kind: privacy counterexample
 - `fixtures/viewer-v0/sources/fixture-10/battle.log` sha256 `14f5217bf1d0dd420e79d7d5fec6dbe5a9e850d0d1f6f49a315698c1c7c342f6`

@@ -97,6 +97,47 @@ func test_fixture06_hash_mismatch() -> void:
 	_assert_refuse(result, "hash_mismatch")
 
 
+# Plan F fixtures 7, 8, 12, 22a, 22b, 23 (bundle contract §14) -- each is a copy of
+# bundle/fixture-01 with exactly one manifest.json mutation (or, for fixture 8, one file
+# deletion), following fixture-06's precedent of committing the refuse case directly rather
+# than mutating a temp copy at test time.
+
+func test_fixture07_unsupported_major_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-07/bundle"))
+	_assert_refuse(result, "unsupported_major")
+	assert_str(result.diagnostic.message).is_equal("unsupported major 2; supported: [1]")
+
+
+func test_fixture08_missing_mandatory_file_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-08/bundle"))
+	_assert_refuse(result, "missing_file")
+	assert_str(result.diagnostic.message).is_equal("missing decisions.jsonl")
+
+
+func test_fixture12_unknown_required_capability_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-12/bundle"))
+	_assert_refuse(result, "unsupported_capability")
+	assert_str(result.diagnostic.message).is_equal("unsupported capability belief_v2")
+
+
+func test_fixture22a_mode_key_present_without_required_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-22a/bundle"))
+	_assert_refuse(result, "malformed_manifest")
+	assert_str(result.diagnostic.message).is_equal("required != present on mode keys")
+
+
+func test_fixture22b_mode_key_required_without_present_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-22b/bundle"))
+	_assert_refuse(result, "malformed_manifest")
+	assert_str(result.diagnostic.message).is_equal("required != present on mode keys")
+
+
+func test_fixture23_optional_key_required_true_refuses() -> void:
+	var result: ValidationResult = BundleValidator.validate_dir(_fixture_path("sources/fixture-23/bundle"))
+	_assert_refuse(result, "malformed_manifest")
+	assert_str(result.diagnostic.message).is_equal("warnings must not be required")
+
+
 func test_refuse_string_boolean_present() -> void:
 	var bundle_dir := _copy_fixture01_to_temp("string_bool")
 	var manifest: Dictionary = _read_json(bundle_dir.path_join("manifest.json"))
