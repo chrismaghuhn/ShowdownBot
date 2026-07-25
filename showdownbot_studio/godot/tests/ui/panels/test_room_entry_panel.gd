@@ -33,6 +33,22 @@ func test_on_join_rejected_shows_server_error_text_verbatim_as_plaintext() -> vo
 	panel.free()
 
 
+func test_on_join_rejected_sanitizes_control_characters_and_caps_length() -> void:
+	# Dirty-input proof (2026-07-26 review): the test above only proves CLEAN server text passes
+	# through unchanged -- it would pass even if this call site never sanitized at all. This
+	# proves UntrustedTextSanitizer is actually wired at on_join_rejected()'s call site: a server
+	# error string with control characters and over-cap length must come out stripped and capped
+	# in the rendered label, matching UntrustedTextSanitizer.sanitize() called directly.
+	var panel: RoomEntryPanel = preload("res://src/ui/panels/room_entry_panel.tscn").instantiate()
+	add_child(panel)
+	var dirty := "bad" + char(1) + char(2) + "room".repeat(100)
+	panel.on_join_rejected(dirty)
+	assert_str(panel.get_error_text()).is_equal(UntrustedTextSanitizer.sanitize(dirty))
+	assert_bool(panel.get_error_text().contains(char(1))).is_false()
+	assert_int(panel.get_error_text().length()).is_equal(UntrustedTextSanitizer.MAX_LENGTH)
+	panel.free()
+
+
 class _FakeGatewayPort:
 	extends SpectatorRoomGatewayPort
 	var joined_room_ids: Array[String] = []

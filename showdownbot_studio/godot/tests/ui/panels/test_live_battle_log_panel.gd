@@ -27,3 +27,22 @@ func test_rebuild_from_timeline_replaces_prior_content_entirely() -> void:
 	assert_bool(panel.get_log_text().contains("turn 99")).is_false()
 	assert_bool(panel.get_log_text().contains("turn 1")).is_true()
 	panel.free()
+
+
+func test_switch_summary_sanitizes_control_characters_and_caps_species_length() -> void:
+	# Dirty-input proof (2026-07-26 review), mirroring test_room_entry_panel.gd's own: this call
+	# site (the "switch"/"drag" summary's species field) was only ever exercised with clean
+	# species names like "Pikachu" before -- never dirty input, so UntrustedTextSanitizer's
+	# actual wiring here was unproven. A control-character-laden, over-cap species string must
+	# come out stripped and capped in the rendered log line.
+	var panel: LiveBattleLogPanel = preload("res://src/ui/panels/live_battle_log_panel.tscn").instantiate()
+	add_child(panel)
+	var dirty_species := "Bad" + char(1) + char(2) + "Mon".repeat(100)
+	var timeline: Array[ProtocolEventDTO] = [_event({
+		"event_type": "switch", "pokemon_side": "p1", "pokemon_slot": "a", "pokemon_species": dirty_species,
+	})]
+	panel.rebuild_from_timeline(timeline)
+	var log_text := panel.get_log_text()
+	assert_bool(log_text.contains(char(1))).is_false()
+	assert_str(log_text).contains(UntrustedTextSanitizer.sanitize(dirty_species))
+	panel.free()

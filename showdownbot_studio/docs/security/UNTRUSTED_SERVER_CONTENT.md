@@ -20,15 +20,19 @@ and any other server-supplied string surfaced in the UI.
 - No BBCode interpretation; v1 renders all chat content as safe plaintext.
 - URLs inside chat are never clickable without a deliberate, separate user action — no
   auto-linkification that becomes a default click target.
-- Control characters are escaped before display.
+- Control characters are removed (stripped) before display.
 - Message length is capped.
 - Chat content does not appear in logs unless a diagnostic mode is explicitly enabled by the user
   for that session (see `LOGGING_AND_REDACTION.md`).
 - Chat is excluded from replay bundles by default, at the recording stream itself — not as a later
   filter on an already-recorded stream (spec section 4.5, section 5.2).
 
-(Verbatim from spec section 5.2, restated here as the binding pre-implementation contract for M2f's
-chat UI and M1b's decoder.)
+(Restated here as the binding pre-implementation contract for M2f's chat UI and M1b's decoder,
+after spec section 5.2, which uses "escaped." Reconciled with the implementation during M1d
+review, 2026-07-26: `ui/panels/UntrustedTextSanitizer` strips control characters outright rather
+than escaping them into a visible representation — stripping is strictly safer for display text,
+since nothing escaped can be later misread as markup or reintroduce the character it stands for.
+The sanitizer itself is unchanged; this is a wording reconciliation only.)
 
 ## Protocol parsing boundary
 
