@@ -122,8 +122,15 @@ static func _parse_hp_status(hp_status_text: String) -> Dictionary:
 			return {"hp_current": null, "hp_maximum": null, "hp_fainted": null, "hp_status": null}
 		hp_current = hp_part.to_int()
 	else:
-		hp_current = hp_part.substr(0, slash_index).to_int()
-		hp_maximum = hp_part.substr(slash_index + 1).to_int()
+		# Fail-closed fix: to_int() on a non-numeric string silently returns 0 -- a guess, not a
+		# parse failure. Both halves must be validated before use; on failure this returns the
+		# SAME all-null dict as the slash-less invalid-int case above, never a guessed value.
+		var hp_current_text := hp_part.substr(0, slash_index)
+		var hp_maximum_text := hp_part.substr(slash_index + 1)
+		if not hp_current_text.is_valid_int() or not hp_maximum_text.is_valid_int():
+			return {"hp_current": null, "hp_maximum": null, "hp_fainted": null, "hp_status": null}
+		hp_current = hp_current_text.to_int()
+		hp_maximum = hp_maximum_text.to_int()
 	var fainted := status_part == "fnt" or hp_current == 0
 	var status: Variant = null if status_part.is_empty() or status_part == "fnt" else status_part
 	return {"hp_current": hp_current, "hp_maximum": hp_maximum, "hp_fainted": fainted, "hp_status": status}

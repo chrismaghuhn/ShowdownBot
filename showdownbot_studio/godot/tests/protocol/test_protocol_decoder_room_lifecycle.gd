@@ -110,3 +110,19 @@ func test_additional_real_battle_message_types_are_known_ignored() -> void:
 	)
 	assert_int(_unrecognized.size()).is_equal(0)
 	assert_int(_known_ignored.size()).is_equal(11)
+
+
+## Two-room no-leakage test (coordinator code-quality review, M1b watchlist item): decode_frame()
+## is called for two DIFFERENT rooms in sequential calls -- every event must carry only its OWN
+## frame's room id, and nothing persists across calls (each decode_frame() call resets room_id
+## from that frame's own ">roomid" header, never carrying forward the previous frame's).
+func test_room_id_does_not_leak_across_sequential_frames_from_different_rooms() -> void:
+	_decoder.decode_frame(">room-a\n|init|battle\n|title|A vs B")
+	_decoder.decode_frame(">room-b\n|init|chat")
+	assert_int(_events.size()).is_equal(3)
+	assert_str(_events[0].room_id).is_equal("room-a")
+	assert_str(_events[1].room_id).is_equal("room-a")
+	assert_str(_events[2].room_id).is_equal("room-b")
+	assert_str(str(_events[2].condition_label)).is_equal("chat")
+	assert_str(_events[0].room_id).is_not_equal("room-b")
+	assert_str(_events[2].room_id).is_not_equal("room-a")

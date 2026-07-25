@@ -61,6 +61,29 @@ func test_exact_zero_over_max_also_sets_fainted_true() -> void:
 	assert_bool(_events[0].hp_fainted).is_true()
 
 
+## Fail-closed fix (coordinator code-quality review): the slash branch previously called
+## to_int() on both halves with no validation, so a malformed left half silently guessed
+## hp_current=0 (to_int() on a non-numeric string returns 0) instead of failing closed like the
+## slash-less branch already does. Both halves must now be validated with is_valid_int(); on
+## failure this returns the SAME all-null dict as the slash-less invalid-int case, never a guess.
+func test_malformed_slash_branch_left_half_fails_closed_to_all_null() -> void:
+	_decoder.decode_frame(">battle-1\n|-damage|p1a: Pikachu|abc/100")
+	var e := _events[0]
+	assert_object(e.hp_current).is_null()
+	assert_object(e.hp_maximum).is_null()
+	assert_object(e.hp_fainted).is_null()
+	assert_object(e.hp_status).is_null()
+
+
+func test_malformed_slash_branch_right_half_fails_closed_to_all_null() -> void:
+	_decoder.decode_frame(">battle-1\n|-damage|p1a: Pikachu|50/xyz")
+	var e := _events[0]
+	assert_object(e.hp_current).is_null()
+	assert_object(e.hp_maximum).is_null()
+	assert_object(e.hp_fainted).is_null()
+	assert_object(e.hp_status).is_null()
+
+
 func test_status_line_decodes_status_label() -> void:
 	_decoder.decode_frame(">battle-1\n|-status|p1a: Pikachu|par")
 	assert_str(str(_events[0].hp_status)).is_equal("par")
