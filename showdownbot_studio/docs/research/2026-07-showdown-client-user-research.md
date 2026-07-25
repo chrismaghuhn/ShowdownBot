@@ -1,7 +1,7 @@
 # Pokémon Showdown Client User Research — July 2026
 
-**Status:** qualitative research snapshot
-**Date:** 2026-07-16
+**Status:** qualitative research snapshot; §8 adds a second round
+**Date:** 2026-07-16 (round 1) / 2026-07-25 (round 2, §8)
 **Purpose:** inform ShowdownBot Studio product requirements; not a representative user survey
 
 ## 1. Sources and method
@@ -380,3 +380,85 @@ References:
 - [Lichess "Learn from your mistakes"](https://lichess.org/blog/WFvLpiQAACMA8e9D/learn-from-your-mistakes)
 - [Sc2ReplayStats](https://sc2replaystats.com/)
 - [Showdex](https://github.com/doshidak/showdex)
+
+## 8. Round 2 (2026-07-25): official issue tracker, userscripts, and recurring workarounds
+
+A second research round, performed after the Phase 3 design
+([`../specs/2026-07-25-phase3-client-design.md`](../specs/2026-07-25-phase3-client-design.md)) was
+approved, examined current open issues in the official client repository, recent community posts,
+and recurring user workarounds. Each finding below is routed against the now-binding Phase-3 spec:
+**[binding]** = already required by an approved document, **[input]** = design input for a named
+later plan, **[owner]** = needs an owner decision before it can bind anything.
+
+### 8.1 Sources and limits
+
+- [Configurable-shortcut issue, 2026-06-28](https://github.com/smogon/pokemon-showdown-client/issues/2713)
+  (explicitly cites repeated mouse clicks and accessibility)
+- [Mobile chat-drag issue #2355](https://github.com/smogon/pokemon-showdown-client/issues/2355) and
+  the open mobile/responsive issue set (tab bar on narrow widths, on-screen-keyboard popping on
+  move/switch selection, PWA requests)
+- [Teambuilder Mega-form semantics issue #2707](https://github.com/smogon/pokemon-showdown-client/issues/2707)
+- Open tooltip-staleness issues (Illusion reveal, Preact switch-menu desync, delayed status/ability
+  effects)
+- A screen-reader accessibility issue open since 2017
+- [Userscript round-up post](https://www.reddit.com/r/pokemonshowdown/comments/1v24636/showdown_userscripts/)
+  (global keyboard navigation, per-pane font sizes, auto-queue, ladder stats per keypress)
+- [Format-availability confusion thread](https://www.reddit.com/r/pokemonshowdown/comments/1kk918g/gen_9_hackmon/)
+- [Storage-loss confusion thread](https://www.reddit.com/r/pokemonshowdown/comments/1l34w9z/why_does_this_keep_happening/)
+
+Same limits as §1, sharpened: GitHub issues over-weight technically fluent users, Reddit
+over-weights salient single problems. The load-bearing observation is the **agreement** between
+official issues and community workarounds, and the round-1/round-2 convergence on the same failure
+classes (state clarity, scaling, accessibility, fragmentation).
+
+**Central insight:** complaints rarely target the client's basic layout — users value its speed and
+directness. The friction is unnecessary clicking, unclear/inconsistent states, weak accessibility,
+limited customization, unreliable tooltips, and semantically ambiguous validation. For Studio:
+do not rebuild Showdown prettier; remove the friction without losing the speed.
+
+### 8.2 Findings and routing
+
+| Finding | Durable implication | Routing |
+|---|---|---|
+| Repeated mouse work; users script their own shortcuts | A real command/shortcut layer (moves, slots, switch targets, palette), all configurable, auto-paused while typing in chat | **[input]** M2 plan (choice UI M2e, chat M2f); MASTER_SPEC §5 already requires keyboard operation, the configurable layer is new |
+| A shortcut must never send a battle choice without a visible review step | Two-step choice submit: `Enter` opens a choice review, a second `Enter` inside the review sends | **[owner]** candidate spec §7 addition — fits the existing five pre-send checks and the human-provenance rule, but the explicit review step is not yet in the spec |
+| Desktop patterns collapse on small windows | Explicit layout breakpoints (large: field+log / actions+chat; medium: chat as tab; small: single column with `[Log] [Chat] [Analysis]` tabs), collapsible log/chat, persisted panel sizes, no hover-only functions, 32–36 px minimum targets | **[binding]** MASTER_SPEC §5 (scaling, resizable/collapsible panels, density) already gates this; the concrete breakpoint model is **[input]** for M1d's `LiveClientWorkspace` |
+| Teambuilder shows desired end state, stores a different validated state (Mega forms) | Always separate displayed form / initial battle form / transformation condition / validation basis; a validation *report*, never a bare "Valid" | **[input]** Phase 2 (Team Analyzer) design; out of Phase-3 v1 scope (no teambuilder, spec §3.2) |
+| Format exists in teambuilder but is not ladder-playable | Distinguish exists / legal / ladder / challenge-only / spectatable explicitly | **[binding]** M2b's `FormatCatalogDTO` already models `supports_ladder`/`supports_challenge` from the server-authoritative `\|formats\|`; the status-wording guidance is **[input]** for M2b UI |
+| Tooltips go stale (Illusion, switch-menu desync) and users decide on them | Every displayed datum carries provenance and freshness: KNOWN / INFERRED / POSSIBLE / STALE / UNKNOWN; identity changes trigger visible revalidation, never silent overwrite | **[input]** M1d spectator UI shows server-revealed facts only; the full confidence framework is design input for the M2 battle UI and matches the repo's existing provenance discipline (state banner, DecisionTrace) |
+| Accessibility structurally unplanned upstream (2017 issue still open) | Full keyboard navigation, visible focus, screen-reader names for moves/slots/targets, live announcements, color+text+symbol redundancy, per-pane font scaling, reduced-motion and high-contrast modes | **[binding]** MASTER_SPEC §5 + §7.1's Godot AccessKit caveat already gate the keyboard/focus/contrast subset; per-pane scaling and reduced-motion/high-contrast are **[input]** (M1d onward) |
+| Users lose teams/settings stored invisibly in browser storage | Profiles with explicit storage classes (stored locally / session only / exportable / sensitive), atomic writes, backups, crash recovery, visible write-failure — never a fake success | **[binding]** in part: fail-closed writes and no-silent-loss are AGENTS.md rule 10 + `TeamBundleV1`'s atomic/fail-closed contract; the profile system itself is **[input]** for a later workspace-storage slice (MASTER_SPEC §3.2 "later workspace storage") |
+| Replays treated as playback, not analysis objects | Turn timeline, jump-to-turn, event filters, speed control, auto-pause on KO/switch/Tera/setup/unknown-event, per-decision bookmarks, annotations, turn/state diff, DecisionTrace beside the replay, visible separation of event vs. parser vs. model vs. human annotation | **[binding]** in part: Phase 0 already ships timeline + DecisionTrace + interestingness navigation; the rest extends §7.6's post-v0 candidate table (auto-pause, bookmarks, state-diff, side-by-side are new entries in that list) |
+| Chat and battle log conflated | Separate tools: filterable, provenance-carrying, turn-grouped log vs. optional, separately zoomed, non-auto-linking chat; battle mode may open with log only | **[binding]** spec §5.2 (chat trust boundary, no auto-links) + separate panels in §4.1; log-first default and per-pane zoom are **[input]** for M1d/M2f |
+
+### 8.3 Prioritized product opportunities (round-2 view)
+
+- **P0 — must beat Showdown:** explicit command review before send **[owner]**; no silent state
+  assumptions, clean reconnect/stale-request handling, unknown events kept visible — all already
+  **binding** (spec §6.1–§6.3, §7); keyboard control; log/chat separation; atomic recoverable team
+  storage; tooltip provenance.
+- **P1 — strong user value:** replay timeline (partly shipped in Phase 0), configurable shortcuts,
+  per-pane font sizes, layout profiles, format-availability explanations, validation report,
+  filterable battle log, DecisionTrace inspector (shipped, Phase 0), turn/state diff, local
+  annotations.
+- **P2 — differentiation:** side-by-side replay comparison, human-vs-bot decision comparison,
+  damage-range evidence, hidden-information uncertainty display, Bo3 session workspace, turn
+  bookmarks, exportable incident report, capability-scoped mod system (Phase 4), command palette,
+  accessibility profiles.
+
+### 8.4 What not to copy
+
+Permanent technical status columns; information-dense home screens; desktop layouts merely
+compressed for small windows; tooltips as the only information source; identical treatment of chat
+and battle log; "Valid" without explanation; automatic resumption of old requests (already
+forbidden, spec §6.2); silently updated client-side assumptions (already forbidden, AGENTS.md rule
+10); mouse-only essential workflows; invisible browser-local storage as the primary data store.
+
+### 8.5 Round-2 design conclusion
+
+The strongest direction: **Showdown's speed, a Lichess-like analysis hierarchy, a Slippi-like
+replay workflow, and Godot-style contextual tooling.** The battle screen should feel normal and
+familiar; the innovation sits underneath — state safety, analysis, keyboard workflows, storage,
+provenance, replays. This confirms rather than revises the Phase-3 architecture: nothing found in
+round 2 contradicts an approved decision, and the two genuinely new binding candidates (two-step
+choice review; configurable-shortcut layer) both route to the M2 plan for an owner decision.

@@ -54,10 +54,20 @@ plans. The master spec is non-binding context for Phase 0 (index §2.2).
 | E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | **merged** PR #71 |
 | F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | **APPROVED** + **merged** via PR **#73** (closeout **#74**–**#81**) |
 
-**Next:** Plan F's remaining open items (F1's CI-wiring task; the partial fail-check pass; owner
-review of the F5 merge-readiness packet) before any merge to `main` is considered. **Phase 1+
-(Live Spectator, Team Analyzer, full client, add-ons, external bots) remain explicitly
-unauthorized** — Plan F's own stop line (§8) — and have no plans here.
+## Phase 3 — plan set
+
+Phase 3 (full protocol client) is authorized by the approved design
+[`../specs/2026-07-25-phase3-client-design.md`](../specs/2026-07-25-phase3-client-design.md)
+(2026-07-25). Plan status follows the same fail-closed rule as Phase 0: an APPROVED plan still
+requires a separate implementation go-ahead before code.
+
+| Order | Document | Scope | Status |
+|---|---|---|---|
+| F0 | [`2026-07-25-phase3-f0-foundation.md`](2026-07-25-phase3-f0-foundation.md) | Architecture foundation: binding docs, architecture guards + CI lane, board-presentation contract, shell scaffold | **APPROVED** + **merged** via PR **#88** |
+| M1 | `2026-07-25-phase3-m1-connect-spectate.md` | Connect + Spectate (M1a–M1e) | DRAFT — revision required (owner review 2026-07-25); not yet committed |
+
+**Phase 1 is no longer an independent product phase** — its read-only spectator scope is subsumed
+by Phase 3 Milestone M1. **Phases 2, 4, and 5 remain unauthorized** and have no plans here.
 
 ## Authority for this plan set
 

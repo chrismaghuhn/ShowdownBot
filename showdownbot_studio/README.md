@@ -8,8 +8,8 @@ The long-term direction includes replay analysis, live spectating, team analysis
 Showdown protocol client, controlled add-ons, and external bot adapters. Delivery is phased.
 
 **Phase 0 — the offline Replay + DecisionTrace Viewer — is built, merged and closed** (Godot
-4.5.2, Windows). Everything beyond it is unauthorized until it has its own approved design and
-plan; see the stop line under Status.
+4.5.2, Windows). **Phase 3 — the full protocol client — is authorized** with its own approved
+design; every other phase remains unauthorized. See the stop line under Status.
 
 ## Status
 
@@ -38,9 +38,16 @@ plan; see the stop line under Status.
   [`docs/plans/evidence/viewer-v0-gate-coverage-recheck.md`](docs/plans/evidence/viewer-v0-gate-coverage-recheck.md)
   — and read it before picking work from the older gate-coverage audit, whose status column is a
   snapshot of a superseded tree.
-- **Phase 1+ (Live Spectator, Team Analyzer, full client, add-ons, external bots) remain explicitly
-  unauthorized** — Plan F's own stop line (§8) forbids growing this plan set toward them; each
-  needs its own approved design + plan first.
+- **Phase 3 is authorized** — design approved 2026-07-25
+  ([`docs/specs/2026-07-25-phase3-client-design.md`](docs/specs/2026-07-25-phase3-client-design.md)).
+  **Its F0 architecture foundation is merged** (PR **#88**: binding security/architecture documents,
+  forbidden-dependency architecture guards + `studio-security-invariants` CI lane, the neutral
+  `BattleBoardSnapshot` board-presentation contract, and the `StudioRoot`/`WorkspaceRouter` shell).
+- **Phase 1 is no longer authorized as an independent product phase**; its read-only spectator
+  scope is subsumed by Phase 3 Milestone M1.
+- **Phases 2, 4, and 5 remain unauthorized** — each needs its own approved design + plan first.
+- Approval of the M1 implementation plan does not authorize M1a implementation. M1a requires a
+  separate explicit implementation go-ahead.
 - Active ShowdownBot work remains governed by [`../docs/ROADMAP.md`](../docs/ROADMAP.md).
 
 ## Start here
