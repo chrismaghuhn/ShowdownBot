@@ -85,3 +85,34 @@ def test_untrusted_server_content_doc_exists_with_required_sections():
             "## Unknown protocol line handling",
         ],
     )
+
+
+import pytest
+
+_COMMAND_ORIGIN_RULES = [
+    "only the gateway may request choice commands",
+    "only the protocol encoder may build command strings",
+    "only `net/` may write to the socket",
+    "no replay/analyzer/mod/bot module imports the gateway",
+    "every choice command carries room ID, connection epoch, and current `rqid`",
+    "no request is sent twice",
+    "superseded requests are never re-sent",
+    "there is no automatic selection on timeout or error",
+]
+
+
+@pytest.mark.architecture
+def test_human_command_invariants_doc_carries_verbatim_rules():
+    path = _DOCS_SECURITY / "HUMAN_COMMAND_INVARIANTS.md"
+    _assert_doc_has_headings(
+        path,
+        [
+            "## Purpose",
+            "## Binding command-origin invariants",
+            "## Enforcement mapping",
+            "## Gateway bans",
+        ],
+    )
+    text = path.read_text(encoding="utf-8")
+    missing = [rule for rule in _COMMAND_ORIGIN_RULES if rule not in text]
+    assert not missing, f"HUMAN_COMMAND_INVARIANTS.md missing verbatim rule(s): {missing}"
