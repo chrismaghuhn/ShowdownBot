@@ -1,0 +1,11 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/ui/panels/connection_status_panel.gd" id="1_panel"]
+
+[node name="ConnectionStatusPanel" type="Control"]
+layout_mode = 3
+script = ExtResource("1_panel")
+
+[node name="StatusLabel" type="Label" parent="."]
+layout_mode = 0
+text = "Disconnected"

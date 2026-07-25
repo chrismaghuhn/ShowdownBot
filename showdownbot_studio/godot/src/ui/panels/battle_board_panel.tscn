@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/ui/panels/battle_board_panel.gd" id="1_panel"]
+[ext_resource type="PackedScene" path="res://src/replay/abstract_board_view.tscn" id="2_board"]
+
+[node name="BattleBoardPanel" type="Control"]
+layout_mode = 3
+script = ExtResource("1_panel")
+
+[node name="AbstractBoardView" parent="." instance=ExtResource("2_board")]
+layout_mode = 1
