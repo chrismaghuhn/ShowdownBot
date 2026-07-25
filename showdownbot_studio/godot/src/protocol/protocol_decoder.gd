@@ -67,12 +67,88 @@ func _decode_line(room_id: String, line: String) -> void:
 			_emit(room_id, "error", {"error_reason": _arg(parts, 2)})
 		"deinit":
 			_emit(room_id, "deinit", {})
+		"turn":
+			_emit(room_id, "turn", {"turn_number": _arg(parts, 2).to_int()})
+		"switch", "drag":
+			_emit_switch(room_id, msg_type, parts)
+		"-damage", "-heal":
+			_emit_hp_change(room_id, msg_type, parts)
+		"-status":
+			_emit_side_slot(room_id, "-status", parts, {"hp_status": _arg(parts, 3)})
+		"-curestatus":
+			_emit_side_slot(room_id, "-curestatus", parts, {"hp_status": null})
+		"faint":
+			_emit_faint(room_id, parts)
 		_:
 			line_not_understood.emit(line)
 
 
 func _arg(parts: PackedStringArray, index: int) -> String:
 	return parts[index] if index < parts.size() else ""
+
+
+static func _parse_pokemon_identifier(identifier: String) -> Dictionary:
+	var colon_index := identifier.find(":")
+	if colon_index < 3:
+		return {"side": null, "slot": null}
+	var side_slot := identifier.substr(0, colon_index)
+	return {"side": side_slot.substr(0, 2), "slot": side_slot.substr(2, 1)}
+
+
+## "100/100" | "50/100 brn" | "0 fnt" (NO slash -- hidden max HP) -> hp_current/hp_maximum/
+## hp_fainted/hp_status. Fixed bug: the slash-less case must not fall through to all-null.
+static func _parse_hp_status(hp_status_text: String) -> Dictionary:
+	var space_index := hp_status_text.find(" ")
+	var hp_part := hp_status_text if space_index == -1 else hp_status_text.substr(0, space_index)
+	var status_part := "" if space_index == -1 else hp_status_text.substr(space_index + 1)
+	var slash_index := hp_part.find("/")
+	var hp_current: int
+	var hp_maximum: Variant = null
+	if slash_index == -1:
+		if not hp_part.is_valid_int():
+			return {"hp_current": null, "hp_maximum": null, "hp_fainted": null, "hp_status": null}
+		hp_current = hp_part.to_int()
+	else:
+		hp_current = hp_part.substr(0, slash_index).to_int()
+		hp_maximum = hp_part.substr(slash_index + 1).to_int()
+	var fainted := status_part == "fnt" or hp_current == 0
+	var status: Variant = null if status_part.is_empty() or status_part == "fnt" else status_part
+	return {"hp_current": hp_current, "hp_maximum": hp_maximum, "hp_fainted": fainted, "hp_status": status}
+
+
+func _emit_switch(room_id: String, event_type: String, parts: PackedStringArray) -> void:
+	var identifier := _parse_pokemon_identifier(_arg(parts, 2))
+	var details := _arg(parts, 3)
+	var species: Variant = details.split(",")[0] if not details.is_empty() else null
+	var hp := _parse_hp_status(_arg(parts, 4))
+	var fields := {
+		"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"], "pokemon_species": species,
+	}
+	fields.merge(hp)
+	_emit(room_id, event_type, fields)
+
+
+func _emit_hp_change(room_id: String, event_type: String, parts: PackedStringArray) -> void:
+	var identifier := _parse_pokemon_identifier(_arg(parts, 2))
+	var hp := _parse_hp_status(_arg(parts, 3))
+	var fields := {"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"]}
+	fields.merge(hp)
+	_emit(room_id, event_type, fields)
+
+
+func _emit_side_slot(room_id: String, event_type: String, parts: PackedStringArray, extra: Dictionary) -> void:
+	var identifier := _parse_pokemon_identifier(_arg(parts, 2))
+	var fields := {"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"]}
+	fields.merge(extra)
+	_emit(room_id, event_type, fields)
+
+
+func _emit_faint(room_id: String, parts: PackedStringArray) -> void:
+	var identifier := _parse_pokemon_identifier(_arg(parts, 2))
+	_emit(room_id, "faint", {
+		"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"],
+		"hp_current": 0, "hp_fainted": true,
+	})
 
 
 func _emit(room_id: String, event_type: String, fields: Dictionary) -> void:
