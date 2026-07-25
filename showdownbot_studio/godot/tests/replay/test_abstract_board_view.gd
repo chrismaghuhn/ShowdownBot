@@ -183,7 +183,7 @@ func test_bind_shows_species_hp_status() -> void:
 		"hp_current": 20, "hp_maximum": 35, "hp_fainted": false, "hp_status": "brn",
 	}))
 	board.recompute_has_recorded_state()
-	view.bind(board)
+	view.bind(ReplayBoardPresentationAdapter.build_snapshot(board))
 	assert_str(view.get_slot_species("p1", "a")).is_equal("Pikachu")
 	assert_str(view.get_slot_hp_text("p1", "a")).is_equal("20/35")
 	assert_str(view.get_node("Slots/P1AStatus").text).is_equal("brn")
@@ -199,7 +199,7 @@ func test_bind_shows_weather_terrain_field_and_side_conditions() -> void:
 	board.add_side_condition("p1", "Stealth Rock")
 	board.add_side_condition("p2", "Spikes")
 	board.recompute_has_recorded_state()
-	view.bind(board)
+	view.bind(ReplayBoardPresentationAdapter.build_snapshot(board))
 	assert_str(view.get_weather_text()).is_equal("RainDance")
 	assert_str(view.get_terrain_text()).is_equal("Electric Terrain")
 	assert_bool(view.get_field_conditions_text().contains("Trick Room")).is_true()
@@ -212,13 +212,13 @@ func test_empty_state_only_when_not_has_replay() -> void:
 	add_child(view)
 	var no_replay := BoardModel.new()
 	no_replay.has_replay = false
-	view.bind(no_replay)
+	view.bind(ReplayBoardPresentationAdapter.build_snapshot(no_replay))
 	assert_bool(view.get_empty_state_visible()).is_true()
 
 	var trusted_empty := BoardModel.new()
 	trusted_empty.has_replay = true
 	trusted_empty.has_recorded_state = false
-	view.bind(trusted_empty)
+	view.bind(ReplayBoardPresentationAdapter.build_snapshot(trusted_empty))
 	assert_bool(view.get_empty_state_visible()).is_false()
 
 

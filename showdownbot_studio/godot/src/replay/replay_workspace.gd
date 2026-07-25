@@ -23,7 +23,7 @@ func clear() -> void:
 	_bundle = null
 	_board = null
 	_timeline_view.bind(null, null)
-	_board_view.bind(null)
+	_board_view.bind(ReplayBoardPresentationAdapter.build_snapshot(null))
 	set_loading(false)
 	_timeline_view.set_controls_enabled(false)
 
@@ -62,9 +62,7 @@ func _on_selection_changed(entry_index: int) -> void:
 	_timeline_view.set_selected_entry_index(entry_index)
 	if _replay == null or _bundle == null:
 		_board = null
-		_board_view.bind(null)
+		_board_view.bind(ReplayBoardPresentationAdapter.build_snapshot(null))
 		return
-	# Trusted empty timeline (cursor -1): still bind a fresh board so has_replay
-	# stays true and the missing-evidence banner stays hidden (§0.5).
 	_board = ReplayPresenter.build_board(_bundle, _replay, entry_index)
-	_board_view.bind(_board)
+	_board_view.bind(ReplayBoardPresentationAdapter.build_snapshot(_board))

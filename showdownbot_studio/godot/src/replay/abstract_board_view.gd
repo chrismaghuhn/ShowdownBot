@@ -1,8 +1,6 @@
 class_name AbstractBoardView
 extends VBoxContainer
 
-const EMPTY_REPLAY_TEXT := "No replay evidence in this bundle"
-
 @onready var _loading: Label = $LoadingLabel
 @onready var _empty: Label = $EmptyStateLabel
 @onready var _turn: Label = $MetaRow/TurnLabel
@@ -24,20 +22,19 @@ const EMPTY_REPLAY_TEXT := "No replay evidence in this bundle"
 @onready var _p2b_hp: Label = $Slots/P2BHP
 @onready var _p2b_status: Label = $Slots/P2BStatus
 
-var _bound: BoardModel = null
+var _bound: BattleBoardSnapshot = null
 
 
-func bind(board: BoardModel) -> void:
-	_bound = board
-	if board == null or not board.has_replay:
+func bind(snapshot: BattleBoardSnapshot) -> void:
+	_bound = snapshot
+	if snapshot == null or not snapshot.presentation_available:
 		_empty.visible = true
-		_empty.text = EMPTY_REPLAY_TEXT
+		_empty.text = "" if snapshot == null else snapshot.empty_state_reason
 		_clear_slots_and_meta()
 		return
 	_empty.visible = false
 	_empty.text = ""
-	# has_replay and not has_recorded_state: blank slots, NO empty-state banner.
-	_render(board)
+	_render(snapshot)
 
 
 func set_loading(active: bool) -> void:
@@ -86,29 +83,29 @@ func _clear_slots_and_meta() -> void:
 		lbl.text = ""
 
 
-func _render(board: BoardModel) -> void:
-	_turn.text = "" if board.turn_number == null else "turn %s" % str(board.turn_number)
-	_weather.text = "" if board.weather == null else str(board.weather)
-	_terrain.text = "" if board.terrain == null else str(board.terrain)
-	_field_conditions.text = ", ".join(board.field_conditions)
-	_p1_side.text = ", ".join(board.side_conditions["p1"])
-	_p2_side.text = ", ".join(board.side_conditions["p2"])
-	_write_slot(_p1a_species, _p1a_hp, _p1a_status, board.get_slot("p1", "a"))
-	_write_slot(_p1b_species, _p1b_hp, _p1b_status, board.get_slot("p1", "b"))
-	_write_slot(_p2a_species, _p2a_hp, _p2a_status, board.get_slot("p2", "a"))
-	_write_slot(_p2b_species, _p2b_hp, _p2b_status, board.get_slot("p2", "b"))
+func _render(snapshot: BattleBoardSnapshot) -> void:
+	_turn.text = "" if snapshot.turn == null else "turn %s" % str(snapshot.turn)
+	_weather.text = "" if snapshot.weather == null else str(snapshot.weather)
+	_terrain.text = "" if snapshot.terrain == null else str(snapshot.terrain)
+	_field_conditions.text = ", ".join(snapshot.field_conditions)
+	_p1_side.text = ", ".join(snapshot.side_conditions["p1"])
+	_p2_side.text = ", ".join(snapshot.side_conditions["p2"])
+	_write_slot(_p1a_species, _p1a_hp, _p1a_status, snapshot.get_slot("p1", "a"))
+	_write_slot(_p1b_species, _p1b_hp, _p1b_status, snapshot.get_slot("p1", "b"))
+	_write_slot(_p2a_species, _p2a_hp, _p2a_status, snapshot.get_slot("p2", "a"))
+	_write_slot(_p2b_species, _p2b_hp, _p2b_status, snapshot.get_slot("p2", "b"))
 
 
-func _write_slot(species_lbl: Label, hp_lbl: Label, status_lbl: Label, cell: Dictionary) -> void:
-	species_lbl.text = "" if cell["species"] == null else str(cell["species"])
-	if cell["hp_current"] == null and cell["hp_maximum"] == null:
+func _write_slot(species_lbl: Label, hp_lbl: Label, status_lbl: Label, cell: BattleBoardSlotSnapshot) -> void:
+	species_lbl.text = "" if cell.species == null else str(cell.species)
+	if cell.hp_current == null and cell.hp_maximum == null:
 		hp_lbl.text = ""
 	else:
 		hp_lbl.text = "%s/%s" % [
-			"?" if cell["hp_current"] == null else str(cell["hp_current"]),
-			"?" if cell["hp_maximum"] == null else str(cell["hp_maximum"]),
+			"?" if cell.hp_current == null else str(cell.hp_current),
+			"?" if cell.hp_maximum == null else str(cell.hp_maximum),
 		]
-	status_lbl.text = "" if cell["hp_status"] == null else str(cell["hp_status"])
+	status_lbl.text = "" if cell.hp_status == null else str(cell.hp_status)
 
 
 func _slot_label(side: String, slot: String, kind: String) -> Label:
