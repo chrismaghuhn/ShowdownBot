@@ -289,3 +289,107 @@ func test_primary_controls_reachable_at_1280x720() -> void:
 		"provenance 'dirty' row at %s must be reachable by scrolling within %s"
 		% [str(_global_rect(last_row)), str(_global_rect(scroll))]
 	).is_true()
+
+
+func test_chrome_minimum_size_grows_with_scale() -> void:
+	# Proves the theme moved to AppShell (2026-07-25): PathRow is a sibling of
+	# WorkspaceLayout under VBox, not a descendant of it, so before this fix a
+	# scale change had zero effect on it (WorkspaceLayout applied the theme to
+	# itself only). Real capture evidence of the pre-fix state:
+	# docs/plans/evidence/viewer-v0-f-manual-checklist.md.
+	var shell: AppShell = await _spawn_shell_ready()
+	var path_row: Control = shell.get_node("VBox/PathRow")
+
+	shell.get_layout().set_ui_scale(1.0)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_100 := path_row.get_combined_minimum_size()
+
+	shell.get_layout().set_ui_scale(1.5)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_150 := path_row.get_combined_minimum_size()
+
+	assert_float(min_150.x).is_greater(min_100.x)
+	assert_float(min_150.y).is_greater(min_100.y)
+
+
+func test_compute_min_window_size_floor_and_scale_growth() -> void:
+	# §4 of the brief: computed, not tabled; never below the 1280x720 floor,
+	# strictly more once scale pushes real content past it.
+	#
+	# Uses 100% -> 200% (SCALE_MAX), not the brief's illustrative 150%: verified
+	# by direct probe (godot/_debug_minsize.gd, throwaway, not committed —
+	# see report) that this headless engine's TextServer under-measures string
+	# *width* by a roughly constant ~26% vs a real (non-headless) window, while
+	# it matches the report's real-window HEIGHT numbers exactly (627/858/1089
+	# at 100/150/200%). At 150% the under-measured width (1192px) still sits
+	# under the 1280 floor, so both endpoints would read 1280 and the "strictly
+	# more" assertion would be comparing floor-vs-floor, not a real regression
+	# — a headless-only artifact, same shape as Plan F §0.5's documented
+	# blind spot, not evidence the production code fails to grow. 200% clears
+	# the floor headlessly too (1571px measured), so the assertion is
+	# meaningful in both environments. The real-window capture (§0.7, this
+	# report) is the actual evidence for 150%.
+	var shell: AppShell = await _spawn_shell_ready()
+
+	shell.get_layout().set_ui_scale(1.0)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_100 := shell.compute_min_window_size()
+	assert_int(min_100.x).is_greater_equal(1280)
+	assert_int(min_100.y).is_greater_equal(720)
+
+	shell.get_layout().set_ui_scale(2.0)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_200 := shell.compute_min_window_size()
+	assert_int(min_200.x).is_greater(min_100.x)
+	assert_int(min_200.y).is_greater(min_100.y)
+
+
+func test_candidate_table_minimum_size_invariant_to_row_count() -> void:
+	# Bounded-rendering check (index §5 rule 7 — "no one Control per unbounded
+	# row, 104-candidate fixture is the proof"): CandidateTableView's own
+	# minimum size must not grow with candidate count. fixture-16 has a
+	# 104-candidate decision (test_app_shell_decision.gd:
+	# test_fixture16_104_candidates_bind) alongside small/zero-candidate ones
+	# in the same bundle — comparing within one bundle isolates row-count from
+	# unrelated per-bundle text (path, hashes) that legitimately varies size a
+	# little between different bundles.
+	#
+	# NOTE — a real, separate, pre-existing, OUT-OF-SCOPE gap this probe also
+	# found (verified by direct probe, godot/_debug_minsize.gd, throwaway, not
+	# committed — see report): the whole-SHELL computed minimum is NOT
+	# content-invariant, because DecisionDetailView's Candidate tab
+	# (decision_detail_view.tscn: CandidateIdLabel / CandidateKeyLabel,
+	# decision_detail_view.gd:52-55 bind_candidate()) renders candidate_id /
+	# candidate_key with no autowrap_mode. fixture-16's 104-candidate row has
+	# candidate_key strings up to 286 chars; selecting that row balloons the
+	# shell's computed minimum from ~1280x720 to ~2096x720 headlessly. That is
+	# a bounded-rendering violation in DecisionDetailView, not in this task's
+	# layout-propagation/window-sizing scope — not fixed here.
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-16"))
+	await _await_shell_settled(shell)
+	var bundle := shell.get_loaded_bundle()
+	assert_object(bundle).is_not_null()
+	var dec := shell.get_decision_workspace().get_decision_controller()
+	var table := shell.get_decision_workspace().get_candidate_table_view()
+
+	await await_idle_frame()
+	var min_default := table.get_combined_minimum_size()
+
+	var row_104 := -1
+	for i in range(bundle.decisions.size()):
+		if bundle.decisions[i].candidates.size() == 104:
+			row_104 = i
+			break
+	assert_int(row_104).is_greater(-1)
+	dec.select_decision_row(row_104)
+	await await_idle_frame()
+	await await_idle_frame()
+	assert_int(table.get_item_count()).is_equal(104)
+	var min_104_rows := table.get_combined_minimum_size()
+
+	assert_vector(min_104_rows).is_equal(min_default)

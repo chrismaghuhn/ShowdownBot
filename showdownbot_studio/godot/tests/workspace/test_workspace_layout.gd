@@ -15,6 +15,12 @@ func _fixture_path(relative: String) -> String:
 func _spawn_layout_scene() -> WorkspaceLayout:
 	var layout: WorkspaceLayout = _LAYOUT_SCENE.instantiate()
 	add_child(layout)
+	# 2026-07-25: WorkspaceLayout no longer applies its own runtime theme to
+	# itself (AppShell does, at the shell root, so chrome scales too — see
+	# app_shell.gd:_ready()). Standalone-scene tests here exercise the scale/
+	# density mechanism in isolation, so replicate that one line of wiring
+	# rather than dragging in the whole AppShell scene.
+	layout.theme = layout.get_runtime_theme()
 	return layout
 
 
@@ -237,7 +243,33 @@ func test_min_window_set() -> void:
 	# the "headless" DisplayServer driver this project's run_gdunit_headless.ps1
 	# always uses (verified by direct probe: window_set_size/get_size round-trip
 	# is equally stubbed) — a CI environment ceiling, not an implementation gap.
-	# WorkspaceLayout._ready() does call DisplayServer.window_set_min_size(MIN_WINDOW_SIZE)
-	# per plan §0.7 / §4.3 (Choice Point A CLOSED); assert the constant it applies
-	# instead of the unobservable-in-CI DisplayServer round-trip.
+	# 2026-07-25: DisplayServer.window_set_min_size is now called by
+	# AppShell._update_min_window_size() (computed from the real tree, §0.13
+	# Choice Point A amendment), not unconditionally from WorkspaceLayout._ready()
+	# — see test_app_shell_plan_e.gd's test_compute_min_window_size_* suite for
+	# that behavior. This test only pins the floor constant it must never go
+	# below, which is still unobservable-in-CI as a DisplayServer round-trip.
 	assert_vector(WorkspaceLayout.MIN_WINDOW_SIZE).is_equal(Vector2i(1280, 720))
+
+
+func test_layout_combined_minimum_size_grows_with_scale() -> void:
+	# The propagation fix itself: before WorkspaceLayout became a real
+	# Container, this returned ~Vector2.ZERO regardless of scale (a bare
+	# Control never aggregates its children's minimum size) — see
+	# workspace_layout.gd class comment / the 2026-07-25 commit.
+	var layout := _spawn_layout_scene()
+	await await_idle_frame()
+	await await_idle_frame()
+
+	layout.set_ui_scale(1.0)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_100 := layout.get_combined_minimum_size()
+
+	layout.set_ui_scale(1.5)
+	await await_idle_frame()
+	await await_idle_frame()
+	var min_150 := layout.get_combined_minimum_size()
+
+	assert_float(min_150.x).is_greater(min_100.x)
+	assert_float(min_150.y).is_greater(min_100.y)
