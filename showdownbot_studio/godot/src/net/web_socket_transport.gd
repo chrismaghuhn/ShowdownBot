@@ -41,10 +41,10 @@ func get_state() -> ConnectionStateMachine.State:
 	return _state_machine.get_state()
 
 
-## Incremented on every connect_to_server() and every successful reconnect (Task 7). Spec
-## section 6.2/section 7 binds every outbound battle action to this counter; M1 sends no
-## /choose, so nothing besides this class's own tests reads it yet, but net/ is the only module
-## that can correctly own it.
+## Incremented on every connect_to_server() and on every reconnect reopen attempt, successful or
+## not (Task 7). Spec section 6.2/section 7 binds every outbound battle action to this counter;
+## M1 sends no /choose, so nothing besides this class's own tests reads it yet, but net/ is the
+## only module that can correctly own it.
 func get_connection_epoch() -> int:
 	return _connection_epoch
 

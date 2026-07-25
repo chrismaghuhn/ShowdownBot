@@ -149,3 +149,41 @@ func test_backoff_exhausted_from_connected_is_rejected() -> void:
 	m.handshake_succeeded()
 	assert_bool(m.backoff_exhausted()).is_false()
 	assert_int(m.get_state()).is_equal(ConnectionStateMachine.State.CONNECTED)
+
+
+# Doc-mandated invalid transition: DISCONNECTED -> RECONNECTING directly (no prior connection
+# attempt to reconnect from) is invalid regardless of which RECONNECTING-reaching trigger fires.
+
+
+func test_connection_lost_retries_remain_from_disconnected_is_rejected() -> void:
+	var m := ConnectionStateMachine.new()
+	assert_bool(m.connection_lost_retries_remain()).is_false()
+	assert_int(m.get_state()).is_equal(ConnectionStateMachine.State.DISCONNECTED)
+
+
+func test_initial_attempt_failed_retries_remain_from_disconnected_is_rejected() -> void:
+	var m := ConnectionStateMachine.new()
+	assert_bool(m.initial_attempt_failed_retries_remain()).is_false()
+	assert_int(m.get_state()).is_equal(ConnectionStateMachine.State.DISCONNECTED)
+
+
+# Doc-mandated invalid transition: EXHAUSTED -> CONNECTED directly (must pass through CONNECTING)
+# is invalid regardless of which CONNECTED-reaching trigger fires.
+
+
+func test_handshake_succeeded_from_exhausted_is_rejected() -> void:
+	var m := ConnectionStateMachine.new()
+	m.request_connect()
+	m.initial_attempt_failed_retries_remain()
+	m.backoff_exhausted()
+	assert_bool(m.handshake_succeeded()).is_false()
+	assert_int(m.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
+
+
+func test_reconnect_succeeded_from_exhausted_is_rejected() -> void:
+	var m := ConnectionStateMachine.new()
+	m.request_connect()
+	m.initial_attempt_failed_retries_remain()
+	m.backoff_exhausted()
+	assert_bool(m.reconnect_succeeded()).is_false()
+	assert_int(m.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)

@@ -44,6 +44,9 @@ func test_repeated_failures_exhaust_backoff_schedule() -> void:
 		assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.RECONNECTING)
 		_transport._process(backoff_s + 0.1)
 	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
+	# 1 initial connect + 5 reopen attempts (one per RECONNECT_BACKOFF_SCHEDULE_S entry) = 6;
+	# reaching EXHAUSTED itself adds no further increment beyond the last reopen's own.
+	assert_int(_transport.get_connection_epoch()).is_equal(6)
 
 
 func test_process_after_exhausted_does_not_poll_the_old_peer() -> void:
@@ -121,6 +124,9 @@ func test_peer_opening_after_backoff_reaches_connected() -> void:
 	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
 	_transport._process(0.016)
 	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.CONNECTED)
+	# Epoch was already incremented to 2 by the reopen attempt above; reconnect_succeeded()
+	# itself must not increment it again.
+	assert_int(_transport.get_connection_epoch()).is_equal(2)
 
 
 func test_immediate_connect_failure_schedules_the_next_backoff_without_a_busy_loop() -> void:

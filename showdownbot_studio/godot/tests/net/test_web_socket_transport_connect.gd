@@ -52,6 +52,7 @@ func test_disconnect_from_connected_calls_peer_close() -> void:
 	_transport.disconnect_from_server()
 	assert_bool(_fake.close_called).is_true()
 	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.DISCONNECTED)
+	assert_int(_transport.get_connection_epoch()).is_equal(1)  # manual disconnect does not change the epoch
 
 
 func test_send_raw_text_while_connected_forwards_to_peer() -> void:
