@@ -1076,8 +1076,14 @@ async def _run_client(
                                 # Machine-readable marker only, printed via the normal print()
                                 # path (not a logger) so the Studio E2E CI lane can capture it
                                 # from stdout directly. Does NOT exit -- the battle keeps
-                                # running (Task 33, second-pass fix).
-                                print(format_room_id_marker(parsed.room))  # noqa: T201
+                                # running (Task 33, second-pass fix). flush=True is required,
+                                # not cosmetic: verified locally (Task 34) that stdout redirected
+                                # to a file is block-buffered by default, so a CI/local poller
+                                # reading that file WHILE this process keeps running would never
+                                # observe the marker until the whole process later exited and
+                                # flushed on its own -- defeating the entire "poll while the
+                                # battle is still active" design this flag exists for.
+                                print(format_room_id_marker(parsed.room), flush=True)  # noqa: T201
                                 _room_id_printed = True
                             if client._export is not None:
                                 client._export.start_game()
