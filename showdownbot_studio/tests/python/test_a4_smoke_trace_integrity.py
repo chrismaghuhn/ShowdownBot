@@ -3,18 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 
-import pytest
-
-from conftest import SMOKE
+from conftest import SMOKE, read_normalized_bytes
 
 from showdownbot_studio_exporter.export_decisions import export_decisions_jsonl, load_trace_rows
 
 SMOKE_TRACE = SMOKE / "decision_trace.jsonl"
-PINNED = "7070338b77425621b6c3720e1f5cea651dff832dc6a0a8884de047c6647ff197"
+# Checkout-independent: sha256 of the file's bytes with CRLF normalized to LF (matches
+# the git blob, which is LF). Hashing raw read_bytes() here is checkout-dependent --
+# core.autocrlf can check this same blob out as CRLF depending on the local machine and
+# .gitattributes coverage at checkout time. See SOURCES.md's "104-candidate
+# bounded-render" entry for the measured CRLF/LF split this constant used to encode.
+PINNED = "546693fc6e5d3efeeb69f673c4aa270524c0ef639f0fbff861b8b23d5a1a146f"
 
 
 def test_smoke_trace_hash_pinned():
-    got = hashlib.sha256(SMOKE_TRACE.read_bytes()).hexdigest()
+    got = hashlib.sha256(read_normalized_bytes(SMOKE_TRACE)).hexdigest()
     assert got == PINNED
 
 

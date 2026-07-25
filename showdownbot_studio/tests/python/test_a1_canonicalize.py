@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import read_normalized_bytes
+
 STUDIO_ROOT = Path(__file__).resolve().parents[2]
 VECTORS = STUDIO_ROOT / "tests" / "python" / "jcs_vectors"
 PINNED = {
@@ -78,7 +80,7 @@ def test_jcs_vectors_sha256sums():
         if not path.is_file():
             missing.append(rel)
             continue
-        got = hashlib.sha256(path.read_bytes()).hexdigest()
+        got = hashlib.sha256(read_normalized_bytes(path)).hexdigest()
         assert got == want, f"{rel}: {got} != {want}"
     if missing:
         raise AssertionError(f"missing vector paths: {missing}")

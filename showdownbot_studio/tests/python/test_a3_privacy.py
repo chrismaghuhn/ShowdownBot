@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import STUDIO_ROOT, SYNTHETIC
+from conftest import STUDIO_ROOT, SYNTHETIC, read_normalized_bytes
 
 from showdownbot_studio_exporter.export_battle import export_battle_jsonl, read_battle_log
 from showdownbot_studio_exporter.privacy import PRIVACY_PROFILE, pseudonymize_request_payload
@@ -65,7 +65,11 @@ def test_fixture10_source_unchanged():
 
 
 def test_privacy_leak_matches_fixture10_source():
-    assert PRIVACY_LOG.read_bytes() == FIXTURE10_LOG.read_bytes()
+    # Normalize line endings: PRIVACY_LOG lives under tests/python/synthetic/, which
+    # .gitattributes does not force to eol=lf (unlike fixtures/viewer-v0/**), so
+    # core.autocrlf can check it out as CRLF while FIXTURE10_LOG stays LF on the same
+    # machine. Same content, checkout-dependent bytes -- compare normalized.
+    assert read_normalized_bytes(PRIVACY_LOG) == read_normalized_bytes(FIXTURE10_LOG)
 
 
 def test_fixture01_no_real_player_name_leaks_in_any_bundle_file():
