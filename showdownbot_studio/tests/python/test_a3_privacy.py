@@ -10,6 +10,7 @@ import pytest
 from conftest import STUDIO_ROOT, SYNTHETIC, read_normalized_bytes
 
 from showdownbot_studio_exporter.export_battle import export_battle_jsonl, read_battle_log
+from showdownbot_studio_exporter.export_bundle import export_bundle
 from showdownbot_studio_exporter.privacy import PRIVACY_PROFILE, pseudonymize_request_payload
 
 
@@ -136,3 +137,56 @@ def test_log_event_raw_field_never_emitted_though_it_is_populated():
         row = json.loads(line)
         assert "raw" not in row
     assert switch_line.encode("utf-8") not in battle_bytes
+
+
+def test_state_summary_nickname_key_never_reaches_the_bundle(tmp_path):
+    """`strip_state_summary_nicknames` had no test at all -- measured, not assumed.
+
+    Neutralising its `mon.pop("nickname", None)` left this whole file green. The existing
+    nickname test above covers the |request| line path (`pseudonymize_request_payload`); the
+    `state_summary` path in `export_decisions` was uncovered.
+
+    **What this asserts, stated honestly: the field is dropped, not that a sensitive value
+    was withheld.** No committed fixture contains a player-chosen nickname in
+    `state_summary` -- all 144 values across the 11 trace fixtures are species names or
+    base-form/mega variants (`Aerodactyl` for species `Aerodactyl-Mega`). So this is a
+    structural guarantee. A fixture carrying a real nickname would strengthen it; until one
+    exists, asserting on values would be asserting on species names that legitimately appear
+    elsewhere in the bundle anyway.
+
+    fixture-05 is trace-only (no battle.log) and holds two battles, so the export needs an
+    explicit `battle_id` -- the same one its committed bundle uses.
+    """
+    fix05 = STUDIO_ROOT / "fixtures" / "viewer-v0" / "sources" / "fixture-05"
+    battle_id = "3e6a178b0900195e"
+
+    # Precondition on the FILTERED rows, not on the file: fixture-05's other battle also
+    # carries nicknames, so a file-level check would stay true even if the exported battle
+    # had none and this test had quietly gone vacuous.
+    selected_with_nickname = [
+        line
+        for line in (fix05 / "decision_trace.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line)["battle_id"] == battle_id and '"nickname"' in line
+    ]
+    assert selected_with_nickname, "exported battle carries no nickname -- assertion would be vacuous"
+
+    out = tmp_path / "bundle"
+    export_bundle(
+        out=out,
+        decision_trace=fix05 / "decision_trace.jsonl",
+        results=fix05 / "results.jsonl",
+        run_manifest=fix05 / "results.manifest.json",
+        config_manifest=fix05 / "results.config-manifest.json",
+        battle_id=battle_id,
+    )
+
+    for path in sorted(out.iterdir()):
+        assert b'"nickname"' not in path.read_bytes(), f"{path.name} carries a nickname key"
+
+    # And structurally, not just as a byte substring: no state_summary mon object retains it.
+    for line in (out / "decisions.jsonl").read_text(encoding="utf-8").splitlines():
+        for side in ((json.loads(line).get("state_summary") or {}).get("sides") or {}).values():
+            if not isinstance(side, dict):
+                continue
+            for mon in side.values():
+                assert not (isinstance(mon, dict) and "nickname" in mon)
