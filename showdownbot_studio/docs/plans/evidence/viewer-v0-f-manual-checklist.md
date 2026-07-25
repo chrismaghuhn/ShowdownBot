@@ -123,13 +123,23 @@ button row, filter row, and Overview text block. The density toggle button label
 
 ## SR smoke-note (Plan E §0.10 template, Choice Point 4 = J2: filed, not required to pass)
 
-**Not performed — requires a human at the machine.** This session drove the engine headlessly via
-PowerShell/subprocess capture; there is no interactive desktop session with an OS screen reader
-(Narrator/NVDA) attached for a human (or an agent standing in for one) to listen to and report
-announcements from. Per Plan F's binding honesty rules, this is left unfilled with this explicit
-marker rather than invented. The template below (from
-[`viewer-v0-e-manual-checks.md`](viewer-v0-e-manual-checks.md)) is reproduced here, unfilled, so F5
-can point at one place:
+**PERFORMED by the owner, 2026-07-25, against `main` @ `9a76507`** (Windows Narrator, real
+interactive desktop session, fixture-01 loaded). This supersedes the earlier "not performed"
+marker, which was accurate when written — the agent session driving the engine from PowerShell had
+no screen reader attached.
+
+**Owner's reported observation, verbatim in substance:** the screen reader **did read content out**.
+
+**Scope of what that establishes — read this before citing it.** The owner reported the outcome at
+the level of "it actually read things out". The six template rows below are therefore recorded as
+**not separately itemised**: it is established that announcements happen and carry content, and it
+is *not* established which specific surfaces (banner vs tab titles vs table rows vs live updates)
+were each announced. Ticking all six from a single summary observation would be exactly the
+over-claim Plan F's honesty rules forbid. If per-row detail is ever needed, the run must be
+repeated with each row observed individually.
+
+The template (from [`viewer-v0-e-manual-checks.md`](viewer-v0-e-manual-checks.md)) is kept below
+so F5 can point at one place:
 
 - [ ] Launch: does the screen reader announce anything when the `AppShell` window gains focus?
 - [ ] State banner: is `StateBanner` text announced?
@@ -138,24 +148,39 @@ can point at one place:
 - [ ] Provenance/diagnostics tabs: active tab announced on switch?
 - [ ] Live updates: state-banner/selection changes announced without re-focusing?
 
-**Result:** not performed this session (see marker above). **Not a release blocker per Choice
-Point 4 (§0.11, CLOSED: J2)** — J2 requires filing and owner sign-off, never passing; a screen
-reader smoke test that has not yet been attempted is an honest gap, recorded, not silently
-skipped or claimed complete.
+**Result:** performed; the screen reader announces content. Better than the pre-run expectation,
+which was that a non-native UI toolkit would announce little or nothing — Godot 4.5 ships
+AccessKit-based accessibility, which is the plausible reason, though the owner's observation is the
+evidence here, not that attribution.
+
+**Still not a "pass" claim.** Per Choice Point 4 (§0.11, CLOSED: J2) this section is *filed and
+signed off*, never *passed*, and Plan E §1 keeps screen-reader completeness an explicit non-goal.
+Nothing here asserts the viewer is accessible — only that announcements were heard.
 
 ## Mixed-DPI checklist (Plan E §0.10 template, Choice Point 4 = J2: filed, not required to pass)
 
-**Not performed — requires a human at the machine.** Moving a live window across two physical
-monitors with different Windows display-scaling settings needs real second-monitor hardware and a
-human dragging the window; this cannot be simulated from a scripted headless/non-headless engine
-invocation. Template reproduced, unfilled:
+**PERFORMED by the owner, 2026-07-25, against `main` @ `9a76507`.** Supersedes the earlier
+"not performed" marker, which was accurate when written.
+
+**Owner's reported result:** clicked through the application including density switching, and
+reported it "looks clean" — no layout shift, nothing cut off, no visible breakage across the checks
+below.
+
+**Obstacle encountered and worked around, recorded because it is itself a defect:** the window
+could not be dragged to the second monitor at all, because PR #77 had set the default window size
+to exactly 1920×1080 on a 1920×1080 screen — the title bar lands off-screen and there is nothing to
+grab. Worked around with `Win + Shift + ←/→`, which moves a window between monitors without the
+mouse. Fixed separately (default reduced to 1600×900); see that change for the reasoning.
 
 - [ ] Scale readability across monitors at native scaling
 - [ ] Control reachability preserved after moving the window
 - [ ] Selected timeline entry preserved across the move
 - [ ] Min window (1280×720) still enforced after moving between monitors
 
-**Result:** not performed this session (see marker above).
+**Result:** performed; reported clean. Recorded at the granularity the owner reported it — a
+whole-application click-through including density switching, not four independently observed rows.
+The rows are left unticked for the same reason as the SR section: a single summary observation does
+not license ticking each row individually.
 
 ## Owner sign-off (Choice Point 4, §0.11 CLOSED: J2)
 
