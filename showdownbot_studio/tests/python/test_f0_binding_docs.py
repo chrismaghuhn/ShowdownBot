@@ -156,13 +156,13 @@ def test_live_state_machines_doc_has_full_transition_tables():
         assert state in text, f"ChoiceRequestState state {state} missing from doc"
     assert _table_row_count(
         text, "## ConnectionState transitions", "## SessionState transitions"
-    ) == 11
+    ) == 12
     assert _table_row_count(
         text, "## SessionState transitions", "## RoomState transitions"
     ) == 6
     assert _table_row_count(
         text, "## RoomState transitions", "## ChoiceRequestState transitions"
-    ) == 9
+    ) == 11
     assert _table_row_count(
         text, "## ChoiceRequestState transitions", "## Invalid transitions (explicitly rejected)"
     ) == 12

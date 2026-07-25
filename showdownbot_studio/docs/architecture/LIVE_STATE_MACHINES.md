@@ -18,6 +18,7 @@ not done.
 | `DISCONNECTED` | user or app initiates connect | `CONNECTING` | "Connecting..." status shown |
 | `CONNECTING` | WebSocket handshake succeeds | `CONNECTED` | "Connected" status shown |
 | `CONNECTING` | initial connection attempt fails, retries remain | `RECONNECTING` | "Reconnecting..." status with backoff countdown shown |
+| `CONNECTING` | user cancels the connection attempt, or a connect timeout elapses (owner-approved via 2026-07-25 M1-plan review) | `DISCONNECTED` | "Disconnected" status shown; the pending socket is discarded |
 | `CONNECTED` | socket closes unexpectedly or heartbeat times out | `RECONNECTING` | "Disconnected, reconnecting..." status with backoff countdown shown |
 | `CONNECTED` | user explicit disconnect | `DISCONNECTED` | "Disconnected" status shown |
 | `RECONNECTING` | a reconnect attempt succeeds | `CONNECTED` | "Connected" status shown; triggers full battle-state rebuild (section 6.2) |
@@ -45,7 +46,9 @@ not done.
 | `NOT_JOINED` | user enters a room ID/URL, or client sends `/join` | `JOINING` | "Joining room..." shown |
 | `JOINING` | server confirms the join (room init event received) | `ACTIVE` | room content renders |
 | `JOINING` | unknown or private room ID rejected by server | `NOT_JOINED` | clear error shown; no fallback room, no room browser (section 6.1) |
+| `JOINING` | local send failure -- the join command could not be sent (e.g. connection lost before it was sent) (owner-approved via 2026-07-25 M1-plan review) | `NOT_JOINED` | clear error shown; no fallback room (section 6.1) |
 | `ACTIVE` | user leaves the room / sends `/leave` | `LEAVING` | "Leaving..." shown |
+| `LEAVING` | local send failure -- the leave command could not be sent (owner-approved via 2026-07-25 M1-plan review, second pass) | `ACTIVE` | clear error shown; the room is still joined, the leave did not happen |
 | `ACTIVE` | server closes the room (e.g. battle ended and room expired) | `CLOSED` | "Room closed" shown |
 | `ACTIVE` | connection reconnects while this room was `ACTIVE` | `JOINING` | "Rejoining..." shown; pending unconfirmed choices discarded (section 6.2) |
 | `JOINING` | rejoin confirmed and room history resent | `ACTIVE` | full battle-state rebuild from resent history (section 6.2) |
