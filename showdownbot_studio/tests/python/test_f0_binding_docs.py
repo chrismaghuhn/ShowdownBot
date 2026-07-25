@@ -59,3 +59,16 @@ def test_credential_lifecycle_doc_exists_with_required_sections():
             "## Future extension",
         ],
     )
+
+
+def test_logging_and_redaction_doc_exists_with_required_sections():
+    _assert_doc_has_headings(
+        _DOCS_SECURITY / "LOGGING_AND_REDACTION.md",
+        [
+            "## Purpose",
+            "## Never-log list",
+            "## Diagnostic mode",
+            "## Redaction points",
+            "## Review checklist",
+        ],
+    )
