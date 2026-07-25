@@ -13,8 +13,13 @@ run/main_scene="res://src/workspace/app_shell.tscn"
 
 [display]
 
-window/size/viewport_width=1920
-window/size/viewport_height=1080
+; Default window, not the target screen. It must stay SMALLER than a common
+; screen or the title bar lands off-screen and the window cannot be dragged --
+; which is exactly what 1920x1080 did on a 1920x1080 monitor (owner-reported).
+; 1600x900 fits a 1080p screen with room for title bar and taskbar, and is well
+; above the 1280x720 floor WorkspaceLayout enforces. Users can maximise.
+window/size/viewport_width=1600
+window/size/viewport_height=900
 
 [editor_plugins]
 
