@@ -79,6 +79,19 @@ func _decode_line(room_id: String, line: String) -> void:
 			_emit_side_slot(room_id, "-curestatus", parts, {"hp_status": null})
 		"faint":
 			_emit_faint(room_id, parts)
+		"-weather":
+			_emit(room_id, "-weather", {"condition_label": _clean_condition(_arg(parts, 2))})
+		"-fieldstart", "-fieldend":
+			_emit(room_id, msg_type, {"condition_label": _clean_condition(_arg(parts, 2))})
+		"-sidestart", "-sideend":
+			_emit(room_id, msg_type, {
+				"side": _arg(parts, 2).split(":")[0],
+				"condition_label": _clean_condition(_arg(parts, 3)),
+			})
+		"move":
+			_emit_side_slot(room_id, "move", parts, {})
+		"win", "tie":
+			_emit(room_id, msg_type, {})
 		_:
 			line_not_understood.emit(line)
 
@@ -149,6 +162,13 @@ func _emit_faint(room_id: String, parts: PackedStringArray) -> void:
 		"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"],
 		"hp_current": 0, "hp_fainted": true,
 	})
+
+
+static func _clean_condition(raw: String) -> Variant:
+	if raw == "none":
+		return null
+	var colon_index := raw.find(": ")
+	return raw.substr(colon_index + 2) if colon_index != -1 else raw
 
 
 func _emit(room_id: String, event_type: String, fields: Dictionary) -> void:

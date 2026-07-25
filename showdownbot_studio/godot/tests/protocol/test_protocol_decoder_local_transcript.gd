@@ -44,4 +44,14 @@ func test_decoded_events_match_the_golden_sequence_exactly() -> void:
 		var expected: Dictionary = golden[i]
 		var actual := events[i]
 		for key in expected:
-			assert_object(actual.get(key)).is_equal(expected[key])
+			var actual_value: Variant = actual.get(key)
+			var expected_value: Variant = expected[key]
+			# JSON.parse_string() always returns FLOAT for a JSON number (a Godot JSON parsing
+			# quirk, not a real difference), while the DTO's own hp/turn fields are native ints
+			# (assert_object() also does not accept String/int actual values at all in this
+			# pinned gdUnit4 version -- both are real implementation-reality findings against
+			# the plan's illustrative comparison code, fixed here rather than in protocol/
+			# itself, which is otherwise unaffected).
+			if typeof(actual_value) == TYPE_INT and typeof(expected_value) == TYPE_FLOAT:
+				expected_value = int(expected_value)
+			assert_that(actual_value).is_equal(expected_value)
