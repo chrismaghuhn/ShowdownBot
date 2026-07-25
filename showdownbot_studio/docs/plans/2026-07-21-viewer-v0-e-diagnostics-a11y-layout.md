@@ -5,8 +5,11 @@ Amended Rev. 4 (additive Plan-D test coverage, owner-authorised, pre-implementat
 Amended Rev. 5 (priority-3 optional display-file disjunct — E1 review follow-up).
 Amended Rev. 6 (2026-07-24 — §7's scale acceptance row corrected: it claimed 75/100/150/200 met;
 200% fails at the 1280x720 minimum. Post-implementation factual correction, see §7.1).
+Amended Rev. 7 (2026-07-25 — §7.1 itself corrected: 125% and 150% also fail at 1280x720, not just
+200%; Choice Point A amended from a fixed minimum to a scale-dependent computed one. See §7.1 and
+§0.13 Choice Point A).
 **Implementation authorized** for E1 on `studio/plan-e-state-banner` (§10 Schritt 4).
-**Date:** 2026-07-21 · **Rev.:** 6 (2026-07-24 scale-acceptance correction; see §7.1)
+**Date:** 2026-07-21 · **Rev.:** 7 (2026-07-25 §7.1 re-correction + Choice Point A amendment)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -272,6 +275,23 @@ were TBD (index §9 item 4).
 | **Decision** | **A1 — 1280×720** as the acceptance minimum |
 | **Rationale** | Derived from the real AppShell (vertical stack of two `size_flags_vertical=3` workspaces). 1024×640 without a finished layout shell would be a rewrite, not a pin. Narrower widths may stack; timeline and Path/Open remain reachable. |
 | **Status** | **CLOSED (owner, Rev. 2)** |
+
+**Amended (owner, 2026-07-25).** §7.1 (2026-07-24) found the scale range does not hold at the
+1280×720 minimum from 125% up, not only at 200% as first corrected — the root cause is
+`WorkspaceLayout extends Control`, which never propagates its docks' minimum size, so the outer
+`VBoxContainer` never learns it needs more room. Fixing that propagation makes 1280×720 no longer a
+single fixed number: once the shell's real minimum size is computed from the live Control tree
+instead of assumed, it grows with scale by construction. The owner's 2026-07-25 decision is to keep
+1280×720 as a **floor** (this row's decision above stays the acceptance minimum at 100% and is not
+struck) and compute the minimum window size above that floor from the actual UI tree at the current
+scale — `AppShell.compute_min_window_size()` — rather than adding more rows to a table that goes
+stale the moment a dock gains a row. Explicitly **not** chosen: stacking, tabbing, or a
+`ScrollContainer` fallback below the computed minimum (§0.7's "may stack/tab" option stays deferred
+to a future separate plan) — at 200% the shell will require roughly 2100×1090 and simply not fit a
+1080p screen unshrunk, which is the intended, honest behavior, not a defect. No separate written
+plan for this slice — owner-approved in conversation, 2026-07-25; implemented directly on branch
+`fix/studio-scale-aware-layout`. See that branch's commits for the code change and measured
+before/after numbers.
 
 #### Choice Point B — Offline fonts (E6)
 
@@ -709,7 +729,7 @@ implementation start by counting §5 names). No silent case deletion.
 |---|---|
 | Keyboard-only inspection of fixture-01 | §5.6 smoke + §5.5 shortcuts green |
 | Focus filter focuses Plan D `LineEdit` | Same instance assert; no second filter |
-| Scale 75/100/150/200 | ~~§5.4 + primary controls reachable at **1280×720**~~ — **NOT MET at 200%.** 75/100/150 hold; at 200% on the 1280×720 minimum the shell overlaps itself and primary controls leave the frame. Corrected 2026-07-24, see §7.1 |
+| Scale 75/100/150/200 | ~~§5.4 + primary controls reachable at **1280×720**~~ — ~~**NOT MET at 200%.** 75/100/150 hold; at 200% on the 1280×720 minimum the shell overlaps itself and primary controls leave the frame.~~ **§7.1 itself was wrong: 125% and 150% also fail at 1280×720, not only 200%.** Corrected 2026-07-24 (§7.1), re-corrected 2026-07-25 (§7.2) with a full measured table; fixed by the scale-aware layout change (Choice Point A amendment, §0.13) |
 | Banner correct for fixtures 1, 3, 4, 5, 6 | §5.6 named tests (fixture-06 via `sources/fixture-06/bundle` + `hash_mismatch`) |
 | Banner precedence | §5.1 adjacent-pair tests |
 | Dirty null honesty | §5.1 / §5.2 |
@@ -756,6 +776,46 @@ assertion about a constant.
 **Not fixed here.** This correction changes the claim, not the build. Converting `WorkspaceLayout`
 to a real `Container` (or adding explicit min-size propagation) is a code change with its own
 regression surface and is not authorised by this docs correction.
+
+### 7.2 §7.1 was itself wrong — 125% and 150% also fail, not only 200% (2026-07-25)
+
+**What was false in §7.1.** §7.1 said "75%, 100% and 150% behave correctly; only 200% at the
+minimum window fails." Measured with a scripted headless probe
+(`godot/_debug_minsize.gd`, throwaway, not committed — see the scale-aware-layout branch's
+implementation report) of the shell's real combined minimum size, with the theme applied at
+AppShell level so the chrome scales too (the fix this amendment describes):
+
+| scale | total need (approx.) | fits 1280×720 |
+|---|---|---|
+| 1.00 | 1111 × 627 | yes |
+| 1.25 | 1374 × 732 | no |
+| 1.50 | 1625 × 858 | no |
+| 2.00 | 2134 × 1089 | no |
+
+So it was never a "200%-only bug" — every scale at or above roughly 110–115% overflows the
+1280×720 minimum; **only 100% ever fit.** 125% and 150% fail exactly the same way 200% does
+(overlap, controls pushed out of frame), just with less overlap area.
+
+**Why §7.1 got it wrong — the same shape of mistake it was written to record.** §7.1's own
+"why it passed review" section named a rule: *"evidence that structurally cannot touch the failing
+case must not be read as covering it."* §7.1 itself broke that rule one level up. Its 150%
+"behaves correctly" claim was judged against `evidence/viewer-v0-f-visual-capture/fixture-01-1400x900-2026-07-24.png`
+— a **1400×900** capture, comfortably larger than the 1625×858 that 150% actually needs — not
+against the binding **1280×720** minimum the criterion is about. A capture at a window bigger than
+the failure threshold cannot show the failure, no matter how carefully it is inspected. The 200%
+capture happened to be taken at 1280×720 (the worst case was captured at the binding size by
+chance, not by design), which is why 200% correctly read as failing while 125%/150% — never
+captured at 1280×720 — incorrectly read as passing.
+
+**Not a repeat oversight beyond this.** No other acceptance row in this plan cites a capture without
+also naming the window size it was taken at; this was specific to the 150% comparison cell.
+
+**Fixed, not just corrected, this time.** Unlike §7.1 (docs-only correction, no code change
+authorised), this amendment accompanies the code fix: `WorkspaceLayout` becomes a real `Container`
+(propagates its docks' minimum size instead of returning `Vector2.ZERO`), the runtime theme moves
+from `WorkspaceLayout` to `AppShell` (so chrome scales too), and the window minimum is computed from
+the live tree (`AppShell.compute_min_window_size()`) instead of the fixed `MIN_WINDOW_SIZE` constant
+— see Choice Point A's 2026-07-25 amendment (§0.13) for the acceptance-criterion change this implies.
 
 ---
 
@@ -817,6 +877,23 @@ regression surface and is not authorised by this docs correction.
 ---
 
 ## 12. Changelog
+
+### Rev. 7 — §7.1 re-corrected + Choice Point A amended + code fix (2026-07-25)
+
+- **What changed:** §7.1 (Rev. 6) claimed only 200% fails at the 1280×720 minimum. Measured: 125%
+  and 150% fail too — full corrected table in new §7.2. Choice Point A (§0.13) amended: 1280×720 is
+  now a floor, not a fixed acceptance number; the real minimum is computed from the live UI tree
+  (`AppShell.compute_min_window_size()`), scale-dependent above the floor.
+- **Why it is a correction and not new scope:** §7.1 asserted a capability (150% works at the
+  minimum window) the merged build did not deliver, for the same reason §6's row didn't: evidence
+  that structurally cannot reach the failing case was read as covering it (§7.1's 150% claim was
+  judged against a 1400×900 capture, not the binding 1280×720 one).
+- **Unlike Rev. 6, this revision ships the code fix, not only the docs correction:**
+  `WorkspaceLayout` becomes a real `Container` (propagates docks' minimum size instead of returning
+  zero); the runtime theme moves from `WorkspaceLayout` to `AppShell` so chrome scales too; the
+  window minimum is computed, not tabled. Owner-approved in conversation, 2026-07-25 — no separate
+  written plan for this slice.
+- Nothing else in this plan is altered. Status stays APPROVED.
 
 ### Rev. 6 — §7 scale acceptance row corrected (2026-07-24)
 

@@ -45,8 +45,14 @@ func _ready() -> void:
 	_density_toggle.pressed.connect(_on_density_toggle_pressed)
 	_layout.scale_changed.connect(_on_layout_scale_changed)
 	_layout.density_changed.connect(_on_layout_density_changed)
+	# §0.8 chrome must scale too (2026-07-25): the runtime theme is owned by
+	# WorkspaceLayout but applied here, at the shell root, so PathRow/ScaleRow/
+	# StateBanner/StatusLabel — siblings of WorkspaceLayout, not descendants —
+	# inherit it as well.
+	theme = _layout.get_runtime_theme()
 	_sync_scale_density_controls()
 	_refresh_state_banner()
+	_update_min_window_size()
 	parse_cli_args()
 
 
@@ -101,6 +107,30 @@ func get_decision_workspace() -> DecisionWorkspace:
 
 func get_layout() -> WorkspaceLayout:
 	return _layout
+
+
+## Computed, not tabled (owner decision, 2026-07-25 — a table goes stale the
+## moment a row is added to a dock): the real minimum the whole shell needs at
+## its current scale/density, read straight from the live Control tree
+## (VBox's own aggregation — a real VBoxContainer already propagates its
+## children's minimum size correctly). Never goes below the
+## WorkspaceLayout.MIN_WINDOW_SIZE floor (§0.13 Choice Point A), only above it.
+func compute_min_window_size() -> Vector2i:
+	var vbox: Control = $VBox
+	var needed := vbox.get_combined_minimum_size()
+	# VBox sits 8px inset from AppShell's own edges on every side (app_shell.tscn
+	# offset_left/top = 8, offset_right/bottom = -8) — the window needs that
+	# padding back on top of what VBox itself reports.
+	needed += Vector2(16.0, 16.0)
+	var floor_size := WorkspaceLayout.MIN_WINDOW_SIZE
+	return Vector2i(
+		maxi(int(ceil(needed.x)), floor_size.x),
+		maxi(int(ceil(needed.y)), floor_size.y),
+	)
+
+
+func _update_min_window_size() -> void:
+	DisplayServer.window_set_min_size(compute_min_window_size())
 
 
 func is_loading() -> bool:
@@ -293,10 +323,12 @@ func _on_density_toggle_pressed() -> void:
 
 func _on_layout_scale_changed(_factor: float) -> void:
 	_sync_scale_density_controls()
+	_update_min_window_size()
 
 
 func _on_layout_density_changed(_mode: String) -> void:
 	_sync_scale_density_controls()
+	_update_min_window_size()
 
 
 ## Keeps ScaleOption/DensityToggleButton showing the layout's actual state —

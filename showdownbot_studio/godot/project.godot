@@ -11,6 +11,11 @@ config/features=PackedStringArray("4.5")
 config/icon="res://icon.svg"
 run/main_scene="res://src/workspace/app_shell.tscn"
 
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/gdUnit4/plugin.cfg")
