@@ -1,5 +1,5 @@
 class_name WorkspaceLayout
-extends Control
+extends MarginContainer
 
 ## Density: "compact" | "comfortable" — plan §0.8 / §4.3.
 const DENSITY_COMPACT := "compact"
@@ -10,20 +10,29 @@ const SCALE_MIN := 0.75
 const SCALE_MAX := 2.0
 const SCALE_PRESETS: Array[float] = [0.75, 1.0, 1.5, 2.0]
 
-## Choice Point A CLOSED (plan §0.7 / §0.13) — 1280x720, not configurable.
+## Choice Point A AMENDED (owner, 2026-07-25) — 1280x720 is now the acceptance
+## FLOOR, not a fixed value: AppShell.compute_min_window_size() grows this at
+## scale > 100% instead of table-ing every scale value (see plan §0.13 Choice
+## Point A amendment). The original "not configurable" CLOSED text is kept
+## below, struck, per the plan's own amendment convention.
+## ~~Choice Point A CLOSED (plan §0.7 / §0.13) — 1280x720, not configurable.~~
 const MIN_WINDOW_SIZE := Vector2i(1280, 720)
 
 ## split_offset restored by reset_to_safe() (§0.7 / §4.3). 0 is SplitContainer's
 ## own default (even split), not a hand-picked pixel value.
 const _DEFAULT_SPLIT_OFFSET := 0
 
-## Scale/density mechanism (§0.8): a runtime Theme applied to this Control,
-## cascading to every descendant (docks) that doesn't set its own override.
-## Verified empirically (not Window.content_scale_factor — that only rescales
-## render/DPI, not Control.size/layout, so it produces zero observable effect
-## for gdUnit's headless layout math): default_font_size drives real min-size
-## growth through text metrics; "separation"/BoxContainer (HBox/VBoxContainer
-## share it via theme type inheritance) drives spacing. See commit message.
+## Scale/density mechanism (§0.8): a runtime Theme, owned here but applied by
+## AppShell at its own root (get_runtime_theme()) so chrome (PathRow/ScaleRow/
+## StateBanner/StatusLabel — siblings of this node, not descendants) scales
+## too, not just the docks (fix, 2026-07-25: WorkspaceLayout used to apply the
+## theme to itself, leaving the chrome unscaled). Cascades to every descendant
+## that doesn't set its own override. Verified empirically (not
+## Window.content_scale_factor — that only rescales render/DPI, not
+## Control.size/layout, so it produces zero observable effect for gdUnit's
+## headless layout math): default_font_size drives real min-size growth
+## through text metrics; "separation"/BoxContainer (HBox/VBoxContainer share it
+## via theme type inheritance) drives spacing. See commit message.
 const _BASE_FONT_SIZE := 16
 const _SEPARATION_COMFORTABLE := 4
 const _SEPARATION_COMPACT := 2
@@ -50,8 +59,10 @@ var _diagnostics_dock: DiagnosticsDock = null
 
 
 func _ready() -> void:
-	DisplayServer.window_set_min_size(MIN_WINDOW_SIZE)
-	theme = _runtime_theme
+	# window_set_min_size / theme assignment moved to AppShell (2026-07-25):
+	# the shell's real minimum needs the whole VBox (chrome + this layout), and
+	# the theme must live where the chrome can inherit it too — see
+	# AppShell._ready() / get_runtime_theme().
 	_apply_scale()
 	_apply_density()
 	_main_split = get_node_or_null("MainSplit") as SplitContainer
@@ -74,6 +85,12 @@ func set_density(mode: String) -> void:
 		return
 	_density = mode
 	_apply_density()
+	# Theme mutation on an already-assigned Theme resource does not reliably
+	# re-trigger every ancestor Container's cached minimum size in time for an
+	# immediately-following get_combined_minimum_size() read (AppShell's
+	# window-minimum recompute, §4 of the brief) — force it explicitly rather
+	# than rely on propagation timing.
+	update_minimum_size()
 	density_changed.emit(_density)
 
 
@@ -88,11 +105,21 @@ func get_density() -> String:
 func set_ui_scale(factor: float) -> void:
 	_ui_scale = clampf(factor, SCALE_MIN, SCALE_MAX)
 	_apply_scale()
+	# See set_density()'s comment — same forced-propagation reason.
+	update_minimum_size()
 	scale_changed.emit(_ui_scale)
 
 
 func get_ui_scale() -> float:
 	return _ui_scale
+
+
+## Owned here (scale/density stays this class's API — see class comment), but
+## applied by AppShell at its own root so the chrome (siblings of this node in
+## AppShell's VBox) scales too. Do not assign this to more than one node's
+## `theme` at a time; the intent is one themed root for the whole shell.
+func get_runtime_theme() -> Theme:
+	return _runtime_theme
 
 
 func _apply_scale() -> void:
