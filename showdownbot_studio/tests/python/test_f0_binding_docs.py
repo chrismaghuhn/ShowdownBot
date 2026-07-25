@@ -116,3 +116,53 @@ def test_human_command_invariants_doc_carries_verbatim_rules():
     text = path.read_text(encoding="utf-8")
     missing = [rule for rule in _COMMAND_ORIGIN_RULES if rule not in text]
     assert not missing, f"HUMAN_COMMAND_INVARIANTS.md missing verbatim rule(s): {missing}"
+
+
+def _table_row_count(text: str, heading: str, next_heading: str | None) -> int:
+    start = text.index(heading) + len(heading)
+    end = text.index(next_heading, start) if next_heading else len(text)
+    section = text[start:end]
+    rows = [
+        line for line in section.splitlines()
+        if line.strip().startswith("|")
+        and "---" not in line
+        and not line.strip().startswith("| Source state")
+    ]
+    return len(rows)
+
+
+def test_live_state_machines_doc_has_full_transition_tables():
+    path = _DOCS_ARCHITECTURE / "LIVE_STATE_MACHINES.md"
+    _assert_doc_has_headings(
+        path,
+        [
+            "## Purpose",
+            "## ConnectionState transitions",
+            "## SessionState transitions",
+            "## RoomState transitions",
+            "## ChoiceRequestState transitions",
+            "## Invalid transitions (explicitly rejected)",
+            "## Cross-machine interactions",
+        ],
+    )
+    text = path.read_text(encoding="utf-8")
+    for state in ["DISCONNECTED", "CONNECTING", "CONNECTED", "RECONNECTING", "EXHAUSTED"]:
+        assert state in text, f"ConnectionState state {state} missing from doc"
+    for state in ["ANONYMOUS", "AUTHENTICATING", "AUTHENTICATED", "LOGIN_FAILED"]:
+        assert state in text, f"SessionState state {state} missing from doc"
+    for state in ["NOT_JOINED", "JOINING", "ACTIVE", "LEAVING", "CLOSED"]:
+        assert state in text, f"RoomState state {state} missing from doc"
+    for state in ["NONE", "OPEN", "SUBMITTING", "SUBMITTED", "REJECTED", "SUPERSEDED"]:
+        assert state in text, f"ChoiceRequestState state {state} missing from doc"
+    assert _table_row_count(
+        text, "## ConnectionState transitions", "## SessionState transitions"
+    ) == 11
+    assert _table_row_count(
+        text, "## SessionState transitions", "## RoomState transitions"
+    ) == 6
+    assert _table_row_count(
+        text, "## RoomState transitions", "## ChoiceRequestState transitions"
+    ) == 9
+    assert _table_row_count(
+        text, "## ChoiceRequestState transitions", "## Invalid transitions (explicitly rejected)"
+    ) == 11
