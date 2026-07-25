@@ -1,0 +1,44 @@
+name: studio security invariants lane
+
+# F0 (showdownbot_studio/docs/plans/2026-07-25-phase3-f0-foundation.md) / spec section 8.2: a
+# lane dedicated to the forbidden-dependency and typed-boundary architecture tests introduced
+# in F0 (tests/python/test_f0_gateway_import_guard.py, test_f0_untyped_boundary_guard.py,
+# test_f0_live_dto_bundle_guard.py, all marked @pytest.mark.architecture), kept separate from
+# studio-windows.yml -- which owns the full pytest + gdUnit regression suite -- so this lane
+# stays fast and never downloads the pinned Godot engine. Do not add gdUnit steps here and do
+# not remove the `-m architecture` filter: without it this job is just a slower duplicate of
+# studio-windows.yml's own pytest step, not the dedicated fast lane spec section 8.2 requires.
+# Do not touch pytest.yml (the bot's own lane, `working-directory: showdown_bot` throughout)
+# or restructure studio-windows.yml.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  studio-security-invariants:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Same two installs as studio-windows.yml's pytest step: pytest COLLECTION imports every
+      # module under tests/python/, including files that import showdown_bot and
+      # showdownbot_studio_exporter, even though the `-m architecture` filter below only RUNS
+      # the F0 architecture tests. Skipping these installs would fail collection, not just the
+      # filtered-out tests.
+      - name: Install showdown_bot (Studio pytest imports its modules via tests/python/conftest.py)
+        run: pip install -e ./showdown_bot
+
+      - name: Install showdownbot_studio_exporter (+ pytest)
+        run: pip install -e "./showdownbot_studio/python[dev]"
+
+      # No explicit test-path argument, for the same rootdir/pythonpath-inference reason
+      # documented in studio-windows.yml -- `-m architecture` filters which of the collected
+      # tests actually RUN; it does not change collection or require a path argument.
+      - name: Run F0 architecture/forbidden-dependency tests
+        working-directory: showdownbot_studio/python
+        run: python -m pytest -q -m architecture
