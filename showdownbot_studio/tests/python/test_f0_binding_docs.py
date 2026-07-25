@@ -72,3 +72,16 @@ def test_logging_and_redaction_doc_exists_with_required_sections():
             "## Review checklist",
         ],
     )
+
+
+def test_untrusted_server_content_doc_exists_with_required_sections():
+    _assert_doc_has_headings(
+        _DOCS_SECURITY / "UNTRUSTED_SERVER_CONTENT.md",
+        [
+            "## Purpose",
+            "## What counts as untrusted",
+            "## Handling rules",
+            "## Protocol parsing boundary",
+            "## Unknown protocol line handling",
+        ],
+    )
