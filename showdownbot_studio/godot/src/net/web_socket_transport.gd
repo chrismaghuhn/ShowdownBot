@@ -120,7 +120,11 @@ func _process(delta: float) -> void:
 		# exactly like the CONNECTING branch below -- never open a second peer for it.
 	elif _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING:
 		_connecting_elapsed_s += delta
-		if _connecting_elapsed_s >= CONNECT_TIMEOUT_S and _peer.get_ready_state() != SocketPeerPort.ReadyState.OPEN:
+		# Invariant: _open_socket() always assigns a non-null _peer before any transition that
+		# could leave state at CONNECTING, so _peer cannot actually be null here today -- but the
+		# watchlist (M1a) requires the literal _peer != null check at this call site regardless,
+		# as defense against a future refactor silently breaking that invariant.
+		if _peer != null and _connecting_elapsed_s >= CONNECT_TIMEOUT_S and _peer.get_ready_state() != SocketPeerPort.ReadyState.OPEN:
 			cancel_connect_attempt()
 			return
 	if _peer == null:
