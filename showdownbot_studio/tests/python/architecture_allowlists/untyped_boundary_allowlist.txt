@@ -1,0 +1,7 @@
+# Allowlisted audited parsing/serialization boundaries (AGENTS.md rule 9 / spec section 10).
+# Paths are relative to godot/src/. A trailing "/" allowlists every file under that directory
+# prefix; an exact path allowlists only that one file. Add an entry only with an owner-approved
+# PR description explaining why that specific boundary needs an untyped container in its public
+# signature -- this file is read by tests/python/test_f0_untyped_boundary_guard.py.
+bundle/
+protocol/
