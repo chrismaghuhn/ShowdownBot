@@ -99,15 +99,24 @@ func with_slot(side: String, slot: String, next_slot: LiveBattleSlotSnapshot) ->
 	return LiveBattleSnapshot.new(_turn, _weather, _terrain, next_slots, _duplicate_side_conditions(), _field_conditions, _battle_completed)
 
 
-func with_turn(next_turn: Variant) -> LiveBattleSnapshot:
+## Owner-approved cross-slice guard fix (2026-07-26): renamed from the public with_turn/
+## with_weather/with_terrain. These three (unlike with_slot, whose parameter is the named typed
+## LiveBattleSlotSnapshot and stays public/compliant) took a bare Variant parameter -- AGENTS.md
+## rule 9 bans Variant as a parameter or return type on a CROSS-MODULE public interface, and M1d's
+## own mandated ui/panels/ wiring (LiveBoardPresentationAdapter) is what first made
+## LiveBattleSnapshot cross-module, surfacing a real, previously-latent violation. They are
+## construction helpers used only by LiveBattleReducer (battle/'s own internal fold) -- the
+## leading underscore documents that intent; the guard itself only scans godot/src/ production
+## signatures, so this alone resolves test_no_variant_in_cross_module_public_function_signature.
+func _with_turn(next_turn: Variant) -> LiveBattleSnapshot:
 	return LiveBattleSnapshot.new(next_turn, _weather, _terrain, _duplicate_slots(), _duplicate_side_conditions(), _field_conditions, _battle_completed)
 
 
-func with_weather(next_weather: Variant) -> LiveBattleSnapshot:
+func _with_weather(next_weather: Variant) -> LiveBattleSnapshot:
 	return LiveBattleSnapshot.new(_turn, next_weather, _terrain, _duplicate_slots(), _duplicate_side_conditions(), _field_conditions, _battle_completed)
 
 
-func with_terrain(next_terrain: Variant) -> LiveBattleSnapshot:
+func _with_terrain(next_terrain: Variant) -> LiveBattleSnapshot:
 	return LiveBattleSnapshot.new(_turn, _weather, next_terrain, _duplicate_slots(), _duplicate_side_conditions(), _field_conditions, _battle_completed)
 
 

@@ -28,9 +28,9 @@ func test_with_slot_returns_a_new_snapshot_leaving_the_original_untouched() -> v
 	# actually be caught.
 	var original := (
 		LiveBattleSnapshot.new()
-		.with_turn(5)
-		.with_weather("RainDance")
-		.with_terrain("Electric Terrain")
+		._with_turn(5)
+		._with_weather("RainDance")
+		._with_terrain("Electric Terrain")
 		.with_slot("p2", "b", LiveBattleSlotSnapshot.new("Ditto", 42, 100, false, "brn"))
 		.with_side_condition_added("p2", "Stealth Rock")
 		.with_field_condition_added("Trick Room")
@@ -68,12 +68,12 @@ func test_get_field_conditions_returns_an_independent_copy() -> void:
 
 
 func test_equals_is_true_for_snapshots_with_identical_content() -> void:
-	var a := LiveBattleSnapshot.new().with_turn(3).with_slot("p1", "a", LiveBattleSlotSnapshot.new("Pikachu", 50, 100, false, null))
-	var b := LiveBattleSnapshot.new().with_turn(3).with_slot("p1", "a", LiveBattleSlotSnapshot.new("Pikachu", 50, 100, false, null))
+	var a := LiveBattleSnapshot.new()._with_turn(3).with_slot("p1", "a", LiveBattleSlotSnapshot.new("Pikachu", 50, 100, false, null))
+	var b := LiveBattleSnapshot.new()._with_turn(3).with_slot("p1", "a", LiveBattleSlotSnapshot.new("Pikachu", 50, 100, false, null))
 	assert_bool(a.equals(b)).is_true()
 
 
 func test_equals_is_false_when_any_field_differs() -> void:
-	var a := LiveBattleSnapshot.new().with_turn(3)
-	var b := LiveBattleSnapshot.new().with_turn(4)
+	var a := LiveBattleSnapshot.new()._with_turn(3)
+	var b := LiveBattleSnapshot.new()._with_turn(4)
 	assert_bool(a.equals(b)).is_false()

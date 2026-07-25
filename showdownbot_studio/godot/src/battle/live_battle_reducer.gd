@@ -40,7 +40,7 @@ static func requires_pokemon_identity(event_type: String) -> bool:
 static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
 	match event.event_type:
 		"turn":
-			return previous.with_turn(event.turn_number)
+			return previous._with_turn(event.turn_number)
 		"switch", "drag":
 			return _apply_switch(previous, event)
 		"-damage", "-heal":
@@ -50,7 +50,7 @@ static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> Live
 		"faint":
 			return _apply_faint(previous, event)
 		"-weather":
-			return previous.with_weather(event.condition_label)
+			return previous._with_weather(event.condition_label)
 		"-fieldstart":
 			return previous.with_field_condition_added(str(event.condition_label))
 		"-fieldend":
