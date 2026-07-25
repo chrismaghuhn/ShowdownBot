@@ -5,11 +5,22 @@
 **Date:** 2026-07-21 · **Rev.:** 2
 **Product:** ShowdownBot Studio Phase 0 — Offline Replay + DecisionTrace Viewer
 
-**Delivery tip (status only; does not change authorization rules):** Plan **A** merged PR **#41**;
-Plan **B** merged PR **#44**; Plan **C** merged PR **#46**; Plan **D** merged PR **#47** (+
-follow-ups PR **#48**) @ `0256602`. **Next:** Plan **E** DRAFT under review
-(`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`). Plan F remains DRAFT. Code for E/F
-starts only after each plan is APPROVED + separate go-ahead.
+**Delivery tip (status only; does not change authorization rules) — updated 2026-07-25:** all six
+plans are APPROVED and merged. Plan **A** PR **#41**; **B** PR **#44**; **C** PR **#46**; **D**
+PR **#47** (+ follow-ups **#48**) @ `0256602`; **E** PR **#71**; **F** PR **#73**, with closeout
+follow-ups **#74**–**#81**.
+
+**Phase 0 is closed.** Choice Point 4's J2 condition — manual evidence *filed* **and** explicitly
+*signed off* — was met by PR **#81**; the checkbox is set in
+[`evidence/viewer-v0-f-manual-checklist.md`](evidence/viewer-v0-f-manual-checklist.md). Plan F §8's
+stop line applies: Live Spectator, Team Analyzer, the full client, add-ons and external bots each
+require their own approved design + plan. Phases 1–5 remain unauthorized (§6 rule 4 below).
+
+Post-closeout work on `main` has been test-coverage only (PRs **#82**–**#86**); it added no
+feature scope. What it *did* establish is recorded in
+[`evidence/viewer-v0-gate-coverage-recheck.md`](evidence/viewer-v0-gate-coverage-recheck.md), and
+one item there is load-bearing for anyone reading the older evidence: **the Plan F gate-coverage
+audit's status column is stale** and must not be used to pick work.
 
 ## 1. Why this index
 

@@ -14,7 +14,24 @@ here; the status line on each document is authoritative.
 | Plan C | **APPROVED** + **merged** via PR **#46** @ `1b0be1d` |
 | Plan D | **APPROVED** — Rev. 5; **merged** via PR **#47** (+ follow-ups PR **#48**) @ `0256602` |
 | Plan E | **APPROVED** — Rev. 3; **merged** — E1 shipped as `e757772`, E2–E7 via PR **#71** (`4ed406c`) |
-| Plan F | **APPROVED** — Rev. 6; implementation running on `studio/plan-f-acceptance`, **not yet merged to `main`, not complete** — see [`evidence/viewer-v0-f-merge-readiness.md`](evidence/viewer-v0-f-merge-readiness.md) |
+| Plan F | **APPROVED** + **merged** via PR **#73**, with closeout follow-ups **#74**–**#81** — see [`evidence/viewer-v0-f-merge-readiness.md`](evidence/viewer-v0-f-merge-readiness.md) |
+
+**Phase 0 is closed (2026-07-25).** Choice Point 4's J2 condition — manual evidence *filed* **and**
+explicitly *signed off* — was met by PR **#81**. Plan F §8's stop line now applies: Live Spectator,
+Team Analyzer, the full client, add-ons and external bots each need their own approved design +
+plan before any work starts.
+
+Work merged after closeout (PRs **#82**–**#86**) was **test coverage only** and added no feature
+scope. Before opening any slice from the Plan F gate-coverage audit, read
+[`evidence/viewer-v0-gate-coverage-recheck.md`](evidence/viewer-v0-gate-coverage-recheck.md):
+that audit's status column is a snapshot of a superseded tree, and acting on it cost duplicate
+work twice on 2026-07-25.
+
+**Unresolved discrepancy, flagged rather than guessed:** this table says Plan F is Rev. 6 while the
+plan's own status line reads *"APPROVED — 2026-07-24 (Rev. 4)"*. One of the two is wrong; the plan
+document is normally authoritative on its own revision. Owner to reconcile — not corrected here,
+because picking a number without knowing which revision was actually approved would replace a
+visible contradiction with an invisible one.
 
 **Planning authorization:** Viewer v0 design + bundle contract are APPROVED and authorize these
 plans. The master spec is non-binding context for Phase 0 (index §2.2).
@@ -35,7 +52,7 @@ plans. The master spec is non-binding context for Phase 0 (index §2.2).
 | C | [`2026-07-21-viewer-v0-c-replay-and-timeline.md`](2026-07-21-viewer-v0-c-replay-and-timeline.md) | Abstract board + timeline | **merged** PR #46 |
 | D | [`2026-07-21-viewer-v0-d-decision-inspection.md`](2026-07-21-viewer-v0-d-decision-inspection.md) | Candidate table + decision detail | **merged** PR #47 + #48 |
 | E | [`2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md`](2026-07-21-viewer-v0-e-diagnostics-a11y-layout.md) | Diagnostics, scale, keyboard, density | **merged** PR #71 |
-| F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | **APPROVED**, implementing on `studio/plan-f-acceptance`, **not merged, not complete** |
+| F | [`2026-07-21-viewer-v0-f-e2e-acceptance.md`](2026-07-21-viewer-v0-f-e2e-acceptance.md) | Frozen end-to-end acceptance | **APPROVED** + **merged** via PR **#73** (closeout **#74**–**#81**) |
 
 **Next:** Plan F's remaining open items (F1's CI-wiring task; the partial fail-check pass; owner
 review of the F5 merge-readiness packet) before any merge to `main` is considered. **Phase 1+
