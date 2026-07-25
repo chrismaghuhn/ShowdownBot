@@ -73,5 +73,7 @@ func test_determinism_replaying_same_event_list_twice_yields_equal_by_value_snap
 	var second := LiveBattleSnapshot.new()
 	for e in events:
 		second = LiveBattleReducer.apply(second, e)
-	assert_int(first.turn).is_equal(second.turn)
-	assert_int(first.get_slot("p1", "a").hp_current).is_equal(second.get_slot("p1", "a").hp_current)
+	# Byte-meaningful: full-snapshot equals(), not just turn + one slot's hp_current, so a
+	# non-determinism bug hiding in any OTHER field (weather/terrain/other slots/conditions)
+	# would actually be caught.
+	assert_bool(first.equals(second)).is_true()

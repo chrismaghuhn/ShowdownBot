@@ -64,6 +64,35 @@ func get_field_conditions() -> PackedStringArray:
 	return _field_conditions.duplicate()
 
 
+## Full, byte-meaningful, field-by-field value comparison (watchlist M1c's determinism proof
+## needs more than "same final turn number" -- two independent folds of the same event list must
+## agree on every field: turn/weather/terrain/battle_completed, all four slots' own five fields,
+## both sides' conditions, and the field conditions). A public typed method here, not a
+## Dictionary-returning to_dict() surface (AGENTS.md rule 9).
+func equals(other: LiveBattleSnapshot) -> bool:
+	if other == null:
+		return false
+	if _turn != other.turn or _weather != other.weather or _terrain != other.terrain:
+		return false
+	if _battle_completed != other.battle_completed:
+		return false
+	for key in SLOT_KEYS:
+		var mine: LiveBattleSlotSnapshot = _slots[key]
+		var theirs: LiveBattleSlotSnapshot = other._slots[key]
+		if (
+			mine.species != theirs.species
+			or mine.hp_current != theirs.hp_current
+			or mine.hp_maximum != theirs.hp_maximum
+			or mine.hp_fainted != theirs.hp_fainted
+			or mine.hp_status != theirs.hp_status
+		):
+			return false
+	for side in ["p1", "p2"]:
+		if _side_conditions[side] != other._side_conditions[side]:
+			return false
+	return _field_conditions == other._field_conditions
+
+
 func with_slot(side: String, slot: String, next_slot: LiveBattleSlotSnapshot) -> LiveBattleSnapshot:
 	var next_slots := _duplicate_slots()
 	next_slots[slot_key(side, slot)] = next_slot
