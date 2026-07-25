@@ -57,10 +57,16 @@ try {
 
     # FIXED (2026-07-25 review): poll for readiness instead of assuming the port is open the
     # instant the process starts.
+    # FIXED (2026-07-26 review): 127.0.0.1, not "localhost" -- consistency fix alongside the real
+    # bug this session found (the gauntlet seeder's default WebSocket URL resolving "localhost"
+    # to IPv6 first on a CI Windows runner, where this IPv4-only server never answers). This
+    # readiness probe was not the actual failure point (it already reported ready in CI), but
+    # every address in this lane should agree rather than leave a second "localhost" for the
+    # next host-resolution-order surprise.
     $deadline = (Get-Date).AddSeconds($ReadinessTimeoutSeconds)
     $ready = $false
     while ((Get-Date) -lt $deadline) {
-        $test = Test-NetConnection -ComputerName "localhost" -Port $Port -WarningAction SilentlyContinue
+        $test = Test-NetConnection -ComputerName "127.0.0.1" -Port $Port -WarningAction SilentlyContinue
         if ($test.TcpTestSucceeded) {
             $ready = $true
             break

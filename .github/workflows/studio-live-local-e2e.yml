@@ -39,8 +39,13 @@ jobs:
         shell: pwsh
         run: |
           $stdoutPath = Join-Path $env:RUNNER_TEMP "gauntlet_stdout.txt"
+          # --server-url is explicit here (2026-07-26 fix): this CI runner resolves "localhost"
+          # (gauntlet's own default) to IPv6 first, where the pinned local server (IPv4-only)
+          # never answers -- the seeder's hero connection then threw ConnectionRefusedError and
+          # the marker poll below timed out. 127.0.0.1 sidesteps the resolution order entirely,
+          # the same fix already applied on the Godot side (tests/e2e's own _LOCAL_SERVER_URL).
           $proc = Start-Process -FilePath "python" `
-            -ArgumentList "-m", "showdown_bot.cli", "gauntlet", "--games", "1", "--villain", "max_damage", "--print-room-id", "--move-delay-seconds", "3" `
+            -ArgumentList "-m", "showdown_bot.cli", "gauntlet", "--games", "1", "--villain", "max_damage", "--print-room-id", "--move-delay-seconds", "3", "--server-url", "ws://127.0.0.1:8000/showdown/websocket" `
             -RedirectStandardOutput $stdoutPath -PassThru -NoNewWindow
           $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "gauntlet.pid") -Encoding ascii
 

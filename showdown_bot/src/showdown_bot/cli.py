@@ -598,6 +598,12 @@ def run_gauntlet(args) -> None:
         if getattr(args, "move_delay_seconds", None) is None
         else args.move_delay_seconds
     )
+    # --server-url is an owner-approved Studio E2E test-infrastructure exception (2026-07-26):
+    # only passed through when explicitly given, so every existing caller (never passing it)
+    # keeps run_local_gauntlet's own server_url=LOCAL_SERVER default untouched.
+    gauntlet_kwargs = {}
+    if getattr(args, "server_url", None):
+        gauntlet_kwargs["server_url"] = args.server_url
     stats = asyncio.run(
         run_local_gauntlet(
             games=args.games,
@@ -607,6 +613,7 @@ def run_gauntlet(args) -> None:
             team_path=team_path,
             print_room_id=getattr(args, "print_room_id", False),
             move_delay_seconds=move_delay_seconds,
+            **gauntlet_kwargs,
         )
     )
     p95 = stats.latency_p95()
@@ -1117,6 +1124,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "(seconds) inserted before each of the hero bot's own move submissions, used only to keep "
         "an E2E-seeded battle observably active for longer than an instant. Defaults to no delay "
         "(gauntlet).",
+    )
+    parser.add_argument(
+        "--server-url",
+        dest="server_url",
+        default=None,
+        help="Studio M1d E2E test-infrastructure exception (owner-approved, 2026-07-26): explicit "
+        "WebSocket server URL, overriding gauntlet.LOCAL_SERVER's default "
+        "ws://localhost:8000/showdown/websocket. Needed on hosts (e.g. CI Windows runners) that "
+        "resolve 'localhost' to IPv6 first, where the pinned local server (IPv4-only) never "
+        "answers -- the studio-live-local-e2e CI lane passes ws://127.0.0.1:8000/... explicitly. "
+        "Defaults to unset, i.e. gauntlet.LOCAL_SERVER unchanged (gauntlet).",
     )
     parser.add_argument(
         "--schedule",
