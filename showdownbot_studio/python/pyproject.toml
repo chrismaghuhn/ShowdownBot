@@ -22,3 +22,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["../tests/python"]
 pythonpath = ["src"]
+markers = [
+    "architecture: forbidden-dependency and typed-boundary checks (studio-security-invariants CI lane)",
+]
