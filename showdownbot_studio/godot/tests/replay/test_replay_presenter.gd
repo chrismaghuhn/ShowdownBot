@@ -457,3 +457,34 @@ func test_build_board_returns_fresh_model() -> void:
 	assert_bool(a == b).is_false()
 	a.get_slot("p1", "a")["species"] = "Mutated"
 	assert_str(str(b.get_slot("p1", "a")["species"])).is_equal("Pikachu")
+
+
+func test_hp_block_status_reaches_the_board_cell() -> void:
+	## BoardModel.apply_slot_hp copies event.hp_status into the cell. Measured: neutralising
+	## that one branch left all 283 cases green.
+	##
+	## Why nothing caught it -- the two existing status tests take different paths.
+	## test_faint_and_status_curestatus drives the `status`/`curestatus` EVENT types, which
+	## go through set_slot_status; test_bind_shows_species_hp_status builds the cell
+	## dictionary by hand and never calls apply_slot_hp at all. The hp-block path is its own
+	## route and had no coverage.
+	##
+	## No fixture can cover it either: zero lines across every committed bundle's battle.jsonl
+	## carry hp.status. Constructed directly for that reason.
+	var events: Array = [
+		_make_event(0, "switch", {
+			"pokemon_side": "p1", "pokemon_slot": "a", "species": "Pikachu",
+			"hp_current": 35, "hp_maximum": 35, "hp_fainted": false, "hp_status": null,
+		}),
+		_make_event(1, "damage", {
+			"pokemon_side": "p1", "pokemon_slot": "a",
+			"hp_current": 20, "hp_maximum": 35, "hp_fainted": false, "hp_status": "brn",
+		}),
+	]
+	var bundle := _make_replay_only_bundle(events)
+	var replay: ReplayDTO = BattleTimeline.build(bundle)
+	var board := ReplayPresenter.build_board(bundle, replay, replay.entries.size() - 1)
+
+	var cell: Dictionary = board.get_slot("p1", "a")
+	assert_str(str(cell.get("hp_status"))).is_equal("brn")
+	assert_int(cell.get("hp_current")).is_equal(20)
