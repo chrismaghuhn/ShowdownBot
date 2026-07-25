@@ -34,10 +34,10 @@ func _spawn_shell_ready() -> AppShell:
 
 func _await_shell_settled(shell: AppShell, max_frames: int = 600) -> void:
 	var frames := 0
-	while shell.is_loading() and frames < max_frames:
+	while not shell.is_settled() and frames < max_frames:
 		await await_idle_frame()
 		frames += 1
-	assert_bool(shell.is_loading()).is_false()
+	assert_bool(shell.is_settled()).is_true()
 
 
 func test_fixture01_open_trusted() -> void:
