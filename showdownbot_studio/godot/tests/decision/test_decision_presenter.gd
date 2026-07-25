@@ -254,6 +254,30 @@ func test_aggregation_all_null_label() -> void:
 	)
 
 
+func test_aggregation_mode_null_with_a_recorded_lambda_never_reads_as_a_real_mode() -> void:
+	## Gate 28's partly-null branch. The all-null path above is covered; this one was not --
+	## making it return "cvar", a plausible real mode name, left all 281 cases green.
+	## Measured why: 0 of the 36 exported decision rows across every committed bundle have a
+	## null mode alongside a recorded lambda, so no fixture can reach it. Constructed
+	## directly instead -- "no fixture reaches it" is a reason to build the case, not to
+	## leave live code unasserted.
+	var d := _make_decision(0, 0, true)
+	d.aggregation_mode = null
+	d.aggregation_risk_lambda = 0.5
+	d.aggregation_must_react_lambda = null
+
+	var headline := DecisionPresenter.aggregation_headline(d)
+	assert_str(headline).is_equal(DecisionPresenter.NOT_RECORDED)
+
+	## The failure that matters is not "wrong string" but "invented value" -- anything that
+	## reads like a recorded aggregation mode is a data-honesty defect, not a cosmetic one.
+	for plausible_mode: String in ["cvar", "mean", "minimax", "must_react", "expectimax"]:
+		assert_str(headline).is_not_equal(plausible_mode)
+
+	## The two absence cases must stay distinguishable rather than collapsing into one.
+	assert_str(headline).is_not_equal(DecisionPresenter.AGGREGATION_NOT_RECORDED)
+
+
 func test_optional_null_is_not_recorded() -> void:
 	assert_str(DecisionPresenter.optional_text(null)).is_equal(DecisionPresenter.NOT_RECORDED)
 
