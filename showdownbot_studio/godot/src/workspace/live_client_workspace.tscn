@@ -23,3 +23,7 @@ layout_mode = 1
 
 [node name="LiveBattleLogPanel" parent="." instance=ExtResource("5_log")]
 layout_mode = 1
+
+[node name="ConnectButton" type="Button" parent="."]
+layout_mode = 1
+text = "Connect"

@@ -1,8 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/workspace/studio_root.gd" id="1_root"]
 [ext_resource type="Script" path="res://src/workspace/workspace_router.gd" id="2_router"]
 [ext_resource type="PackedScene" path="res://src/workspace/offline_viewer_workspace.tscn" id="3_offline"]
+[ext_resource type="PackedScene" path="res://src/workspace/live_client_workspace.tscn" id="4_live_client"]
 
 [node name="StudioRoot" type="Control"]
 layout_mode = 3
@@ -12,6 +13,17 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_root")
+
+[node name="NavBar" type="HBoxContainer" parent="."]
+layout_mode = 1
+
+[node name="OfflineViewerButton" type="Button" parent="NavBar"]
+layout_mode = 2
+text = "Offline Viewer"
+
+[node name="LiveClientButton" type="Button" parent="NavBar"]
+layout_mode = 2
+text = "Live Client"
 
 [node name="WorkspaceRouter" type="Control" parent="."]
 layout_mode = 1
@@ -29,3 +41,6 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+
+[node name="LiveClientWorkspace" parent="WorkspaceRouter" instance=ExtResource("4_live_client")]
+layout_mode = 1

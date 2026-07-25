@@ -28,10 +28,10 @@ func test_studio_root_shows_offline_viewer_workspace_by_default() -> void:
 	assert_bool(root.get_offline_viewer_workspace().visible).is_true()
 
 
-func test_studio_root_router_has_exactly_one_registered_workspace() -> void:
+func test_studio_root_router_has_exactly_two_registered_workspaces() -> void:
 	var root := _spawn_root()
 	await await_idle_frame()
-	assert_int(root.get_router().get_registered_workspace_ids().size()).is_equal(1)
+	assert_int(root.get_router().get_registered_workspace_ids().size()).is_equal(2)
 
 
 func test_offline_viewer_workspace_opens_fixture01_through_wrapped_app_shell() -> void:

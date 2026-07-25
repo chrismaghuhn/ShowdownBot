@@ -11,6 +11,7 @@ const SHOWDOWN_WEBSOCKET_URL := "wss://sim3.psim.us/showdown/websocket"
 @onready var _connection_status_panel: ConnectionStatusPanel = $ConnectionStatusPanel
 @onready var _battle_board_panel: BattleBoardPanel = $BattleBoardPanel
 @onready var _live_battle_log_panel: LiveBattleLogPanel = $LiveBattleLogPanel
+@onready var _connect_button: Button = $ConnectButton
 
 var _transport: WebSocketTransport
 var _decoder := ProtocolDecoder.new()
@@ -25,6 +26,7 @@ func _ready() -> void:
 	add_child(_transport)
 	_wire_domain_and_ui()  # one-time only -- never re-run, see this task's small-fix-#1 note
 	_wire_transport()
+	_connect_button.pressed.connect(connect_to_showdown)
 
 
 func configure_transport_for_test(peer_factory: Callable) -> void:
@@ -79,6 +81,10 @@ func get_connection_status_panel() -> ConnectionStatusPanel:
 
 func get_battle_board_panel() -> BattleBoardPanel:
 	return _battle_board_panel
+
+
+func get_connect_button_for_test() -> Button:
+	return _connect_button
 
 
 func get_room_state_machine() -> RoomStateMachine:
