@@ -222,6 +222,15 @@ func test_empty_state_only_when_not_has_replay() -> void:
 	assert_bool(view.get_empty_state_visible()).is_false()
 
 
+func test_bind_null_snapshot_shows_explicit_text_and_pushes_error() -> void:
+	var view := _spawn_view()
+	await assert_error(func() -> void: view.bind(null)).is_push_error(
+		"AbstractBoardView.bind() received null snapshot"
+	)
+	assert_bool(view.get_empty_state_visible()).is_true()
+	assert_str(view.get_node("EmptyStateLabel").text).is_equal("No board snapshot bound")
+
+
 func test_set_loading_shows_and_clears() -> void:
 	var view := _spawn_view()
 	view.set_loading(true)

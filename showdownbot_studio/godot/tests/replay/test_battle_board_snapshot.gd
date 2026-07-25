@@ -26,3 +26,12 @@ func test_slot_snapshot_fields_default_to_null() -> void:
 	assert_object(slot.hp_maximum).is_null()
 	assert_object(slot.hp_fainted).is_null()
 	assert_object(slot.hp_status).is_null()
+
+
+func test_get_slot_unknown_key_pushes_error_and_returns_null() -> void:
+	var snapshot := BattleBoardSnapshot.new()
+	var captured: Array = [true]
+	await assert_error(func() -> void: captured[0] = snapshot.get_slot("p3", "z")).is_push_error(
+		"BattleBoardSnapshot.get_slot: unknown side/slot p3/z"
+	)
+	assert_object(captured[0]).is_null()

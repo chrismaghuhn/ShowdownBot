@@ -8,6 +8,14 @@ extends RefCounted
 ## (`Dictionary[K, V]`) specifically so this cross-module value object satisfies AGENTS.md
 ## rule 9 ("no cross-module public interface exposes an untyped container") -- a typed
 ## Dictionary is not the "untyped Dictionary" that rule bans.
+##
+## `turn`, `weather`, and `terrain` stay `Variant`, not typed, and that is not a rule-9 gap:
+## rule 9 bans untyped CONTAINERS on cross-module interfaces (bare `Array`/`Dictionary`), not
+## nullable scalars. These three fields use `Variant` solely as a nullable display value
+## (absent vs present), mirroring the existing Phase-0 `BoardModel` convention (see
+## `board_model.gd`'s own `turn_number`/`weather`/`terrain`). A typed sentinel scheme for
+## "no value recorded yet" is deliberately deferred until the live chain (M1c) gives these
+## fields a producing contract to design the sentinel against.
 
 const SLOT_KEYS := ["p1a", "p1b", "p2a", "p2b"]
 
@@ -33,4 +41,8 @@ static func slot_key(side: String, slot: String) -> String:
 
 
 func get_slot(side: String, slot: String) -> BattleBoardSlotSnapshot:
-	return slots[slot_key(side, slot)]
+	var key := slot_key(side, slot)
+	if not slots.has(key):
+		push_error("BattleBoardSnapshot.get_slot: unknown side/slot %s/%s" % [side, slot])
+		return null
+	return slots[key]

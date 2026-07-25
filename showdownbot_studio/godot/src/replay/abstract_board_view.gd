@@ -27,9 +27,15 @@ var _bound: BattleBoardSnapshot = null
 
 func bind(snapshot: BattleBoardSnapshot) -> void:
 	_bound = snapshot
-	if snapshot == null or not snapshot.presentation_available:
+	if snapshot == null:
+		push_error("AbstractBoardView.bind() received null snapshot")
 		_empty.visible = true
-		_empty.text = "" if snapshot == null else snapshot.empty_state_reason
+		_empty.text = "No board snapshot bound"
+		_clear_slots_and_meta()
+		return
+	if not snapshot.presentation_available:
+		_empty.visible = true
+		_empty.text = snapshot.empty_state_reason
 		_clear_slots_and_meta()
 		return
 	_empty.visible = false
