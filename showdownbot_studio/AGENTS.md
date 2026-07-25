@@ -30,10 +30,11 @@ defect, not a style preference.
    implementation behind its interface (Phase-0 board, Python team validation/packing,
    Python bundle canonicalization).
 8. Every new capability needs a clear owner module, tests, and a documented data flow.
-9. Typed GDScript everywhere. `Variant`, untyped `Array`, and untyped `Dictionary` are
-   permitted only inside audited parsing/serialization boundaries; no cross-module
-   public interface exposes an untyped container — values leaving a boundary are named
-   typed DTOs, enums, or value objects.
+9. Typed GDScript everywhere. Bare `Array` and untyped `Dictionary` are restricted to
+   audited parsing/serialization boundaries. `Variant` is permitted only for documented
+   nullable scalar fields in named typed DTOs/value objects — never for containers, and
+   never as a parameter or return type on a cross-module public interface. Values leaving
+   a module boundary are named typed DTOs, enums, or value objects.
 10. Fail closed by default: on unknown, stale, inconsistent, or incomplete data, block
     the action and surface the condition — never guess, never "best effort".
 

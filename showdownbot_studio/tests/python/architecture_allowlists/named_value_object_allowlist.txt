@@ -1,0 +1,24 @@
+# Allowlisted named typed DTOs/value objects permitted a documented nullable-scalar `Variant`
+# FIELD under the amended AGENTS.md rule 9 (2026-07-25 PR-88 review): "Variant is permitted only
+# for documented nullable scalar fields in named typed DTOs/value objects -- never for
+# containers, and never as a parameter or return type on a cross-module public interface."
+# Scope: this allowlist governs Variant FIELDS on files inside the seven catalogued Phase-3
+# module directories (spec section 4.1 / docs/architecture/MODULE_CATALOG.md) only -- net/,
+# protocol/, session/, battle/, ui/, replay/, workspace/. Paths are relative to godot/src/;
+# only exact file paths are accepted (no directory prefixes) so every entry names one
+# reviewed value object. Add an entry only with a one-line justification and an
+# owner-approved PR description -- this file is read by
+# tests/python/test_f0_untyped_boundary_guard.py.
+
+# turn/weather/terrain are documented nullable display scalars on the F0 neutral
+# board-presentation contract (spec section 4.7); absent vs present, not a container.
+replay/battle_board_snapshot.gd
+
+# species/hp_current/hp_maximum/hp_fainted/hp_status are documented nullable per-slot display
+# scalars on the same F0 board-presentation contract (spec section 4.7).
+replay/battle_board_slot_snapshot.gd
+
+# turn_number/weather/terrain/last_move are the pre-existing Phase-0 BoardModel's nullable
+# display scalars (spec section 4.7); BoardModel is reused for its view only and is not
+# rewritten to satisfy a rule introduced after it was built.
+replay/board_model.gd

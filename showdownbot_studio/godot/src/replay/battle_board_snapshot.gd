@@ -9,13 +9,15 @@ extends RefCounted
 ## rule 9 ("no cross-module public interface exposes an untyped container") -- a typed
 ## Dictionary is not the "untyped Dictionary" that rule bans.
 ##
-## `turn`, `weather`, and `terrain` stay `Variant`, not typed, and that is not a rule-9 gap:
-## rule 9 bans untyped CONTAINERS on cross-module interfaces (bare `Array`/`Dictionary`), not
-## nullable scalars. These three fields use `Variant` solely as a nullable display value
-## (absent vs present), mirroring the existing Phase-0 `BoardModel` convention (see
-## `board_model.gd`'s own `turn_number`/`weather`/`terrain`). A typed sentinel scheme for
-## "no value recorded yet" is deliberately deferred until the live chain (M1c) gives these
-## fields a producing contract to design the sentinel against.
+## `turn`, `weather`, and `terrain` stay `Variant`, not typed, under the amended AGENTS.md
+## rule 9 (2026-07-25 PR-88 review): `Variant` is permitted for documented nullable scalar
+## FIELDS in a named typed value object such as this one -- never for containers, and never
+## as a parameter or return type on a cross-module public interface. These three fields are
+## exactly that: a nullable display value (absent vs present) on a named DTO, mirroring the
+## existing Phase-0 `BoardModel` convention (see `board_model.gd`'s own
+## `turn_number`/`weather`/`terrain`). A typed sentinel scheme for "no value recorded yet" is
+## deliberately deferred until the live chain (M1c) gives these fields a producing contract
+## to design the sentinel against.
 
 const SLOT_KEYS := ["p1a", "p1b", "p2a", "p2b"]
 

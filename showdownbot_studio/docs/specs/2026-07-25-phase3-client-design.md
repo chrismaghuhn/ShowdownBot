@@ -984,12 +984,15 @@ on, cross-referenced to `AGENTS.md`'s numbered rules:
 - no cross-module access bypasses the three paths in §4.2 (`AGENTS.md` rule 4); a review that finds
   one module reaching into another's internals treats it as a defect, not a style preference;
 - typed GDScript, precisely stated (this refines `AGENTS.md` rule 9 for this phase's boundaries):
-  `Variant`, untyped `Array`, and untyped `Dictionary` are permitted **only** inside audited parsing
-  and serialization boundaries — `protocol/`'s decoder/encoder, DTO (de)serialization, and the
-  replay bundle writer, where the whole point of the code is turning untyped bytes into typed values.
-  No cross-module **public** interface may expose an untyped container; a value leaving a module
-  boundary must be a named typed DTO, enum, or value object. This is architecture-testable, and the
-  `studio-security-invariants` CI lane (§8.2) tests it, not just documents it.
+  bare `Array` and untyped `Dictionary` are permitted **only** inside audited parsing and
+  serialization boundaries — `protocol/`'s decoder/encoder, DTO (de)serialization, and the replay
+  bundle writer, where the whole point of the code is turning untyped bytes into typed values.
+  `Variant` is permitted only for documented nullable scalar fields in named typed DTOs/value
+  objects — never for containers, and never as a parameter or return type on a cross-module public
+  interface. No cross-module **public** interface may expose an untyped container; a value leaving a
+  module boundary must be a named typed DTO, enum, or value object. This is architecture-testable,
+  and the `studio-security-invariants` CI lane (§8.2) tests it, not just documents it. (wording
+  aligned with the AGENTS.md rule-9 amendment, 2026-07-25 PR-88 review)
 
 `AGENTS.md` rules 5, 6, 7, and 10 (state is derived and never patched; protocol/state/UI separation;
 no duplicate board/team/replay/validation logic; fail closed by default) are already load-bearing

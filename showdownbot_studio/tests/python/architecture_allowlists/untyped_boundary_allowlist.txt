@@ -5,3 +5,13 @@
 # signature -- this file is read by tests/python/test_f0_untyped_boundary_guard.py.
 bundle/
 protocol/
+# replay/replay_dto.gd: pre-existing Phase-0 sealed replay-evidence DTO (viewer-v0-design.md);
+# its `entries` field holds the parsed, heterogeneous battle-event/decision-row list read
+# straight from bundle JSONL -- the same parsing/serialization-boundary shape already granted
+# to bundle/, just living in replay/ because it is replay-specific evidence, not a bundle DTO.
+replay/replay_dto.gd
+# replay/board_model.gd: pre-existing Phase-0 mutable board-state object (spec section 4.7);
+# kept exactly as-is per the F0 board-presentation-contract refactor -- it is reused for its
+# *view*, never promoted to live state, so it is not rewritten to satisfy a rule introduced
+# after it was built. `slots`/`side_conditions` stay untyped Dictionary as originally shipped.
+replay/board_model.gd
