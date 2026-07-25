@@ -1,0 +1,25 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/workspace/live_client_workspace.gd" id="1_workspace"]
+[ext_resource type="PackedScene" path="res://src/ui/panels/room_entry_panel.tscn" id="2_entry"]
+[ext_resource type="PackedScene" path="res://src/ui/panels/connection_status_panel.tscn" id="3_status"]
+[ext_resource type="PackedScene" path="res://src/ui/panels/battle_board_panel.tscn" id="4_board"]
+[ext_resource type="PackedScene" path="res://src/ui/panels/live_battle_log_panel.tscn" id="5_log"]
+
+[node name="LiveClientWorkspace" type="Control"]
+layout_mode = 3
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_workspace")
+
+[node name="RoomEntryPanel" parent="." instance=ExtResource("2_entry")]
+layout_mode = 1
+
+[node name="ConnectionStatusPanel" parent="." instance=ExtResource("3_status")]
+layout_mode = 1
+
+[node name="BattleBoardPanel" parent="." instance=ExtResource("4_board")]
+layout_mode = 1
+
+[node name="LiveBattleLogPanel" parent="." instance=ExtResource("5_log")]
+layout_mode = 1
