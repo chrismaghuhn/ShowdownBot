@@ -19,6 +19,20 @@ extends TabContainer
 var _decision: DecisionRowDTO = null
 
 
+func _ready() -> void:
+	# §0.8 "Visual truncate + tooltip/full detail": candidate_key runs to
+	# ~286 chars (JSON), which otherwise makes this Label's minimum width the
+	# full text width and pushes the whole shell wider than the window (the
+	# owner-reported "screen shifts right" bug). clip_text stops the full
+	# text width from entering the minimum size; text_overrun_behavior draws
+	# the visible ellipsis. The full value is never touched -- only display
+	# -- and stays reachable via tooltip_text (set in bind_*, see below) and
+	# the Raw tab.
+	for lbl in [_chosen_key, _cand_key]:
+		lbl.clip_text = true
+		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+
+
 func bind_decision(decision: DecisionRowDTO) -> void:
 	_decision = decision
 	if decision == null:
@@ -36,6 +50,7 @@ func bind_decision(decision: DecisionRowDTO) -> void:
 	_chosen_key.text = "chosen_key: %s" % DecisionPresenter.optional_text(
 		decision.chosen_candidate_key
 	)
+	_chosen_key.tooltip_text = _chosen_key.text
 	_chosen_id.text = "chosen_id (label, not identity): %s" % DecisionPresenter.optional_text(
 		decision.chosen_candidate_id
 	)
@@ -50,11 +65,13 @@ func bind_candidate(candidate: CandidateDTO) -> void:
 		_cand_rank.text = ""
 		_cand_score.text = ""
 		_cand_key.text = ""
+		_cand_key.tooltip_text = ""
 		return
 	_cand_id.text = "candidate_id: %s" % candidate.candidate_id
 	_cand_rank.text = "rank: %d" % candidate.rank
 	_cand_score.text = "aggregate_score: %.4f" % candidate.aggregate_score
 	_cand_key.text = "candidate_key: %s" % DecisionPresenter.optional_text(candidate.candidate_key)
+	_cand_key.tooltip_text = _cand_key.text
 
 
 func clear_view() -> void:
@@ -65,6 +82,8 @@ func clear_view() -> void:
 		_state_summary,
 	]:
 		lbl.text = ""
+	_chosen_key.tooltip_text = ""
+	_cand_key.tooltip_text = ""
 
 
 func get_aggregation_text() -> String:

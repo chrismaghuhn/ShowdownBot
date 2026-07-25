@@ -191,7 +191,9 @@ func _rebuild() -> void:
 		if not _passes_filter(row_i, chosen_row):
 			continue
 		var c: CandidateDTO = _decision.candidates[row_i]
-		var key_text := DecisionPresenter.optional_text(c.candidate_key)
+		var key_text := DecisionPresenter.truncate_for_row(
+			DecisionPresenter.optional_text(c.candidate_key)
+		)
 		var marker := "* " if row_i == chosen_row else "  "
 		var line := "%s[%d] %s | %s | %.4f" % [
 			marker, c.rank, c.candidate_id, key_text, c.aggregate_score

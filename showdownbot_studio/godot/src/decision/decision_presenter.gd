@@ -10,6 +10,13 @@ const SORT_LABEL := "label"
 const SORT_KEY := "key"
 const SORT_CHOSEN_FIRST := "chosen_first"
 
+## §0.8 "Visual truncate + tooltip/full detail; copy paths never truncate
+## IDs" — the row-text length past which CandidateTableView shortens a
+## rendered key for readability. The underlying candidate_key value is never
+## touched: full value stays reachable via the Candidate tab / Raw tab.
+const TABLE_KEY_DISPLAY_CHARS := 60
+const TRUNCATION_SUFFIX := "…"
+
 
 static func resolve_chosen_row_index(decision: DecisionRowDTO) -> int:
 	if decision == null or not decision.decision_valid:
@@ -41,6 +48,16 @@ static func aggregation_headline(decision: DecisionRowDTO) -> String:
 
 static func optional_text(value: Variant) -> String:
 	return NOT_RECORDED if value == null else str(value)
+
+
+## Display-only truncation for unbounded strings (candidate_key JSON runs to
+## ~286 chars) rendered inline in a row of text. Never applied to the value
+## itself, only to what a row shows -- identity/search/sort stay on the full
+## string (§0.8: "copy paths never truncate IDs").
+static func truncate_for_row(text: String, max_chars: int = TABLE_KEY_DISPLAY_CHARS) -> String:
+	if text.length() <= max_chars:
+		return text
+	return text.substr(0, max_chars) + TRUNCATION_SUFFIX
 
 
 static func header_text(decision: DecisionRowDTO) -> String:
