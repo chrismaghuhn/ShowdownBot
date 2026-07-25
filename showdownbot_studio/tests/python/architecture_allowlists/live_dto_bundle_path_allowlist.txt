@@ -1,0 +1,5 @@
+# Allowlisted exceptions to "no live DTO type referenced from a *bundle_writer*.gd file"
+# (spec section 4.1.2). Paths are relative to godot/src/, one exact file path per line. No
+# exception exists yet -- add one only with an owner-approved PR description explaining why
+# a specific bundle-writer file legitimately needs a live DTO reference. This file is read by
+# tests/python/test_f0_live_dto_bundle_guard.py.
