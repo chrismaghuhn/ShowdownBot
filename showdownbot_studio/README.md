@@ -1,12 +1,15 @@
 # ShowdownBot Studio
 
-ShowdownBot Studio is a planned **desktop analysis and client companion** for the ShowdownBot
-project. It lives in this monorepo so its trace, provenance, format, and protocol contracts can
-evolve alongside the bot without mixing the two products' runtime code.
+ShowdownBot Studio is a **desktop analysis and client companion** for the ShowdownBot project. It
+lives in this monorepo so its trace, provenance, format, and protocol contracts can evolve
+alongside the bot without mixing the two products' runtime code.
 
 The long-term direction includes replay analysis, live spectating, team analysis, a full Pokémon
-Showdown protocol client, controlled add-ons, and external bot adapters. Delivery is phased. The
-first possible implementation slice is only the offline Replay + DecisionTrace Viewer.
+Showdown protocol client, controlled add-ons, and external bot adapters. Delivery is phased.
+
+**Phase 0 — the offline Replay + DecisionTrace Viewer — is built, merged and closed** (Godot
+4.5.2, Windows). Everything beyond it is unauthorized until it has its own approved design and
+plan; see the stop line under Status.
 
 ## Status
 
@@ -21,14 +24,20 @@ first possible implementation slice is only the offline Replay + DecisionTrace V
   decision detail).
 - **Plan E** merged: E1 shipped as `e757772`, E2–E7 merged via PR **#71** (`4ed406c`)
   (diagnostics, scale/density, keyboard shortcuts, layout shell).
-- **Plan F** APPROVED (Rev. 6) and its implementation is running on branch
-  `studio/plan-f-acceptance` — **not yet merged to `main`, and not complete.** F1–F3 (fixture
-  catalogue, automated gates, honesty audit) and F4 (this docs closeout) are done on that branch;
-  F1's own CI-wiring task is still open (no `showdownbot_studio/` job exists in
-  `.github/workflows/` yet — every green count reported anywhere in this plan set is a local
-  measurement, not CI-verified) and the gate fail-check pass is partial. See
-  [`docs/plans/evidence/viewer-v0-f-merge-readiness.md`](docs/plans/evidence/viewer-v0-f-merge-readiness.md)
-  for the full state before any merge decision.
+- **Plan F** merged via PR **#73**, with closeout follow-ups **#74**–**#81**. F1's CI-wiring task
+  is closed: `.github/workflows/studio-windows.yml` (PR **#76**) runs both suites on
+  `windows-latest`, so counts reported here are CI-verified rather than local-only. It also carries
+  a truncation guard, because gdUnit4 once reported 14 of 33 cases as a complete "PASSED" run.
+- **Phase 0 is CLOSED (2026-07-25).** Choice Point 4's J2 condition — manual evidence *filed*
+  **and** explicitly *signed off* — was met by PR **#81**.
+- Post-closeout PRs **#82**–**#86** were **test coverage only**, no feature scope. They ran a
+  fail-check pass — break the guard, confirm the test goes red — that is now complete for the
+  python suite and a 20-guard sample on the Godot side. It closed 8 defects that green suites had
+  not seen, including a containment guard whose two tests self-skipped for a wrong reason on every
+  run, locally and in CI. See
+  [`docs/plans/evidence/viewer-v0-gate-coverage-recheck.md`](docs/plans/evidence/viewer-v0-gate-coverage-recheck.md)
+  — and read it before picking work from the older gate-coverage audit, whose status column is a
+  snapshot of a superseded tree.
 - **Phase 1+ (Live Spectator, Team Analyzer, full client, add-ons, external bots) remain explicitly
   unauthorized** — Plan F's own stop line (§8) forbids growing this plan set toward them; each
   needs its own approved design + plan first.

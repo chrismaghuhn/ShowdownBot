@@ -1,5 +1,19 @@
 # Viewer v0 — Plan F Gate Coverage Audit
 
+> **The status column below is STALE — do not pick work from it.** Added 2026-07-25.
+>
+> This audit was correct when written, at `main @ 5feaa7c`. `git merge-base` confirms that base is
+> an **ancestor** of commit `1980174` — *"close gate-coverage gaps the Plan F audit verified"* —
+> the commit whose entire purpose was to consume the MISSING list below. Reading it as current
+> cost duplicate work twice on 2026-07-25 (PR #82 and PR #83).
+>
+> Current state, and the reason a refreshed table was deliberately **not** produced:
+> [`viewer-v0-gate-coverage-recheck.md`](viewer-v0-gate-coverage-recheck.md).
+>
+> The **method** here was right and is reused by the recheck. Nothing below is rewritten: an
+> evidence file that edits its own past measurements is worth less than one that shows where it
+> stood.
+
 **Task:** Plan F §4, task F1, first checkbox — "Verify the 'existing' cells in §3's gate table
 against the actual 77 pytest tests (do not assume from names)."
 

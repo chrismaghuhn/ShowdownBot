@@ -480,4 +480,4 @@ Ordered front-track work as of **2026-07-23** (I8-A–C machinery merged PR #20 
 | Opponent-Mega frozen evidence | `data/eval/champions-panel-v0/smoke-i7b-mega/` + `reports/champions-panel-v0-i7b-mega-smoke.md` |
 | Eval provenance pattern | `data/eval/champions-panel-v0/smoke-i5/` (I5 baseline), `smoke-i5-hpfix-validation/` (HP-fix revalidation @ `62117b5`), `smoke-i6-damage-gen0/` (I6 @ `3bcd4b3`) |
 | Accuracy env knobs | `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP` |
-| Future ShowdownBot Studio desktop client (not active front track) | `showdownbot_studio/README.md` |
+| ShowdownBot Studio desktop client — **Phase 0 built + closed 2026-07-25**, parallel track, not the bot front track | `showdownbot_studio/README.md` |

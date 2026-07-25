@@ -5,6 +5,13 @@ Produced per
 **Build:** `studio/plan-f-acceptance` @ `ca3f7ba` (F4's commit; this packet is F5, committed
 immediately after). **Date:** 2026-07-24.
 
+> **Historical — the merge decision this packet informed has been taken.** Added 2026-07-25.
+> Plan F merged via PR **#73**; the items this packet listed as open were closed by follow-ups
+> **#74**–**#81**, and Choice Point 4's J2 sign-off landed in **#81**. Phase 0 is closed.
+> Left exactly as written: a readiness packet that quietly acquires a happy ending is no longer
+> evidence of what was known at decision time. Current state:
+> [`viewer-v0-gate-coverage-recheck.md`](viewer-v0-gate-coverage-recheck.md).
+
 ## Plan F is not complete. This is a readiness packet, not a completion claim.
 
 Read this whole document before deciding whether to merge. Plan F's own §5 acceptance table has

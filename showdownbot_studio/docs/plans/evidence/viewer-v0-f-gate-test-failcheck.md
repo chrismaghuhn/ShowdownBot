@@ -1,5 +1,14 @@
 # Plan F — fail-check pass for the gate-coverage tests (commit `1980174`)
 
+> **Superseded 2026-07-25 — the pass was continued.** The "Not reached" list below has since been
+> worked through: 15 guards on the python side (complete for that suite) plus a 20-guard sample on
+> the Godot side, which had never been fail-checked at all. Results, including five more guards
+> that stayed green and what closed them, are in
+> [`viewer-v0-gate-coverage-recheck.md`](viewer-v0-gate-coverage-recheck.md) §3 and §3b.
+>
+> This document is left as written. Its finding — that the gate-10/11/12 tests stay green when
+> their guard is deleted — still holds and is the reason the wider pass happened.
+
 **Status: PARTIAL.** Only the priority group (gates 10/11/12) was checked. Recorded honestly rather
 than left implied — see "Not reached" below.
 
