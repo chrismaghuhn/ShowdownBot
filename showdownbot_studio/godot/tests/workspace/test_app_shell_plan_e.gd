@@ -393,3 +393,46 @@ func test_candidate_table_minimum_size_invariant_to_row_count() -> void:
 	var min_104_rows := table.get_combined_minimum_size()
 
 	assert_vector(min_104_rows).is_equal(min_default)
+
+
+func test_shell_min_width_stays_bounded_after_timeline_selects_long_key_decision() -> void:
+	# Regression for the owner-reported "screen shifts right" bug. Root cause
+	# (measured on main, this fix's report): DecisionDetailView's
+	# CandidateKeyLabel / ChosenKeyLabel render candidate_key with no
+	# truncation, and fixture-01 decision_index=1 has a chosen candidate whose
+	# candidate_key is ~286 chars -- ballooning the shell's computed minimum
+	# width to ~2208px in a 1920px window (see
+	# test_candidate_table_minimum_size_invariant_to_row_count's note above,
+	# which found the same gap and deliberately left it out of that task's
+	# scope).
+	#
+	# Selects via TimelineController.select(), the way the owner actually
+	# clicks a timeline entry -- not DecisionController.select_decision_row()
+	# directly. Both routes converge on DecisionController._set_row() and
+	# should settle identically, but the owner's repro is real-window timeline
+	# clicks, so this pins that exact path rather than a same-outcome proxy.
+	var shell: AppShell = await _spawn_shell_ready()
+	shell.open_bundle_path(_fixture_path("bundles/fixture-01"))
+	await _await_shell_settled(shell)
+	var bundle := shell.get_loaded_bundle()
+	assert_object(bundle).is_not_null()
+
+	var row_index := _row_index_by_decision_index(bundle, 1)
+	assert_bool(bundle.decisions[row_index].chosen_candidate_key != null).is_true()
+
+	var timeline := shell.get_replay_workspace().get_timeline_controller()
+	var entry_index := DecisionPresenter.timeline_entry_for_decision_row(
+		timeline.get_replay(), row_index
+	)
+	assert_int(entry_index).is_greater(-1)
+
+	timeline.select(entry_index)
+	await await_idle_frame()
+	await await_idle_frame()
+	assert_int(shell.get_selected_decision_index()).is_equal(1)
+
+	var min_size := shell.compute_min_window_size()
+	assert_int(min_size.x).override_failure_message(
+		"shell minimum width must stay <= 1280 (the min-window floor) after "
+		+ "selecting decision #1 via the timeline; got %d" % min_size.x
+	).is_less_equal(1280)

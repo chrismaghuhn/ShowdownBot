@@ -193,6 +193,46 @@ func test_filter_chosen_only() -> void:
 	assert_int(view.get_chosen_item_index()).is_equal(0)
 
 
+func test_row_truncates_long_candidate_key_for_readability() -> void:
+	# Third surface named in the owner's screenshot: rows render the key
+	# inline (candidate_table_view.gd:196-198) with no truncation, running far
+	# off the right edge for a ~286-char candidate_key. This does not drive
+	# CandidateTableView's own minimum size (an ItemList reports (0,0) for
+	# content), but it is unreadable and the same §0.8 requirement applies.
+	# Filtering must still match against the untruncated key underneath.
+	var view: CandidateTableView = preload("res://src/decision/candidate_table_view.tscn").instantiate()
+	add_child(view)
+	await await_idle_frame()
+	var long_key := "k".repeat(286)
+	var d := DecisionRowDTO.new()
+	d.decision_index = 99
+	d.turn_number = 1
+	d.decision_phase = BundleMode.PHASE_REGULAR_TURN
+	d.decision_latency_ms = 1.0
+	d.observable_state_hash = "obs"
+	d.request_hash = "req"
+	d.state_summary = {}
+	d.normalized_action = {}
+	d.actual_choose_string = "move 1"
+	d.candidates = [_make_candidate("alpha-label", 1, 1.0, long_key)]
+	d.chosen_candidate_key = long_key
+	d.fallback_used = false
+	d.warning_count = 0
+	d.decision_valid = true
+	d.seal()
+	view.bind(d)
+	var list: ItemList = view.get_node("CandidateList")
+	var line := list.get_item_text(0)
+	assert_int(line.length()).is_less(150)
+	assert_bool(line.contains("alpha-label")).is_true()
+	assert_bool(line.contains(long_key)).is_false()
+	# The candidate_id / rank prefix is never truncated -- only the key.
+	assert_bool(line.contains("[1] alpha-label")).is_true()
+	# Search still operates on the full, untruncated key (identity untouched).
+	view.set_filter_text(long_key.substr(200, 20))
+	assert_int(view.get_item_count()).is_equal(1)
+
+
 func test_filter_resyncs_selection_signal() -> void:
 	var view: CandidateTableView = preload("res://src/decision/candidate_table_view.tscn").instantiate()
 	add_child(view)

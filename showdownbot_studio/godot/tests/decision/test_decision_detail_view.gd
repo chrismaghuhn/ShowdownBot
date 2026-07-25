@@ -81,3 +81,44 @@ func test_chosen_id_caption_not_identity() -> void:
 	view.bind_decision(d)
 	var chosen_id_label: Label = view.get_node("Overview/ChosenIdLabel")
 	assert_bool(chosen_id_label.text.contains("not identity")).is_true()
+
+
+func test_candidate_key_label_stays_narrow_and_exposes_full_value_via_tooltip() -> void:
+	# Root cause of the "screen shifts right" bug (owner-reported, reproduced):
+	# a Label's minimum size includes its full text width unless told
+	# otherwise. candidate_key strings run ~286 chars (fixture-01
+	# decision_index=1), which alone pushed this label's minimum width past
+	# 1900px. §0.8 requires visual truncate + tooltip/full detail, never a
+	# truncated copy path — so the full value must still be reachable, just
+	# not via the label's on-screen width.
+	var view: DecisionDetailView = preload("res://src/decision/decision_detail_view.tscn").instantiate()
+	add_child(view)
+	await await_idle_frame()
+	var long_key := "x".repeat(286)
+	var c := _make_candidate("cand-a", 1, 1.0, long_key)
+	view.bind_candidate(c)
+	await await_idle_frame()
+	var label: Label = view.get_node("Candidate/CandidateKeyLabel")
+	assert_str(label.tooltip_text).contains(long_key)
+	assert_float(label.get_combined_minimum_size().x).is_less(500.0)
+
+
+func test_chosen_key_label_stays_narrow_and_exposes_full_value_via_tooltip() -> void:
+	var bundle := _fixture_bundle("bundles/fixture-01")
+	var d: DecisionRowDTO = _bundle_decision_by_index(bundle, 1)
+	assert_object(d).is_not_null()
+	var view: DecisionDetailView = preload("res://src/decision/decision_detail_view.tscn").instantiate()
+	add_child(view)
+	await await_idle_frame()
+	view.bind_decision(d)
+	await await_idle_frame()
+	var label: Label = view.get_node("Overview/ChosenKeyLabel")
+	assert_str(label.tooltip_text).contains(str(d.chosen_candidate_key))
+	assert_float(label.get_combined_minimum_size().x).is_less(500.0)
+
+
+func _bundle_decision_by_index(bundle: BundleDTO, decision_index: int) -> DecisionRowDTO:
+	for row in bundle.decisions:
+		if row.decision_index == decision_index:
+			return row
+	return null
