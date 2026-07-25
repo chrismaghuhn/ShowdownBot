@@ -11,6 +11,7 @@ signal raw_text_received(text: String)
 
 const CONNECT_TIMEOUT_S := 15.0
 const RECONNECT_BACKOFF_SCHEDULE_S: Array[float] = [1.0, 2.0, 5.0, 10.0, 20.0]
+const HEARTBEAT_INTERVAL_S := 20.0
 
 var _peer: SocketPeerPort
 var _state_machine := ConnectionStateMachine.new()
@@ -100,6 +101,7 @@ func _schedule_next_attempt() -> void:
 
 func _open_socket() -> void:
 	_peer = _peer_factory.call()
+	_peer.configure_heartbeat_interval(HEARTBEAT_INTERVAL_S)
 	var err: int = _peer.connect_to_url(_url)
 	if err != OK:
 		_advance_after_failed_attempt()
