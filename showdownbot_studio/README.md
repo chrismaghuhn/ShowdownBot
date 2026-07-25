@@ -45,6 +45,8 @@ plan; see the stop line under Status.
 
 ## Start here
 
+0. [`AGENTS.md`](AGENTS.md) — non-negotiable maintainer rules and safety defaults; read first
+   before changing anything under `showdownbot_studio/`.
 1. [`docs/plans/README.md`](docs/plans/README.md) — Viewer v0 plan order and approval status (A–F).
 2. [`docs/specs/viewer-v0-design.md`](docs/specs/viewer-v0-design.md) — first bounded product slice.
 3. [`docs/specs/viewer-v0-bundle-contract-design.md`](docs/specs/viewer-v0-bundle-contract-design.md) — binding bundle/exporter contract.
