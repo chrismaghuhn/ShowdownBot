@@ -36,6 +36,16 @@ func test_absence_text_is_never_a_falsy_looking_value() -> void:
 		assert_str(DecisionPresenter.AGGREGATION_NOT_RECORDED.to_lower()).is_not_equal(forbidden)
 
 
+func test_warning_icons_are_distinct_and_pinned() -> void:
+	# Measured: ICON_EXPORTER := "~" (i.e. equal to ICON_DOWNGRADE) left all 280 cases green.
+	# Not even a self-referential assertion existed -- a grep for either constant across
+	# tests/ returned nothing. Collapsing them makes an exporter warning and a schema
+	# downgrade indistinguishable in the Warnings tab, which is the whole point of the icon.
+	assert_str(DiagnosticsPresenter.ICON_EXPORTER).is_equal("!")
+	assert_str(DiagnosticsPresenter.ICON_DOWNGRADE).is_equal("~")
+	assert_str(DiagnosticsPresenter.ICON_EXPORTER).is_not_equal(DiagnosticsPresenter.ICON_DOWNGRADE)
+
+
 func test_state_banner_vocabulary_literal_values() -> void:
 	assert_str(StateBannerPresenter.BUNDLE_INVALID).is_equal("BUNDLE INVALID")
 	assert_str(StateBannerPresenter.TRACE_MISSING).is_equal("TRACE MISSING")
