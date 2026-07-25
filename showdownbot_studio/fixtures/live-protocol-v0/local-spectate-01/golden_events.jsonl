@@ -1,0 +1,153 @@
+{"event_type": "init", "room_id": "battle-gen9randomdoublesbattle-3764", "condition_label": "battle"}
+{"event_type": "title", "room_id": "battle-gen9randomdoublesbattle-3764"}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "pokemon_species": "Granbull", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "pokemon_species": "Primarina", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "pokemon_species": "Cetitan", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "pokemon_species": "Regieleki", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 1}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 74, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "pokemon_species": "Pincurchin", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "-fieldstart", "room_id": "battle-gen9randomdoublesbattle-3764", "condition_label": "Electric Terrain"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 48, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 76, "hp_maximum": 100}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 71, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 37, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 2}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 84, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 0}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 30, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 55, "hp_maximum": 100}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 11, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 73, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "pokemon_species": "Regieleki", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 3}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 8, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "pokemon_species": "Orthworm", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 48, "hp_maximum": 100}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 26, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 32, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "pokemon_species": "Regieleki", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 4}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "pokemon_species": "Poliwrath", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 38, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "pokemon_species": "Lunala", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "pokemon_species": "Alomomola", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 5}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 85, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 65, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 44, "hp_maximum": 100}
+{"event_type": "-fieldend", "room_id": "battle-gen9randomdoublesbattle-3764", "condition_label": "Electric Terrain"}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 6}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 55, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 90, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 50, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 7}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 42, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 56, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 8}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 30, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 62, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 9}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 19, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 68, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 10}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 8, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 64, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 74, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 11}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 80, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "pokemon_species": "Brambleghast", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 12}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 86, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 13}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 3, "hp_maximum": 100}
+{"event_type": "-heal", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 92, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "pokemon_species": "Emboar", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 14}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 88, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 63, "hp_maximum": 100}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "pokemon_species": "Regieleki", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 15}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 50, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b", "hp_current": 74, "hp_maximum": 100}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 41, "hp_maximum": 100}
+{"event_type": "turn", "room_id": "battle-gen9randomdoublesbattle-3764", "turn_number": 16}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "b"}
+{"event_type": "switch", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "a", "pokemon_species": "Scream Tail", "hp_current": 100, "hp_maximum": 100}
+{"event_type": "move", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p2", "pokemon_slot": "b"}
+{"event_type": "-damage", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 0}
+{"event_type": "faint", "room_id": "battle-gen9randomdoublesbattle-3764", "pokemon_side": "p1", "pokemon_slot": "a"}
+{"event_type": "win", "room_id": "battle-gen9randomdoublesbattle-3764"}
