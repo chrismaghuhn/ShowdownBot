@@ -95,6 +95,13 @@ func get_projection_for_test() -> LiveBattleProjection:
 	return _projection
 
 
+## Test-only seam for the watchlist's "domain/UI signals connected exactly once" proof: exposes
+## the stable _decoder instance so a test can inspect event_decoded.get_connections().size()
+## directly, rather than inferring wiring correctness only from indirect side effects.
+func get_decoder_for_test() -> ProtocolDecoder:
+	return _decoder
+
+
 func _on_connection_state_changed(old_state: ConnectionStateMachine.State, new_state: ConnectionStateMachine.State) -> void:
 	_bus.publish_connection_state_changed(old_state, new_state)
 

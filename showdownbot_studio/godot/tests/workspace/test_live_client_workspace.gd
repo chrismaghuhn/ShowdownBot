@@ -130,3 +130,22 @@ func test_unknown_room_error_rejects_join_and_shows_error_text() -> void:
 func test_connection_state_changes_reach_the_status_panel_via_the_bus() -> void:
 	_workspace.get_transport().connect_to_server("ws://localhost:8000/showdown/websocket")
 	assert_str(_workspace.get_connection_status_panel().get_status_text()).is_equal("Connecting...")
+
+
+func test_configure_transport_for_test_does_not_rewire_domain_and_ui_a_second_time() -> void:
+	# Watchlist M1d: "configure_transport_for_test() must not reconnect decoder, bus, projection,
+	# or UI signals a second time." before_test() already called configure_transport_for_test()
+	# once (one _wire_domain_and_ui() connection on the stable _decoder instance from _ready()).
+	# Calling it again here (simulating a second transport swap) must leave the connection COUNT
+	# on _decoder.event_decoded unchanged at 1 -- not 2 -- proving _wire_domain_and_ui() truly
+	# never re-runs. (Verified directly: Godot's own Signal.connect() silently rejects an exact
+	# duplicate bound-method connection rather than doubling delivery, so a timeline-growth-based
+	# assertion here would not actually distinguish correct one-time wiring from a re-wiring bug
+	# -- confirmed by temporarily reintroducing the bug and observing this exact scenario's
+	# behavior was unchanged. get_connections().size() inspects the wiring directly instead.)
+	var connections_after_one_wire := _workspace.get_decoder_for_test().event_decoded.get_connections().size()
+	var second_fake := FakeSocketPeerPort.new()
+	_workspace.configure_transport_for_test(func(): return second_fake)
+	var connections_after_second_swap := _workspace.get_decoder_for_test().event_decoded.get_connections().size()
+	assert_int(connections_after_one_wire).is_equal(1)
+	assert_int(connections_after_second_swap).is_equal(1)
