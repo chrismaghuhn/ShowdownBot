@@ -1,19 +1,19 @@
-# Phase 3 F0 â€” Architecture Foundation Implementation Plan
+# Phase 3 F0 — Architecture Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Status:** APPROVED (owner, 2026-07-25) â€” code additionally requires a separate implementation
+**Status:** APPROVED (owner, 2026-07-25) — code additionally requires a separate implementation
 go-ahead
 **Authorizing spec:** [`../specs/2026-07-25-phase3-client-design.md`](../specs/2026-07-25-phase3-client-design.md)
-(APPROVED 2026-07-25), Â§3.3 F0, Â§4.4 F0 row, Â§9 gate 1
-**Goal:** Land Phase 3's F0 slice â€” the `StudioRoot`/`WorkspaceRouter`/`OfflineViewerWorkspace`
+(APPROVED 2026-07-25), §3.3 F0, §4.4 F0 row, §9 gate 1
+**Goal:** Land Phase 3's F0 slice — the `StudioRoot`/`WorkspaceRouter`/`OfflineViewerWorkspace`
 shell scaffold, the `BattleBoardSnapshot`/`bind()` board-presentation-contract refactor in
 `replay/`, the eight binding pre-M1 documents, and the forbidden-dependency architecture tests plus
-their dedicated CI lane â€” with zero WebSocket/protocol/session/battle runtime code and every
+their dedicated CI lane — with zero WebSocket/protocol/session/battle runtime code and every
 existing Phase-0 test still green.
-**Architecture:** F0 touches exactly three areas named in spec Â§4.4: `godot/src/workspace/` (new
+**Architecture:** F0 touches exactly three areas named in spec §4.4: `godot/src/workspace/` (new
 `StudioRoot`/`WorkspaceRouter`/`OfflineViewerWorkspace` scaffold wrapping the existing `AppShell`
 unchanged), `godot/src/replay/` (the `BattleBoardSnapshot`/`BattleBoardSlotSnapshot` value objects
 and a `ReplayBoardPresentationAdapter` that converts `BoardModel` into that neutral contract, with
@@ -26,19 +26,19 @@ Python 3.12 pytest (`showdownbot_studio/python`, `showdownbot_studio/tests/pytho
 
 ## Ordering rationale
 
-Tasks run in this order: **binding documents (1â€“8) â†’ forbidden-dependency architecture tests + CI
-lane (9â€“12) â†’ board-presentation-contract refactor in `replay/` (13â€“16) â†’ workspace scaffold
-(17â€“18) â†’ full-suite verification (19)**.
+Tasks run in this order: **binding documents (1–8) → forbidden-dependency architecture tests + CI
+lane (9–12) → board-presentation-contract refactor in `replay/` (13–16) → workspace scaffold
+(17–18) → full-suite verification (19)**.
 
 Docs come first because every later task cites them (the architecture tests cite
 `HUMAN_COMMAND_INVARIANTS.md`'s rules; the refactor and scaffold tasks are exactly what
 `LIVE_STATE_MACHINES.md` and `MODULE_CATALOG.md` describe). The architecture tests come next, before
 any production code changes, so the refactor and scaffold tasks are built and merged under the same
-CI guardrail a later sub-slice will be held to â€” this also means the refactor's new typed
+CI guardrail a later sub-slice will be held to — this also means the refactor's new typed
 `BattleBoardSnapshot` contract lands under a live "no untyped container crosses a module boundary"
 check instead of only being checked after the fact.
 
-**Board-presentation refactor (13â€“16) is ordered before the workspace scaffold (17â€“18), and the plan
+**Board-presentation refactor (13–16) is ordered before the workspace scaffold (17–18), and the plan
 verified there is no dependency requiring the opposite order.** The actual scene wiring was read
 before deciding this:
 
@@ -48,19 +48,19 @@ before deciding this:
 - Every existing gdUnit test that needs `AppShell` (`test_app_shell_smoke.gd`,
   `test_app_shell_decision.gd`, `test_app_shell_replay.gd`, `test_app_shell_plan_e.gd`,
   `test_workspace_shortcuts.gd`, and every `decision/`/`timeline/`/`replay/` test that spawns a
-  shell) does so with `preload("res://src/workspace/app_shell.tscn")` directly â€” none of them
+  shell) does so with `preload("res://src/workspace/app_shell.tscn")` directly — none of them
   instantiate the project's main scene. Changing `run/main_scene` to `studio_root.tscn` (Task 18)
   therefore cannot break any existing test.
 - `AbstractBoardView`, `BoardModel`, `ReplayPresenter`, and `ReplayWorkspace` (the refactor's targets,
-  Tasks 13â€“16) live entirely under `godot/src/replay/` and are wired together inside
+  Tasks 13–16) live entirely under `godot/src/replay/` and are wired together inside
   `replay_workspace.tscn` and `app_shell.tscn`. Neither `StudioRoot` nor `WorkspaceRouter` nor
-  `OfflineViewerWorkspace` (Tasks 17â€“18) reference any of those four types, and the refactor never
+  `OfflineViewerWorkspace` (Tasks 17–18) reference any of those four types, and the refactor never
   touches `workspace/app_shell.gd` or `app_shell.tscn` at all (`AppShell` is wrapped **unchanged**,
-  per spec Â§4.6).
+  per spec §4.6).
 
 With no real dependency either way, the refactor is sequenced first because it is the riskier,
 higher-line-count change (a public API signature change plus a data-shape migration through three
-existing files and their tests) and benefits from running under the Task 9â€“12 CI guardrail
+existing files and their tests) and benefits from running under the Task 9–12 CI guardrail
 immediately; the scaffold is sequenced last because it is purely additive, does not touch a single
 existing production file's *content* (only `project.godot`'s one `run/main_scene` line), and has nothing
 left to react to once the refactor is done.
@@ -82,7 +82,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 1 â€” `docs/security/THREAT_MODEL.md`
+## Task 1 — `docs/security/THREAT_MODEL.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/THREAT_MODEL.md`
@@ -190,7 +190,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
     "v1 stores nothing" for credentials, spec section 5.1, and by the `ReplayExportGateway`'s pinned,
     non-PATH-resolved subprocess contract, spec section 4.5.1).
   - A supply-chain attacker substituting the replay-export subprocess (mitigated by "runs the pinned
-    repository exporter â€” never a bare Python interpreter or a package resolved via PATH/ambient
+    repository exporter — never a bare Python interpreter or a package resolved via PATH/ambient
     environment," spec section 4.5.1).
   - Any in-application code path attempting to originate a `/choose` command outside a human UI
     interaction (the single property spec section 11 exists to prevent; mitigated structurally by
@@ -215,7 +215,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
   document does not claim a credential's bytes are erased from process memory at a specific
   instant, only that no code path intentionally retains, logs, or exports it. This document does not
   cover a compromised operating system, a keylogger, or a compromised Showdown account outside this
-  client's control â€” those remain out of scope exactly as they are for any client of a service the
+  client's control — those remain out of scope exactly as they are for any client of a service the
   user does not operate.
   ```
 
@@ -237,7 +237,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 2 â€” `docs/security/DATA_CLASSIFICATION.md`
+## Task 2 — `docs/security/DATA_CLASSIFICATION.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/DATA_CLASSIFICATION.md`
@@ -327,7 +327,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 3 â€” `docs/security/CREDENTIAL_LIFECYCLE.md`
+## Task 3 — `docs/security/CREDENTIAL_LIFECYCLE.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/CREDENTIAL_LIFECYCLE.md`
@@ -369,7 +369,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
   1. **Acquisition.** The user types a password into a login UI control in `ui/panels/`. The value
      exists only in that control's own buffer until submitted.
   2. **Hand-off.** On submit, the value is handed to `session/`'s `CredentialProvider` for exactly
-     one login attempt. `SessionState` (spec section 4.8) transitions `ANONYMOUS` â†’ `AUTHENTICATING`.
+     one login attempt. `SessionState` (spec section 4.8) transitions `ANONYMOUS` → `AUTHENTICATING`.
   3. **Single-use exchange.** `session/`'s `LoginCoordinator` passes the value to `net/`'s
      `LoginHttpTransport`, which makes the single HTTPS request to Showdown's login/action endpoint
      and returns a typed login result. `LoginHttpTransport` stores nothing afterward (spec section 5.1).
@@ -396,7 +396,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
   ## Future extension
 
   A second `CredentialProvider` implementation backed by the Windows Credential Manager may be added
-  later without changing anything outside `session/` that depends on `CredentialProvider` â€” nothing
+  later without changing anything outside `session/` that depends on `CredentialProvider` — nothing
   outside `session/` may depend on which implementation is active (spec section 5.1). This is a
   documented extension point, not work this F0 slice performs.
   ```
@@ -410,7 +410,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 4 â€” `docs/security/LOGGING_AND_REDACTION.md`
+## Task 4 — `docs/security/LOGGING_AND_REDACTION.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/LOGGING_AND_REDACTION.md`
@@ -460,17 +460,17 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
   Chat content may be captured in a diagnostic log only when the user has explicitly enabled a
   diagnostic mode for that session (spec section 5.2). It is off by default. Enabling it never
-  changes whether chat is included in a saved replay bundle â€” that stays excluded by default
+  changes whether chat is included in a saved replay bundle — that stays excluded by default
   regardless of diagnostic mode (spec section 5.2, section 4.5).
 
   ## Redaction points
 
   A field this document forbids is never captured into the canonical stream or a log sink in the
-  first place â€” it is not filtered out later, so no downstream redaction step is trusted to catch a
+  first place — it is not filtered out later, so no downstream redaction step is trusted to catch a
   leak that already happened upstream (spec section 4.5). Concretely:
 
   - `net/`'s `LoginHttpTransport` never logs the outbound request body's credential field.
-  - The `ObservationEventBus` (spec section 4.2.2) never carries a credential or raw chat payload â€”
+  - The `ObservationEventBus` (spec section 4.2.2) never carries a credential or raw chat payload —
     only its fixed allowlist of already-published, read-only events.
   - `replay/`'s `LiveRecordingSink` never carries a credential or chat field into the canonical
     recording stream (spec section 4.5).
@@ -495,7 +495,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 5 â€” `docs/security/UNTRUSTED_SERVER_CONTENT.md`
+## Task 5 — `docs/security/UNTRUSTED_SERVER_CONTENT.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/UNTRUSTED_SERVER_CONTENT.md`
@@ -542,13 +542,13 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
   - No rendering of server-delivered HTML.
   - No BBCode interpretation; v1 renders all chat content as safe plaintext.
-  - URLs inside chat are never clickable without a deliberate, separate user action â€” no
+  - URLs inside chat are never clickable without a deliberate, separate user action — no
     auto-linkification that becomes a default click target.
   - Control characters are escaped before display.
   - Message length is capped.
   - Chat content does not appear in logs unless a diagnostic mode is explicitly enabled by the user
     for that session (see `LOGGING_AND_REDACTION.md`).
-  - Chat is excluded from replay bundles by default, at the recording stream itself â€” not as a later
+  - Chat is excluded from replay bundles by default, at the recording stream itself — not as a later
     filter on an already-recorded stream (spec section 4.5, section 5.2).
 
   (Verbatim from spec section 5.2, restated here as the binding pre-implementation contract for M2f's
@@ -564,8 +564,8 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
   An unknown or unrecognized protocol line is logged and surfaced as "not understood." The client
   never crashes on it and never guesses an interpretation (spec section 6.1's fail-closed error
-  table). The module that classifies an event decides what is recoverable â€” `protocol/` for
-  parse-level conditions, `net/` for connection-level conditions â€” and a downstream module never
+  table). The module that classifies an event decides what is recoverable — `protocol/` for
+  parse-level conditions, `net/` for connection-level conditions — and a downstream module never
   invents its own recovery logic (spec section 6.1).
   ```
 
@@ -578,7 +578,7 @@ Task 19 re-runs this and the gdUnit suite and compares against this recorded bas
 
 ---
 
-## Task 6 â€” `docs/security/HUMAN_COMMAND_INVARIANTS.md`
+## Task 6 — `docs/security/HUMAN_COMMAND_INVARIANTS.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/security/HUMAN_COMMAND_INVARIANTS.md`
@@ -625,12 +625,12 @@ exist.
   Note the `@pytest.mark.architecture` marker: this is the one doc-existence test also run by the
   dedicated `studio-security-invariants` CI lane (Task 12), because the spec's own CI table (section
   8.2) lists "command-origin checks" as part of that lane's coverage, and this doc is the
-  machine-checkable source of those rules. The other seven doc-existence tests stay unmarked â€”
+  machine-checkable source of those rules. The other seven doc-existence tests stay unmarked —
   Task 12's rationale explains why.
 
 - [x] Run and confirm it fails (`pip install -e "./showdownbot_studio/python[dev]"` must already be
   done in your environment for `pytest` itself to be importable; the marker itself needs no
-  registration to *run* â€” only to avoid an "unknown marker" warning, which Task 9 fixes):
+  registration to *run* — only to avoid an "unknown marker" warning, which Task 9 fixes):
 
   ```
   cd showdownbot_studio/python
@@ -687,7 +687,7 @@ exist.
   4. injected only into the active human battle controller in `ui/panels/` (from M2d onward);
      nothing else in the application holds a reference to it.
 
-  This is a **structural** guarantee, not a runtime-enforced one â€” GDScript has no engine-level
+  This is a **structural** guarantee, not a runtime-enforced one — GDScript has no engine-level
   `private` keyword (spec section 4.2.3's honesty note). It is upheld by injection discipline, by
   code review, and by the architecture test in the enforcement mapping above.
   ```
@@ -708,7 +708,7 @@ exist.
 
 ---
 
-## Task 7 â€” `docs/architecture/LIVE_STATE_MACHINES.md`
+## Task 7 — `docs/architecture/LIVE_STATE_MACHINES.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/architecture/LIVE_STATE_MACHINES.md`
@@ -783,7 +783,7 @@ them.
   ## Purpose
 
   Fixes the full transition table for each of the four binding state machines spec section 4.8
-  names, so M1â€“M2 sub-slices implement against a written contract instead of inventing transitions
+  names, so M1–M2 sub-slices implement against a written contract instead of inventing transitions
   ad hoc. Every transition specifies its source state(s), triggering event, resulting state, and
   user-visible behavior, per spec section 4.8's own requirement. An untested or unspecified
   transition is treated the same as an untested branch anywhere else in this design (spec section 8):
@@ -851,28 +851,28 @@ them.
   Per spec section 4.8/section 8, an invalid transition must be tested as an explicit rejection, not
   merely left unexercised. At minimum, the following are invalid and must have a rejection test:
 
-  - `ConnectionState`: `DISCONNECTED` â†’ `CONNECTED` directly (must pass through `CONNECTING`);
-    `DISCONNECTED` â†’ `RECONNECTING` (no prior connection attempt to reconnect from); `EXHAUSTED` â†’
+  - `ConnectionState`: `DISCONNECTED` → `CONNECTED` directly (must pass through `CONNECTING`);
+    `DISCONNECTED` → `RECONNECTING` (no prior connection attempt to reconnect from); `EXHAUSTED` →
     `CONNECTED` directly (must pass through `CONNECTING`).
-  - `SessionState`: `ANONYMOUS` â†’ `AUTHENTICATED` directly (must pass through `AUTHENTICATING`);
-    `AUTHENTICATING` â†’ `AUTHENTICATING` (a repeated submit while authenticating is blocked, not
+  - `SessionState`: `ANONYMOUS` → `AUTHENTICATED` directly (must pass through `AUTHENTICATING`);
+    `AUTHENTICATING` → `AUTHENTICATING` (a repeated submit while authenticating is blocked, not
     queued).
-  - `RoomState`: `NOT_JOINED` â†’ `ACTIVE` directly (must pass through `JOINING`); `CLOSED` â†’ `ACTIVE`
+  - `RoomState`: `NOT_JOINED` → `ACTIVE` directly (must pass through `JOINING`); `CLOSED` → `ACTIVE`
     (a closed room never reopens; a new join creates a new `RoomState` instance).
-  - `ChoiceRequestState`: `NONE` â†’ `SUBMITTING` directly (must pass through `OPEN`); `SUBMITTED` â†’
-    `SUBMITTING` automatically on timeout (explicitly forbidden â€” spec section 6.1, "the client
-    never auto-picks a move on timeout"); `SUPERSEDED` â†’ `SUBMITTED` (a superseded request can never
+  - `ChoiceRequestState`: `NONE` → `SUBMITTING` directly (must pass through `OPEN`); `SUBMITTED` →
+    `SUBMITTING` automatically on timeout (explicitly forbidden — spec section 6.1, "the client
+    never auto-picks a move on timeout"); `SUPERSEDED` → `SUBMITTED` (a superseded request can never
     be submitted).
 
   ## Cross-machine interactions
 
-  `RoomState`'s reconnect transitions (`ACTIVE` â†’ `JOINING` â†’ `ACTIVE`) and `ChoiceRequestState`'s
+  `RoomState`'s reconnect transitions (`ACTIVE` → `JOINING` → `ACTIVE`) and `ChoiceRequestState`'s
   reconnect-triggered transitions both fire from the same underlying event: `ConnectionState`
   reaching `RECONNECTING` then `CONNECTED` again (spec section 6.2). `ChoiceRequestState.SUPERSEDED`
   is the enumerated form of the "stale `rqid`" condition (spec section 6.2, section 7);
   `ConnectionState.EXHAUSTED` is the enumerated form of the "reconnect exhausts backoff" row in spec
   section 6.1. `SessionState` is unaffected by a `RoomState` or `ChoiceRequestState` transition in
-  either direction â€” logging out does not, by itself, leave or close a room; leaving a room does
+  either direction — logging out does not, by itself, leave or close a room; leaving a room does
   not, by itself, end a session.
   ```
 
@@ -885,7 +885,7 @@ them.
 
 ---
 
-## Task 8 â€” `docs/architecture/MODULE_CATALOG.md`
+## Task 8 — `docs/architecture/MODULE_CATALOG.md`
 
 **Files:**
 - Create: `showdownbot_studio/docs/architecture/MODULE_CATALOG.md`
@@ -936,10 +936,10 @@ them.
   |---|---|---|---|---|---|---|
   | Net | `godot/src/net/` | `WebSocketTransport` (connection, reconnect, heartbeat, `ConnectionState`); `LoginHttpTransport` (single HTTPS login exchange) | `WebSocketTransport.connect()/disconnect()`, `ConnectionState` signal; `LoginHttpTransport.login(credential) -> LoginResult` | Direct dependency (default); publishes `ConnectionState` changes onto the `ObservationEventBus` | M1a (WebSocket), M1e (reconnect), M2a (login transport) | Parse or encode protocol text; hold battle state; hold `CredentialProvider` state |
   | Protocol | `godot/src/protocol/` | The only module permitted to encode outbound Showdown protocol commands or decode inbound protocol text, into/from typed DTOs under `protocol/dto/`, including the `CanonicalProtocolEventStream` | Decoder entry point consuming raw text; general command encoder; `protocol/dto/*` typed DTOs | Direct dependency (default); hands `CanonicalProtocolEventStream` directly to `battle/` and `replay/` | M1b (decoder, general encoder, room join/leave), M1e (reconnect), M2b (`FormatCatalogDTO`), M2c/M2e/M2f (remaining command families) | Render UI; hold connection sockets; decide whether a human is allowed to send a given command |
-  | Session | `godot/src/session/` | `CredentialProvider`, `LoginCoordinator`, `SessionState`; team-bundle loading (`TeamBundleV1`); `session/dto/` | `CredentialProvider` interface; `LoginCoordinator.login()`; `SessionState` state machine; team-bundle loader | Direct dependency (default) | M2aâ€“M2b | Touch raw protocol text; render UI |
+  | Session | `godot/src/session/` | `CredentialProvider`, `LoginCoordinator`, `SessionState`; team-bundle loading (`TeamBundleV1`); `session/dto/` | `CredentialProvider` interface; `LoginCoordinator.login()`; `SessionState` state machine; team-bundle loader | Direct dependency (default) | M2a–M2b | Touch raw protocol text; render UI |
   | Battle | `godot/src/battle/` | Pure, deterministic, idempotent `LiveBattleReducer` producing immutable `LiveBattleSnapshot` values from `battle/dto/` DTOs, consuming `CanonicalProtocolEventStream` directly | `LiveBattleReducer.apply(event) -> LiveBattleSnapshot`; `battle/dto/*` typed DTOs | Direct dependency (default); publishes "battle state published"/"battle completed" onto the `ObservationEventBus` | M1c, M1e (reconnect rebuild) | Contain UI nodes; recompute mechanics/damage/legality; hold or import `HumanBattleCommandGateway` |
-  | UI panels | `godot/src/ui/panels/` | Board, timeline, move choice, battle chat, connection status; renders via `BoardPresentationAdapter` | Panel scenes/controllers subscribing to the `ObservationEventBus` and to direct battle-state dependencies; the human battle controller holds `HumanBattleCommandGateway` (from M2d) | Subscribes to `ObservationEventBus` (render only); direct dependency for battle-state reads; holds the privileged gateway (M2d onward, human battle controller only) | M1d (board, timeline, connection status), M2dâ€“M2f (move choice, chat) | Produce protocol text directly; decide legality |
-  | Replay | `godot/src/replay/` | Record a finished live battle via `LiveRecordingSink` and `ReplayExportGateway`; reuses `BoardPresentationAdapter`/`AbstractBoardView` for its own board rendering; converts live DTOs into recorded-replay events before export; **hosts `BattleBoardSnapshot`/`BattleBoardSlotSnapshot`/`ReplayBoardPresentationAdapter` (F0, this plan)** | `AbstractBoardView.bind(BattleBoardSnapshot)`; `ReplayBoardPresentationAdapter.build_snapshot(BoardModel) -> BattleBoardSnapshot`; `LiveRecordingSink`/`ReplayExportGateway` (M3) | Direct dependency (default); direct consumer of `CanonicalProtocolEventStream` (M3a) | F0 (board-presentation-contract refactor), M3aâ€“M3c | Reinterpret or recompute recorded evidence; assemble canonical bundle bytes itself; hold or import `HumanBattleCommandGateway` |
+  | UI panels | `godot/src/ui/panels/` | Board, timeline, move choice, battle chat, connection status; renders via `BoardPresentationAdapter` | Panel scenes/controllers subscribing to the `ObservationEventBus` and to direct battle-state dependencies; the human battle controller holds `HumanBattleCommandGateway` (from M2d) | Subscribes to `ObservationEventBus` (render only); direct dependency for battle-state reads; holds the privileged gateway (M2d onward, human battle controller only) | M1d (board, timeline, connection status), M2d–M2f (move choice, chat) | Produce protocol text directly; decide legality |
+  | Replay | `godot/src/replay/` | Record a finished live battle via `LiveRecordingSink` and `ReplayExportGateway`; reuses `BoardPresentationAdapter`/`AbstractBoardView` for its own board rendering; converts live DTOs into recorded-replay events before export; **hosts `BattleBoardSnapshot`/`BattleBoardSlotSnapshot`/`ReplayBoardPresentationAdapter` (F0, this plan)** | `AbstractBoardView.bind(BattleBoardSnapshot)`; `ReplayBoardPresentationAdapter.build_snapshot(BoardModel) -> BattleBoardSnapshot`; `LiveRecordingSink`/`ReplayExportGateway` (M3) | Direct dependency (default); direct consumer of `CanonicalProtocolEventStream` (M3a) | F0 (board-presentation-contract refactor), M3a–M3c | Reinterpret or recompute recorded evidence; assemble canonical bundle bytes itself; hold or import `HumanBattleCommandGateway` |
   | Workspace | `godot/src/workspace/` | `StudioRoot`, `WorkspaceRouter`, `OfflineViewerWorkspace` (wraps the existing `AppShell` unchanged), `LiveClientWorkspace` (Connection, Spectator, Matchmaking, HumanBattle areas, from M1d/M2d) | `WorkspaceRouter.register_workspace()/show_workspace()/get_active_workspace_id()`; `StudioRoot.get_router()` | Direct dependency (default); composes other modules, holds no domain state itself | F0 (scaffold), M1d (Connection + Spectator), M2d (Matchmaking + HumanBattle) | Own battle or credential state; duplicate board/team/replay logic; hold `HumanBattleCommandGateway` outside the HumanBattle area's controller |
 
   ## Communication-path legend
@@ -969,7 +969,7 @@ them.
 
 ---
 
-## Task 9 â€” Gateway forbidden-import architecture test
+## Task 9 — Gateway forbidden-import architecture test
 
 **Files:**
 - Modify: `showdownbot_studio/python/pyproject.toml`
@@ -1089,7 +1089,7 @@ them.
   `showdownbot_studio/godot/src/decision/_scratch_gateway_violation.gd`. Re-run the same command and
   confirm `1 passed`.
 
-- [x] Commit only the real changes (the scratch file must not be staged â€” it was already deleted):
+- [x] Commit only the real changes (the scratch file must not be staged — it was already deleted):
 
   ```
   git add showdownbot_studio/python/pyproject.toml showdownbot_studio/tests/python/test_f0_gateway_import_guard.py
@@ -1098,7 +1098,7 @@ them.
 
 ---
 
-## Task 10 â€” Untyped cross-module container architecture test
+## Task 10 — Untyped cross-module container architecture test
 
 **Files:**
 - Create: `showdownbot_studio/tests/python/architecture_allowlists/untyped_boundary_allowlist.txt`
@@ -1109,9 +1109,9 @@ an untyped `Variant`, untyped `Array`, or untyped `Dictionary`. "Cross-module" i
 as: a `class_name` type declared in one top-level directory under `godot/src/` and referenced (by
 identifier) from a `.gd` file under a *different* top-level directory. "Public" is defined as a
 `func` whose name does not start with `_`. The check is scoped to **function signatures** (parameter
-and return types) only â€” a function's local variables are not part of its public interface.
+and return types) only — a function's local variables are not part of its public interface.
 
-- [x] Write the allowlist file first (empty of real content, real header â€” not a placeholder, a
+- [x] Write the allowlist file first (empty of real content, real header — not a placeholder, a
   real, currently-empty registry). Create
   `showdownbot_studio/tests/python/architecture_allowlists/untyped_boundary_allowlist.txt`:
 
@@ -1129,7 +1129,7 @@ and return types) only â€” a function's local variables are not part of its
   by `AGENTS.md` rule 9's own boundary list. `protocol/` is the future decoder/encoder + DTO-parsing
   boundary the same rule names explicitly; it does not exist yet, but pre-allowlisting the directory
   it will occupy is a real, spec-named exemption, not a placeholder for an unknown future need. The
-  future replay bundle writer (M3b) gets its own allowlist entry when that plan creates the file â€”
+  future replay bundle writer (M3b) gets its own allowlist entry when that plan creates the file —
   not invented here as a path that does not exist yet.
 
 - [x] Write the failing test. Create `showdownbot_studio/tests/python/test_f0_untyped_boundary_guard.py`:
@@ -1303,7 +1303,7 @@ and return types) only â€” a function's local variables are not part of its
 
 ---
 
-## Task 11 â€” Live-DTO-into-bundle-path architecture test
+## Task 11 — Live-DTO-into-bundle-path architecture test
 
 **Files:**
 - Create: `showdownbot_studio/tests/python/architecture_allowlists/live_dto_bundle_path_allowlist.txt`
@@ -1312,10 +1312,10 @@ and return types) only â€” a function's local variables are not part of its
 Encodes spec section 4.1.2's boundary: "no live DTO type may be serialized straight into a bundle
 file." A "live DTO type" is any `class_name` declared under `godot/src/protocol/dto/`,
 `godot/src/session/dto/`, or `godot/src/battle/dto/` (none exist yet in F0). A "bundle path" file is
-any `.gd` file anywhere under `godot/src/` whose filename matches `*bundle_writer*.gd` â€” the M3b
+any `.gd` file anywhere under `godot/src/` whose filename matches `*bundle_writer*.gd` — the M3b
 plan is expected to name its writer this way; this naming convention is itself part of what F0 fixes
 so the M3b plan does not have to invent it. `replay/`'s `LiveRecordingSink` (M3a) legitimately
-references live DTO types (that is its entire job â€” converting them), so it must never match this
+references live DTO types (that is its entire job — converting them), so it must never match this
 glob; it is named `*recording_sink*.gd` by convention, not `*bundle_writer*.gd`.
 
 - [x] Write the allowlist file. Create
@@ -1405,7 +1405,7 @@ glob; it is named `*recording_sink*.gd` by convention, not `*bundle_writer*.gd`.
       assert not violations, violations
   ```
 
-- [x] Run and confirm both pass immediately (vacuously â€” no live-DTO dirs and no bundle-writer files
+- [x] Run and confirm both pass immediately (vacuously — no live-DTO dirs and no bundle-writer files
   exist yet):
 
   ```
@@ -1457,7 +1457,7 @@ glob; it is named `*recording_sink*.gd` by convention, not `*bundle_writer*.gd`.
 
 ---
 
-## Task 12 â€” `studio-security-invariants` CI lane
+## Task 12 — `studio-security-invariants` CI lane
 
 **Files:**
 - Create: `.github/workflows/studio-security-invariants.yml`
@@ -1534,20 +1534,20 @@ Godot engine download), per spec section 8.2. It does not modify `studio-windows
 
 ---
 
-## Task 13 â€” `BattleBoardSlotSnapshot` and `BattleBoardSnapshot` value objects
+## Task 13 — `BattleBoardSlotSnapshot` and `BattleBoardSnapshot` value objects
 
 **Files:**
 - Create: `showdownbot_studio/godot/src/replay/battle_board_slot_snapshot.gd`
 - Create: `showdownbot_studio/godot/src/replay/battle_board_snapshot.gd`
 - Create: `showdownbot_studio/godot/tests/replay/test_battle_board_snapshot.gd`
 
-This introduces the neutral contract spec section 4.7 names â€” `presentation_available`,
-`empty_state_reason`, `turn`, `weather`, `terrain`, `slots`, `side_conditions`, `field_conditions` â€”
+This introduces the neutral contract spec section 4.7 names — `presentation_available`,
+`empty_state_reason`, `turn`, `weather`, `terrain`, `slots`, `side_conditions`, `field_conditions` —
 as typed value objects, satisfying `AGENTS.md` rule 9 by using Godot 4.4+ typed-container syntax
 (`Dictionary[String, T]`, `Array[T]`) instead of bare `Dictionary`/`Array` for the two collection
 fields, since this class is a deliberate cross-module contract (consumed by both `replay/` today and
 `ui/panels/` from M1d onward) rather than an audited parsing boundary. Nothing in this task changes
-`AbstractBoardView`, `BoardModel`, or any existing test â€” it only adds two new files with no
+`AbstractBoardView`, `BoardModel`, or any existing test — it only adds two new files with no
 production caller yet, so it is pure net-new code, not a refactor step.
 
 - [x] Write the failing test. Create `showdownbot_studio/godot/tests/replay/test_battle_board_snapshot.gd`:
@@ -1669,7 +1669,7 @@ production caller yet, so it is pure net-new code, not a refactor step.
 
 ---
 
-## Task 14 â€” `ReplayBoardPresentationAdapter`
+## Task 14 — `ReplayBoardPresentationAdapter`
 
 **Files:**
 - Create: `showdownbot_studio/godot/src/replay/replay_board_presentation_adapter.gd`
@@ -1828,7 +1828,7 @@ left to invent.
 
 ---
 
-## Task 15 â€” Retype `AbstractBoardView.bind()` and rewire `replay/` callers
+## Task 15 — Retype `AbstractBoardView.bind()` and rewire `replay/` callers
 
 **Files:**
 - Modify: `showdownbot_studio/godot/src/replay/abstract_board_view.gd`
@@ -1836,7 +1836,7 @@ left to invent.
 - Modify: `showdownbot_studio/godot/tests/replay/test_abstract_board_view.gd`
 
 This is the actual signature-breaking step. Per spec section 8's TDD carve-out ("a pure
-refactoring â€” no behavior change, existing tests pass unmodified â€” does not require an artificially
+refactoring — no behavior change, existing tests pass unmodified — does not require an artificially
 reddened test"), the observable behavior is unchanged (same rendered species/HP/status/weather/
 terrain/field/side-condition text, same empty-state visibility), so this task updates the existing
 test file's call sites to the new signature in the same commit as the production change, rather than
@@ -1896,7 +1896,7 @@ guard logic is actually exercised.
 
   (`set_loading`, `get_slot_species`, `get_slot_hp_text`, `get_weather_text`, `get_terrain_text`,
   `get_field_conditions_text`, `get_side_conditions_text`, `get_empty_state_visible`,
-  `_clear_slots_and_meta`, and `_slot_label` are unchanged â€” leave them exactly as they are.) Replace
+  `_clear_slots_and_meta`, and `_slot_label` are unchanged — leave them exactly as they are.) Replace
   `_render` and `_write_slot`:
 
   ```gdscript
@@ -1925,7 +1925,7 @@ guard logic is actually exercised.
   	status_lbl.text = "" if cell.hp_status == null else str(cell.hp_status)
   ```
 
-  Delete the old `const EMPTY_REPLAY_TEXT := "No replay evidence in this bundle"` line â€” it now lives
+  Delete the old `const EMPTY_REPLAY_TEXT := "No replay evidence in this bundle"` line — it now lives
   only in `ReplayBoardPresentationAdapter` (Task 14).
 
 - [x] Edit `showdownbot_studio/godot/src/replay/replay_workspace.gd`. `clear()` and
@@ -1956,7 +1956,7 @@ guard logic is actually exercised.
   ```
 
   Every other function in `replay_workspace.gd` (`_ready`, `set_loading`, `reset`,
-  `get_timeline_controller`, `get_timeline_view`, `get_board_view`, `get_board_model`) is unchanged â€”
+  `get_timeline_controller`, `get_timeline_view`, `get_board_view`, `get_board_model`) is unchanged —
   `get_board_model()` still returns the raw `BoardModel` for existing callers.
 
 - [x] Update the existing test file's call sites. Edit
@@ -2012,7 +2012,7 @@ guard logic is actually exercised.
   	assert_bool(view.get_empty_state_visible()).is_false()
   ```
 
-  (`test_set_loading_shows_and_clears` is unchanged â€” it never calls `bind()`.)
+  (`test_set_loading_shows_and_clears` is unchanged — it never calls `bind()`.)
 
 - [x] Run the full `replay/` gdUnit suite and confirm the same pass count as the pre-refactor
   baseline:
@@ -2042,7 +2042,7 @@ guard logic is actually exercised.
 
 ---
 
-## Task 16 â€” Fail-check the moved empty-state guard
+## Task 16 — Fail-check the moved empty-state guard
 
 **Files:** none committed by this task (scratch-only, reverted at the end).
 
@@ -2080,7 +2080,7 @@ guard, confirm red)." This proves `test_empty_state_only_when_not_has_replay` ac
   ./showdownbot_studio/godot/tools/run_gdunit_headless.ps1 -a "res://tests/replay/test_abstract_board_view.gd"
   ```
 
-  Expected: `test_empty_state_only_when_not_has_replay` fails â€”
+  Expected: `test_empty_state_only_when_not_has_replay` fails —
   `view.get_empty_state_visible()` returns `false` where the assertion expects `true`.
 
 - [x] Revert the deliberate break back to `snapshot.presentation_available = false`. Run again and
@@ -2092,7 +2092,7 @@ guard, confirm red)." This proves `test_empty_state_only_when_not_has_replay` ac
 
   Expected: all tests pass.
 
-- [x] Nothing to commit for this task â€” the file is back to Task 15's committed content. Confirm the
+- [x] Nothing to commit for this task — the file is back to Task 15's committed content. Confirm the
   working tree is clean for this file:
 
   ```
@@ -2103,15 +2103,15 @@ guard, confirm red)." This proves `test_empty_state_only_when_not_has_replay` ac
 
 ---
 
-## Task 17 â€” `WorkspaceRouter`
+## Task 17 — `WorkspaceRouter`
 
 **Files:**
 - Create: `showdownbot_studio/godot/src/workspace/workspace_router.gd`
 - Create: `showdownbot_studio/godot/tests/workspace/test_workspace_router.gd`
 
-Per spec section 4.6: "`WorkspaceRouter` â€” switches between the two top-level workspaces below. It
+Per spec section 4.6: "`WorkspaceRouter` — switches between the two top-level workspaces below. It
 holds no domain state of its own." F0 only has one real workspace to register
-(`OfflineViewerWorkspace`, Task 18) â€” `LiveClientWorkspace` does not exist until M1d â€” so this task
+(`OfflineViewerWorkspace`, Task 18) — `LiveClientWorkspace` does not exist until M1d — so this task
 builds an ID-keyed registry that "handles being a single-workspace router cleanly for now" (spec
 section 3.3) rather than hardcoding an assumption of exactly two workspaces.
 
@@ -2256,7 +2256,7 @@ section 3.3) rather than hardcoding an assumption of exactly two workspaces.
 
 ---
 
-## Task 18 â€” `OfflineViewerWorkspace`, `StudioRoot`, and the new main scene
+## Task 18 — `OfflineViewerWorkspace`, `StudioRoot`, and the new main scene
 
 **Files:**
 - Create: `showdownbot_studio/godot/src/workspace/offline_viewer_workspace.gd`
@@ -2459,7 +2459,7 @@ and `StudioRoot` "is the new application entry point... never owns battle or cre
 
   This is safe: every existing gdUnit test that needs `AppShell` preloads
   `res://src/workspace/app_shell.tscn` directly rather than depending on the project's main scene
-  (verified during planning â€” see this plan's Ordering rationale section), so nothing else changes
+  (verified during planning — see this plan's Ordering rationale section), so nothing else changes
   behavior as a result of this one line.
 
 - [x] Run and confirm the new test passes:
@@ -2488,7 +2488,7 @@ and `StudioRoot` "is the new application entry point... never owns battle or cre
 
 ---
 
-## Task 19 â€” Full-suite verification
+## Task 19 — Full-suite verification
 
 **Files:** none (verification only).
 
@@ -2500,12 +2500,12 @@ and `StudioRoot` "is the new application entry point... never owns battle or cre
   python -m pytest -q --collect-only
   ```
 
-  Expected new count: `114` (baseline) `+ 8` (Task 1â€“8: one doc-existence test each, in
+  Expected new count: `114` (baseline) `+ 8` (Task 1–8: one doc-existence test each, in
   `test_f0_binding_docs.py`) `+ 6` (Task 9: two; Task 10: two; Task 11: two, in their own three
   files) = **128** tests collected. Record the actual reported count; if it differs from 128,
-  recount which task added how many test functions before treating the run as green â€” do not
+  recount which task added how many test functions before treating the run as green — do not
   assume the arithmetic above is correct without checking it against the actual file contents
-  landed by Tasks 1â€“11.
+  landed by Tasks 1–11.
 
 - [x] Run the full Python suite for real (not collect-only):
 
@@ -2528,7 +2528,7 @@ and `StudioRoot` "is the new application entry point... never owns battle or cre
   two), `0` failed.
 
 - [x] Run the full gdUnit suite exactly as `studio-windows.yml` does, and record the reported total
-  test count (there is no pre-recorded gdUnit baseline in this plan â€” record what the run reports
+  test count (there is no pre-recorded gdUnit baseline in this plan — record what the run reports
   now, and separately confirm it is at least the pre-F0 total by re-reading this plan's Task
   13/14/17/18 new-test counts: `3 + 6 + 4 + 3 = 16` new gdUnit tests added, on top of whatever the
   suite reported before Task 13's first commit):
@@ -2541,14 +2541,14 @@ and `StudioRoot` "is the new application entry point... never owns battle or cre
   Expected: `0` failed; the truncation check passes (declared count equals executed-plus-skipped
   count); the reported total is the pre-F0 total plus 16.
 
-- [x] Confirm no stray scratch files from Tasks 9â€“11's or Task 16's fail-checks were left behind:
+- [x] Confirm no stray scratch files from Tasks 9–11's or Task 16's fail-checks were left behind:
 
   ```
   git status --porcelain showdownbot_studio/godot/src
   ```
 
   Expected: no output (a non-empty result means a `_scratch_*.gd` file or an uncommitted edit to
-  `replay_board_presentation_adapter.gd` was left over â€” delete/revert it before considering F0
+  `replay_board_presentation_adapter.gd` was left over — delete/revert it before considering F0
   done).
 
 - [x] Run `git diff --check` across the full set of F0 commits before treating the slice as
