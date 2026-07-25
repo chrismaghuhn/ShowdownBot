@@ -29,10 +29,10 @@ func _spawn_shell_ready() -> AppShell:
 
 func _await_shell_settled(shell: AppShell, max_frames: int = 600) -> void:
 	var frames := 0
-	while shell.is_loading() and frames < max_frames:
+	while not shell.is_settled() and frames < max_frames:
 		await await_idle_frame()
 		frames += 1
-	assert_bool(shell.is_loading()).is_false()
+	assert_bool(shell.is_settled()).is_true()
 
 
 func _make_candidate(candidate_id: String, rank: int, score: float, key: Variant) -> CandidateDTO:
@@ -252,6 +252,30 @@ func test_aggregation_all_null_label() -> void:
 	assert_str(DecisionPresenter.aggregation_headline(d)).is_equal(
 		DecisionPresenter.AGGREGATION_NOT_RECORDED
 	)
+
+
+func test_aggregation_mode_null_with_a_recorded_lambda_never_reads_as_a_real_mode() -> void:
+	## Gate 28's partly-null branch. The all-null path above is covered; this one was not --
+	## making it return "cvar", a plausible real mode name, left all 281 cases green.
+	## Measured why: 0 of the 36 exported decision rows across every committed bundle have a
+	## null mode alongside a recorded lambda, so no fixture can reach it. Constructed
+	## directly instead -- "no fixture reaches it" is a reason to build the case, not to
+	## leave live code unasserted.
+	var d := _make_decision(0, 0, true)
+	d.aggregation_mode = null
+	d.aggregation_risk_lambda = 0.5
+	d.aggregation_must_react_lambda = null
+
+	var headline := DecisionPresenter.aggregation_headline(d)
+	assert_str(headline).is_equal(DecisionPresenter.NOT_RECORDED)
+
+	## The failure that matters is not "wrong string" but "invented value" -- anything that
+	## reads like a recorded aggregation mode is a data-honesty defect, not a cosmetic one.
+	for plausible_mode: String in ["cvar", "mean", "minimax", "must_react", "expectimax"]:
+		assert_str(headline).is_not_equal(plausible_mode)
+
+	## The two absence cases must stay distinguishable rather than collapsing into one.
+	assert_str(headline).is_not_equal(DecisionPresenter.AGGREGATION_NOT_RECORDED)
 
 
 func test_optional_null_is_not_recorded() -> void:
@@ -672,3 +696,39 @@ func test_header_text_valid_invalid_null() -> void:
 	var invalid := _make_decision(7, null, false)
 	invalid.seal()
 	assert_str(DecisionPresenter.header_text(invalid)).is_equal("decision #7 (invalid)")
+
+
+func test_sort_chosen_first_when_the_chosen_row_is_not_rank_one() -> void:
+	## Gate 14, the discriminating case. test_sort_chosen_first_then_rank above asserts
+	## order[0] == chosen, but cannot fail: forcing SORT_CHOSEN_FIRST to ignore the chosen
+	## index entirely (a_ch/b_ch hardcoded false, so it degrades to plain rank order) left
+	## all 284 cases green.
+	##
+	## Measured why: fixture-16's chosen candidate has rank 0, which is also the minimum
+	## rank, so rank order and chosen-first order agree on the first row. The fixture cannot
+	## distinguish the two.
+	##
+	## Constructed so they DISAGREE -- the chosen candidate is rank 3 of 3.
+	var d := _make_decision(0, 0, true)
+	d.candidates = [
+		_make_candidate("A", 1, 3.0, "key-a"),
+		_make_candidate("B", 2, 2.0, "key-b"),
+		_make_candidate("C", 3, 1.0, "key-c"),
+	]
+	d.chosen_candidate_key = "key-c"
+	d.chosen_candidate_id = "C"
+	d.seal()
+
+	var chosen := DecisionPresenter.resolve_chosen_row_index(d)
+	assert_int(chosen).is_equal(2)
+
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_CHOSEN_FIRST)
+	assert_int(order[0]).is_equal(chosen)
+	## Plain rank order would start at index 0; the two must not coincide here, or this test
+	## would be as blind as the fixture-based one.
+	var by_rank := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_RANK)
+	assert_int(by_rank[0]).is_not_equal(order[0])
+
+	## The remainder stays rank-ordered behind the chosen row.
+	assert_int(order[1]).is_equal(0)
+	assert_int(order[2]).is_equal(1)

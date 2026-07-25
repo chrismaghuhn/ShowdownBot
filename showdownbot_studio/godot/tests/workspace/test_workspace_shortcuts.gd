@@ -22,10 +22,10 @@ func _spawn_shell_ready() -> AppShell:
 
 func _await_shell_settled(shell: AppShell, max_frames: int = 600) -> void:
 	var frames := 0
-	while shell.is_loading() and frames < max_frames:
+	while not shell.is_settled() and frames < max_frames:
 		await await_idle_frame()
 		frames += 1
-	assert_bool(shell.is_loading()).is_false()
+	assert_bool(shell.is_settled()).is_true()
 
 
 func _spawn_shortcuts(shell: AppShell) -> WorkspaceShortcuts:
@@ -202,3 +202,15 @@ func _count_nodes_named(node: Node, target_name: String) -> int:
 	for child in node.get_children():
 		count += _count_nodes_named(child, target_name)
 	return count
+
+
+func test_modifier_key_label_matches_the_host_platform() -> void:
+	## ShortcutLabels.mod_key() had no assertion anywhere -- a grep for the class across
+	## tests/ returned nothing. Inverting its `OS.get_name() == "macOS"` check, so Windows
+	## renders "Cmd", left all 281 cases green.
+	##
+	## Asserted against the running platform rather than hardcoded to "Ctrl": the label is
+	## meant to follow the host, and pinning one value would make the test wrong on the
+	## other platform instead of catching the inversion.
+	var expected := "Cmd" if OS.get_name() == "macOS" else "Ctrl"
+	assert_str(ShortcutLabels.mod_key()).is_equal(expected)

@@ -61,16 +61,32 @@ batch had a broken restore path (`cwd` relative to the wrong directory), which s
 on top of each other and contaminated its own results. Those numbers were discarded and every row
 below was re-measured on a verified-clean tree; the tree was clean again at the end.
 
-| Guard broken | Claiming test | Result |
-|---|---|---|
-| `export_decisions.py` `duplicate_candidate_key` refuse | `test_a4_decisions_v3.py` | **RED** — genuinely covered |
-| `export_bundle.py` `config_hash_mismatch` refuse | `test_a6_provenance_modes.py` | **RED** — genuinely covered |
-| `validate_bundle.py` `unsupported_capability` refuse | `test_a7_validate_bundle.py` | **RED** — genuinely covered |
-| `validate_bundle.py` `unsupported_major` refuse | — | **STAYED GREEN** |
-| `export_decisions.py` `decision_latency_ms` → `int(...)` | — | **STAYED GREEN** (109 passed, 0 failed) |
-| `export_decisions.py` re-serialize `candidate_key` inner JSON via JCS | — | **STAYED GREEN** (107 passed, 0 failed) |
+**Status: COMPLETE for the python suite; a 20-guard sample on the Godot side (§3b).** 15 guards broken, covering every test commit
+`1980174` added plus the three probed before it. 10 RED, 5 green — and every green row is now
+either closed by a test or an explicit owner decision.
 
-### The three green rows, stated precisely
+Negative assertions (a test claiming something does *not* happen) are broken by **adding** code,
+not removing it — noted per row below, since "break the guard" does not apply to them.
+
+| Guard broken | Result |
+|---|---|
+| `export_decisions.py` `duplicate_candidate_key` refuse | **RED** |
+| `export_bundle.py` `config_hash_mismatch` refuse | **RED** |
+| `validate_bundle.py` `unsupported_capability` refuse | **RED** |
+| `privacy.py` seat pseudonym (`side["name"] = seat`) | **RED** |
+| `export_battle.py` emit `LogEvent.raw` *(added)* | **RED** |
+| `export_decisions.py` `chosen_rank` off by one | **RED** |
+| `export_decisions.py` `normalized_action` replaced | **RED** |
+| `validate_bundle.py` refuse a higher minor *(added)* | **RED** |
+| `validate_bundle.py` cross-check `source_hashes` vs `files.*.sha256` *(added)* | **RED** |
+| `provenance.py` reverse lookup keyed by `config_hash` *(added)* | **RED** |
+| `validate_bundle.py` `unsupported_major` refuse | **GREEN** → owner decision, see below |
+| `export_decisions.py` `decision_latency_ms` → `int(...)` | **GREEN** (109 passed) → closed, PR #83 |
+| `export_decisions.py` re-serialize `candidate_key` via JCS | **GREEN** (107 passed) → closed, PR #82 |
+| `privacy.py` `strip_state_summary_nicknames` neutralised | **GREEN** → closed, PR #86 |
+| `export_bundle.py` `trace_source_hash` constant | **GREEN** → closed, PR #86 |
+
+### The five green rows, stated precisely
 
 **`unsupported_major` — a narrower finding than it first looks.** Gate 15 *is* covered:
 `godot/tests/bundle/test_bundle_validator.gd:105::test_fixture07_unsupported_major_refuses`
@@ -92,20 +108,97 @@ round-trip reproduces them byte-for-byte. Closed by PR #82's float-injection tes
 one conclusion from PR #82 that survives** — the measurement was always right; only the
 "gate 9 was uncovered" framing drawn from it was wrong.
 
+**`strip_state_summary_nicknames`** had no test at all. The nickname test that existed covers the
+`|request|` line path (`pseudonymize_request_payload`); the `state_summary` path was uncovered.
+Closed by PR #86 — as a **structural** guarantee that the field is dropped, not as leak
+prevention: measured, no committed fixture holds a player-chosen nickname there. All 144 values
+across the 11 trace fixtures are species names or base-form/mega variants (`Aerodactyl` for
+species `Aerodactyl-Mega`). An earlier reading of this same data as "18 real nicknames" was wrong.
+
+**`trace_source_hash`** exposed a scope gap rather than a vacuous test. The existing gate-23 test
+reads `bundles/fixture-01` off disk and compares its recorded hashes to fresh digests — true and
+useful about the **artifact**, but it never re-exports, so a **producer** regression stays
+invisible until somebody regenerates the fixture. Closed by PR #86 with a fresh-export assertion;
+the artifact test is untouched.
+
+---
+
+## 3b. Godot fail-check sample (20 guards)
+
+The suite had **never** been fail-checked. Twenty guards were broken across five batches; each
+break was neutralised as `false and <cond>` where possible so the GDScript stays valid, and
+`src/` was restored and `git status`-verified after every one.
+
+**13 RED** — genuinely covered: `hash_mismatch`, `missing_file`, `unsupported_major`,
+non-integral JSON ints, wrong JSON type, the raw-dump truncation marker, the timeline selection
+clamp, the UI-scale clamp, a switch fully replacing a slot, the bundle-mode and decision-phase
+vocabularies, the `SORT_SCORE` tie-break, and the provenance dirty tri-state.
+
+**7 green**, all closed:
+
+| Break | Why nothing caught it |
+|---|---|
+| `NOT_RECORDED := "0"`, `STATE_DEGRADED := "ALL GOOD"` | every assertion compared output to the **same constant**, so changing it moved both sides |
+| `path_containment` reparse-point guard | its two tests self-skipped with a **wrong reason** — see below |
+| `ICON_EXPORTER := "~"` | a grep for either icon constant across `tests/` returned nothing at all |
+| gate 28's partly-null `aggregation_headline` | 0 of 36 exported decision rows reach that branch |
+| `ShortcutLabels.mod_key()` inverted | never asserted anywhere |
+| `apply_slot_hp`'s `hp_status` branch | 0 lines in any committed `battle.jsonl` carry `hp.status`; the two existing status tests take different routes |
+| `SORT_CHOSEN_FIRST` ignoring the chosen row | the test **existed and could not fail** — fixture-16's chosen candidate is rank 0, so rank order and chosen-first order agree |
+
+### The reparse-point finding
+
+`mklink` is a cmd builtin and parses a leading `/` as an option flag. Godot's `path_join` yields
+forward slashes, so every call failed with *"Invalid option - Users"* and the code read that
+non-zero exit as missing privilege. Measured: `mklink /J` with backslashes succeeds **unelevated**.
+
+So a containment guard that stops a bundle reaching outside its own directory went unverified on
+every run — locally **and in CI**, both reporting a benign-looking "2 skipped". After the fix CI
+reports **0 skipped**, which also revealed that the CI runner is elevated: the file-symlink form,
+still skipped locally, now executes there for the first time and passes.
+
+### The flake
+
+`test_fixture06_refuse_clears_replay` failed on one CI run and passed on another **three seconds
+apart on the same SHA**. Root cause: `BundleLoader.load_async` defers when a previous worker
+thread is still alive, returning without entering `LOADING`, so `is_loading()` is false both
+before a load starts and after one finishes. The shared helper waited on `not is_loading()` and
+returned after zero iterations, reading state from the previous bundle. `AppShell.is_settled()`
+adds the missing half; all 14 helper copies use it.
+
+**No test covers that fix.** One was written, then checked by reverting `is_settled()` — it stayed
+green, because `_start_load` has already set `LOADING` at the point it asserted. It was removed
+rather than committed. The discriminating window sits between `_drain_queue` and
+`_maybe_finalize_worker` inside a single `_process` call, with no test-visible seam.
+
+### Two invalid measurements, discarded rather than reported
+
+Both would have been recorded as "stayed green" by a less careful reading:
+
+- Setting `PHASE_FORCED_REPLACEMENT` to another constant's value made GDScript refuse to compile,
+  so the run produced no summary at all. Re-measured with a distinct value: decisively RED.
+- A harness grepped `head -1` of the test-case counts, and gdUnit prints a per-suite `Statistics:`
+  line in the same format *before* the overall summary — three breaks were scored against one
+  suite's 13 cases instead of 284.
+
+A break that does not compile, or a number read off the wrong line, measures nothing.
+
 ---
 
 ## 4. What this recheck does **not** establish
 
 - **A current 37-row status table.** Deliberately not produced. Re-deriving one by reading test
   bodies would reproduce the original audit's method but not its weakness — and the weakness is the
-  point: a body-reading pass still cannot tell "asserted" from "covered". The next useful artifact
-  is a **completed fail-check pass**, not a refreshed table.
-- **Coverage of the ~12 other tests `1980174` added** (gates 16, 17, 19, 21, 23, 25 and the
-  positive halves of 10/11/12). They are green and unproven. Given that 3 of the 6 guards probed
-  here stayed green, treating the untested remainder as covered is not justified.
-- **Anything about the Godot suite's fail-check status.** 276 cases, none fail-checked. The
-  original audit excluded gdUnit bodies by scope; that exclusion still stands and is now the larger
-  unmeasured surface.
+  point: a body-reading pass still cannot tell "asserted" from "covered". The completed fail-check
+  pass in §3 is the artifact that does, and it is per-guard, not per-gate: several §15 gates are
+  split across a positive and a refuse half that are covered by different code, so a single
+  COVERED/MISSING letter per gate would lose information this table keeps.
+- **A fail-checked Godot suite.** 20 guards have now been broken there (§3b), out of 285 cases.
+  That is a sample, not a pass. What it established is that the same defect classes exist on
+  both sides, at a similar rate.
+- **That a RED row proves a gate is fully covered.** It proves *that break* is caught. A gate whose
+  wording covers more than the one guard probed (e.g. gate 19's "no reversible map is present",
+  distinct from the seat-pseudonym half broken here) may still be partly unproven.
 - **Any strength, safety, or release claim.** None of this speaks to the bot.
 
 ## 5. Standing instruction

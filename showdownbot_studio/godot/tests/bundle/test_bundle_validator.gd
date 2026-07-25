@@ -211,6 +211,16 @@ func _mark_skip(reason: String) -> void:
 				return
 
 
+## mklink is a cmd builtin and parses a leading `/` as an OPTION flag. Godot's path_join
+## yields forward slashes ("C:/Users/..."), so every call below failed with
+## "Invalid option - Users" and self-skipped as "requires privilege" -- a wrong diagnosis
+## that hid these two containment tests never running, locally OR in CI (both reported
+## "2 skipped", which reads benign). Measured: with backslashes, `mklink /J` succeeds
+## unelevated; only the file-symlink form genuinely needs elevation or Developer Mode.
+static func _win_path(path: String) -> String:
+	return path.replace("/", "\\")
+
+
 func test_refuse_symlink_or_junction_payload(
 	do_skip := OS.get_name() != "Windows",
 	skip_reason := "Plan F: symlink creation requires Windows"
@@ -222,12 +232,14 @@ func test_refuse_symlink_or_junction_payload(
 	var output: Array = []
 	var exit_code := OS.execute(
 		"cmd.exe",
-		["/c", "mklink", bundle_dir.path_join("battle.jsonl"), target_dir],
+		["/c", "mklink", _win_path(bundle_dir.path_join("battle.jsonl")), _win_path(target_dir)],
 		output,
 		true,
 		false
 	)
 	if exit_code != 0:
+		# A real skip now, not a mis-diagnosed path bug: the file-symlink form does require
+		# elevation or Developer Mode. The junction test below covers the same guard without it.
 		_mark_skip("Plan F: mklink requires privilege — re-run elevated")
 		return
 	var result: ValidationResult = BundleValidator.validate_dir(bundle_dir)
@@ -245,14 +257,20 @@ func test_junction_named_battle_jsonl_is_reparse_not_subdir(
 	var output: Array = []
 	var exit_code := OS.execute(
 		"cmd.exe",
-		["/c", "mklink", "/J", bundle_dir.path_join("battle.jsonl"), target_dir],
+		[
+			"/c", "mklink", "/J",
+			_win_path(bundle_dir.path_join("battle.jsonl")),
+			_win_path(target_dir),
+		],
 		output,
 		true,
 		false
 	)
-	if exit_code != 0:
-		_mark_skip("Plan F: mklink /J requires privilege — re-run elevated")
-		return
+	# Junctions need no elevation -- measured. If this still fails, that is a real
+	# environment problem worth seeing, not something to wave through as a skip.
+	assert_int(exit_code).override_failure_message(
+		"mklink /J failed (%s); junction creation needs no privilege" % str(output)
+	).is_equal(0)
 	var result: ValidationResult = BundleValidator.validate_dir(bundle_dir)
 	_assert_refuse(result, "symlink_or_reparse_refused")
 	assert_str(result.diagnostic.reason).is_not_equal("undeclared_subdirectory")

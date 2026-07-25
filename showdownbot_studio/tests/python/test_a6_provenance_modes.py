@@ -216,3 +216,44 @@ def test_config_hash_never_used_as_a_lookup_key_in_exporter_source():
                 if "config_hash" in names:
                     offenders.append(f"{path.name}:{node.lineno}")
     assert offenders == [], f"config_hash used as a subscript/lookup key: {offenders}"
+
+
+def test_source_hashes_are_recomputed_by_a_fresh_export_not_only_recorded(tmp_path):
+    """Gate 23's positive half, on the PRODUCER rather than the committed artifact.
+
+    Measured, not assumed: replacing `trace_source_hash = sha256_file(decision_trace)` in
+    export_bundle.py with a constant leaves the whole file green. The existing
+    `test_source_hashes_equal_real_source_digests` reads bundles/fixture-01 off disk and
+    compares its recorded hashes to fresh digests -- a true and useful assertion about the
+    committed bundle, but it never re-exports, so an exporter regression stays invisible
+    until somebody regenerates the fixture.
+
+    This exports fixture-01 fresh into tmp_path and asserts the manifest the EXPORTER just
+    wrote carries the real digests of the inputs it was handed.
+    """
+    import hashlib
+
+    out = tmp_path / "bundle"
+    export_bundle(
+        out=out,
+        battle_log=FIX01 / "battle.log",
+        decision_trace=FIX01 / "decision_trace.jsonl",
+        results=FIX01 / "results.jsonl",
+        run_manifest=FIX01 / "results.manifest.json",
+        config_manifest=FIX01 / "results.config-manifest.json",
+    )
+
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    source_hashes = manifest["source_hashes"]
+
+    for key, source in (
+        ("battle_log", FIX01 / "battle.log"),
+        ("decision_trace", FIX01 / "decision_trace.jsonl"),
+    ):
+        expected = hashlib.sha256(source.read_bytes()).hexdigest()
+        assert source_hashes[key] == expected, f"{key} is not the real source digest"
+        # The source digest must never coincide with the exported artifact's own digest --
+        # they are different bytes, and collapsing the two concepts is the failure mode
+        # gate 23's second half exists to rule out.
+        exported = out / ("battle.jsonl" if key == "battle_log" else "decisions.jsonl")
+        assert source_hashes[key] != hashlib.sha256(exported.read_bytes()).hexdigest()

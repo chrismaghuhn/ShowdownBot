@@ -137,6 +137,22 @@ func is_loading() -> bool:
 	return _loader.get_state() == BundleLoader.State.LOADING
 
 
+## True only when no load is running AND none is queued behind a worker that has not been
+## joined yet.
+##
+## `is_loading()` alone cannot express this: it is false both BEFORE a load starts and AFTER
+## one finishes. `BundleLoader.load_async` DEFERS when a previous worker thread is still
+## alive -- it stores the path and returns WITHOUT entering LOADING
+## (`bundle_loader.gd:41-47`) -- and the thread is only joined later in `_process`. A caller
+## that opens a second bundle can therefore observe `is_loading() == false` while the second
+## load has not begun, and read state belonging to the first.
+##
+## That is the mechanism behind the CI flake in `test_fixture06_refuse_clears_replay`: same
+## SHA, two runs three seconds apart, one green and one red.
+func is_settled() -> bool:
+	return not is_loading() and _loader.is_worker_thread_joined()
+
+
 func get_loaded_bundle() -> BundleDTO:
 	return _current_bundle
 
