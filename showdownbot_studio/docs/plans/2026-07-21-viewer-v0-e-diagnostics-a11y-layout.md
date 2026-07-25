@@ -3,8 +3,10 @@
 **Status:** APPROVED — 2026-07-21 (Rev. 3). Owner review PASS across Rev. 1–3.
 Amended Rev. 4 (additive Plan-D test coverage, owner-authorised, pre-implementation).
 Amended Rev. 5 (priority-3 optional display-file disjunct — E1 review follow-up).
+Amended Rev. 6 (2026-07-24 — §7's scale acceptance row corrected: it claimed 75/100/150/200 met;
+200% fails at the 1280x720 minimum. Post-implementation factual correction, see §7.1).
 **Implementation authorized** for E1 on `studio/plan-e-state-banner` (§10 Schritt 4).
-**Date:** 2026-07-21 · **Rev.:** 5 (priority-3 optional display-file disjunct)
+**Date:** 2026-07-21 · **Rev.:** 6 (2026-07-24 scale-acceptance correction; see §7.1)
 **Depends on (code start, when APPROVED + go-ahead):** Plans B–D **merged** on `main`
 @ `0256602` (PR **#44** / **#46** / **#47** + follow-ups PR **#48** @ `19e1bc7`).
 Filter UI + semantics ship in Plan D — Plan E only wires keyboard focus onto that control.
@@ -707,7 +709,7 @@ implementation start by counting §5 names). No silent case deletion.
 |---|---|
 | Keyboard-only inspection of fixture-01 | §5.6 smoke + §5.5 shortcuts green |
 | Focus filter focuses Plan D `LineEdit` | Same instance assert; no second filter |
-| Scale 75/100/150/200 | §5.4 + primary controls reachable at **1280×720** |
+| Scale 75/100/150/200 | ~~§5.4 + primary controls reachable at **1280×720**~~ — **NOT MET at 200%.** 75/100/150 hold; at 200% on the 1280×720 minimum the shell overlaps itself and primary controls leave the frame. Corrected 2026-07-24, see §7.1 |
 | Banner correct for fixtures 1, 3, 4, 5, 6 | §5.6 named tests (fixture-06 via `sources/fixture-06/bundle` + `hash_mismatch`) |
 | Banner precedence | §5.1 adjacent-pair tests |
 | Dirty null honesty | §5.1 / §5.2 |
@@ -717,6 +719,43 @@ implementation start by counting §5 names). No silent case deletion.
 | Screen-reader | Honest smoke notes **filed**; no completeness claim |
 | Next-close | C1 — unchanged Plan D semantics |
 | Plan-D coverage gaps (T1–T3) | §5.8 green; +10 cases |
+
+### 7.1 Correction — the scale row was marked met and is not (2026-07-24)
+
+**What is false.** The row above claimed the 75/100/150/200 scale range met. Measured against the
+merged build with a real (non-headless) capture at the §0.7-mandated **1280×720** minimum window:
+at **200%** the shell chrome overlaps itself — `decision #0` draws on top of the scale/density row,
+the status line is overdrawn by the stage line, and the timeline transport row and decision-list
+column are pushed out of frame entirely. 75%, 100% and 150% behave correctly; only 200% at the
+minimum window fails.
+
+Evidence: `evidence/viewer-v0-f-visual-capture/fixture-01-1280x720-scale200-2026-07-24.png`, with the
+100% comparison captures beside it. Root cause named in
+`evidence/viewer-v0-f-manual-checklist.md`: `WorkspaceLayout extends Control`
+(`godot/src/workspace/workspace_layout.gd:2`) rather than `Container`, so it never propagates its
+children's minimum size to the outer `VBoxContainer`; at scale 1.0 the discrepancy stays small
+enough to fit, which is why it only surfaces when the runtime theme's font size grows.
+
+**Why it passed review — this is the part worth keeping.** The row cited two pieces of evidence, and
+**neither could reach the failing case**:
+
+1. **§5.4's `test_min_window_set`** runs headless, where `DisplayServer` window geometry is stubbed
+   (`window_get_min_size()` returns `(0, 0)` regardless of what production set — §0.5 of Plan F
+   records the probe). The test therefore asserts the *constant* `MIN_WINDOW_SIZE`, not that any
+   window ever took that size. It cannot observe a layout overflow.
+2. **The "primary controls reachable at 1280×720" check** was performed at **100%** scale. It is a
+   true statement about 100%. It says nothing about 200%, which is the only scale value in the
+   range that fails.
+
+So the acceptance row was not a careless tick: it was supported by two real, passing checks whose
+combined coverage had a hole exactly where the defect lives. **Evidence that structurally cannot
+touch the failing case must not be read as covering it.** A criterion spanning a range needs its
+endpoints exercised, and a criterion about rendered geometry cannot be discharged by a headless
+assertion about a constant.
+
+**Not fixed here.** This correction changes the claim, not the build. Converting `WorkspaceLayout`
+to a real `Container` (or adding explicit min-size propagation) is a code change with its own
+regression surface and is not authorised by this docs correction.
 
 ---
 
@@ -778,6 +817,24 @@ implementation start by counting §5 names). No silent case deletion.
 ---
 
 ## 12. Changelog
+
+### Rev. 6 — §7 scale acceptance row corrected (2026-07-24)
+
+- **What changed:** §7's `Scale 75/100/150/200` row claimed the range met. It is not met at 200%
+  on the 1280x720 minimum window. Row struck and corrected; full detail in new §7.1.
+- **Why it is a correction and not new scope:** the row asserted a capability the merged build does
+  not deliver. Leaving it would keep a false claim on `main`, which this project's own method
+  ("verify load-bearing claims against the code") forbids more strongly than it forbids editing an
+  approved document.
+- **Evidence:** a real, non-headless capture of the merged build at the mandated minimum window,
+  filed under `evidence/viewer-v0-f-visual-capture/` by Plan F's F2 task.
+- **Root cause, recorded not fixed:** `WorkspaceLayout extends Control` rather than `Container`, so
+  child minimum sizes never propagate. Changing that is code, not this docs correction.
+- **The transferable part (§7.1):** both evidence citations behind the original row were structurally
+  incapable of reaching the failing case — a headless test that can only assert a constant, and a
+  reachability check performed at 100%. Evidence that cannot touch the failing case is not coverage.
+- Nothing else in this plan is altered. Status stays APPROVED; §8's self-review checklist and the
+  E1-E7 task records are untouched.
 
 ### Rev. 5 — Priority-3 optional display-file disjunct (E1 follow-up)
 
