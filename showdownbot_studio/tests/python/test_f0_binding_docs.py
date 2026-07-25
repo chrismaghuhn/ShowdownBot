@@ -34,3 +34,15 @@ def test_threat_model_doc_exists_with_required_sections():
             "## Residual risk and non-goals",
         ],
     )
+
+
+def test_data_classification_doc_exists_with_required_sections():
+    _assert_doc_has_headings(
+        _DOCS_SECURITY / "DATA_CLASSIFICATION.md",
+        [
+            "## Purpose",
+            "## Classification levels",
+            "## Data categories",
+            "## Cross-references",
+        ],
+    )
