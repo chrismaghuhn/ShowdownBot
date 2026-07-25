@@ -4,6 +4,37 @@ extends RefCounted
 ## Pure, deterministic fold: apply(previous, event) -> next. Never mutates `previous`
 ## (LiveBattleSnapshot has no setter anywhere). An unmodeled event type returns `previous`
 ## unchanged (spec section 6.1).
+##
+## Watchlist M1c ("Unknown or inconsistent state events fail closed and remain diagnostically
+## visible"): apply() itself stays a pure, signal-free function -- LiveBattleProjection is the
+## one that surfaces WHY an event did not change state, using the two pure predicates below to
+## classify an event BEFORE calling apply(), never by inspecting apply()'s return value (a
+## no-op result is otherwise indistinguishable from "this event legitimately does nothing").
+
+## Every event_type this reducer's match statement below actually has an arm for.
+const _HANDLED_EVENT_TYPES: PackedStringArray = [
+	"turn", "switch", "drag", "-damage", "-heal", "-status", "-curestatus", "faint",
+	"-weather", "-fieldstart", "-fieldend", "-sidestart", "-sideend", "win", "tie",
+]
+
+## The subset of _HANDLED_EVENT_TYPES whose arms require pokemon_side/pokemon_slot
+## (_apply_switch/_apply_hp_change/_apply_status/_apply_faint's own early-return guard).
+const _POKEMON_IDENTITY_EVENT_TYPES: PackedStringArray = [
+	"switch", "drag", "-damage", "-heal", "-status", "-curestatus", "faint",
+]
+
+
+## True iff apply() has a match arm for this event_type at all (spec section 6.1's "not
+## understood"/unmodeled-type case is the false side of this).
+static func is_handled_event_type(event_type: String) -> bool:
+	return event_type in _HANDLED_EVENT_TYPES
+
+
+## True iff a handled event_type additionally requires pokemon_side/pokemon_slot to identify
+## which slot it applies to -- the exact condition _apply_switch/_apply_hp_change/_apply_status/
+## _apply_faint already early-return on when missing.
+static func requires_pokemon_identity(event_type: String) -> bool:
+	return event_type in _POKEMON_IDENTITY_EVENT_TYPES
 
 
 static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
