@@ -64,7 +64,8 @@ requires a separate implementation go-ahead before code.
 | Order | Document | Scope | Status |
 |---|---|---|---|
 | F0 | [`2026-07-25-phase3-f0-foundation.md`](2026-07-25-phase3-f0-foundation.md) | Architecture foundation: binding docs, architecture guards + CI lane, board-presentation contract, shell scaffold | **APPROVED** + **merged** via PR **#88** |
-| M1 | `2026-07-25-phase3-m1-connect-spectate.md` | Connect + Spectate (M1a–M1e) | DRAFT — revision required (owner review 2026-07-25); not yet committed |
+| M1 | [`2026-07-25-phase3-m1-connect-spectate.md`](2026-07-25-phase3-m1-connect-spectate.md) | Connect + Spectate (M1a–M1e) | **APPROVED** 2026-07-25 after two integration-review passes; code awaits its own go-ahead |
+| — | [`2026-07-25-phase3-m1-implementation-watchlist.md`](2026-07-25-phase3-m1-implementation-watchlist.md) | Binding owner watchlist: mandatory implementation-review checks for every M1 PR | **BINDING** |
 
 **Phase 1 is no longer an independent product phase** — its read-only spectator scope is subsumed
 by Phase 3 Milestone M1. **Phases 2, 4, and 5 remain unauthorized** and have no plans here.
