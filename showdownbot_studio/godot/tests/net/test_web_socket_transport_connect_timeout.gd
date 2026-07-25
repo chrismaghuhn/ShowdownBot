@@ -39,3 +39,11 @@ func test_handshake_succeeding_just_before_timeout_does_not_cancel() -> void:
 	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
 	_transport._process(WebSocketTransport.CONNECT_TIMEOUT_S - 1.0)
 	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.CONNECTED)
+
+
+func test_handshake_completing_on_the_same_frame_as_timeout_connects_instead_of_cancelling() -> void:
+	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
+	_fake.ready_state = SocketPeerPort.ReadyState.CONNECTING  # not open until this frame's poll()
+	_fake.arm_ready_state_on_next_poll(SocketPeerPort.ReadyState.OPEN)
+	_transport._process(WebSocketTransport.CONNECT_TIMEOUT_S + 0.1)
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.CONNECTED)

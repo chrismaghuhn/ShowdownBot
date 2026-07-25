@@ -46,6 +46,19 @@ func test_repeated_failures_exhaust_backoff_schedule() -> void:
 	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
 
 
+func test_process_after_exhausted_does_not_poll_the_old_peer() -> void:
+	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
+	_fake.connect_result = ERR_CANT_CONNECT
+	_fake.ready_state = SocketPeerPort.ReadyState.CLOSED
+	_transport._process(0.016)  # attempt 1 fails -> RECONNECTING
+	for backoff_s in WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S:
+		_transport._process(backoff_s + 0.1)
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
+	var poll_count_at_exhaustion := _fake.poll_count
+	_transport._process(0.016)
+	assert_int(_fake.poll_count).is_equal(poll_count_at_exhaustion)
+
+
 func test_manual_retry_from_exhausted_moves_to_connecting() -> void:
 	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
 	_fake.connect_result = ERR_CANT_CONNECT

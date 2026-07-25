@@ -8,6 +8,9 @@ var sent_texts: Array[String] = []
 var connect_urls: Array[String] = []
 var close_called: bool = false
 var configured_heartbeat_intervals: Array[float] = []
+var poll_count: int = 0
+var _armed_ready_state: SocketPeerPort.ReadyState = SocketPeerPort.ReadyState.CONNECTING
+var _has_armed_ready_state: bool = false
 
 
 func connect_to_url(url: String) -> int:
@@ -15,8 +18,20 @@ func connect_to_url(url: String) -> int:
 	return connect_result
 
 
+## Arms a one-shot ready_state transition that poll() applies on its NEXT call, simulating a
+## real WebSocketPeer whose handshake completes only once actually polled (poll() is what
+## pumps the underlying connection). Without this, the fake could never distinguish "the
+## production code read a stale pre-poll ready state" from "it read the post-poll one".
+func arm_ready_state_on_next_poll(state: SocketPeerPort.ReadyState) -> void:
+	_armed_ready_state = state
+	_has_armed_ready_state = true
+
+
 func poll() -> void:
-	pass
+	poll_count += 1
+	if _has_armed_ready_state:
+		ready_state = _armed_ready_state
+		_has_armed_ready_state = false
 
 
 func get_ready_state() -> SocketPeerPort.ReadyState:

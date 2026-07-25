@@ -94,9 +94,20 @@ func _advance_after_failed_attempt() -> void:
 func _schedule_next_attempt() -> void:
 	if _reconnect_attempt >= RECONNECT_BACKOFF_SCHEDULE_S.size():
 		_state_machine.backoff_exhausted()
+		_release_peer()
 		return
 	_reconnect_timer_s = RECONNECT_BACKOFF_SCHEDULE_S[_reconnect_attempt]
 	_reconnect_attempt += 1
+
+
+## Called when backoff is exhausted: the last attempt's peer is already dead (closed or never
+## opened) and nothing will poll it again until a manual retry opens a fresh one via
+## connect_to_server(). Closing it first (if not already closed) and nulling the reference stops
+## _process() from polling a dead peer every frame while EXHAUSTED.
+func _release_peer() -> void:
+	if _peer != null:
+		_peer.close(1000, "reconnect backoff exhausted")
+	_peer = null
 
 
 func _open_socket() -> void:
@@ -120,17 +131,21 @@ func _process(delta: float) -> void:
 		# exactly like the CONNECTING branch below -- never open a second peer for it.
 	elif _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING:
 		_connecting_elapsed_s += delta
-		# Invariant: _open_socket() always assigns a non-null _peer before any transition that
-		# could leave state at CONNECTING, so _peer cannot actually be null here today -- but the
-		# watchlist (M1a) requires the literal _peer != null check at this call site regardless,
-		# as defense against a future refactor silently breaking that invariant.
-		if _peer != null and _connecting_elapsed_s >= CONNECT_TIMEOUT_S and _peer.get_ready_state() != SocketPeerPort.ReadyState.OPEN:
-			cancel_connect_attempt()
-			return
+	# _peer is guaranteed non-null whenever state is CONNECTING or RECONNECTING-with-an-attempt-
+	# in-flight (_open_socket() always assigns it first), but the watchlist (M1a) requires this
+	# literal guard regardless, as defense against a future refactor silently breaking that
+	# invariant. Poll exactly once per frame and read the ready state AFTER that poll, so a
+	# handshake completing on this very frame is observed before any timeout/close decision uses
+	# it -- reading a pre-poll ready state here previously cancelled a same-frame handshake.
 	if _peer == null:
 		return
 	_peer.poll()
 	var ready := _peer.get_ready_state()
+	if _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING \
+			and ready != SocketPeerPort.ReadyState.OPEN \
+			and _connecting_elapsed_s >= CONNECT_TIMEOUT_S:
+		cancel_connect_attempt()
+		return
 	if ready == SocketPeerPort.ReadyState.OPEN:
 		_reconnect_attempt_in_flight = false
 		_on_peer_open()
