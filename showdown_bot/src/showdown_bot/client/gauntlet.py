@@ -62,6 +62,18 @@ LOCAL_SERVER = "ws://localhost:8000/showdown/websocket"
 # they must not count against the strict invalid-choice criterion.
 _BENIGN_CHOICE_ERRORS = ("too late", "nothing to choose")
 
+# Studio M1d Task 33 (owner-approved test-infrastructure exception, 2026-07-25 M1-plan review,
+# second pass): a normal gauntlet run never passes --print-room-id/--move-delay-seconds and sees
+# no change in pacing -- this default keeps every existing caller byte-identical.
+DEFAULT_MOVE_DELAY_SECONDS = 0.0
+
+
+def format_room_id_marker(room_id: str) -> str:
+    """Exactly one machine-readable marker line for --print-room-id, parsed verbatim by the
+    Studio E2E CI lane (docs/plans/2026-07-25-phase3-m1-connect-spectate.md, Task 34) -- never
+    mixed into the gauntlet's normal human-readable summary output."""
+    return f"SHOWDOWN_ROOM_ID={room_id}"
+
 
 def _is_real_invalid(text: str | None) -> bool:
     low = (text or "").lower()
@@ -333,10 +345,16 @@ class _Client:
                  decision_trace_writer=None, decision_trace_context=None,
                  agg_trace_writer=None, agg_trace_context=None,
                  opp_mega_trace_writer=None, opp_mega_trace_context=None,
-                 decision_profile_writer=None, decision_profile_context=None):
+                 decision_profile_writer=None, decision_profile_context=None,
+                 move_delay_seconds: float = DEFAULT_MOVE_DELAY_SECONDS):
         self.conn = conn
         self.name = name
         self.agent = agent
+        # Studio M1d Task 33 (owner-approved test-infrastructure exception): a deliberate delay
+        # inserted immediately before THIS client's own move submissions, used only to keep an
+        # E2E-seeded battle observably active for longer than an instant. Default 0.0 means every
+        # existing caller (never passing this) sees no change in pacing.
+        self.move_delay_seconds = move_delay_seconds
         self.book = book
         self.priors = priors
         self.format_id = format_id
@@ -814,6 +832,12 @@ class _Client:
         # one the |error| follows is the stale-dispatch signature -- previously unanswerable,
         # because the room dump carries only the server->client direction.
         self.choose_log.setdefault(room, []).append(f">choose rqid={req.rqid} {choose}")
+        # Studio M1d Task 33 (owner-approved test-infrastructure exception): opt-in pacing delay,
+        # used only by the E2E seeder so the battle stays observably active for longer than an
+        # instant. move_delay_seconds is 0.0 for every caller that never passes it, so this is a
+        # no-op (no asyncio.sleep(0.0) call at all) for every existing gauntlet run.
+        if self.move_delay_seconds > 0:
+            await asyncio.sleep(self.move_delay_seconds)
         await self.conn.send(f"{room}|{choose}")
         # [P1] The request has been answered, so it has consumed its slot -- advance the
         # shared sequence here, BEFORE the sidecar writes below (which already captured
@@ -1018,7 +1042,13 @@ async def _run_client(
     accept_from: str | None,
     on_result,
     stop: asyncio.Event,
+    print_room_id: bool = False,
 ) -> None:
+    # Studio M1d Task 33 (owner-approved test-infrastructure exception): print exactly ONE
+    # marker line, for the first battle room this call observes, when print_room_id is set (the
+    # caller passes this only for the hero client's own _run_client() invocation, so a room
+    # shared between hero and villain connections is never announced twice).
+    _room_id_printed = False
     await client.set_team()
     try:
         async for raw in client.conn.messages():
@@ -1042,6 +1072,13 @@ async def _run_client(
                     if parsed.room.startswith("battle-"):
                         if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
                             await client.conn.send(f"|/join {parsed.room}")
+                            if print_room_id and not _room_id_printed:
+                                # Machine-readable marker only, printed via the normal print()
+                                # path (not a logger) so the Studio E2E CI lane can capture it
+                                # from stdout directly. Does NOT exit -- the battle keeps
+                                # running (Task 33, second-pass fix).
+                                print(format_room_id_marker(parsed.room))  # noqa: T201
+                                _room_id_printed = True
                             if client._export is not None:
                                 client._export.start_game()
                             if client._shadow is not None:
@@ -1322,6 +1359,8 @@ async def run_local_gauntlet(
     opp_mega_trace_context=None,
     decision_profile_writer=None,
     decision_profile_context=None,
+    print_room_id: bool = False,
+    move_delay_seconds: float = DEFAULT_MOVE_DELAY_SECONDS,
 ) -> GauntletStats:
     """Play ``games`` battles between two local bots and return aggregate stats.
 
@@ -1442,7 +1481,8 @@ async def run_local_gauntlet(
                    opp_mega_trace_writer=opp_mega_trace_writer,
                    opp_mega_trace_context=opp_mega_trace_context,
                    decision_profile_writer=decision_profile_writer,
-                   decision_profile_context=decision_profile_context)
+                   decision_profile_context=decision_profile_context,
+                   move_delay_seconds=move_delay_seconds)
     # The villain deliberately receives NO opp-mega or decision-profile writer/context (same
     # hero-only contract as export_runtime and both trace seams): its decisions are the
     # opponent policy's, not the bot under test, so neither its foe-Mega hypotheses nor its
@@ -1508,7 +1548,10 @@ async def run_local_gauntlet(
             next_game.set()
 
     hero_task = asyncio.create_task(
-        _run_client(hero, accept_from=None, on_result=on_hero_result, stop=stop)
+        _run_client(
+            hero, accept_from=None, on_result=on_hero_result, stop=stop,
+            print_room_id=print_room_id,
+        )
     )
     villain_task = asyncio.create_task(
         _run_client(villain, accept_from=hero_name, on_result=None, stop=stop)

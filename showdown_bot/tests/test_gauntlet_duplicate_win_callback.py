@@ -47,7 +47,7 @@ async def test_empty_duplicate_win_callback_counts_one_game_and_one_row(monkeypa
         f"|win|{hero_name}",
     ])
 
-    async def fake_run_client(client, *, accept_from, on_result, stop):
+    async def fake_run_client(client, *, accept_from, on_result, stop, print_room_id=False):
         if on_result is not None:
             await on_result(hero_name, [frames], None)
             await on_result(None, [], None)

@@ -569,7 +569,7 @@ def run_gauntlet(args) -> None:
         run_schedule(args)
         return
 
-    from showdown_bot.client.gauntlet import run_local_gauntlet
+    from showdown_bot.client.gauntlet import DEFAULT_MOVE_DELAY_SECONDS, run_local_gauntlet
 
     # I7b-C Task 2 Step 6: this path has no schedule, so it computes no
     # battle_id/config_hash/schedule_hash and cannot build an OppMegaTraceContext. Silently
@@ -593,6 +593,11 @@ def run_gauntlet(args) -> None:
     # The gauntlet uses local guest auth, so it does not need SHOWDOWN_USERNAME;
     # only the team path matters here.
     team_path = os.environ.get("SHOWDOWN_TEAM_PATH", "teams/fixed_team.txt")
+    move_delay_seconds = (
+        DEFAULT_MOVE_DELAY_SECONDS
+        if getattr(args, "move_delay_seconds", None) is None
+        else args.move_delay_seconds
+    )
     stats = asyncio.run(
         run_local_gauntlet(
             games=args.games,
@@ -600,6 +605,8 @@ def run_gauntlet(args) -> None:
             villain_agent=args.villain,
             format_id=args.format_id,
             team_path=team_path,
+            print_room_id=getattr(args, "print_room_id", False),
+            move_delay_seconds=move_delay_seconds,
         )
     )
     p95 = stats.latency_p95()
@@ -1091,6 +1098,25 @@ def _build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         help="Enforce Phase 2 exit thresholds and exit non-zero on failure (gauntlet)",
+    )
+    parser.add_argument(
+        "--print-room-id",
+        dest="print_room_id",
+        action="store_true",
+        help="Studio M1d E2E test-infrastructure exception (owner-approved, 2026-07-25): print "
+        "SHOWDOWN_ROOM_ID=<room> to stdout as soon as the first battle's room exists, then keep "
+        "running the battle to completion (does not exit early). Not part of the normal gauntlet "
+        "path (gauntlet).",
+    )
+    parser.add_argument(
+        "--move-delay-seconds",
+        dest="move_delay_seconds",
+        type=float,
+        default=None,
+        help="Studio M1d E2E test-infrastructure exception (owner-approved, 2026-07-25): delay "
+        "(seconds) inserted before each of the hero bot's own move submissions, used only to keep "
+        "an E2E-seeded battle observably active for longer than an instant. Defaults to no delay "
+        "(gauntlet).",
     )
     parser.add_argument(
         "--schedule",
