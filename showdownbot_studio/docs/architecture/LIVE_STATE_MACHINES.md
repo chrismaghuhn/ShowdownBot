@@ -59,7 +59,8 @@ not done.
 | `NONE` | server sends a new `\|request\|` | `OPEN` | choice UI populated with legal actions from the request JSON |
 | `OPEN` | human completes selection and all five section-7 checks pass | `SUBMITTING` | UI locks, "Submitting..." shown |
 | `SUBMITTING` | protocol/net hands the command to the socket successfully | `SUBMITTED` | "Waiting for opponent" / turn resolving shown |
-| `SUBMITTING` | server declines the submitted choice | `REJECTED` | server error surfaced (section 6.1) |
+| `SUBMITTING` | local transport/send failure (socket handoff fails) | `OPEN` | send failure surfaced (section 6.1); prior selection kept in the UI; no auto-retry |
+| `SUBMITTED` | server declines the submitted choice | `REJECTED` | server error surfaced (section 6.1) |
 | `REJECTED` | choice UI reopens after a rejection | `OPEN` | choice UI re-populated; no auto-retry (section 6.1, section 7) |
 | `OPEN` | a newer `rqid` arrives before submission | `SUPERSEDED` | surfaced notice; stale request dropped, never sent (section 6.2, section 6.3) |
 | `SUBMITTED` | a newer `rqid` arrives after submission (e.g. request-replacement/undo) | `SUPERSEDED` | surfaced notice; prior submission superseded |
@@ -84,7 +85,9 @@ merely left unexercised. At minimum, the following are invalid and must have a r
 - `ChoiceRequestState`: `NONE` → `SUBMITTING` directly (must pass through `OPEN`); `SUBMITTED` →
   `SUBMITTING` automatically on timeout (explicitly forbidden — spec section 6.1, "the client
   never auto-picks a move on timeout"); `SUPERSEDED` → `SUBMITTED` (a superseded request can never
-  be submitted).
+  be submitted); `SUBMITTING` → `REJECTED` directly (a server decline can only arrive after the
+  socket handoff completes, i.e. from `SUBMITTED`; a `SUBMITTING`-state send failure resolves to
+  `OPEN`, never `REJECTED`).
 
 ## Cross-machine interactions
 

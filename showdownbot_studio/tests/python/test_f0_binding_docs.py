@@ -165,7 +165,7 @@ def test_live_state_machines_doc_has_full_transition_tables():
     ) == 9
     assert _table_row_count(
         text, "## ChoiceRequestState transitions", "## Invalid transitions (explicitly rejected)"
-    ) == 11
+    ) == 12
 
 
 def test_module_catalog_doc_lists_all_seven_modules():
