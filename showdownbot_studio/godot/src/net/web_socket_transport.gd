@@ -13,6 +13,7 @@ var _peer: SocketPeerPort
 var _state_machine := ConnectionStateMachine.new()
 var _peer_factory: Callable
 var _url: String = ""
+var _connection_epoch: int = 0
 
 
 func _init(peer_factory: Callable = Callable()) -> void:
@@ -28,10 +29,19 @@ func get_state() -> ConnectionStateMachine.State:
 	return _state_machine.get_state()
 
 
+## Incremented on every connect_to_server() and every successful reconnect (Task 7). Spec
+## section 6.2/section 7 binds every outbound battle action to this counter; M1 sends no
+## /choose, so nothing besides this class's own tests reads it yet, but net/ is the only module
+## that can correctly own it.
+func get_connection_epoch() -> int:
+	return _connection_epoch
+
+
 func connect_to_server(url: String) -> void:
 	if not _state_machine.request_connect():
 		return
 	_url = url
+	_connection_epoch += 1
 	_open_socket()
 
 
