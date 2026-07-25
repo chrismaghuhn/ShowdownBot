@@ -696,3 +696,39 @@ func test_header_text_valid_invalid_null() -> void:
 	var invalid := _make_decision(7, null, false)
 	invalid.seal()
 	assert_str(DecisionPresenter.header_text(invalid)).is_equal("decision #7 (invalid)")
+
+
+func test_sort_chosen_first_when_the_chosen_row_is_not_rank_one() -> void:
+	## Gate 14, the discriminating case. test_sort_chosen_first_then_rank above asserts
+	## order[0] == chosen, but cannot fail: forcing SORT_CHOSEN_FIRST to ignore the chosen
+	## index entirely (a_ch/b_ch hardcoded false, so it degrades to plain rank order) left
+	## all 284 cases green.
+	##
+	## Measured why: fixture-16's chosen candidate has rank 0, which is also the minimum
+	## rank, so rank order and chosen-first order agree on the first row. The fixture cannot
+	## distinguish the two.
+	##
+	## Constructed so they DISAGREE -- the chosen candidate is rank 3 of 3.
+	var d := _make_decision(0, 0, true)
+	d.candidates = [
+		_make_candidate("A", 1, 3.0, "key-a"),
+		_make_candidate("B", 2, 2.0, "key-b"),
+		_make_candidate("C", 3, 1.0, "key-c"),
+	]
+	d.chosen_candidate_key = "key-c"
+	d.chosen_candidate_id = "C"
+	d.seal()
+
+	var chosen := DecisionPresenter.resolve_chosen_row_index(d)
+	assert_int(chosen).is_equal(2)
+
+	var order := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_CHOSEN_FIRST)
+	assert_int(order[0]).is_equal(chosen)
+	## Plain rank order would start at index 0; the two must not coincide here, or this test
+	## would be as blind as the fixture-based one.
+	var by_rank := DecisionPresenter.sorted_candidate_indices(d, DecisionPresenter.SORT_RANK)
+	assert_int(by_rank[0]).is_not_equal(order[0])
+
+	## The remainder stays rank-ordered behind the chosen row.
+	assert_int(order[1]).is_equal(0)
+	assert_int(order[2]).is_equal(1)
