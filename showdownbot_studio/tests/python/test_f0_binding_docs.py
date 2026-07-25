@@ -166,3 +166,22 @@ def test_live_state_machines_doc_has_full_transition_tables():
     assert _table_row_count(
         text, "## ChoiceRequestState transitions", "## Invalid transitions (explicitly rejected)"
     ) == 11
+
+
+def test_module_catalog_doc_lists_all_seven_modules():
+    path = _DOCS_ARCHITECTURE / "MODULE_CATALOG.md"
+    _assert_doc_has_headings(
+        path,
+        ["## Purpose", "## Module table", "## Communication-path legend"],
+    )
+    text = path.read_text(encoding="utf-8")
+    for module_dir in [
+        "`godot/src/net/`",
+        "`godot/src/protocol/`",
+        "`godot/src/session/`",
+        "`godot/src/battle/`",
+        "`godot/src/ui/panels/`",
+        "`godot/src/replay/`",
+        "`godot/src/workspace/`",
+    ]:
+        assert module_dir in text, f"module directory {module_dir} missing from MODULE_CATALOG.md"
