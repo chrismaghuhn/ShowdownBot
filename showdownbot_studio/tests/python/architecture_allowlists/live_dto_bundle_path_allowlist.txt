@@ -1,5 +1,13 @@
-# Allowlisted exceptions to "no live DTO type referenced from a *bundle_writer*.gd file"
-# (spec section 4.1.2). Paths are relative to godot/src/, one exact file path per line. No
-# exception exists yet -- add one only with an owner-approved PR description explaining why
-# a specific bundle-writer file legitimately needs a live DTO reference. This file is read by
-# tests/python/test_f0_live_dto_bundle_guard.py.
+# Allowlisted exceptions to "no file under godot/src/replay/ references a live DTO type"
+# (spec section 4.1.2). Paths are relative to godot/src/, one exact file path per line.
+#
+# replay/live_recording_sink.gd: the M3a `LiveRecordingSink` (spec section 4.5) is the one
+# sanctioned contact point between the live protocol/session/battle DTO families and replay/
+# -- its entire job is converting `CanonicalProtocolEventStream` events (which necessarily
+# means holding references to live DTO types) into separate, recorded-replay event types
+# before anything reaches the Phase-0 bundle writer or ReplayExportGateway (spec sections 4.1.2,
+# 4.5, 4.5.1). This file does not exist yet (M3a is not built in F0); the entry is a forward
+# declaration of the sole intended exception. The Phase-0 bundle writer and
+# `ReplayExportGateway` (M3b) must NEVER be added to this allowlist: they must receive only the
+# already-converted recorded-replay event types, never a live DTO type directly.
+replay/live_recording_sink.gd
