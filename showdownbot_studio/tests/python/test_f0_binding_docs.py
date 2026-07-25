@@ -46,3 +46,16 @@ def test_data_classification_doc_exists_with_required_sections():
             "## Cross-references",
         ],
     )
+
+
+def test_credential_lifecycle_doc_exists_with_required_sections():
+    _assert_doc_has_headings(
+        _DOCS_SECURITY / "CREDENTIAL_LIFECYCLE.md",
+        [
+            "## Purpose",
+            "## Lifecycle stages",
+            "## Storage",
+            "## Never-do list",
+            "## Future extension",
+        ],
+    )
