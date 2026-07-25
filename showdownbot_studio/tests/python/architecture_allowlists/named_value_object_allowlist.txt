@@ -27,3 +27,11 @@ replay/board_model.gd
 # fields are documented nullable display/state scalars decoded from Showdown protocol text
 # (spec section 4.1.2); never containers, never a cross-module function parameter/return type.
 protocol/dto/protocol_event_dto.gd
+
+# turn/weather/terrain are documented nullable display scalars on battle/'s own structurally-
+# immutable snapshot (spec section 4.7) -- read-only-only properties, no setter anywhere.
+battle/dto/live_battle_snapshot.gd
+
+# species/hp_current/hp_maximum/hp_fainted/hp_status are documented nullable per-slot scalars
+# on the same structurally-immutable value object.
+battle/dto/live_battle_slot_snapshot.gd
