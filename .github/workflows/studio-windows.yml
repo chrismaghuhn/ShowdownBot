@@ -1,0 +1,117 @@
+name: studio windows lane
+
+# Plan F Choice Point 1 (CLOSED: K1) -- showdownbot_studio/docs/plans/2026-07-21-viewer-v0-f-e2e-acceptance.md
+# section 0.11. Windows is the only target platform for Studio (section 0.12): the pinned Godot
+# engine (godot/tools/ENGINE_SHA256SUMS) has win64-only artifacts, no Linux/macOS entry. This lane
+# is deliberately separate from pytest.yml -- that workflow is the bot's, `working-directory:
+# showdown_bot` throughout, and must not be touched by Studio-side changes.
+#
+# One job, two suites (pytest step then gdUnit step), not two jobs: the owner's closed decision at
+# section 0.11 reads "runs pytest + gdUnit as one job (mirroring the existing per-track job
+# convention, e.g. champions-mega)" -- followed here rather than split for pytest's own sake
+# (pytest alone is platform-agnostic and could run on a cheaper ubuntu-latest runner, but that is
+# not what was decided).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  studio-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # --- Studio pytest: exporter/contract suite --------------------------------------------
+      #
+      # showdownbot_studio/tests/python/conftest.py already inserts ../../showdown_bot/src onto
+      # sys.path by relative location (conftest.py:21-24), so no editable install of showdown_bot
+      # is strictly required for import resolution -- but showdown_bot's own third-party deps
+      # (pydantic, pyyaml, python-dotenv, websockets) still have to be present in this runner's
+      # environment for its modules to import cleanly. `pip install -e` pulls exactly the deps
+      # declared in showdown_bot's own pyproject.toml rather than duplicating that list here.
+      - name: Install showdown_bot (Studio pytest imports its modules via tests/python/conftest.py)
+        run: pip install -e ./showdown_bot
+
+      # showdownbot_studio/python/pyproject.toml declares `dependencies = ["rfc8785==0.1.4"]` and
+      # `dev = ["pytest>=8.0"]` -- installing with the dev extra pulls both in one step.
+      - name: Install showdownbot_studio_exporter (+ pytest)
+        run: pip install -e "./showdownbot_studio/python[dev]"
+
+      # Deliberately invoked with NO explicit test-path argument. showdownbot_studio/python/pyproject.toml
+      # already declares `pythonpath = ["src"]` and `testpaths = ["../tests/python"]` -- pytest only
+      # applies that ini file's `pythonpath` entry when its own rootdir inference lands on this
+      # directory, which requires running from here with no path argument overriding it. Verified
+      # locally: passing an explicit path (e.g. `pytest ../tests/python`) breaks that inference and
+      # silently falls back to whatever `showdownbot_studio_exporter` happens to be first on
+      # sys.path from outside this checkout -- on a shared dev machine that resolved to a *different*
+      # working tree's copy of the package with no error, which is exactly the footgun this lane
+      # exists to close. A fresh CI runner has no such stray copy to fall back to, so the same
+      # mistake would fail loudly there instead (ModuleNotFoundError) rather than silently -- but
+      # the safe invocation is also the simple one, so it is used unconditionally.
+      - name: Run Studio pytest suite
+        working-directory: showdownbot_studio/python
+        run: python -m pytest -q
+
+      # --- Studio gdUnit: headless Godot suite ------------------------------------------------
+      #
+      # The pinned engine is gitignored (showdownbot_studio/godot/.gitignore:4, `/tools/engine/`)
+      # -- every CI run must obtain it. Caching keyed on ENGINE_SHA256SUMS means a cache hit skips
+      # the download entirely (the owner's recorded cost concern for this lane: Windows runner
+      # minutes bill at roughly double, so a per-run download is worth avoiding); the key only
+      # changes when the pin itself is bumped.
+      - name: Cache pinned Godot engine
+        id: cache-engine
+        uses: actions/cache@v4
+        with:
+          path: showdownbot_studio/godot/tools/engine
+          key: godot-engine-${{ hashFiles('showdownbot_studio/godot/tools/ENGINE_SHA256SUMS') }}
+
+      # Downloading a digest-pinned engine build at CI time does not violate the Viewer's
+      # offline-only rule (bundle contract / implementation index section 5 rule 8) -- that rule
+      # binds the shipped Viewer RUNTIME (no live network calls from the running app), not how CI
+      # obtains its own build tooling. Do not "fix" this by trying to vendor the engine into git;
+      # it is deliberately gitignored (godot/.gitignore) and the digest pin is the actual guarantee.
+      - name: Download pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path showdownbot_studio/godot/tools/engine | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/godotengine/godot-builds/releases/download/4.5.2-stable/Godot_v4.5.2-stable_win64.exe.zip" `
+            -OutFile "showdownbot_studio/godot/tools/engine/Godot_v4.5.2-stable_win64.exe.zip"
+
+      # install_engine.ps1 verifies the ZIP digest before extracting, then the extracted editor +
+      # console EXE digests after, against ENGINE_SHA256SUMS, and calls verify_engine_pin.ps1
+      # itself at the end -- never skipped on a fresh download.
+      - name: Install pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/install_engine.ps1
+
+      # Never skipped, cache hit or miss: run_gdunit_headless.ps1 (below) also calls this
+      # internally before every launch, but this explicit step covers the cache-hit path with its
+      # own named, always-green-or-red line in the log, instead of relying on that being buried
+      # inside the first lines of the next step's output.
+      - name: Verify pinned Godot engine digest
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/verify_engine_pin.ps1
+
+      # run_gdunit_headless.ps1 already always passes -c (fail-fast disabled) -- see its own
+      # comment at tools/run_gdunit_headless.ps1:44-48 for why that is not exposed as an opt-in
+      # switch.
+      - name: Run Studio gdUnit suite
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/run_gdunit_headless.ps1 -a "res://tests/"
+
+      # Plan F section 3.2 (binding): "the gate runs" is not evidence it would catch a truncated
+      # run -- assert the executed+skipped-equals-declared invariant directly. See
+      # check_gdunit_truncation.ps1's own header comment for the full mechanism and the
+      # parameterized-test assumption it rests on.
+      - name: Assert gdUnit results were not truncated
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/check_gdunit_truncation.ps1
