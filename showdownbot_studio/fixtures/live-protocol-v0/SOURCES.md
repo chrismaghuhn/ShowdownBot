@@ -19,7 +19,12 @@
   *before* `protocol/protocol_decoder.gd` existed at all (spec section 8.1; Tasks 13–15 implement
   against this file, not the reverse). Includes multiple real slash-less `"0 fnt"` cases (Task 14's
   regression fix) and a real `-fieldstart`/`-fieldend` (Electric Terrain) pair — both genuine
-  artifacts of the captured battle, not constructed test data.
+  artifacts of the captured battle, not constructed test data. The 9 real `"0 fnt"` `-damage`
+  events (coordinator code-quality review) additionally assert `"hp_fainted": true` plus explicit
+  `"hp_maximum": null`/`"hp_status": null` for full-field parity — not just `hp_current`, so the
+  golden comparison proves the fainted flag itself on the real-transcript path, not only on the
+  synthetic case in `test_protocol_decoder_battle_state.gd`. Re-confirmed green against the
+  enriched golden with no decoder change required.
 - Captured for M1b (`docs/plans/2026-07-25-phase3-m1-connect-spectate.md`) on 2026-07-25.
 
 ## Bounded-vocabulary note

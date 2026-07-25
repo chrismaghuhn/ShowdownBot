@@ -23,7 +23,7 @@ replay/battle_board_slot_snapshot.gd
 # rewritten to satisfy a rule introduced after it was built.
 replay/board_model.gd
 
-# protocol_index/room_id/event_type are typed (int/String), not Variant. The remaining ten
+# protocol_index/room_id/event_type are typed (int/String), not Variant. The remaining eleven
 # fields are documented nullable display/state scalars decoded from Showdown protocol text
 # (spec section 4.1.2); never containers, never a cross-module function parameter/return type.
 protocol/dto/protocol_event_dto.gd

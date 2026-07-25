@@ -11,10 +11,15 @@ New (M1b):
 
 - `protocol/dto/ProtocolEventDTO` — one decoded, `DECODED_STATE_EVENT`-classified protocol line.
 - `RoomStateMachine` — pure-transition implementation of the `RoomState` table
-  (`docs/architecture/LIVE_STATE_MACHINES.md`, 11 rows including the local-send-failure edge),
-  holding a `net/WebSocketTransport` reference from construction (this module already depends on
-  `net/` for sending encoded commands) so M1e can add automatic-reconnect-rejoin behavior without
-  changing how any composition root constructs or wires it.
+  (`docs/architecture/LIVE_STATE_MACHINES.md`, 11 rows including the two local-send-failure
+  edges), holding a `net/WebSocketTransport` reference from construction **only to observe** its
+  `connection_state_changed` signal — this class never calls `send_raw_text()` and never
+  references `ProtocolCommandEncoder`. M1e extends its (currently empty)
+  `_on_connection_state_changed` handler to *emit* `automatic_rejoin_requested`, still without
+  sending anything itself, so no composition root construction/wiring changes when that lands.
+  `ui/panels/SpectatorRoomGateway` (M1d) is the sole sender for both a human-initiated join/leave
+  and this system-initiated rejoin — it is the one that actually depends on `ProtocolCommandEncoder`
+  and `net/WebSocketTransport.send_raw_text()`.
 - `ProtocolDecoder` — three-way classification: `signal event_decoded(event: ProtocolEventDTO)`,
   `signal known_ignored_event(raw_line: String, message_type: String)`,
   `signal line_not_understood(raw_line: String)`; `decode_frame(raw_frame: String) -> void`.
@@ -23,9 +28,13 @@ New (M1b):
 
 ## Dependencies
 
-Depends on `net/` as a direct dependency (receives raw text via composition-root wiring, sends
-encoded commands via a held `WebSocketTransport` reference in `RoomStateMachine`). Never depends
-on `battle/`, `replay/`, `workspace/`, or `ui/panels/`.
+Depends on `net/` as a direct dependency: `ProtocolDecoder` receives raw text via composition-root
+wiring, and `RoomStateMachine` holds a `net/WebSocketTransport` reference **only to observe**
+`connection_state_changed` — it never sends anything. Nothing in `protocol/` calls
+`send_raw_text()`; that call site lives in `ui/panels/SpectatorRoomGateway` (`ui/panels/`, M1d),
+which depends on both `protocol/ProtocolCommandEncoder` and `net/WebSocketTransport` to actually
+send an encoded command. `protocol/` never depends on `battle/`, `replay/`, `workspace/`, or
+`ui/panels/`.
 
 ## Rule for future producers
 
