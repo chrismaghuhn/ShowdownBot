@@ -26,16 +26,34 @@ New (F0, this scaffold):
 - `OfflineViewerWorkspace` — wraps the existing `AppShell` content unchanged as the first
   registered workspace.
 
+New (M1d):
+
+- `ObservationEventBus` — the read-only observation-event bus (spec section 4.2.2):
+  `connection_state_changed`, `battle_state_published`, `battle_completed`. Never carries
+  commands, credentials, or the raw `ProtocolEventDTO` stream. See
+  `schemas/observation-event-bus-v1.md` for the full contract.
+- `LiveClientWorkspace` — the Connection + Spectator areas' composition root. Composes `net/`,
+  `protocol/`, `battle/LiveBattleProjection`, `ObservationEventBus`, and the `ui/panels/`
+  spectate panels (`RoomEntryPanel`, `ConnectionStatusPanel`, `BattleBoardPanel`,
+  `LiveBattleLogPanel`); holds no derived battle state itself and never calls `send_raw_text`
+  directly — room commands go only through `ui/panels/SpectatorRoomGateway`. Every decoded event
+  is filtered on `event.room_id` against the currently joined room before it reaches the
+  projection or any panel. Registered with `WorkspaceRouter` under `StudioRoot.LIVE_CLIENT_WORKSPACE_ID`
+  and reachable through `StudioRoot`'s NavBar "Live Client" button — not only registered in the
+  router, but actually navigable.
+
 Data flow: engine bootstrap → `StudioRoot` → `WorkspaceRouter` → `OfflineViewerWorkspace`
-(→ existing `AppShell` content). `LiveClientWorkspace` (Connection, Spectator, Matchmaking,
-HumanBattle areas) is deliberately absent until M1d; the router runs single-workspace until then.
+(→ existing `AppShell` content) or `LiveClientWorkspace` (→ `net/`/`protocol/`/`battle/`/
+`ui/panels/`), switched by the NavBar.
 
 ## Dependencies
 
 `OfflineViewerWorkspace` embeds the existing `AppShell` scene; `StudioRoot`/`WorkspaceRouter`
-depend on nothing outside this module. No file here may own battle or credential state, and none
-may import `HumanBattleCommandGateway` or any privileged-command type outside the future
-HumanBattle area's controller (AGENTS.md rules 3-4; spec section 4.2.3).
+depend on nothing outside this module. `LiveClientWorkspace` depends on `net/WebSocketTransport`,
+`protocol/ProtocolDecoder`/`RoomStateMachine`, `battle/LiveBattleProjection`, and
+`ui/panels/`'s spectate panels and `SpectatorRoomGateway`. No file here may own battle or
+credential state, and none may import `HumanBattleCommandGateway` or any privileged-command type
+outside the future HumanBattle area's controller (AGENTS.md rules 3-4; spec section 4.2.3).
 
 ## Rule for future workspaces
 
