@@ -1,0 +1,62 @@
+name: studio protocol contract lane
+
+# Spec section 8.2: introduced with M1b. Runs the frozen-transcript golden-comparison test
+# (godot/tests/protocol/) plus the fixture-presence pytest guard. Mirrors studio-windows.yml's
+# gdUnit steps exactly.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  studio-protocol-contract:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install showdown_bot (Studio pytest imports its modules via tests/python/conftest.py)
+        run: pip install -e ./showdown_bot
+
+      - name: Install showdownbot_studio_exporter (+ pytest)
+        run: pip install -e "./showdownbot_studio/python[dev]"
+
+      - name: Run protocol contract fixture-presence guard
+        working-directory: showdownbot_studio/python
+        run: python -m pytest -q -k test_protocol_contract_fixtures
+
+      - name: Cache pinned Godot engine
+        id: cache-engine
+        uses: actions/cache@v4
+        with:
+          path: showdownbot_studio/godot/tools/engine
+          key: godot-engine-${{ hashFiles('showdownbot_studio/godot/tools/ENGINE_SHA256SUMS') }}
+
+      - name: Download pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path showdownbot_studio/godot/tools/engine | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/godotengine/godot-builds/releases/download/4.5.2-stable/Godot_v4.5.2-stable_win64.exe.zip" `
+            -OutFile "showdownbot_studio/godot/tools/engine/Godot_v4.5.2-stable_win64.exe.zip"
+
+      - name: Install pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/install_engine.ps1
+
+      - name: Verify pinned Godot engine digest
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/verify_engine_pin.ps1
+
+      - name: Run protocol contract gdUnit suite
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/run_gdunit_headless.ps1 -a "res://tests/protocol/"
+
+      - name: Assert gdUnit results were not truncated
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/check_gdunit_truncation.ps1
