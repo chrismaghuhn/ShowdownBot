@@ -185,11 +185,16 @@ not license ticking each row individually.
 ## Owner sign-off (Choice Point 4, §0.11 CLOSED: J2)
 
 J2 requires this checkbox in addition to filing — it attests the evidence above was **produced
-and reviewed**, not that every row **passed**. The SR and mixed-DPI sections above are honest,
-unfilled gaps (not performed, human required), consistent with Plan E's own non-goal that
-screen-reader completeness is never a hard release gate.
+and reviewed**, not that every row **passed**.
 
-- [ ] Owner has reviewed this checklist and its three captures.
+Both the SR and mixed-DPI sections have now been **performed** by the owner (2026-07-25, against
+`main` @ `9a76507`) and are no longer the unfilled gaps an earlier revision of this paragraph
+described. What they are *not* is a pass claim: each is recorded at the granularity the owner
+actually observed, with its template rows deliberately left unticked and marked "not separately
+itemised". Plan E §1 keeps screen-reader completeness an explicit non-goal, and Choice Point 4
+(§0.11, CLOSED: J2) asks for filed-and-signed-off, never passed.
+
+- [X] Owner has reviewed this checklist and its three captures.
 
 ## Findings that disagree with prior notes (report per plan §0.7 honesty boundary)
 
