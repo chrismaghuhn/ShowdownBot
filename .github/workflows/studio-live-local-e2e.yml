@@ -1,0 +1,114 @@
+name: studio live local e2e lane
+
+# Spec section 8.2: introduced with M1d. First CI lane in this repository to provision the
+# pinned local pokemon-showdown server. Never touches the official production server.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  studio-live-local-e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install showdown_bot (needed to seed one gauntlet battle below)
+        run: pip install -e ./showdown_bot
+
+      - name: Cache pinned pokemon-showdown checkout
+        id: cache-showdown
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/showdownbot/pokemon-showdown
+          key: pokemon-showdown-${{ hashFiles('config/eval/provenance.yaml', 'tools/eval/patches/pokemon-showdown-seeded-battle.patch') }}
+
+      - name: Start pinned local pokemon-showdown server (polls for readiness)
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/start_local_showdown_server.ps1
+
+      - name: Seed a long-running battle in the background, parse the SHOWDOWN_ROOM_ID= marker
+        shell: pwsh
+        run: |
+          $stdoutPath = Join-Path $env:RUNNER_TEMP "gauntlet_stdout.txt"
+          $proc = Start-Process -FilePath "python" `
+            -ArgumentList "-m", "showdown_bot.cli", "gauntlet", "--games", "1", "--villain", "max_damage", "--print-room-id", "--move-delay-seconds", "3" `
+            -RedirectStandardOutput $stdoutPath -PassThru -NoNewWindow
+          $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "gauntlet.pid") -Encoding ascii
+
+          # Poll the redirected stdout file for the marker line WHILE the process keeps running
+          # (it does not exit after printing it -- Task 33's keep-alive mode) -- never wait for
+          # the process to exit and read its complete output, which would defeat the point.
+          $deadline = (Get-Date).AddSeconds(30)
+          $roomId = $null
+          while ((Get-Date) -lt $deadline) {
+              if (Test-Path $stdoutPath) {
+                  $match = Select-String -Path $stdoutPath -Pattern '^SHOWDOWN_ROOM_ID=(\S+)$' | Select-Object -First 1
+                  if ($match) {
+                      $roomId = $match.Matches[0].Groups[1].Value
+                      break
+                  }
+              }
+              Start-Sleep -Seconds 1
+          }
+          if (-not $roomId) {
+              Write-Host "ERROR: no SHOWDOWN_ROOM_ID= marker found within 30s"
+              exit 2
+          }
+          echo "STUDIO_E2E_ROOM_ID=$roomId" >> $env:GITHUB_ENV
+
+      - name: Cache pinned Godot engine
+        id: cache-engine
+        uses: actions/cache@v4
+        with:
+          path: showdownbot_studio/godot/tools/engine
+          key: godot-engine-${{ hashFiles('showdownbot_studio/godot/tools/ENGINE_SHA256SUMS') }}
+
+      - name: Download pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path showdownbot_studio/godot/tools/engine | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://github.com/godotengine/godot-builds/releases/download/4.5.2-stable/Godot_v4.5.2-stable_win64.exe.zip" `
+            -OutFile "showdownbot_studio/godot/tools/engine/Godot_v4.5.2-stable_win64.exe.zip"
+
+      - name: Install pinned Godot engine (cache miss only)
+        if: steps.cache-engine.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/install_engine.ps1
+
+      - name: Verify pinned Godot engine digest
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/verify_engine_pin.ps1
+
+      - name: Run live-local-e2e gdUnit suite
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/run_gdunit_headless.ps1 -a "res://tests/e2e/"
+
+      - name: Assert gdUnit results were not truncated
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/check_gdunit_truncation.ps1
+
+      - name: Stop the background gauntlet seeder process
+        if: always()
+        shell: pwsh
+        run: |
+          $pidFile = Join-Path $env:RUNNER_TEMP "gauntlet.pid"
+          if (Test-Path $pidFile) {
+              $procId = Get-Content -LiteralPath $pidFile | Select-Object -First 1
+              Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Stop pinned local pokemon-showdown server
+        if: always()
+        shell: pwsh
+        run: ./showdownbot_studio/godot/tools/stop_local_showdown_server.ps1
