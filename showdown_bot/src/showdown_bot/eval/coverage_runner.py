@@ -63,6 +63,13 @@ _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     "active_valid_decisions", "distinct_active_battles", "stop_reason",
     "exposure_floor_met", "min_active_decisions", "min_distinct_battles",
     "budget_ms", "p95_ms",
+    # The upstream gate's MEASURED runtime. A p95 certified against a fixed budget by an artifact
+    # that cannot say which runtime produced it is not a genuine gate artifact -- required here,
+    # not optional, so an I8-D verdict predating this field fails closed rather than passing by
+    # omission. (The block's node value may legitimately be null; a run that actually needs node
+    # already fails earlier on the calc preflight. This records provenance, it does not pin a
+    # version.)
+    "environment",
 })
 
 
@@ -210,6 +217,7 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     out_dir and never a verdict."""
     from showdown_bot.client.gauntlet import run_local_gauntlet
     from showdown_bot.eval.result_jsonl import make_battle_id
+    from showdown_bot.eval.run_manifest import collect_environment
     from showdown_bot.eval.seeding import derive_battle_seed, seed_log_verified_flag
     from showdown_bot.team.pack import load_packed_team
 
@@ -657,6 +665,9 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         "seed_base": seed_base,
         # DERIVED from the verification's own output, never asserted beside it.
         "seed_log_verified": seed_log_verified_flag(seed_records, battles_played),
+        # The MEASURED runtime that produced this run's rows -- same probe, same shape as the
+        # I8-D verdict and the Gate B arm manifest.
+        "environment": collect_environment(),
         "battles_played": battles_played,
         "scored_decisions": scored_decisions,
         "max_scored_decisions": COVERAGE_MAX_SCORED_DECISIONS,

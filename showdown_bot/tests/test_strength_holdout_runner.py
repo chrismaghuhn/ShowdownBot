@@ -1093,6 +1093,11 @@ def _write_arm(tmp_path, name, *, hero_agent, config_hash, git_sha="abc123", win
         "pythonhashseed": pythonhashseed,
         "seed_log_relpath": "seeds.jsonl", "seed_log_sha256": seed_log_sha256,
         "seed_log_n_lines": n, "seed_log_verified": True,
+        # The measured-runtime block a real arm now always writes. Repaired here rather than
+        # relaxed in _MANIFEST_REQUIRED_KEYS: the required set exists precisely so a fixture
+        # missing what a real run produces is refused.
+        "environment": {"python": "3.14.5", "node": "v24.16.0",
+                        "platform": "fixture-platform", "deps": {}},
     }
     with open(arm_dir / "arm_manifest.json", "w", encoding="utf-8") as fh:
         json.dump(manifest, fh)
@@ -3421,3 +3426,28 @@ def test_arm_seed_log_verified_is_true_on_a_genuinely_verified_run(tmp_path, mon
         manifest = json.load(fh)
     assert manifest["seed_log_verified"] is True
     assert manifest["seed_log_n_lines"] == len(schedule.battle_keys)
+
+
+# --- the arm manifest records the runtime that produced its rows -------------------------------
+
+def test_the_arm_manifest_records_the_measured_runtime_environment(tmp_path, monkeypatch):
+    """The arm already carried platform_attestation and pythonhashseed but no versions, so a
+    frozen arm could not say which Node/Python produced its rows."""
+    import sys
+
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    fake_runner = _fake_gauntlet_runner_factory(
+        winner="hero", seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+        seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+    with open(out_dir / "arm_manifest.json", "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    env = manifest["environment"]
+    assert set(env) == {"python", "node", "platform", "deps"}
+    assert env["python"] == sys.version.split()[0]

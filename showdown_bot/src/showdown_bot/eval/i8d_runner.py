@@ -279,6 +279,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.client.gauntlet import run_local_gauntlet
     from showdown_bot.eval.i8d_schedule import verify_i8d_schedule
     from showdown_bot.eval.result_jsonl import make_battle_id
+    from showdown_bot.eval.run_manifest import collect_environment
     from showdown_bot.eval.seeding import derive_battle_seed, seed_log_verified_flag
     from showdown_bot.learning.provenance import make_candidate_identity
     from showdown_bot.team.pack import load_packed_team
@@ -433,6 +434,10 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         "config_hash": config_hash,
         "calc_backend": calc_backend,
         "hero_agent": hero_agent,
+        # The MEASURED runtime that produced this run's p95 (python/node/platform/dep versions).
+        # I8-D freezes a latency number against a fixed budget, so the verdict has to say which
+        # runtime produced it. Reuses run_manifest's existing probe -- one measurement, one place.
+        "environment": collect_environment(),
         "candidate_identity": candidate_identity,
         **verdict,
     }

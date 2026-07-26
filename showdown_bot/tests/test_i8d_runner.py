@@ -524,3 +524,23 @@ def test_seed_log_verified_is_true_on_a_genuinely_verified_run(tmp_path, monkeyp
 
     report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
     assert report["seed_log_verified"] is True
+
+
+# ---- the verdict records the runtime that produced its p95 -----------------------------------
+#
+# I8-D freezes a latency p95 against a 1000 ms budget -- a number that depends on the runtime and
+# the host. Until now the verdict did not say which Node/Python produced it: collect_environment()
+# existed and was stamped only onto the eval run-manifest sidecar, never onto a gate artifact.
+
+def test_the_verdict_records_the_measured_runtime_environment(tmp_path, monkeypatch):
+    import sys
+
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    env = report["environment"]
+    assert set(env) == {"python", "node", "platform", "deps"}
+    # MEASURED, not a caller-supplied label: the python version must be this interpreter's.
+    assert env["python"] == sys.version.split()[0]
+    assert isinstance(env["deps"], dict)
