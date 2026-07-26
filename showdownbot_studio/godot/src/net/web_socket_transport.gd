@@ -12,6 +12,16 @@ signal raw_text_received(text: String)
 const CONNECT_TIMEOUT_S := 15.0
 const RECONNECT_BACKOFF_SCHEDULE_S: Array[float] = [1.0, 2.0, 5.0, 10.0, 20.0]
 const HEARTBEAT_INTERVAL_S := 20.0
+## Gate-11 rate-limit review (docs/security/RATE_LIMIT_REVIEW.md section 2/4): a successful open
+## used to reset _reconnect_attempt to 0 immediately, so a connection that opened and dropped
+## again right away never advanced past RECONNECT_BACKOFF_SCHEDULE_S[0] -- a flapping link could
+## reconnect roughly once per second forever with no session-wide cap. 30s is chosen because it
+## is strictly greater than both the longest scheduled backoff wait (20.0s) and CONNECT_TIMEOUT_S
+## (15.0s): a connection cannot cross it by luckily landing inside any single existing timer, so
+## every flap that is fast enough to matter (the review's ~1 Hz worst case) is guaranteed to count
+## as a failed attempt and escalate the schedule toward EXHAUSTED, while a connection that
+## genuinely serves live traffic for half a minute is trusted again.
+const MIN_STABLE_CONNECTION_S := 30.0
 
 var _peer: SocketPeerPort
 var _state_machine := ConnectionStateMachine.new()
@@ -31,6 +41,12 @@ var _reconnect_connecting_elapsed_s: float = 0.0
 ## RECONNECTING branch of _process() re-fires every frame once the backoff timer is <= 0.0,
 ## discarding the in-flight peer and opening a brand-new one forever -- the bug this task fixes.
 var _reconnect_attempt_in_flight: bool = false
+## Elapsed time the CURRENT connection has spent continuously in CONNECTED, since the frame it
+## was last (re)opened. Reset to 0.0 at the moment of that transition (in _on_peer_open()) and
+## accumulated only while _process() observes the state as CONNECTED. Once it reaches
+## MIN_STABLE_CONNECTION_S, the connection is trusted and _reconnect_attempt is reset -- this is
+## the only place that reset now happens; _on_peer_open() itself no longer resets it immediately.
+var _connected_stable_elapsed_s: float = 0.0
 
 
 func _init(peer_factory: Callable = Callable()) -> void:
@@ -146,6 +162,15 @@ func _process(delta: float) -> void:
 		_reconnect_connecting_elapsed_s += delta
 	elif _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING:
 		_connecting_elapsed_s += delta
+	elif _state_machine.get_state() == ConnectionStateMachine.State.CONNECTED:
+		# Owner finding (gate-11 rate-limit review): only a connection that has stayed OPEN
+		# continuously for MIN_STABLE_CONNECTION_S is trusted enough to reset the backoff
+		# schedule. This is wall-clock time in the CONNECTED state, not inbound traffic -- it
+		# does not read or require any received packet, so it introduces no inbound-idle
+		# timeout (M1a watchlist).
+		_connected_stable_elapsed_s += delta
+		if _reconnect_attempt != 0 and _connected_stable_elapsed_s >= MIN_STABLE_CONNECTION_S:
+			_reconnect_attempt = 0
 	# _peer is guaranteed non-null whenever state is CONNECTING or RECONNECTING-with-an-attempt-
 	# in-flight (_open_socket() always assigns it first), but the watchlist (M1a) requires this
 	# literal guard regardless, as defense against a future refactor silently breaking that
@@ -186,10 +211,10 @@ func _process(delta: float) -> void:
 func _on_peer_open() -> void:
 	if _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING:
 		_state_machine.handshake_succeeded()
-		_reconnect_attempt = 0
+		_connected_stable_elapsed_s = 0.0
 	elif _state_machine.get_state() == ConnectionStateMachine.State.RECONNECTING:
 		_state_machine.reconnect_succeeded()
-		_reconnect_attempt = 0
+		_connected_stable_elapsed_s = 0.0
 	while _peer.get_available_packet_count() > 0:
 		raw_text_received.emit(_peer.get_packet_string())
 
