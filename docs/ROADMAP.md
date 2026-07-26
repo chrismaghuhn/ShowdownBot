@@ -390,15 +390,15 @@ because three later passes landed further commits on the same branch before merg
 `net/`, `protocol/`, `battle/`, `workspace/`, `ui/`, tests, and e2e tooling. A follow-up P1, found
 by the owner launching the real app (the workspace tabs were unclickable because `StudioRoot` had
 no layout and the live workspace instance had no anchors), is **MERGED** via PR #97
-(`main @ 53a6f09`). A **manual live-gate run happened on 2026-07-26** against the official server on
-that same tip and technically succeeded (live `gen9randombattle` joined by URL, board and log
-updating from real traffic at turn 24, no crash, no incorrect state), but it ran **out of the order
-§9 prescribes**: gate 11's rate-limit review is required before the live gate and was written
-afterwards, so gate 6 is recorded as performed-but-not-satisfying pending either a re-run or a
-recorded owner deviation. Caveats (singles not doubles; leave/reconnect not exercised live) and the
-three findings the run produced are in the evidence packet §6/§8. The milestone gate remains
-**OPEN** — pending that gate-6 resolution and explicit owner sign-off on the milestone as a whole,
-which §9 gate 16 requires *before* the evidence packet is merged; see
+(`main @ 53a6f09`). Two further follow-ups then landed: the gate-11 rate-limit review, which found
+that the reconnect backoff never escalated on a flapping link and could reach the server's
+connections-per-IP ban after minutes of bad Wi-Fi, and the fix for it (PR **#99**, `main @ b0d2141`).
+The **manual live gate (gate 6) was then run in the order §9 prescribes** and is SATISFIED: three
+live battles on the official server across three formats, two watched to completion, plus a live
+room switch with a verified clean reset. Caveats stay explicit — singles only, no live reconnect or
+dismiss — in the evidence packet §6. The milestone gate remains **OPEN** pending only explicit owner
+sign-off on the milestone as a whole, which §9 gate 16 requires *before* the evidence packet is
+merged and which the packet's own §9 is written to record; see
 `showdownbot_studio/docs/plans/evidence/phase3-m1-milestone-evidence.md` for the full gate-by-gate
 evidence packet. Does not change the Champions decision front; see
 `showdownbot_studio/docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md` and
