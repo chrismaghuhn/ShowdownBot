@@ -396,9 +396,10 @@ connections-per-IP ban after minutes of bad Wi-Fi, and the fix for it (PR **#99*
 The **manual live gate (gate 6) was then run in the order §9 prescribes** and is SATISFIED: three
 live battles on the official server across three formats, two watched to completion, plus a live
 room switch with a verified clean reset. Caveats stay explicit — singles only, no live reconnect or
-dismiss — in the evidence packet §6. The milestone gate remains **OPEN** pending only explicit owner
-sign-off on the milestone as a whole, which §9 gate 16 requires *before* the evidence packet is
-merged and which the packet's own §9 is written to record; see
+dismiss — in the evidence packet §6. **M1 is CLOSED**: the owner sign-off §9 gate 16 requires was
+given 2026-07-26 and recorded in the packet before it merged. Closed is not complete — seven gates
+remain partial and four not-yet-applicable, all inherited by M2, and the packet's follow-ups stay
+open. **M2 is not authorized**; it needs its own approved plan. See
 `showdownbot_studio/docs/plans/evidence/phase3-m1-milestone-evidence.md` for the full gate-by-gate
 evidence packet. Does not change the Champions decision front; see
 `showdownbot_studio/docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md` and

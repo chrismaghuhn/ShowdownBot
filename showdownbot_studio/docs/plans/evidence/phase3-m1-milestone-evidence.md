@@ -9,14 +9,13 @@ changed. §6 (the live gate), §8 items 7 and 11, and gates 6 and 11 are
 current as of `b0d2141`.
 
 This document records the evidence state of Phase 3 Milestone M1 (Connect + Spectate) as of
-2026-07-26. **It does not itself close the milestone.** Per §9 gate 16 of the design spec, closing
-M1 requires an explicit owner review-and-approval step that this document cannot perform on its own
-behalf, and gate 16 requires that approval **before merge** — so this packet is written to be signed
-off first and merged second, not the reverse. §9 of this packet is where that sign-off is recorded.
-The manual live gate (gate 6) has been performed and, after a first attempt that ran ahead of its
-own precondition, was repeated in the order §9 prescribes — see §6, which keeps both the sequence
-history and the run's caveats explicit. Everything below is either directly verified in this session
-(commands run, output quoted) or explicitly marked unverified/pending with the reason.
+2026-07-26, and **closes it**: the owner sign-off §9 gate 16 requires is recorded in §9, given
+before this packet was merged, which is the order that gate specifies. The manual live gate (gate 6)
+was performed and — after a first attempt that ran ahead of its own precondition — repeated in the
+order §9 prescribes; §6 keeps both the sequence history and the run's caveats explicit. Everything
+below is either directly verified in this session (commands run, output quoted) or explicitly marked
+unverified/pending with the reason. **Closed does not mean complete**: seven gates remain partial
+and four remain not-yet-applicable, all inherited by M2, and §8's follow-ups stay open.
 
 ---
 
@@ -69,9 +68,9 @@ point in the phase, not a defect in M1.
 | 13 | "human/bot separation review... `HumanBattleCommandGateway`... is the only path to an outbound battle command" | **PARTIAL** | `HumanBattleCommandGateway` itself does not exist until M2d — nothing to review yet at the level the gate names. What does exist and is green: the `studio-security-invariants` architecture tests (`test_f0_gateway_import_guard.py` et al., part of the 13 architecture passes) enforcing the forbidden-dependency rules those invariants require, and M1's own `SpectatorRoomGateway` sends only join/leave, never a battle choice (verified: `grep -rln "/choose" godot/src/` matches only two comments explicitly noting M1 sends none) |
 | 14 | "accessibility and layout checks proportional to the new UI surface... per `MASTER_SPEC.md` §5" | **PARTIAL** | No formal manual checklist/capture packet exists for M1's UI (unlike Viewer v0's `viewer-v0-f-manual-checklist.md`). What does exist: real geometry-probe tests introduced during hardening caught and fixed two genuine layout defects — `RoomEntryPanel`'s controls all rendering at `(0,0)` (fixed in `32dde42`) and three of the live workspace's five panels rendering at `0x0` (fixed in `6e5edbc`) — see §5 below. Proportional but ad hoc, not a checklist audit |
 | 15 | "maintainer acceptance-question gate... a maintainer can answer all five questions in `AGENTS.md`'s Acceptance questions section unambiguously" | **PARTIAL** | Answered for every module M1 built, in §9's "Gate 15 answered for M1's surface" table (ownership, mutation rights, outbound-action origin, invalid/stale-data behaviour, what user data can leave). Stays open at whole-phase level because the gate also covers `session/`, the choice gateway and replay export, which M2/M3 have not built |
-| 16 | "explicit owner review and approval before merge, and before any later phase... may be proposed" | **PARTIAL** | Per-PR owner review plainly happened and is the direct source of the 17 hardening findings (§5) — every hardening commit message is dated and attributed to a specific owner review pass. What has **not** happened is an owner sign-off on the **milestone** as a whole (the thing this document is evidence for); `docs/ROADMAP.md`'s own current text still describes the milestone gate as OPEN |
+| 16 | "explicit owner review and approval before merge, and before any later phase... may be proposed" | **SATISFIED (for M1)** | Per-PR owner review is the direct source of the 17 hardening findings (§5). The milestone-level sign-off is recorded in §9, given 2026-07-26 before this packet was merged, after four further owner review rounds on the packet itself. The gate's second half — approval before a later phase may be proposed — is unspent: M2 still requires its own authorization |
 
-**Summary: 4 SATISFIED (gates 1, 3, 6, 11) / 8 PARTIAL (gates 2, 4, 5, 12, 13, 14, 15, 16) / 4 PENDING (gates 7, 8, 9, 10)**, of 16 gates. All four PENDING gates are N/A-until-built rather than attempted-and-failed: the code they would review (credentials, chat, team bundles, replay export) is M2/M3 scope. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
+**Summary: 5 SATISFIED (gates 1, 3, 6, 11, 16) / 7 PARTIAL (gates 2, 4, 5, 12, 13, 14, 15) / 4 PENDING (gates 7, 8, 9, 10)**, of 16 gates. All four PENDING gates are N/A-until-built rather than attempted-and-failed: the code they would review (credentials, chat, team bundles, replay export) is M2/M3 scope. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
 
 ---
 
@@ -343,10 +342,10 @@ caveats above bound what may be cited from it.
   `docs/research/2026-07-showdown-client-user-research.md` §8.3.1 (two-step choice review, input
   routing/shortcut layer, panel/layout model) are recorded as **required before the M2 plan is
   written**, not as work already done.
-- **The M1 milestone gate is OPEN.** Gates 6 and 11 are now satisfied (§6 and the rate-limit
-  review), but gate 16 — the milestone-level owner sign-off — is not, and until §9 records a
-  decision M1 is not closed. Gate 15 (the maintainer acceptance-question gate) is answered for M1's
-  own surface in §9 and remains open at whole-phase level.
+- **M1 is CLOSED, and that is all it is.** The sign-off in §9 closes the milestone gate; it does not
+  close the seven partial gates, the four not-yet-applicable ones, or §8's follow-ups, and it grants
+  nothing to M2, which still needs its own authorization. Gate 15 is answered for M1's own surface
+  in §9 and stays open at whole-phase level.
 
 ---
 
@@ -523,9 +522,16 @@ as the failure condition for this gate.
 
 ### Decision
 
-**Owner decision:** _pending_
+**Owner decision:** **APPROVED.** Phase 3 Milestone M1 (Connect + Spectate) is **CLOSED** to the
+standard this packet documents — 4 gates satisfied, 8 partial, 4 pending, with every partial and
+pending state explained above and none of them rounded up. The approval was given as the
+authorization to merge this packet, after four rounds of owner review of the packet itself (the
+uncommitted-fix contradiction, the gate-11-before-gate-6 sequence, the gate-16-before-merge
+ordering, and the four overclaims corrected in `d3f59f3`).
 
-**Date:** _pending_
+**Date:** 2026-07-26
 
-Until this section records a decision, M1 stays OPEN and this packet must not be cited as closing
-the milestone.
+**What this approval does not do.** It does not close the follow-ups in §8, does not waive the
+partial gates — they are inherited by M2 — does not extend to the doubles gap named in §6 (the
+four-slot board still has no official-server evidence), and makes no claim about `showdown_bot`'s
+play strength, which this client does not touch.
