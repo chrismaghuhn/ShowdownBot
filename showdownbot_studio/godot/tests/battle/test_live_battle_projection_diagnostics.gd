@@ -51,6 +51,23 @@ func test_unhandled_decoded_type_fires_signal_with_unhandled_type_reason() -> vo
 	assert_str(reasons[0]).is_equal("unhandled_type")
 
 
+## Owner finding 4 (M1 hardening, 2026-07-26): a "turn" event is a handled type, but a null
+## turn_number (protocol/'s own fail-closed result for a malformed `|turn|abc` line) is a
+## genuinely inconsistent instance of it -- same shape as the missing-pokemon-identity case
+## above, reusing the identical "inconsistent_state" reason and event_not_applied signal rather
+## than inventing a new classification.
+func test_turn_event_with_null_turn_number_fires_inconsistent_state_and_leaves_turn_unchanged() -> void:
+	var p := LiveBattleProjection.new()
+	var reasons: Array[String] = []
+	p.event_not_applied.connect(func(_evt: ProtocolEventDTO, reason: String): reasons.append(reason))
+	p.apply_event(_event({"event_type": "turn", "turn_number": 5}))
+	var before := p.get_current_snapshot()
+	p.apply_event(_event({"event_type": "turn", "turn_number": null}))
+	assert_int(reasons.size()).is_equal(1)
+	assert_str(reasons[0]).is_equal("inconsistent_state")
+	assert_int(p.get_current_snapshot().turn).is_equal(before.turn)
+
+
 func test_consistent_event_never_fires_the_diagnostic_signal() -> void:
 	var p := LiveBattleProjection.new()
 	var reasons: Array[String] = []

@@ -78,7 +78,7 @@ func _decode_line(room_id: String, line: String) -> void:
 		"deinit":
 			_emit(room_id, "deinit", {})
 		"turn":
-			_emit(room_id, "turn", {"turn_number": _arg(parts, 2).to_int()})
+			_emit(room_id, "turn", {"turn_number": _parse_turn_number(_arg(parts, 2))})
 		"switch", "drag":
 			_emit_switch(room_id, msg_type, parts)
 		"-damage", "-heal":
@@ -110,12 +110,38 @@ func _arg(parts: PackedStringArray, index: int) -> String:
 	return parts[index] if index < parts.size() else ""
 
 
+## Owner finding 4 (M1 hardening, 2026-07-26): to_int() on a non-numeric string silently returns
+## 0 -- a guess, not a parse failure, same class of bug as the pre-existing HP-parsing fail-closed
+## fix below. A malformed turn number must surface as null (never applied, never guessed 0) so the
+## reducer's inconsistent_state path can visibly reject it instead of silently resetting to turn 0.
+static func _parse_turn_number(turn_text: String) -> Variant:
+	return turn_text.to_int() if turn_text.is_valid_int() else null
+
+
+## Real, valid Showdown side/slot values this snapshot can represent: p1/p2, slot a/b (spec's
+## bounded 2v2 doubles model). Owner finding 4 (M1 hardening): a syntactically well-formed
+## identifier for any OTHER side or slot (e.g. a triples/multi-battle "p3a", or a malformed
+## "p1c") must fail closed the same way an unparseable identifier already does -- null side/slot
+## -- rather than being decoded as if it named a real slot. LiveBattleSnapshot only ever knows
+## p1a/p1b/p2a/p2b; a later dictionary lookup on any other key is not itself the fix (defense in
+## depth belongs there too), but the correct place to REJECT an unknown identity is at decode
+## time, reusing the exact null-side/null-slot signal LiveBattleProjection's existing
+## inconsistent_state classification already rejects for a missing identity -- no new
+## classification needed.
+const _KNOWN_SIDES: PackedStringArray = ["p1", "p2"]
+const _KNOWN_SLOTS: PackedStringArray = ["a", "b"]
+
+
 static func _parse_pokemon_identifier(identifier: String) -> Dictionary:
 	var colon_index := identifier.find(":")
 	if colon_index < 3:
 		return {"side": null, "slot": null}
 	var side_slot := identifier.substr(0, colon_index)
-	return {"side": side_slot.substr(0, 2), "slot": side_slot.substr(2, 1)}
+	var side := side_slot.substr(0, 2)
+	var slot := side_slot.substr(2, 1)
+	if not (side in _KNOWN_SIDES) or not (slot in _KNOWN_SLOTS):
+		return {"side": null, "slot": null}
+	return {"side": side, "slot": slot}
 
 
 ## "100/100" | "50/100 brn" | "0 fnt" (NO slash -- hidden max HP) -> hp_current/hp_maximum/

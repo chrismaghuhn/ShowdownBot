@@ -37,6 +37,21 @@ static func requires_pokemon_identity(event_type: String) -> bool:
 	return event_type in _POKEMON_IDENTITY_EVENT_TYPES
 
 
+## Owner finding 4 (M1 hardening, 2026-07-26): generalizes the missing-pokemon-identity check
+## above to any handled event whose own required data is malformed rather than merely absent --
+## currently only "turn" (protocol/'s own fail-closed null turn_number for a malformed
+## `|turn|abc` line). Reuses the SAME inconsistent_state classification and event_not_applied
+## signal LiveBattleProjection already fires for a missing pokemon identity, rather than
+## inventing a second diagnostic reason for what is the same kind of condition: a handled event
+## type whose instance data cannot be trusted.
+static func is_event_data_consistent(event: ProtocolEventDTO) -> bool:
+	if event.event_type == "turn":
+		return event.turn_number != null
+	if requires_pokemon_identity(event.event_type):
+		return event.pokemon_side != null and event.pokemon_slot != null
+	return true
+
+
 static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
 	match event.event_type:
 		"turn":

@@ -15,6 +15,32 @@ func test_turn_line_decodes_turn_number() -> void:
 	assert_int(_events[0].turn_number).is_equal(4)
 
 
+## Owner finding 4 (M1 hardening, 2026-07-26): to_int() on a non-numeric string silently returns
+## 0 -- a guess, not a parse failure, the same class of bug already fixed for HP parsing below.
+## A malformed turn number must fail closed to null, never guessed 0.
+func test_malformed_turn_number_fails_closed_to_null() -> void:
+	_decoder.decode_frame(">battle-1\n|turn|abc")
+	assert_object(_events[0].turn_number).is_null()
+
+
+## Owner finding 4: the derived snapshot only ever knows p1a/p1b/p2a/p2b -- an identifier for any
+## other side (e.g. a triples/multi-battle "p3a") must fail closed to null side/slot, the same
+## shape an unparseable identifier already produces, rather than being decoded as if it named a
+## real slot (a later dictionary lookup on an unknown key would blow up).
+func test_unknown_side_identity_fails_closed_to_null_side_and_slot() -> void:
+	_decoder.decode_frame(">battle-1\n|switch|p3a: Whoever|Whoever, L50|100/100")
+	var e := _events[0]
+	assert_object(e.pokemon_side).is_null()
+	assert_object(e.pokemon_slot).is_null()
+
+
+func test_unknown_slot_letter_fails_closed_to_null_side_and_slot() -> void:
+	_decoder.decode_frame(">battle-1\n|switch|p1c: Whoever|Whoever, L50|100/100")
+	var e := _events[0]
+	assert_object(e.pokemon_side).is_null()
+	assert_object(e.pokemon_slot).is_null()
+
+
 func test_switch_line_decodes_side_slot_species_and_hp() -> void:
 	_decoder.decode_frame(">battle-1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100")
 	var e := _events[0]

@@ -12,10 +12,12 @@ signal battle_completed(room_id: String)
 ## Watchlist M1c ("Unknown or inconsistent state events fail closed and remain diagnostically
 ## visible") -- fired instead of silently no-op'ing, for exactly the two ways LiveBattleReducer
 ## already fails closed: "unhandled_type" (no match arm at all, e.g. "move"/"init"/"title") and
-## "inconsistent_state" (a modeled event missing the pokemon_side/pokemon_slot it needs). Applies
-## the watchlist's own precedence rule (this document's "Rule of precedence": the watchlist's
-## acceptance test wins over the earlier, less complete M1c plan code sample -- the same rule
-## that already governed M1a's literal peer-null guard) -- no owner block needed.
+## "inconsistent_state" (a modeled event whose own data cannot be trusted -- missing
+## pokemon_side/pokemon_slot, OR, owner finding 4, M1 hardening, a "turn" event with a null
+## turn_number from a malformed `|turn|abc` line). Applies the watchlist's own precedence rule
+## (this document's "Rule of precedence": the watchlist's acceptance test wins over the earlier,
+## less complete M1c plan code sample -- the same rule that already governed M1a's literal
+## peer-null guard) -- no owner block needed.
 signal event_not_applied(event: ProtocolEventDTO, reason: String)
 
 var _current: LiveBattleSnapshot = LiveBattleSnapshot.new()
@@ -63,7 +65,7 @@ func apply_event(event: ProtocolEventDTO) -> void:
 	if not LiveBattleReducer.is_handled_event_type(event.event_type):
 		event_not_applied.emit(event, "unhandled_type")
 		return
-	if LiveBattleReducer.requires_pokemon_identity(event.event_type) and (event.pokemon_side == null or event.pokemon_slot == null):
+	if not LiveBattleReducer.is_event_data_consistent(event):
 		event_not_applied.emit(event, "inconsistent_state")
 		return
 	_current = LiveBattleReducer.apply(_current, event)
