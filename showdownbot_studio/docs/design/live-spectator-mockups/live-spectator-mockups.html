@@ -1,0 +1,995 @@
+<title>Live Spectator — Design System</title>
+
+<style>
+/* ============================================================
+   CANVAS CHROME  (deliberately NOT the app: mono, dark, quiet)
+   ============================================================ */
+:root{
+  --c-bg:#1e2429;
+  --c-panel:#272e34;
+  --c-line:#3a444c;
+  --c-text:#dfe5ea;
+  --c-soft:#93a0aa;
+  --c-accent:#7aa8cc;
+  --c-warn:#d0a253;
+  --c-mono:"Cascadia Mono","IBM Plex Mono",Consolas,"Courier New",monospace;
+  --c-ui:Arial,Helvetica,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root{
+    --c-bg:#cfd6db; --c-panel:#e8edf1; --c-line:#b3bec6;
+    --c-text:#1e2429; --c-soft:#5a6771; --c-accent:#3c6f9c;
+  }
+}
+:root[data-theme="light"]{
+  --c-bg:#cfd6db; --c-panel:#e8edf1; --c-line:#b3bec6;
+  --c-text:#1e2429; --c-soft:#5a6771; --c-accent:#3c6f9c;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  --c-bg:#1e2429; --c-panel:#272e34; --c-line:#3a444c;
+  --c-text:#dfe5ea; --c-soft:#93a0aa; --c-accent:#7aa8cc;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--c-bg);color:var(--c-text);font-family:var(--c-mono);}
+
+.bar{
+  position:sticky; top:0; z-index:50;
+  display:flex; flex-wrap:wrap; gap:14px; align-items:center;
+  padding:10px 16px;
+  background:var(--c-panel); border-bottom:1px solid var(--c-line);
+}
+.bar h1{
+  margin:0; font-size:13px; font-weight:700;
+  letter-spacing:.14em; text-transform:uppercase;
+}
+.bar .sub{font-size:11px;color:var(--c-soft);letter-spacing:.04em}
+.spacer{flex:1 1 auto}
+
+.seg{display:flex;align-items:center;gap:2px;border:1px solid var(--c-line);border-radius:5px;overflow:hidden}
+.seg button{
+  font:inherit;font-size:11px;letter-spacing:.06em;
+  background:transparent;color:var(--c-text);border:0;
+  padding:5px 9px;cursor:pointer;
+}
+.seg button:hover{background:rgba(122,168,204,.16)}
+.seg output{font-size:11px;padding:0 8px;color:var(--c-soft);min-width:52px;text-align:center;font-variant-numeric:tabular-nums}
+button:focus-visible,label:focus-within,a:focus-visible{outline:2px solid var(--c-accent);outline-offset:2px}
+
+.tog{display:flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;cursor:pointer;user-select:none}
+.tog input{accent-color:var(--c-accent);width:14px;height:14px}
+
+.jump{display:flex;gap:6px}
+.jump a{
+  font-size:11px;letter-spacing:.08em;text-decoration:none;
+  color:var(--c-soft);border:1px solid var(--c-line);border-radius:4px;padding:4px 8px;
+}
+.jump a:hover{color:var(--c-text);border-color:var(--c-accent)}
+
+.notice{
+  margin:14px 16px 0; padding:10px 14px;
+  border:1px solid var(--c-warn); border-left-width:4px; border-radius:4px;
+  background:rgba(208,162,83,.10);
+  font-size:11.5px; line-height:1.6; color:var(--c-text);
+}
+.notice b{letter-spacing:.06em}
+
+.zoomwrap{overflow:hidden}
+.stack{
+  transform:scale(var(--z,.8)); transform-origin:top center;
+  width:1600px; margin:0 auto; padding:24px 0 60px;
+  display:flex; flex-direction:column; gap:56px;
+}
+.stack[data-anno="off"] .anno{display:none}
+.stack[data-grid="off"] .rasterline{display:none}
+
+.plate{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;padding-left:2px}
+.plate .num{
+  font-size:26px;font-weight:700;letter-spacing:.04em;color:var(--c-accent);
+  font-variant-numeric:tabular-nums;
+}
+.plate h2{margin:0;font-size:14px;letter-spacing:.14em;text-transform:uppercase}
+.plate p{margin:0;font-size:11.5px;color:var(--c-soft);max-width:900px;line-height:1.55}
+
+.artboard{
+  position:relative; width:1600px;
+  border:1px solid var(--c-line);
+  box-shadow:0 18px 44px rgba(0,0,0,.42);
+  background:#dfe3e6;
+}
+
+/* annotations */
+.anno{
+  position:absolute; z-index:20; display:flex; align-items:flex-start; gap:6px;
+  left:var(--x); top:var(--y); pointer-events:none;
+}
+.anno .pin{
+  flex:0 0 auto; width:19px;height:19px;border-radius:50%;
+  background:var(--c-accent); color:#101519;
+  font-size:11px;font-weight:700; display:grid;place-items:center;
+  box-shadow:0 0 0 3px rgba(122,168,204,.28);
+}
+.anno .txt{
+  background:rgba(16,21,25,.93); color:#e7eef4;
+  border:1px solid rgba(122,168,204,.5); border-radius:4px;
+  padding:5px 9px; font-size:11px; line-height:1.45; max-width:290px;
+}
+
+/* ============================================================
+   APP  (style DNA from the clean-desktop prototype, verbatim)
+   ============================================================ */
+.app{
+  --bg:#dfe3e6; --surface:#f8f9fa; --surface-2:#eef1f3; --surface-3:#e7ebee; --surface-4:#ffffff;
+  --line:#c3c9ce; --line-strong:#9aa4ab;
+  --text:#22282d; --text-soft:#5f6a72; --text-faint:#879199;
+  --blue:#4c789c; --blue-strong:#365f80; --blue-soft:#dfeaf2;
+  --green:#579164; --green-soft:#e3efe6;
+  --yellow:#b28734; --yellow-soft:#f7f0dc;
+  --red:#b65d57; --red-soft:#f4e4e2;
+  --radius:6px;
+  font-family:var(--c-ui); font-size:14px; color:var(--text);
+  background:var(--bg);
+  display:grid; grid-template-rows:44px 1fr 26px;
+  height:900px; overflow:hidden; position:relative;
+}
+.app.tall{height:1180px}
+.app.sheet{grid-template-rows:44px 1fr; height:1500px}
+
+.topbar{
+  display:flex; align-items:stretch; gap:0;
+  background:#2f3c46; color:#fff; border-bottom:1px solid #202a31;
+}
+.brand{display:flex;align-items:center;gap:9px;padding:0 15px;font-weight:700;border-right:1px solid rgba(255,255,255,.12);white-space:nowrap}
+.mark{width:20px;height:20px;border:2px solid #fff;border-radius:50%;position:relative;opacity:.95}
+.mark::before{content:"";position:absolute;left:-2px;right:-2px;top:7px;height:2px;background:#fff}
+.mark::after{content:"";position:absolute;left:6px;top:6px;width:6px;height:6px;background:#fff;border-radius:50%}
+.wstabs{display:flex;align-items:flex-end;padding-left:10px;gap:2px}
+.wstab{
+  padding:7px 15px;font-size:13px;border-radius:5px 5px 0 0;
+  color:rgba(255,255,255,.72);background:transparent;border:1px solid transparent;border-bottom:0;
+}
+.wstab.on{background:var(--bg);color:var(--text);border-color:var(--line)}
+.topright{margin-left:auto;display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12px;color:rgba(255,255,255,.8)}
+.tbtn{border:1px solid rgba(255,255,255,.22);border-radius:5px;padding:4px 10px;font-size:12px;background:rgba(255,255,255,.06)}
+.tbtn.accent{background:var(--blue);border-color:var(--blue-strong);color:#fff}
+
+/* motif behind the widget area */
+.stagewrap{position:relative;overflow:hidden}
+.motif{position:absolute;inset:0;
+  background:
+    radial-gradient(120% 90% at 18% 15%, #7fa3bd 0%, rgba(127,163,189,0) 55%),
+    radial-gradient(90% 80% at 82% 78%, #8e7fa8 0%, rgba(142,127,168,0) 58%),
+    conic-gradient(from 210deg at 60% 40%, #46586a, #6b7f92, #46586a);
+}
+.motif::after{content:"";position:absolute;inset:0;background:rgba(20,26,31,var(--dim,.7))}
+
+.stage{position:relative;height:100%;padding:12px;display:grid;gap:10px;
+  grid-template-columns:1fr 340px 316px; grid-template-rows:1fr 268px;}
+.rasterline{position:absolute;inset:12px;pointer-events:none;z-index:5;
+  background-image:linear-gradient(to right, rgba(76,120,156,.5) 1px, transparent 1px),
+                   linear-gradient(to bottom, rgba(76,120,156,.5) 1px, transparent 1px);
+  background-size:80px 80px; opacity:.55;}
+.rasterline::after{content:"DOCKING RASTER 80 px";position:absolute;right:4px;bottom:2px;
+  font-family:var(--c-mono);font-size:10px;letter-spacing:.1em;color:#365f80}
+
+/* widget chrome */
+.w{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+   display:flex;flex-direction:column;min-height:0;box-shadow:0 1px 3px rgba(21,31,39,.10);position:relative;z-index:6}
+.w-head{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface-2);
+   border-bottom:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0;font-size:12.5px;font-weight:700}
+.w-head .ico{width:14px;height:14px;border:1.5px solid var(--text-soft);border-radius:3px;flex:0 0 auto}
+.w-head .grow{flex:1}
+.w-menu{color:var(--text-faint);font-weight:700;letter-spacing:.12em}
+.w-body{padding:10px;overflow:hidden;flex:1;min-height:0;font-size:12.5px}
+.w.focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(76,120,156,.28)}
+
+/* board */
+.fieldrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:11px;
+  padding:2px 9px;font-size:11.5px;background:var(--surface-3)}
+.chip.blue{background:var(--blue-soft);border-color:#a9c6da;color:var(--blue-strong)}
+.chip.yel{background:var(--yellow-soft);border-color:#e0cb96;color:#7d5f1f}
+.dotico{width:8px;height:8px;border-radius:50%;background:currentColor;flex:0 0 auto}
+.sq{width:8px;height:8px;background:currentColor;flex:0 0 auto}
+.tri{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid currentColor;flex:0 0 auto}
+
+.slots{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.side-label{grid-column:1 / -1;font-size:11px;letter-spacing:.1em;color:var(--text-faint);
+  text-transform:uppercase;margin-top:2px}
+.slot{border:1px solid var(--line);border-radius:5px;background:var(--surface-4);padding:8px 9px}
+.slot .nm{font-weight:700;font-size:13px;display:flex;align-items:center;gap:6px}
+.slot .meta{font-size:11px;color:var(--text-soft);margin-top:2px;font-variant-numeric:tabular-nums}
+.hp{height:6px;border-radius:3px;background:var(--surface-3);margin-top:6px;overflow:hidden}
+.hp i{display:block;height:100%;background:var(--green)}
+.hp.mid i{background:var(--yellow)}
+.hp.low i{background:var(--red)}
+.slot.fnt{background:var(--surface-2);color:var(--text-faint)}
+.slot.fnt .nm{text-decoration:line-through}
+.statustag{font-size:10.5px;border:1px solid var(--yellow);color:#7d5f1f;background:var(--yellow-soft);
+  border-radius:3px;padding:0 4px;letter-spacing:.05em}
+
+/* log / timeline / diagnostics */
+.mono{font-family:var(--c-mono);font-size:11.5px;line-height:1.75}
+.logline{display:flex;gap:7px}
+.logline .t{color:var(--text-faint);flex:0 0 34px;text-align:right;font-variant-numeric:tabular-nums}
+.turnsep{margin:5px 0 3px;padding-top:4px;border-top:1px dashed var(--line);
+  font-size:11px;letter-spacing:.1em;color:var(--text-soft);text-transform:uppercase}
+.tl{display:flex;flex-direction:column;gap:3px}
+.tl-item{display:flex;align-items:center;gap:8px;padding:4px 7px;border-radius:4px;font-size:12px}
+.tl-item.on{background:var(--blue-soft);border:1px solid #a9c6da}
+.tl-item .n{font-family:var(--c-mono);color:var(--text-faint);font-variant-numeric:tabular-nums}
+.tl-item .mk{margin-left:auto;font-size:10.5px;letter-spacing:.06em;color:var(--red)}
+
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:12px;align-items:center}
+.kv dt{color:var(--text-soft)}
+.kv dd{margin:0;font-family:var(--c-mono);font-variant-numeric:tabular-nums}
+
+.state{display:inline-flex;align-items:center;gap:6px;border-radius:4px;padding:2px 8px;font-size:11.5px;font-weight:700}
+.state.ok{background:var(--green-soft);color:#33613f;border:1px solid #a9cdb3}
+.state.warn{background:var(--yellow-soft);color:#7d5f1f;border:1px solid #e0cb96}
+.state.bad{background:var(--red-soft);color:#8d3f39;border:1px solid #dfaba6}
+.state.idle{background:var(--surface-3);color:var(--text-soft);border:1px solid var(--line)}
+
+.btnrow{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap}
+.btn{border:1px solid var(--line-strong);background:var(--surface-3);border-radius:5px;
+  padding:5px 13px;font-size:12.5px;min-height:32px;display:inline-flex;align-items:center}
+.btn.pri{background:var(--blue);border-color:var(--blue-strong);color:#fff}
+.btn.off{opacity:.45}
+.btn.foc{outline:3px solid rgba(76,120,156,.35);outline-offset:1px;border-color:var(--blue)}
+.inp{border:1px solid var(--line-strong);background:var(--surface-4);border-radius:5px;
+  padding:6px 9px;font-size:12.5px;min-height:32px;display:flex;align-items:center;color:var(--text-faint)}
+.inp.filled{color:var(--text)}
+.inp.foc{outline:3px solid rgba(76,120,156,.35);outline-offset:1px;border-color:var(--blue)}
+.inp.err{border-color:var(--red);background:var(--red-soft)}
+
+.statusbar{display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--surface-2);
+  border-top:1px solid var(--line);font-size:11.5px;color:var(--text-soft);font-family:var(--c-mono)}
+.statusbar .b{color:var(--text);font-weight:700}
+
+/* edit mode */
+.editbar{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--blue);color:#fff;
+  font-size:12.5px;border-bottom:1px solid var(--blue-strong)}
+.editbar .btn{background:rgba(255,255,255,.14);border-color:rgba(255,255,255,.4);color:#fff}
+.editbar .btn.solid{background:#fff;color:var(--blue-strong);border-color:#fff;font-weight:700}
+.lib{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:9px;
+  display:flex;flex-direction:column;gap:6px;z-index:6}
+.lib h4{margin:0 0 2px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-soft)}
+.libitem{border:1px dashed var(--line-strong);border-radius:5px;padding:6px 8px;font-size:12px;
+  display:flex;align-items:center;gap:7px;background:var(--surface-4)}
+.libitem.used{opacity:.45;border-style:solid;background:var(--surface-2)}
+.grip{font-family:var(--c-mono);color:var(--text-faint);letter-spacing:-1px}
+.rsz{position:absolute;right:-3px;bottom:-3px;width:12px;height:12px;border:2px solid var(--blue);
+  background:#fff;border-radius:2px;z-index:9}
+.rsz.e{right:-3px;top:50%;bottom:auto;transform:translateY(-50%);height:22px;width:6px;border-radius:3px}
+.ghost{position:absolute;z-index:30;width:280px;border:2px solid var(--blue);border-radius:var(--radius);
+  background:rgba(248,249,250,.93);box-shadow:0 12px 26px rgba(21,31,39,.3);transform:rotate(-1.2deg)}
+.dockprev{position:absolute;inset:0;z-index:12;display:grid;
+  grid-template-columns:24% 1fr 24%;grid-template-rows:22% 1fr 22%;pointer-events:none}
+.dz{border:1px dashed rgba(76,120,156,.65);background:rgba(76,120,156,.10);display:grid;place-items:center;
+  font-size:11px;color:var(--blue-strong);font-family:var(--c-mono);letter-spacing:.08em}
+.dz.hot{background:rgba(76,120,156,.34);border:2px solid var(--blue);color:#fff;font-weight:700}
+.dz.tab{background:rgba(76,120,156,.14)}
+.menu{position:absolute;z-index:32;background:var(--surface-4);border:1px solid var(--line-strong);
+  border-radius:5px;box-shadow:0 10px 24px rgba(21,31,39,.26);padding:4px;min-width:194px;font-size:12.5px}
+.menu div{padding:6px 9px;border-radius:4px}
+.menu div.hi{background:var(--blue-soft)}
+.menu .sep{height:1px;background:var(--line);margin:4px 2px;padding:0}
+.rules{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;z-index:6}
+.rules h4{margin:0 0 6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-soft)}
+.rules ul{margin:0;padding-left:16px;font-size:11.5px;line-height:1.65}
+
+/* appearance editor */
+.ae{display:grid;grid-template-columns:214px 1fr 470px;gap:10px;padding:12px;height:100%}
+.pane{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;overflow:hidden}
+.pane h4{margin:0 0 8px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-soft)}
+.themecard{border:1px solid var(--line);border-radius:5px;padding:7px;margin-bottom:7px;display:flex;gap:8px;align-items:center;font-size:12.5px}
+.themecard.on{border-color:var(--blue);box-shadow:0 0 0 2px rgba(76,120,156,.25)}
+.swatchrow{display:flex;gap:3px}
+.sw{width:15px;height:15px;border-radius:3px;border:1px solid rgba(0,0,0,.16)}
+.tokens{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px}
+.token{display:flex;align-items:center;gap:7px;font-size:11.5px;font-family:var(--c-mono)}
+.token .sw{width:17px;height:17px}
+.token .hex{color:var(--text-soft)}
+.slider{display:flex;align-items:center;gap:9px;font-size:12px;margin-bottom:7px}
+.track{flex:1;height:5px;border-radius:3px;background:var(--surface-3);position:relative}
+.track i{position:absolute;left:0;top:0;bottom:0;background:var(--blue);border-radius:3px}
+.track b{position:absolute;top:50%;transform:translate(-50%,-50%);width:13px;height:13px;border-radius:50%;
+  background:#fff;border:2px solid var(--blue)}
+.val{font-family:var(--c-mono);color:var(--text-soft);width:44px;text-align:right;font-variant-numeric:tabular-nums}
+.ovr{font-size:10.5px;border:1px solid var(--blue);color:var(--blue-strong);background:var(--blue-soft);
+  border-radius:3px;padding:0 5px;letter-spacing:.05em}
+.preview{border-radius:5px;border:1px solid #10151a;overflow:hidden}
+.pv-top{background:#12171c;color:#cfd8e0;padding:6px 10px;font-size:12px;display:flex;gap:9px;align-items:center}
+.pv-body{background:#1a2026;padding:10px;display:grid;grid-template-columns:1fr 190px;gap:9px}
+.pv-card{background:#222a31;border:1px solid #2f3a43;border-radius:5px;padding:9px;color:#c3ccd4;font-size:12px}
+.pv-card .h{font-weight:700;color:#e3e9ee;margin-bottom:5px;font-size:12.5px}
+.pv-faint{color:#6c7a85}
+.warnbox{border:1px solid var(--red);background:var(--red-soft);border-radius:5px;padding:9px 11px;margin-top:9px}
+.warnbox .h{font-weight:700;color:#8d3f39;font-size:12.5px;display:flex;align-items:center;gap:7px}
+.warnbox p{margin:5px 0 0;font-size:11.5px;line-height:1.55;color:#6f3630}
+.ratio{font-family:var(--c-mono);font-weight:700}
+
+/* component sheet */
+.sheetgrid{padding:14px;display:grid;grid-template-columns:repeat(2,1fr);gap:12px;align-content:start}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:11px}
+.sec.wide{grid-column:1 / -1}
+.sec h4{margin:0 0 9px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-soft)}
+.grid8{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.cell{border:1px solid var(--line);border-radius:5px;padding:8px;background:var(--surface-4)}
+.cell .cap{font-family:var(--c-mono);font-size:10px;letter-spacing:.08em;color:var(--text-faint);
+  text-transform:uppercase;margin-bottom:6px}
+.tabsrow{display:flex;gap:2px;align-items:flex-end}
+.tabx{border:1px solid var(--line);border-bottom:0;border-radius:5px 5px 0 0;padding:5px 12px;font-size:12px;background:var(--surface-2);color:var(--text-soft)}
+.tabx.on{background:var(--surface);color:var(--text);font-weight:700}
+.dens{display:flex;gap:10px}
+.densbox{flex:1;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.densbox .r{border-bottom:1px solid var(--line);font-size:12px}
+.densbox.cmp .r{padding:3px 8px}
+.densbox.cf .r{padding:8px 10px}
+.motifpair{display:flex;gap:10px}
+.motifbox{flex:1;height:88px;border-radius:5px;position:relative;overflow:hidden;border:1px solid var(--line)}
+.motifbox .m{position:absolute;inset:0;background:
+  radial-gradient(120% 90% at 18% 15%, #7fa3bd 0%, rgba(127,163,189,0) 55%),
+  conic-gradient(from 210deg at 60% 40%, #46586a, #6b7f92, #46586a);}
+.motifbox .o{position:absolute;inset:0}
+.motifbox .lbl{position:absolute;left:8px;bottom:6px;color:#fff;font-family:var(--c-mono);font-size:11px;
+  text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.tokenbar{display:flex;flex-wrap:wrap;gap:7px}
+.tokenbar .t{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:4px;
+  padding:3px 7px;font-family:var(--c-mono);font-size:10.5px}
+
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="bar">
+  <div>
+    <h1>Live Spectator — Design System</h1>
+    <div class="sub">4 Artboards · 1600 px · Stil-DNA aus dem Clean-Desktop-Prototyp</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg" role="group" aria-label="Zoom">
+    <button type="button" data-z="out" aria-label="Verkleinern">−</button>
+    <output id="zv">80 %</output>
+    <button type="button" data-z="in" aria-label="Vergrößern">+</button>
+    <button type="button" data-z="fit">Einpassen</button>
+    <button type="button" data-z="one">100 %</button>
+  </div>
+  <label class="tog"><input type="checkbox" id="ta" checked> Annotationen</label>
+  <label class="tog"><input type="checkbox" id="tg"> Docking-Raster</label>
+  <nav class="jump" aria-label="Artboards">
+    <a href="#a1">01</a><a href="#a2">02</a><a href="#a3">03</a><a href="#a4">04</a>
+  </nav>
+</header>
+
+<p class="notice">
+  <b>ZIELBILD, KEINE SPEZIFIKATION.</b> Artboard 01 zeigt den Live Spectator, wie ihn M1 bereits
+  liefert (Board, Log, Verbindung, Raum-Steuerung) — in der Zielgestaltung. Die Artboards 02 und 03
+  zeigen einen <b>Layout-Editor</b> und einen <b>Appearance-Editor</b>: beides ist in keiner
+  approvten Spec enthalten, Themes und Anpassbarkeit sind laut Master-Spec Phase-4-Terrain. Diese
+  Blätter sind Diskussionsgrundlage, nicht beschlossener Umfang. Kein Login, kein Chat, kein
+  <code>/choose</code> — wie gefordert. Daten in den Boards stammen aus echten Live-Läufen und dem
+  eingefrorenen Golden-Fixture.
+</p>
+
+<main class="zoomwrap" id="wrap">
+<div class="stack" id="stack" data-anno="on" data-grid="off">
+
+  <!-- ============================ 01 ============================ -->
+  <section id="a1">
+    <div class="plate">
+      <span class="num">01</span>
+      <div>
+        <h2>Standardlayout</h2>
+        <p>Sechs Widgets im Docking-Raster. Solide Flächen über abgedunkeltem Motiv. Jeder Zustand
+           trägt Symbol <em>und</em> Text — nie Farbe allein. Keine Zugauswahl, kein Chat.</p>
+      </div>
+    </div>
+
+    <div class="artboard">
+      <div class="app">
+        <div class="topbar">
+          <div class="brand"><span class="mark"></span> ShowdownBot Studio</div>
+          <div class="wstabs">
+            <div class="wstab">Offline Viewer</div>
+            <div class="wstab on">Live Spectator</div>
+          </div>
+          <div class="topright">
+            <span>Skalierung 100 %</span>
+            <span class="tbtn">Dichte: Komfortabel</span>
+            <span class="tbtn">Darstellung</span>
+            <span class="tbtn accent">Layout bearbeiten</span>
+          </div>
+        </div>
+
+        <div class="stagewrap">
+          <div class="motif" style="--dim:.7"></div>
+          <div class="rasterline"></div>
+          <div class="stage">
+
+            <!-- board -->
+            <div class="w" style="grid-row:1">
+              <div class="w-head"><span class="ico"></span> Kampffeld <span class="grow"></span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div class="fieldrow">
+                  <span class="chip"><span class="dotico"></span> Zug 12</span>
+                  <span class="chip blue"><span class="sq"></span> Electric Terrain</span>
+                  <span class="chip"><span class="tri"></span> Tailwind · p2</span>
+                  <span class="chip">Wetter: keines</span>
+                </div>
+                <div class="slots">
+                  <div class="side-label">p1 · Spieler A</div>
+                  <div class="slot">
+                    <div class="nm">Brambleghast</div>
+                    <div class="meta">p1a · 68 / 100</div>
+                    <div class="hp"><i style="width:68%"></i></div>
+                  </div>
+                  <div class="slot">
+                    <div class="nm">Emboar <span class="statustag">BRN</span></div>
+                    <div class="meta">p1b · 41 / 100</div>
+                    <div class="hp mid"><i style="width:41%"></i></div>
+                  </div>
+                  <div class="side-label">p2 · Spieler B</div>
+                  <div class="slot">
+                    <div class="nm">Scream Tail</div>
+                    <div class="meta">p2a · 100 / 100</div>
+                    <div class="hp"><i style="width:100%"></i></div>
+                  </div>
+                  <div class="slot">
+                    <div class="nm">Poliwrath</div>
+                    <div class="meta">p2b · 74 / 100</div>
+                    <div class="hp"><i style="width:74%"></i></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- timeline -->
+            <div class="w" style="grid-row:1">
+              <div class="w-head"><span class="ico"></span> Zeitleiste <span class="grow"></span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div class="tl">
+                  <div class="tl-item"><span class="n">08</span> Zug 8</div>
+                  <div class="tl-item"><span class="n">09</span> Wechsel p2b</div>
+                  <div class="tl-item"><span class="n">10</span> Zug 10</div>
+                  <div class="tl-item"><span class="n">11</span> Electric Terrain <span class="mk">Feld</span></div>
+                  <div class="tl-item on"><span class="n">12</span> Zug 12 <span class="mk">jetzt</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- connection -->
+            <div class="w" style="grid-row:1">
+              <div class="w-head"><span class="ico"></span> Verbindung <span class="grow"></span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div style="margin-bottom:8px"><span class="state ok"><span class="dotico"></span> Verbunden</span></div>
+                <dl class="kv">
+                  <dt>Server</dt><dd>sim3.psim.us</dd>
+                  <dt>Epoche</dt><dd>3</dd>
+                  <dt>Stabil seit</dt><dd>4 min 12 s</dd>
+                  <dt>Heartbeat</dt><dd>20 s</dd>
+                </dl>
+              </div>
+            </div>
+
+            <!-- log -->
+            <div class="w" style="grid-row:2">
+              <div class="w-head"><span class="ico"></span> Kampfprotokoll <span class="grow"></span>
+                <span class="chip" style="font-size:10.5px">nur Kampf</span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body mono">
+                <div class="turnsep">Zug 11</div>
+                <div class="logline"><span class="t">11</span><span>p2b Poliwrath setzt ein: Drain Punch</span></div>
+                <div class="logline"><span class="t"></span><span>p1b Emboar verliert 22 % (41/100)</span></div>
+                <div class="logline"><span class="t"></span><span>Electric Terrain beginnt</span></div>
+                <div class="turnsep">Zug 12</div>
+                <div class="logline"><span class="t">12</span><span>p1a Brambleghast setzt ein: Power Whip</span></div>
+                <div class="logline"><span class="t"></span><span>p2b Poliwrath verliert 26 % (74/100)</span></div>
+              </div>
+            </div>
+
+            <!-- room -->
+            <div class="w" style="grid-row:2">
+              <div class="w-head"><span class="ico"></span> Raum <span class="grow"></span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div class="inp filled" style="margin-bottom:7px">battle-gen9randomdoublesbattle-3863</div>
+                <div><span class="state ok"><span class="dotico"></span> Zuschauen aktiv</span></div>
+                <div class="btnrow">
+                  <span class="btn off">Zusehen</span>
+                  <span class="btn">Verlassen</span>
+                  <span class="btn off">Schließen</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- diagnostics -->
+            <div class="w" style="grid-row:2">
+              <div class="w-head"><span class="ico"></span> Diagnose <span class="grow"></span>
+                <span class="chip" style="font-size:10.5px">3</span>
+                <span class="w-menu">⋮</span></div>
+              <div class="w-body mono">
+                <div class="logline"><span class="t">12</span><span>nicht angewandt · unbekannter Typ<br><span style="color:#879199">-ability</span></span></div>
+                <div class="logline"><span class="t">11</span><span>bekannt, ignoriert<br><span style="color:#879199">-crit</span></span></div>
+                <div class="logline"><span class="t">09</span><span>bekannt, ignoriert<br><span style="color:#879199">upkeep</span></span></div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div class="statusbar">
+          <span><span class="b">Verbunden</span> · Epoche 3</span>
+          <span>Raum <span class="b">aktiv</span></span>
+          <span>184 Ereignisse · 3 diagnostisch</span>
+          <span style="margin-left:auto">Protokoll v0 · nur Zuschauen</span>
+        </div>
+      </div>
+
+      <b class="anno" style="--x:1120px;--y:96px"><span class="pin">1</span><span class="txt">Docking-Raster 80 px. Jedes Widget rastet auf ganze Zellen — deshalb sitzen Kanten immer bündig.</span></b>
+      <b class="anno" style="--x:210px;--y:262px"><span class="pin">2</span><span class="txt">Zustand nie nur über Farbe: Symbol + Text. „Electric Terrain“ trägt Quadrat, Tailwind ein Dreieck.</span></b>
+      <b class="anno" style="--x:1300px;--y:520px"><span class="pin">3</span><span class="txt">Diagnose hat ein eigenes Widget (Entscheidung 2026-07-26) — das Kampfprotokoll bleibt Kampfhistorie.</span></b>
+      <b class="anno" style="--x:640px;--y:836px"><span class="pin">4</span><span class="txt">Keine Zugauswahl, kein Chat, kein Login. Der Spectator ist ausschließlich lesend.</span></b>
+      <b class="anno" style="--x:22px;--y:150px"><span class="pin">5</span><span class="txt">Motiv 70 % abgedunkelt; alle Widgetflächen bleiben deckend, damit Text nie auf Bild liegt.</span></b>
+    </div>
+  </section>
+
+  <!-- ============================ 02 ============================ -->
+  <section id="a2">
+    <div class="plate">
+      <span class="num">02</span>
+      <div>
+        <h2>Layout bearbeiten</h2>
+        <p>Bearbeitungsmodus mit Widget-Bibliothek, Zieh- und Größengriffen, Widget-Menü und einem
+           aktiven Drag von „Diagnose“ samt Andockvorschau. <em>Nicht autorisierter Umfang.</em></p>
+      </div>
+    </div>
+
+    <div class="artboard">
+      <div class="app tall">
+        <div class="topbar">
+          <div class="brand"><span class="mark"></span> ShowdownBot Studio</div>
+          <div class="wstabs"><div class="wstab">Offline Viewer</div><div class="wstab on">Live Spectator</div></div>
+          <div class="topright"><span class="tbtn">Darstellung</span></div>
+        </div>
+
+        <div class="stagewrap">
+          <div class="editbar">
+            <strong>Layout bearbeiten</strong>
+            <span style="opacity:.85">Widget aus der Bibliothek ziehen oder Kanten fassen</span>
+            <span style="margin-left:auto"></span>
+            <span class="btn">Zurücksetzen</span>
+            <span class="btn">Abbrechen</span>
+            <span class="btn solid">Speichern</span>
+          </div>
+
+          <div class="motif" style="--dim:.78;top:36px"></div>
+          <div class="rasterline" style="top:48px"></div>
+
+          <div class="stage" style="grid-template-columns:236px 1fr 330px;grid-template-rows:1fr 300px;padding-top:10px">
+
+            <div class="lib" style="grid-row:1 / span 2">
+              <h4>Widget-Bibliothek</h4>
+              <div class="libitem"><span class="grip">⣿</span> Schadensrechner</div>
+              <div class="libitem"><span class="grip">⣿</span> Geschwindigkeitsstufen</div>
+              <div class="libitem"><span class="grip">⣿</span> Team-Übersicht</div>
+              <div class="libitem"><span class="grip">⣿</span> Rohprotokoll</div>
+              <div class="libitem used"><span class="grip">⣿</span> Kampffeld <span style="margin-left:auto;font-size:10.5px">platziert</span></div>
+              <div class="libitem used"><span class="grip">⣿</span> Zeitleiste <span style="margin-left:auto;font-size:10.5px">platziert</span></div>
+              <div class="libitem used"><span class="grip">⣿</span> Verbindung <span style="margin-left:auto;font-size:10.5px">platziert</span></div>
+              <div class="rules" style="margin-top:auto">
+                <h4>Regeln</h4>
+                <ul>
+                  <li>Mindestgröße 2 × 2 Zellen</li>
+                  <li>Kampffeld und Raum sind nicht schließbar</li>
+                  <li>Höchstens 4 Widgets pro Tab-Gruppe</li>
+                  <li>Verbindung bleibt immer sichtbar</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="w focus" style="grid-row:1;position:relative">
+              <div class="w-head"><span class="grip">⣿</span><span class="ico"></span> Kampffeld
+                <span class="grow"></span><span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div class="fieldrow">
+                  <span class="chip"><span class="dotico"></span> Zug 12</span>
+                  <span class="chip blue"><span class="sq"></span> Electric Terrain</span>
+                </div>
+                <div class="slots">
+                  <div class="slot"><div class="nm">Brambleghast</div><div class="meta">p1a · 68 / 100</div><div class="hp"><i style="width:68%"></i></div></div>
+                  <div class="slot"><div class="nm">Emboar</div><div class="meta">p1b · 41 / 100</div><div class="hp mid"><i style="width:41%"></i></div></div>
+                  <div class="slot"><div class="nm">Scream Tail</div><div class="meta">p2a · 100 / 100</div><div class="hp"><i style="width:100%"></i></div></div>
+                  <div class="slot"><div class="nm">Poliwrath</div><div class="meta">p2b · 74 / 100</div><div class="hp"><i style="width:74%"></i></div></div>
+                </div>
+              </div>
+              <span class="rsz e"></span><span class="rsz"></span>
+            </div>
+
+            <div class="w" style="grid-row:1;position:relative">
+              <div class="w-head"><span class="grip">⣿</span><span class="ico"></span> Verbindung
+                <span class="grow"></span><span class="w-menu">⋮</span></div>
+              <div class="w-body">
+                <div><span class="state ok"><span class="dotico"></span> Verbunden</span></div>
+              </div>
+              <div class="dockprev">
+                <div class="dz" style="grid-area:1/1/2/2"></div>
+                <div class="dz" style="grid-area:1/2/2/3">OBEN</div>
+                <div class="dz" style="grid-area:1/3/2/4"></div>
+                <div class="dz" style="grid-area:2/1/3/2">LINKS</div>
+                <div class="dz tab" style="grid-area:2/2/3/3">ALS TAB</div>
+                <div class="dz hot" style="grid-area:2/3/3/4">RECHTS</div>
+                <div class="dz" style="grid-area:3/1/4/2"></div>
+                <div class="dz" style="grid-area:3/2/4/3">UNTEN</div>
+                <div class="dz" style="grid-area:3/3/4/4"></div>
+              </div>
+              <span class="rsz"></span>
+            </div>
+
+            <div class="w" style="grid-row:2;position:relative">
+              <div class="w-head"><span class="grip">⣿</span><span class="ico"></span> Kampfprotokoll
+                <span class="grow"></span><span class="w-menu">⋮</span></div>
+              <div class="w-body mono">
+                <div class="logline"><span class="t">12</span><span>p1a Brambleghast setzt ein: Power Whip</span></div>
+                <div class="logline"><span class="t"></span><span>p2b Poliwrath verliert 26 %</span></div>
+              </div>
+              <span class="rsz"></span>
+            </div>
+
+            <div class="w" style="grid-row:2;position:relative">
+              <div class="w-head"><span class="grip">⣿</span><span class="ico"></span> Raum
+                <span class="grow"></span><span class="w-menu" style="color:var(--blue);font-weight:900">⋮</span></div>
+              <div class="w-body">
+                <div><span class="state ok"><span class="dotico"></span> Zuschauen aktiv</span></div>
+              </div>
+              <div class="menu" style="right:8px;top:34px">
+                <div>Umbenennen…</div>
+                <div class="hi">Als Tab andocken</div>
+                <div>Abtrennen</div>
+                <div class="sep"></div>
+                <div>Größe zurücksetzen</div>
+                <div style="color:var(--text-faint)">Schließen · nicht erlaubt</div>
+              </div>
+              <span class="rsz"></span>
+            </div>
+
+          </div>
+
+          <div class="ghost" style="left:960px;top:250px">
+            <div class="w-head"><span class="grip">⣿</span><span class="ico"></span> Diagnose
+              <span class="grow"></span><span class="w-menu">⋮</span></div>
+            <div class="w-body mono" style="opacity:.8">
+              <div class="logline"><span class="t">12</span><span>nicht angewandt · unbekannter Typ</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <b class="anno" style="--x:26px;--y:660px"><span class="pin">1</span><span class="txt">Bereits platzierte Widgets bleiben in der Bibliothek sichtbar, aber gedimmt — kein Duplikat möglich.</span></b>
+      <b class="anno" style="--x:1290px;--y:200px"><span class="pin">2</span><span class="txt">Fünf Andockzonen: links, rechts, oben, unten, Mitte = Tab-Gruppe. Die Zielzone wird gefüllt hervorgehoben.</span></b>
+      <b class="anno" style="--x:1180px;--y:790px"><span class="pin">3</span><span class="txt">Widget-Menü zeigt gesperrte Aktionen ausgegraut statt sie zu verbergen — die Regel bleibt sichtbar.</span></b>
+      <b class="anno" style="--x:700px;--y:1090px"><span class="pin">4</span><span class="txt">Ziehgriff links im Kopf, Größengriffe an Kante und Ecke; beides nur im Bearbeitungsmodus.</span></b>
+    </div>
+  </section>
+
+  <!-- ============================ 03 ============================ -->
+  <section id="a3">
+    <div class="plate">
+      <span class="num">03</span>
+      <div>
+        <h2>Appearance Editor</h2>
+        <p>Theme-Galerie, zwölf Farb-Tokens, Hintergrundbild-Regler, Widget-Stile mit Override,
+           Typografie — und eine Live-Vorschau, die eine konkrete Kontrastverletzung meldet.
+           <em>Nicht autorisierter Umfang (Phase-4-Terrain).</em></p>
+      </div>
+    </div>
+
+    <div class="artboard">
+      <div class="app tall">
+        <div class="topbar">
+          <div class="brand"><span class="mark"></span> ShowdownBot Studio</div>
+          <div class="wstabs"><div class="wstab">Offline Viewer</div><div class="wstab on">Live Spectator</div></div>
+          <div class="topright"><span class="tbtn accent">Darstellung</span></div>
+        </div>
+
+        <div class="stagewrap">
+          <div class="ae">
+
+            <div class="pane">
+              <h4>Themes</h4>
+              <div class="themecard"><span class="swatchrow"><span class="sw" style="background:#f8f9fa"></span><span class="sw" style="background:#dfe3e6"></span><span class="sw" style="background:#4c789c"></span></span> Studio Hell</div>
+              <div class="themecard"><span class="swatchrow"><span class="sw" style="background:#232a30"></span><span class="sw" style="background:#2f3c46"></span><span class="sw" style="background:#6f9fc4"></span></span> Studio Dunkel</div>
+              <div class="themecard"><span class="swatchrow"><span class="sw" style="background:#fff"></span><span class="sw" style="background:#000"></span><span class="sw" style="background:#0047ab"></span></span> Kontraststark</div>
+              <div class="themecard on"><span class="swatchrow"><span class="sw" style="background:#1a2026"></span><span class="sw" style="background:#222a31"></span><span class="sw" style="background:#4a6070"></span></span> Eigenes Theme</div>
+              <h4 style="margin-top:12px">Typografie</h4>
+              <div class="slider"><span>Größe</span><span class="track"><i style="width:44%"></i><b style="left:44%"></b></span><span class="val">14 px</span></div>
+              <div class="slider"><span>Protokoll</span><span class="track"><i style="width:32%"></i><b style="left:32%"></b></span><span class="val">12 px</span></div>
+              <div class="slider"><span>Dichte</span><span class="track"><i style="width:66%"></i><b style="left:66%"></b></span><span class="val">Komf.</span></div>
+            </div>
+
+            <div class="pane">
+              <h4>Farb-Tokens · 12</h4>
+              <div class="tokens">
+                <div class="token"><span class="sw" style="background:#1a2026"></span> bg <span class="hex">#1a2026</span></div>
+                <div class="token"><span class="sw" style="background:#222a31"></span> surface <span class="hex">#222a31</span></div>
+                <div class="token"><span class="sw" style="background:#2a333b"></span> surface-2 <span class="hex">#2a333b</span></div>
+                <div class="token"><span class="sw" style="background:#2f3a43"></span> line <span class="hex">#2f3a43</span></div>
+                <div class="token"><span class="sw" style="background:#e3e9ee"></span> text <span class="hex">#e3e9ee</span></div>
+                <div class="token"><span class="sw" style="background:#6c7a85"></span> text-soft <span class="hex">#6c7a85</span></div>
+                <div class="token"><span class="sw" style="background:#4a6070"></span> accent <span class="hex">#4a6070</span></div>
+                <div class="token"><span class="sw" style="background:#3b5262"></span> accent-2 <span class="hex">#3b5262</span></div>
+                <div class="token"><span class="sw" style="background:#579164"></span> good <span class="hex">#579164</span></div>
+                <div class="token"><span class="sw" style="background:#b28734"></span> warn <span class="hex">#b28734</span></div>
+                <div class="token"><span class="sw" style="background:#b65d57"></span> bad <span class="hex">#b65d57</span></div>
+                <div class="token"><span class="sw" style="background:#7aa8cc"></span> focus <span class="hex">#7aa8cc</span></div>
+              </div>
+
+              <h4 style="margin-top:14px">Hintergrundbild</h4>
+              <div class="slider"><span>Abdunklung</span><span class="track"><i style="width:70%"></i><b style="left:70%"></b></span><span class="val">70 %</span></div>
+              <div class="slider"><span>Unschärfe</span><span class="track"><i style="width:24%"></i><b style="left:24%"></b></span><span class="val">6 px</span></div>
+              <div class="slider"><span>Skalierung</span><span class="track"><i style="width:52%"></i><b style="left:52%"></b></span><span class="val">116 %</span></div>
+              <div class="btnrow"><span class="btn">Bild wählen…</span><span class="btn">Kein Bild</span></div>
+
+              <h4 style="margin-top:14px">Widget-Stile</h4>
+              <div class="tokens" style="grid-template-columns:1fr">
+                <div class="token">Kampffeld <span style="margin-left:auto"><span class="ovr">Custom override</span></span></div>
+                <div class="token">Kampfprotokoll <span class="hex" style="margin-left:auto">folgt Theme</span></div>
+                <div class="token">Diagnose <span style="margin-left:auto"><span class="ovr">Custom override</span></span></div>
+                <div class="token">Verbindung <span class="hex" style="margin-left:auto">folgt Theme</span></div>
+              </div>
+            </div>
+
+            <div class="pane">
+              <h4>Live-Vorschau</h4>
+              <div class="preview">
+                <div class="pv-top"><span class="mark" style="width:14px;height:14px;border-width:1.5px"></span> Live Spectator · Eigenes Theme</div>
+                <div class="pv-body">
+                  <div class="pv-card">
+                    <div class="h">Kampffeld</div>
+                    <div>Brambleghast · 68 / 100</div>
+                    <div>Emboar · 41 / 100</div>
+                    <div class="pv-faint" style="margin-top:6px">Electric Terrain · Zug 12</div>
+                  </div>
+                  <div class="pv-card">
+                    <div class="h">Verbindung</div>
+                    <div class="pv-faint">Verbunden · Epoche 3</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="warnbox">
+                <div class="h"><span class="tri"></span> Kontrast zu gering: <span class="ratio">2,9 : 1</span></div>
+                <p><strong>text-soft #6c7a85</strong> auf <strong>surface #222a31</strong> erreicht 2,9 : 1.
+                   WCAG AA verlangt 4,5 : 1 für Fließtext. Betroffen: Verbindungsdetails, Zeitstempel im
+                   Protokoll, Feldnotizen.</p>
+                <div class="btnrow">
+                  <span class="btn pri">Auf 4,5 : 1 korrigieren</span>
+                  <span class="btn">Trotzdem weiter testen</span>
+                </div>
+              </div>
+
+              <p style="font-size:11px;color:var(--text-soft);line-height:1.6;margin-top:9px">
+                „Trotzdem weiter testen“ übernimmt das Theme nur für die laufende Sitzung und markiert
+                es in der Galerie dauerhaft als <em>nicht barrierefrei geprüft</em>.
+              </p>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <b class="anno" style="--x:1010px;--y:660px"><span class="pin">1</span><span class="txt">Die Warnung nennt Tokenpaar, gemessenen Wert, Zielwert und betroffene Stellen — nicht nur „zu wenig Kontrast“.</span></b>
+      <b class="anno" style="--x:640px;--y:560px"><span class="pin">2</span><span class="txt">„Custom override“ markiert Widgets, die dem Theme bewusst nicht folgen — sonst wirkt ein Themewechsel scheinbar wirkungslos.</span></b>
+      <b class="anno" style="--x:640px;--y:830px"><span class="pin">3</span><span class="txt">Abdunklung ist ein eigener Regler, weil Lesbarkeit über dem Motiv sonst vom gewählten Bild abhängt.</span></b>
+    </div>
+  </section>
+
+  <!-- ============================ 04 ============================ -->
+  <section id="a4">
+    <div class="plate">
+      <span class="num">04</span>
+      <div>
+        <h2>Komponentenblatt</h2>
+        <p>Alle acht Raum-Zustände aus der bindenden Zustandstabelle, Eingabe- und Schaltflächen-
+           Zustände inklusive Fokusring, Widget-Zustände, Tab-Gruppen, Andockvorschauen, Dichte,
+           Theme gegen Override, Motiv bei 30 % und 70 % — und die Token-Leiste.</p>
+      </div>
+    </div>
+
+    <div class="artboard">
+      <div class="app sheet">
+        <div class="topbar">
+          <div class="brand"><span class="mark"></span> Komponenten · Live Spectator</div>
+          <div class="topright"><span class="tbtn">Stand 2026-07-26</span></div>
+        </div>
+
+        <div class="sheetgrid">
+
+          <div class="sec wide">
+            <h4>Raum-Steuerung · 8 Zustände (Wortlaut aus LIVE_STATE_MACHINES.md)</h4>
+            <div class="grid8">
+              <div class="cell"><div class="cap">NOT_JOINED</div>
+                <div><span class="state idle"><span class="sq"></span> Not watching</span></div>
+                <div class="btnrow"><span class="btn pri">Zusehen</span><span class="btn off">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">JOINING</div>
+                <div><span class="state warn"><span class="dotico"></span> Joining room…</span></div>
+                <div class="btnrow"><span class="btn off">Zusehen</span><span class="btn off">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">JOINING · nach Reconnect</div>
+                <div><span class="state warn"><span class="dotico"></span> Rejoining…</span></div>
+                <div class="btnrow"><span class="btn off">Zusehen</span><span class="btn off">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">ACTIVE</div>
+                <div><span class="state ok"><span class="dotico"></span> Watching battle-…3863</span></div>
+                <div class="btnrow"><span class="btn off">Zusehen</span><span class="btn">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">LEAVING</div>
+                <div><span class="state warn"><span class="dotico"></span> Leaving…</span></div>
+                <div class="btnrow"><span class="btn off">Zusehen</span><span class="btn off">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">CLOSED</div>
+                <div><span class="state idle"><span class="sq"></span> Room closed</span></div>
+                <div class="btnrow"><span class="btn off">Verlassen</span><span class="btn pri">Schließen</span></div></div>
+              <div class="cell"><div class="cap">JOIN-SENDEFEHLER</div>
+                <div><span class="state bad"><span class="tri"></span> Not watching</span></div>
+                <div class="inp err" style="margin-top:6px;font-size:11.5px">Befehl konnte nicht gesendet werden</div></div>
+              <div class="cell"><div class="cap">LEAVE-SENDEFEHLER</div>
+                <div><span class="state bad"><span class="tri"></span> Watching battle-…3863</span></div>
+                <div class="inp err" style="margin-top:6px;font-size:11.5px">Verlassen fehlgeschlagen — weiter aktiv</div></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h4>Eingaben &amp; Schaltflächen</h4>
+            <div class="grid8" style="grid-template-columns:1fr 1fr">
+              <div class="cell"><div class="cap">Eingabe · leer</div><div class="inp">Raum-ID oder URL</div></div>
+              <div class="cell"><div class="cap">Eingabe · gefüllt</div><div class="inp filled">battle-gen9…-3863</div></div>
+              <div class="cell"><div class="cap">Eingabe · Fokus</div><div class="inp filled foc">battle-gen9…-3863</div></div>
+              <div class="cell"><div class="cap">Eingabe · Fehler</div><div class="inp err">Raum existiert nicht</div></div>
+              <div class="cell"><div class="cap">Primär</div><div class="btnrow"><span class="btn pri">Zusehen</span></div></div>
+              <div class="cell"><div class="cap">Sekundär</div><div class="btnrow"><span class="btn">Verlassen</span></div></div>
+              <div class="cell"><div class="cap">Deaktiviert</div><div class="btnrow"><span class="btn off">Schließen</span></div></div>
+              <div class="cell"><div class="cap">Fokusring</div><div class="btnrow"><span class="btn foc">Zusehen</span></div></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h4>Widget-Zustände</h4>
+            <div class="grid8" style="grid-template-columns:1fr 1fr">
+              <div class="cell"><div class="cap">Normal</div>
+                <div class="w" style="box-shadow:none"><div class="w-head"><span class="ico"></span> Zeitleiste<span class="grow"></span><span class="w-menu">⋮</span></div><div class="w-body" style="font-size:11.5px">Zug 12 · jetzt</div></div></div>
+              <div class="cell"><div class="cap">Fokussiert</div>
+                <div class="w focus" style="box-shadow:0 0 0 3px rgba(76,120,156,.28)"><div class="w-head"><span class="ico"></span> Zeitleiste<span class="grow"></span><span class="w-menu">⋮</span></div><div class="w-body" style="font-size:11.5px">Zug 12 · jetzt</div></div></div>
+              <div class="cell"><div class="cap">Leer</div>
+                <div class="w" style="box-shadow:none"><div class="w-head"><span class="ico"></span> Diagnose<span class="grow"></span><span class="w-menu">⋮</span></div><div class="w-body" style="font-size:11.5px;color:var(--text-faint)">Keine Auffälligkeiten</div></div></div>
+              <div class="cell"><div class="cap">Ohne Verbindung</div>
+                <div class="w" style="box-shadow:none;opacity:.72"><div class="w-head"><span class="ico"></span> Kampffeld<span class="grow"></span><span class="w-menu">⋮</span></div><div class="w-body" style="font-size:11.5px;color:var(--text-faint)">Wartet auf Verbindung</div></div></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h4>Tab-Gruppen</h4>
+            <div class="tabsrow">
+              <span class="tabx on">Kampfprotokoll</span>
+              <span class="tabx">Diagnose <span style="color:var(--red)">3</span></span>
+              <span class="tabx">Rohprotokoll</span>
+            </div>
+            <div style="border:1px solid var(--line);border-top:0;border-radius:0 0 5px 5px;padding:9px;background:var(--surface);font-size:11.5px" class="mono">
+              <div class="logline"><span class="t">12</span><span>p1a Brambleghast setzt ein: Power Whip</span></div>
+            </div>
+            <p style="font-size:11px;color:var(--text-soft);margin:7px 0 0">Zähler am Tab nur bei ungelesenen Diagnose-Einträgen.</p>
+          </div>
+
+          <div class="sec">
+            <h4>Andockvorschauen</h4>
+            <div style="position:relative;height:132px;border:1px solid var(--line);border-radius:5px;background:var(--surface-2)">
+              <div class="dockprev" style="position:absolute;inset:0">
+                <div class="dz" style="grid-area:1/1/2/2"></div>
+                <div class="dz" style="grid-area:1/2/2/3">OBEN</div>
+                <div class="dz" style="grid-area:1/3/2/4"></div>
+                <div class="dz" style="grid-area:2/1/3/2">LINKS</div>
+                <div class="dz tab" style="grid-area:2/2/3/3">ALS TAB</div>
+                <div class="dz hot" style="grid-area:2/3/3/4">RECHTS</div>
+                <div class="dz" style="grid-area:3/1/4/2"></div>
+                <div class="dz" style="grid-area:3/2/4/3">UNTEN</div>
+                <div class="dz" style="grid-area:3/3/4/4"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h4>Dichte</h4>
+            <div class="dens">
+              <div class="densbox cmp"><div class="r" style="font-weight:700;background:var(--surface-2)">Kompakt</div><div class="r">Brambleghast 68/100</div><div class="r">Emboar 41/100</div><div class="r">Scream Tail 100/100</div><div class="r" style="border-bottom:0">Poliwrath 74/100</div></div>
+              <div class="densbox cf"><div class="r" style="font-weight:700;background:var(--surface-2)">Komfortabel</div><div class="r">Brambleghast 68/100</div><div class="r">Emboar 41/100</div><div class="r" style="border-bottom:0">Scream Tail 100/100</div></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <h4>Theme gegen Override</h4>
+            <div class="dens">
+              <div class="cell" style="flex:1"><div class="cap">folgt Theme</div>
+                <div style="background:#222a31;border:1px solid #2f3a43;border-radius:5px;padding:9px;color:#e3e9ee;font-size:12px">Kampfprotokoll</div></div>
+              <div class="cell" style="flex:1"><div class="cap">Custom override <span class="ovr">aktiv</span></div>
+                <div style="background:#f8f9fa;border:1px solid #c3c9ce;border-radius:5px;padding:9px;color:#22282d;font-size:12px">Kampffeld</div></div>
+            </div>
+            <p style="font-size:11px;color:var(--text-soft);margin:7px 0 0">Override wird im Kopf des Widgets markiert, nicht nur im Editor.</p>
+          </div>
+
+          <div class="sec">
+            <h4>Motiv-Abdunklung</h4>
+            <div class="motifpair">
+              <div class="motifbox"><span class="m"></span><span class="o" style="background:rgba(20,26,31,.3)"></span><span class="lbl">30 % — Text riskant</span></div>
+              <div class="motifbox"><span class="m"></span><span class="o" style="background:rgba(20,26,31,.7)"></span><span class="lbl">70 % — Voreinstellung</span></div>
+            </div>
+          </div>
+
+          <div class="sec wide">
+            <h4>Token-Leiste</h4>
+            <div class="tokenbar">
+              <span class="t"><span class="sw" style="background:#dfe3e6"></span> bg #dfe3e6</span>
+              <span class="t"><span class="sw" style="background:#f8f9fa"></span> surface #f8f9fa</span>
+              <span class="t"><span class="sw" style="background:#eef1f3"></span> surface-2 #eef1f3</span>
+              <span class="t"><span class="sw" style="background:#e7ebee"></span> surface-3 #e7ebee</span>
+              <span class="t"><span class="sw" style="background:#c3c9ce"></span> line #c3c9ce</span>
+              <span class="t"><span class="sw" style="background:#9aa4ab"></span> line-strong #9aa4ab</span>
+              <span class="t"><span class="sw" style="background:#22282d"></span> text #22282d</span>
+              <span class="t"><span class="sw" style="background:#5f6a72"></span> text-soft #5f6a72</span>
+              <span class="t"><span class="sw" style="background:#4c789c"></span> blue #4c789c</span>
+              <span class="t"><span class="sw" style="background:#579164"></span> green #579164</span>
+              <span class="t"><span class="sw" style="background:#b28734"></span> yellow #b28734</span>
+              <span class="t"><span class="sw" style="background:#b65d57"></span> red #b65d57</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <b class="anno" style="--x:1120px;--y:70px"><span class="pin">1</span><span class="txt">Die acht Raum-Zustände sind kein Entwurf: sie sind die Zeilen der bindenden Zustandstabelle, samt englischem Wortlaut.</span></b>
+      <b class="anno" style="--x:620px;--y:352px"><span class="pin">2</span><span class="txt">Sendefehler ändern den Zustand nicht — die Oberfläche bleibt bedienbar und zeigt den Grund.</span></b>
+      <b class="anno" style="--x:24px;--y:1180px"><span class="pin">3</span><span class="txt">Bei 30 % Abdunklung wird Text über hellen Motivstellen unlesbar. Voreinstellung bleibt 70 %.</span></b>
+    </div>
+  </section>
+
+</div>
+</main>
+
+<script>
+(function(){
+  var stack=document.getElementById('stack'), wrap=document.getElementById('wrap'),
+      zv=document.getElementById('zv'), z=.8;
+
+  function apply(){
+    stack.style.setProperty('--z', z);
+    zv.textContent = Math.round(z*100)+' %';
+    // measured natural height * scale, so the page scrolls correctly
+    var h = stack.scrollHeight;
+    wrap.style.height = (h*z)+'px';
+  }
+  function fit(){
+    var avail = wrap.clientWidth - 40;
+    z = Math.max(.2, Math.min(1, avail/1600));
+    apply();
+  }
+  document.querySelectorAll('[data-z]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var k=b.getAttribute('data-z');
+      if(k==='in') z=Math.min(1.6, z+.1);
+      else if(k==='out') z=Math.max(.2, z-.1);
+      else if(k==='one') z=1;
+      else return fit();
+      apply();
+    });
+  });
+  document.getElementById('ta').addEventListener('change',function(e){
+    stack.dataset.anno = e.target.checked?'on':'off';
+  });
+  document.getElementById('tg').addEventListener('change',function(e){
+    stack.dataset.grid = e.target.checked?'on':'off';
+  });
+  window.addEventListener('resize', apply);
+  // links jump inside a scaled container: fall back to plain scroll
+  window.requestAnimationFrame(function(){ fit(); });
+})();
+</script>
