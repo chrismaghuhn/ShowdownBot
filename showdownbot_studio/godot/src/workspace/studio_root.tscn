@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" path="res://src/workspace/offline_viewer_workspace.tscn" id="3_offline"]
 [ext_resource type="PackedScene" path="res://src/workspace/live_client_workspace.tscn" id="4_live_client"]
 
-[node name="StudioRoot" type="Control"]
+[node name="StudioRoot" type="VBoxContainer"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -15,7 +15,7 @@ grow_vertical = 2
 script = ExtResource("1_root")
 
 [node name="NavBar" type="HBoxContainer" parent="."]
-layout_mode = 1
+layout_mode = 2
 
 [node name="OfflineViewerButton" type="Button" parent="NavBar"]
 layout_mode = 2
@@ -26,12 +26,8 @@ layout_mode = 2
 text = "Live Client"
 
 [node name="WorkspaceRouter" type="Control" parent="."]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+layout_mode = 2
+size_flags_vertical = 3
 script = ExtResource("2_router")
 
 [node name="OfflineViewerWorkspace" parent="WorkspaceRouter" instance=ExtResource("3_offline")]
@@ -44,3 +40,8 @@ grow_vertical = 2
 
 [node name="LiveClientWorkspace" parent="WorkspaceRouter" instance=ExtResource("4_live_client")]
 layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
