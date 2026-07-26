@@ -139,8 +139,14 @@ func _transition(new_state: State) -> void:
 	state_changed.emit(old_state, new_state)
 
 
-## M1b: intentionally minimal. M1e (Task 37) extends this SAME method (protocol/ is a normative
-## M1e module) to EMIT automatic_rejoin_requested -- no other file changes when that lands, and
-## this class still never sends anything itself (owner re-review, 2026-07-25, second pass).
-func _on_connection_state_changed(_old_state: ConnectionStateMachine.State, _new_state: ConnectionStateMachine.State) -> void:
-	pass
+## M1e: emits automatic_rejoin_requested after a successful reconnect (spec section 6.2) --
+## system-triggered, distinct from a human-initiated join. This class never sends anything
+## itself; ui/panels/SpectatorRoomGateway (subscribed since M1d's Task 28) is the sole sender
+## for both this signal and a human-clicked "Watch" (owner re-review, 2026-07-25, second pass,
+## item C) -- so this task is a pure protocol/ file edit, never touching ui/panels/ again.
+func _on_connection_state_changed(_old_state: ConnectionStateMachine.State, new_state: ConnectionStateMachine.State) -> void:
+	if new_state == ConnectionStateMachine.State.RECONNECTING and _state == State.ACTIVE:
+		connection_reconnecting()
+		return
+	if new_state == ConnectionStateMachine.State.CONNECTED and _state == State.JOINING and not _room_id.is_empty():
+		automatic_rejoin_requested.emit(_room_id)
