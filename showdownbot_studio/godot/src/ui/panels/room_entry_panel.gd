@@ -1,5 +1,5 @@
 class_name RoomEntryPanel
-extends Control
+extends VBoxContainer
 
 ## Direct room-ID/URL entry, no fallback room, no room browser (spec section 6.1, section 3.2).
 ## Holds a SpectatorRoomGatewayPort (Task 27/28), injected via configure() -- never a direct
@@ -18,13 +18,24 @@ extends Control
 ## RoomStateMachine reference and subscribes this panel to its state_changed signal in the same
 ## place, so there is exactly one place that ever wires RoomState visibility into this panel, never
 ## a second path.
+##
+## Layout fix (owner review of the M1 hardening lifecycle-UI commit, PR #96, 2026-07-26, second
+## pass, P1 finding 1): the six controls used to be direct children of a plain Control with
+## layout_mode = 0 and no offsets/anchors -- they all sat at the same origin and overlapped, so
+## real clicks were unreliable even though the *_for_test helpers (which called the private
+## handler directly) could never observe it. The root is now a VBoxContainer (matching
+## replay/ReplayWorkspace's own idiom: a Container-typed root with layout_mode = 2 children,
+## rather than manual per-node anchors/offsets), with a nested HBoxContainer for the three
+## buttons -- Godot's Container types give every child its own non-overlapping rect automatically,
+## and each button/the input carry a sensible custom_minimum_size so nothing collapses to zero
+## width at a small window size (MASTER_SPEC section 5).
 
 @onready var _input: LineEdit = $RoomIdInput
 @onready var _error_label: Label = $ErrorLabel
 @onready var _status_label: Label = $StatusLabel
-@onready var _join_button: Button = $JoinButton
-@onready var _leave_button: Button = $LeaveButton
-@onready var _dismiss_button: Button = $DismissButton
+@onready var _join_button: Button = $ButtonsRow/JoinButton
+@onready var _leave_button: Button = $ButtonsRow/LeaveButton
+@onready var _dismiss_button: Button = $ButtonsRow/DismissButton
 
 var _gateway: SpectatorRoomGatewayPort
 var _room_state_machine: RoomStateMachine
@@ -157,13 +168,41 @@ func set_input_text_for_test(text: String) -> void:
 	_input.text = text
 
 
+## Global rects (not get_rect(), which is parent-local): JoinButton/LeaveButton/DismissButton
+## live one nesting level deeper (under ButtonsRow) than RoomIdInput, so their LOCAL rects are
+## not directly comparable across that boundary -- only global position proves real, absolute
+## non-overlap across the whole panel.
+func get_room_id_input_rect_for_test() -> Rect2:
+	return _input.get_global_rect()
+
+
+func get_join_button_rect_for_test() -> Rect2:
+	return _join_button.get_global_rect()
+
+
+func get_leave_button_rect_for_test() -> Rect2:
+	return _leave_button.get_global_rect()
+
+
+func get_dismiss_button_rect_for_test() -> Rect2:
+	return _dismiss_button.get_global_rect()
+
+
+## These three now drive the REAL Button node's own `pressed` signal (owner review of the M1
+## hardening lifecycle-UI commit, PR #96, 2026-07-26, second pass, P1 finding 1) instead of
+## calling the private handler directly -- that is the regression guard for the layout-overlap
+## class of defect: it proves the button exists at its expected path and is actually wired to
+## `_ready()`'s `.pressed.connect(...)` call, not just that the handler function works in
+## isolation. `disabled` does not block a manually emitted signal (only real input dispatch), so
+## these still exercise the handler regardless of the button's current enabled state -- unchanged
+## behavior from before this fix.
 func press_watch_for_test() -> void:
-	_on_join_pressed()
+	_join_button.pressed.emit()
 
 
 func press_leave_for_test() -> void:
-	_on_leave_pressed()
+	_leave_button.pressed.emit()
 
 
 func press_dismiss_for_test() -> void:
-	_on_dismiss_pressed()
+	_dismiss_button.pressed.emit()

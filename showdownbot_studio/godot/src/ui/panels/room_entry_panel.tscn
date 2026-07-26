@@ -2,32 +2,40 @@
 
 [ext_resource type="Script" path="res://src/ui/panels/room_entry_panel.gd" id="1_panel"]
 
-[node name="RoomEntryPanel" type="Control"]
+[node name="RoomEntryPanel" type="VBoxContainer"]
 layout_mode = 3
 script = ExtResource("1_panel")
 
 [node name="RoomIdInput" type="LineEdit" parent="."]
-layout_mode = 0
+layout_mode = 2
+custom_minimum_size = Vector2(240, 0)
+size_flags_horizontal = 3
 placeholder_text = "battle room ID or URL"
 
-[node name="JoinButton" type="Button" parent="."]
-layout_mode = 0
+[node name="ButtonsRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+
+[node name="JoinButton" type="Button" parent="ButtonsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(80, 32)
 text = "Watch"
 
-[node name="LeaveButton" type="Button" parent="."]
-layout_mode = 0
+[node name="LeaveButton" type="Button" parent="ButtonsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(80, 32)
 text = "Leave"
 disabled = true
 
-[node name="DismissButton" type="Button" parent="."]
-layout_mode = 0
+[node name="DismissButton" type="Button" parent="ButtonsRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(80, 32)
 text = "Dismiss"
 disabled = true
 
 [node name="StatusLabel" type="Label" parent="."]
-layout_mode = 0
+layout_mode = 2
 text = "Not watching"
 
 [node name="ErrorLabel" type="Label" parent="."]
-layout_mode = 0
+layout_mode = 2
 text = ""

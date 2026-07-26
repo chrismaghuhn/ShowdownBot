@@ -63,6 +63,29 @@ func test_on_join_rejected_sanitizes_control_characters_and_caps_length() -> voi
 	panel.free()
 
 
+## --- Owner review of the M1 hardening lifecycle-UI commit (PR #96, 2026-07-26, second pass),
+## P1 finding 1: room_entry_panel.tscn's six controls all had layout_mode = 0 with NO container
+## and no offsets/anchors -- they all sat at the same origin and overlapped, so real clicks were
+## unreliable. The join/leave/dismiss tests below (which drove the private handler directly)
+## structurally could not observe this. This measures the REAL laid-out rects after a container
+## arranges them -- the only thing that can actually distinguish "clickable" from "stacked" -- and
+## must fail against the un-fixed scene (all four controls report the identical origin position).
+func test_room_id_input_and_buttons_do_not_share_the_same_position() -> void:
+	var panel: RoomEntryPanel = preload("res://src/ui/panels/room_entry_panel.tscn").instantiate()
+	add_child(panel)
+	await await_idle_frame()
+	await await_idle_frame()
+	var input_pos := panel.get_room_id_input_rect_for_test().position
+	var join_pos := panel.get_join_button_rect_for_test().position
+	var leave_pos := panel.get_leave_button_rect_for_test().position
+	var dismiss_pos := panel.get_dismiss_button_rect_for_test().position
+	assert_vector(join_pos).is_not_equal(leave_pos)
+	assert_vector(leave_pos).is_not_equal(dismiss_pos)
+	assert_vector(join_pos).is_not_equal(dismiss_pos)
+	assert_vector(input_pos).is_not_equal(join_pos)
+	panel.free()
+
+
 ## --- M1 hardening (owner review of PR #94, P1 item 2, 2026-07-26): the panel gains Leave/Dismiss
 ## and a RoomStateMachine.state_changed subscription. Uses a REAL RoomStateMachine (with a fake
 ## transport, the same construction pattern as tests/protocol/test_room_state_machine.gd) so the
