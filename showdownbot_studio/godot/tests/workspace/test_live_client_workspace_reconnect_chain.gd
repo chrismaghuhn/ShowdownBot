@@ -117,3 +117,62 @@ func test_full_ten_step_reconnect_chain_through_the_real_production_wiring() -> 
 	_workspace.get_transport()._process(0.016)
 	assert_int(_workspace.get_projection_for_test().get_current_snapshot().turn).is_equal(2)
 	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(4)
+
+
+## Owner finding 7b (M1 hardening, 2026-07-26): the plan-claimed post-battle scenario -- win,
+## then disconnect, then a full reconnect whose resent authoritative history includes the win
+## line again -- was never actually exercised. Ties into finding 6: proves the projection's own
+## reset-and-refold model (M1e) still detects completion exactly once from the resent history,
+## rather than never re-detecting it after a full reset (stuck incomplete) or re-firing multiple
+## times while replaying the resent lines that lead up to it.
+func test_post_battle_reconnect_resent_history_including_win_ends_consistently_completed() -> void:
+	# -- Pre-disconnect: connect, join, and observe the battle to its real conclusion (win). Not
+	# itself under test here -- the completion listener below is attached AFTER this, so this
+	# first, pre-disconnect completion is deliberately not counted.
+	_workspace.get_transport().connect_to_server("ws://localhost:8000/showdown/websocket")
+	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
+	_workspace.get_transport()._process(0.016)
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle\n|turn|1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100"]
+	_workspace.get_transport()._process(0.016)
+	_fake.queued_packets = [">battle-1\n|win|Alice"]
+	_workspace.get_transport()._process(0.016)
+	assert_bool(_workspace.get_projection_for_test().get_current_snapshot().battle_completed).is_true()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)  # win ends the battle, not the room
+
+	# -- Now attach the completion listener under test, and drive the full reconnect chain
+	# (disconnect -> backoff -> reopen -> CONNECTED -> automatic_rejoin_requested -> the real
+	# SpectatorRoomGateway sends the rejoin), exactly like the ten-step chain test above.
+	var completions: Array[String] = []
+	_workspace.get_observation_bus_for_test().battle_completed.connect(func(room_id: String): completions.append(room_id))
+
+	_fake.ready_state = SocketPeerPort.ReadyState.CLOSED
+	_workspace.get_transport()._process(0.016)  # -> RECONNECTING; RoomState -> JOINING
+	assert_int(_workspace.get_transport().get_state()).is_equal(ConnectionStateMachine.State.RECONNECTING)
+
+	var sent_before_reconnect := _fake.sent_texts.size()
+	_workspace.get_transport()._process(WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S[0] + 0.1)  # opens the new peer
+	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
+	_workspace.get_transport()._process(0.016)  # observes OPEN -> CONNECTED
+	assert_int(_workspace.get_transport().get_state()).is_equal(ConnectionStateMachine.State.CONNECTED)
+	# The real gateway sent exactly one rejoin -- no unauthorized sends during the success path.
+	assert_int(_fake.sent_texts.size()).is_equal(sent_before_reconnect + 1)
+	assert_str(_fake.sent_texts[sent_before_reconnect]).is_equal("|/join battle-1")
+
+	# -- The server resends the ENTIRE authoritative history from scratch, including the win line
+	# again -- the M1e reset-and-refold model, not a resumed/deduplicated stream. A trailing
+	# decoded event after the resent win (real servers do sometimes send further room-scoped
+	# lines even after a battle ends) is deliberately included: this is what would have exposed
+	# finding 6's level-triggered bug re-firing completion a second time here.
+	_fake.queued_packets = [
+		">battle-1\n|init|battle\n|turn|1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100\n|win|Alice\n|-heal|p1a: Pikachu|100/100",
+	]
+	_workspace.get_transport()._process(0.016)
+
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
+	assert_bool(_workspace.get_projection_for_test().get_current_snapshot().battle_completed).is_true()
+	# Exactly one completion publication for this entire post-reconnect resend cycle -- neither
+	# zero (stuck incomplete after the reset) nor more than one (re-firing on intermediate lines).
+	assert_int(completions.size()).is_equal(1)
+	assert_str(completions[0]).is_equal("battle-1")
