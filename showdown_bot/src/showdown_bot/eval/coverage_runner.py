@@ -158,6 +158,32 @@ def _is_under_data_eval(path: str) -> bool:
     return resolved == _CANONICAL_DATA_EVAL or resolved.startswith(_CANONICAL_DATA_EVAL + os.sep)
 
 
+def _seeding_preflight(seed_log_path: str) -> None:
+    """Everything about the seed log this process can check BEFORE battle 1 (see ``eval.seeding``:
+    named path, usable directory, absent-or-empty file)."""
+    from showdown_bot.eval.seeding import preflight_seed_log_path
+
+    preflight_seed_log_path(seed_log_path)   # raises SeedLogConfigError; wrapped at the call site
+
+
+def _assert_server_half_after_first_battle(seed_log_path: str, seed_base: str) -> None:
+    """The SERVER's environment cannot be observed from here, so a server started WITHOUT
+    ``SHOWDOWN_EVAL_SEED_LOG`` only becomes visible once it has failed to write. Battle 1 is the
+    earliest sound moment; the gate fails closed there instead of burning the schedule first."""
+    from showdown_bot.eval.seeding import (
+        SeedLogConfigError,
+        SeedLogError,
+        assert_server_half_is_writing,
+    )
+
+    try:
+        assert_server_half_is_writing(seed_log_path, seed_base, 1)
+    except SeedLogConfigError as exc:      # a WIRING fault -- names the half that is missing
+        raise CoverageRunError(str(exc)) from exc
+    except SeedLogError as exc:            # the server writes, but the seeds disagree
+        raise CoverageRunError(f"seed-log verification failed: {exc}") from exc
+
+
 def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
     from showdown_bot.eval.seeding import SeedLogError, verify_seed_log
     try:
@@ -492,6 +518,15 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         raise CoverageRunError(
             "coverage requires the server's seed log (SHOWDOWN_EVAL_SEED_LOG) so played seeds can be proven"
         )
+    # Everything about the seed log observable from THIS process, proven before battle 1: usable
+    # directory, and a genuinely fresh (absent or empty) log. A run that could never verify its
+    # seeds must cost zero battles.
+    from showdown_bot.eval.seeding import SeedLogConfigError
+
+    try:
+        _seeding_preflight(seed_log_path)
+    except SeedLogConfigError as exc:
+        raise CoverageRunError(str(exc)) from exc
 
     # TOCTOU guard immediately before battle 1: re-hash every team file this schedule references
     # FROM DISK, right now -- inside the runner itself, not only from a CLI wrapper a caller might
@@ -582,6 +617,8 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
             _adopt_battle_atomic(staging_profile, staging_battle)
             os.remove(staging_battle)
         battles_played += 1
+        if battles_played == 1:
+            _assert_server_half_after_first_battle(seed_log_path, seed_base)
         scored_decisions = validate_live_profile_dataset(staging_profile)["rows"]
         cell_counts = coverage_cell_counts(staging_profile)
         stop, stop_reason = coverage_should_stop(

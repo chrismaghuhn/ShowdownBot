@@ -133,6 +133,37 @@ def _adopt_battle_atomic(dataset_path: str, battle_path: str) -> None:
     os.replace(tmp, dataset_path)
 
 
+def _preflight_seed_log(seed_log_path: str) -> None:
+    """Everything about the seed log this process can check BEFORE battle 1: the path is named,
+    its directory exists and is writable, and the file is absent or empty. A run that could never
+    verify its seeds must cost zero battles, not the whole schedule."""
+    from showdown_bot.eval.seeding import SeedLogConfigError, preflight_seed_log_path
+
+    try:
+        preflight_seed_log_path(seed_log_path)
+    except SeedLogConfigError as exc:
+        raise I8DRunError(str(exc)) from exc
+
+
+def _assert_server_half_after_first_battle(seed_log_path: str, seed_base: str) -> None:
+    """The server's environment is not observable from here, so a server started WITHOUT
+    ``SHOWDOWN_EVAL_SEED_LOG`` is invisible until it has failed to write something. Battle 1 is the
+    earliest sound moment to notice -- and the gate fails closed there rather than burning the
+    remaining schedule and discovering it in the final verification."""
+    from showdown_bot.eval.seeding import (
+        SeedLogConfigError,
+        SeedLogError,
+        assert_server_half_is_writing,
+    )
+
+    try:
+        assert_server_half_is_writing(seed_log_path, seed_base, 1)
+    except SeedLogConfigError as exc:      # a WIRING fault -- names the half that is missing
+        raise I8DRunError(str(exc)) from exc
+    except SeedLogError as exc:            # the server writes, but the seeds disagree
+        raise I8DRunError(f"seed-log verification failed: {exc}") from exc
+
+
 def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
     """Prove the server actually played the approved seeds for the battles that ran (finding 2).
 
@@ -273,6 +304,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
             "I8-D requires the server's seed log (SHOWDOWN_EVAL_SEED_LOG) so the played seeds can "
             "be proven; without it the run's seeds are only labelled, not verified"
         )
+    _preflight_seed_log(seed_log_path)   # usable + fresh, proven BEFORE battle 1
 
     # (blocker 1) all work happens in a run-staging directory; out_dir appears only via one atomic
     # rename after everything validates. A leftover staging dir is a crashed run -- fail closed.
@@ -348,6 +380,8 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
             _adopt_battle_atomic(staging_profile, staging_battle)
             os.remove(staging_battle)
         battles_played += 1
+        if battles_played == 1:
+            _assert_server_half_after_first_battle(seed_log_path, seed_base)
         counts = validate_live_profile_dataset(staging_profile)
         scored_decisions = counts["rows"]
         active_valid = counts["active_valid_rows"]
