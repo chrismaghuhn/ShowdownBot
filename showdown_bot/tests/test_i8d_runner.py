@@ -424,3 +424,77 @@ def test_verdict_records_the_panel_and_team_hashes(tmp_path, monkeypatch):
     assert report["panel_hash"] == "aac1ea30446fde88"          # the content-bound panel identity
     assert report["opp_team_hashes"] == ["hash_goodstuff", "hash_tailwind_offense", "hash_trick_room"]
     assert "hero_team_hash" in report                          # recorded (None here: hero file absent)
+
+
+# ---- seed-log wiring: fail fast, and never pass by omission -----------------------------------
+#
+# Both halves of the pairing have failed a real run, and both cost the whole schedule before they
+# surfaced. What this process can observe is checked BEFORE battle 1; the server's own environment
+# cannot be observed from here at all, so the earliest sound check of that half is after battle 1.
+
+
+def test_run_aborts_before_battle_one_on_a_stale_seed_log(tmp_path, monkeypatch):
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    seed_log = tmp_path / "seed.log"
+    seed_log.write_text('{"battle_index": 0, "seed_base": "x", "seed": "y"}\n', encoding="utf-8")
+
+    async def _never(**kw):
+        raise AssertionError("a battle was started despite an unusable seed log")
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _never)
+    with pytest.raises(I8DRunError, match="already exists and is non-empty"):
+        run_i8d_live_gate(
+            schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=str(seed_log),
+            config_hash="c", git_sha="d", expected_battles=6,
+            teams_root=_fixture_teams(tmp_path))
+    assert not (tmp_path / "out").exists() and not (tmp_path / "out.staging").exists()
+
+
+def test_run_aborts_before_battle_one_when_the_seed_log_directory_does_not_exist(
+        tmp_path, monkeypatch):
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+
+    async def _never(**kw):
+        raise AssertionError("a battle was started despite an unusable seed log")
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _never)
+    with pytest.raises(I8DRunError, match="directory"):
+        run_i8d_live_gate(
+            schedule=_canon(6), out_dir=str(tmp_path / "out"),
+            seed_log_path=str(tmp_path / "no_such_dir" / "seed.log"),
+            config_hash="c", git_sha="d", expected_battles=6,
+            teams_root=_fixture_teams(tmp_path))
+    assert not (tmp_path / "out").exists()
+
+
+def test_run_aborts_after_one_battle_when_the_server_never_wrote_the_seed_log(
+        tmp_path, monkeypatch):
+    """The shape that cost a whole 75-battle run: the server was started without
+    SHOWDOWN_EVAL_SEED_LOG, so nothing is ever appended. The abort must name the SERVER half and
+    must happen after ONE battle, not after the schedule."""
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    battles = {"n": 0}
+
+    async def _fake(**kw):   # a perfectly healthy battle -- the SERVER simply logs nothing
+        battles["n"] += 1
+        kw["decision_profile_writer"].write(
+            _mk(battle_id=kw["decision_profile_context"].battle_id, decision_index=0,
+                outcome="ok", twins=24, latency_ms=100.0))
+        return g.GauntletStats(games=1, hero_wins=1)
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _fake)
+    with pytest.raises(I8DRunError, match="SERVER half"):
+        run_i8d_live_gate(
+            schedule=_canon(24), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
+            config_hash="c", git_sha="d", expected_battles=24,
+            teams_root=_fixture_teams(tmp_path))
+    assert battles["n"] == 1                       # ONE battle burned, not 24
+    assert not (tmp_path / "out").exists()         # no verdict at all -> no seed_log_verified
+    assert not (tmp_path / "out.staging" / "verdict.json").exists()

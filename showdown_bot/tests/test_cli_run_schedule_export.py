@@ -321,6 +321,9 @@ def test_schedule_with_agg_trace_out_threads_writer_and_context_per_row(_sched_p
     agg_out = str(tmp_path / "agg.jsonl")
     args = argparse.Namespace(
         schedule=str(_sched_path), result_out=result_out, agg_trace_out=agg_out,
+        # No server and no seed log here: this run genuinely verifies no seeds, and the seed-log
+        # preflight now requires that to be SAID rather than silently skipped.
+        allow_unverified_seeds=True,
     )
     cli.run_schedule(args)
 
@@ -387,6 +390,7 @@ def test_schedule_agg_trace_turns_on_via_env_var_alone(_sched_path, tmp_path, mo
     result_out = str(tmp_path / "results.jsonl")
     args = argparse.Namespace(
         schedule=str(_sched_path), result_out=result_out, agg_trace_out="",  # flag EMPTY
+        allow_unverified_seeds=True,  # no server/seed log: an explicitly unverified-seed run
     )
     cli.run_schedule(args)
 

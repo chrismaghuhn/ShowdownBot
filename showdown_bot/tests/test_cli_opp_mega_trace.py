@@ -114,6 +114,7 @@ def test_run_schedule_with_env_reaches_runner_with_real_writer_and_per_battle_co
     _capture_runner(monkeypatch, received)
     cli.run_schedule(argparse.Namespace(
         schedule=str(_sched_path), result_out=str(tmp_path / "results.jsonl"),
+        allow_unverified_seeds=True,  # no server/seed log: an explicitly unverified-seed run
     ))
 
     assert len(received) == 2

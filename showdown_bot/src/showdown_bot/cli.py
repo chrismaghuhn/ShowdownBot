@@ -41,6 +41,48 @@ def run_validate_log(args) -> None:
         )
 
 
+def _preflight_seed_log_wiring(args) -> str:
+    """Validate the seed-log pairing BEFORE battle 1; return the path to verify, or ``""``.
+
+    The pairing has two halves in two processes: this client (which knows what to verify and
+    where) and the server (which WRITES the log). Both half-configurations have already cost real
+    runs, and both surfaced only after 30-75 battles -- once as a hard error at the very end, once
+    as a silent ``SKIPPED``. Everything observable from here is therefore checked up front, and a
+    run that cannot verify its seeds must SAY so rather than pass by omission.
+
+    Returns ``""`` only for a run that explicitly does not verify its seeds: either no half is
+    configured at all (a plain non-Channel-A run) or the caller passed
+    ``--allow-unverified-seeds``. Anything else aborts before the first battle.
+    """
+    from showdown_bot.eval.seeding import (
+        SeedLogConfigError,
+        check_seed_log_env_pairing,
+        preflight_seed_log_path,
+    )
+
+    allow_unverified = bool(getattr(args, "allow_unverified_seeds", False))
+    try:
+        _base, seed_log = check_seed_log_env_pairing()
+        if seed_log:
+            preflight_seed_log_path(seed_log)
+    except SeedLogConfigError as exc:
+        if not allow_unverified:
+            raise SystemExit(
+                f"seed-log preflight failed before battle 1: {exc} If this run genuinely does not "
+                f"verify its seeds, say so explicitly with --allow-unverified-seeds."
+            ) from exc
+        print(f"  seeds: NOT VERIFIED (--allow-unverified-seeds) -- {exc}")
+        return ""
+    if not seed_log:
+        print("  seeds: NOT VERIFIED -- neither SHOWDOWN_BATTLE_SEED_BASE nor "
+              "SHOWDOWN_EVAL_SEED_LOG is set, so this is not a Channel-A run and nothing about "
+              "the played seeds can be proven")
+        return ""
+    print(f"  seed-log preflight OK: {seed_log} is usable and empty; the played seeds will be "
+          f"verified against it")
+    return seed_log
+
+
 def run_schedule(args) -> None:
     """Non-mirror schedule mode (T1c): run each row as one battle in seed_index order.
 
@@ -258,7 +300,14 @@ def run_schedule(args) -> None:
         decision_profile_writer = DecisionProfileWriter(decision_profile_out, manifest=None)
         print(f"  decision profile -> {decision_profile_out}")
 
+    # Seed-log wiring is validated HERE, before battle 1 -- not after the last one. A run that
+    # cannot verify its seeds must cost zero battles, and one that will not verify them must say
+    # so. Placed after the existing --result-out/sidecar guards (same convention the coverage gate
+    # follows) so those keep their own messages, and still before any battle is started.
+    seed_log = _preflight_seed_log_wiring(args)
+
     totals = {"games": 0, "hero_wins": 0, "villain_wins": 0, "ties": 0, "invalid": 0, "crashes": 0}
+    server_half_proven = False
     try:
         for row in sched.rows:  # loader-sorted by seed_index, contiguous from 0
             on_br = None
@@ -384,6 +433,26 @@ def run_schedule(args) -> None:
                 f"[{row.opp_policy}] -> games={stats.games} hero_wins={stats.hero_wins} "
                 f"invalid={stats.invalid_choices} crashes={stats.crashes}"
             )
+            # The SERVER half of the pairing is not observable before battle 1 -- no client-side
+            # check can read another process's environment. Battle 1 is therefore the earliest
+            # sound moment to prove the server is really writing the log we preflighted, and a
+            # server started without it costs ONE battle instead of the whole schedule.
+            if seed_log and not server_half_proven:
+                from showdown_bot.eval.seeding import (
+                    SeedLogConfigError,
+                    SeedLogError,
+                    assert_server_half_is_writing,
+                )
+                try:
+                    assert_server_half_is_writing(seed_log, base, 1)
+                except SeedLogConfigError as exc:   # a WIRING fault -- names the missing half
+                    raise SystemExit(str(exc)) from exc
+                except SeedLogError as exc:         # the server writes, but the seeds disagree
+                    # e.g. a server whose battle counter did not start at 0: it logs more records
+                    # than battles played. A clean abort after ONE battle, not a raw traceback.
+                    raise SystemExit(f"seed-log verification failed after battle 1: {exc}") from exc
+                server_half_proven = True
+                print("  seed-log: server half proven after battle 1")
     finally:
         # 2b-2.5a: close the run-scoped runtime (rollout CalcClient teardown, if any) exactly
         # once, whether the loop finished cleanly or raised mid-schedule. Rows are already on
@@ -398,12 +467,16 @@ def run_schedule(args) -> None:
                              f"(retry/extra or missing battle)")
         print(f"result JSONL: {len(written)} rows written (one per schedule row)")
 
-    seed_log = os.environ.get("SHOWDOWN_EVAL_SEED_LOG")
-    if seed_log and base:
+    # ``seed_log`` was bound by the pre-battle-1 preflight above: non-empty means both halves were
+    # configured and the path was usable, so the alignment check MUST run and MUST pass. Empty
+    # means this run declared itself unverified -- and says so in words that cannot be read as a
+    # passed check (the old "SKIPPED" line silently degraded two soak runs).
+    if seed_log:
         verify_schedule_alignment(sched, seed_log, base)  # raises on retry/extra/misalign
         print(f"seed-log alignment OK: {len(sched.rows)} battles, seed_i == derive_battle_seed(base, seed_index)")
     else:
-        print("seed-log alignment SKIPPED (SHOWDOWN_BATTLE_SEED_BASE / SHOWDOWN_EVAL_SEED_LOG not both set)")
+        print("seed-log alignment NOT VERIFIED — this run proves nothing about which seeds were "
+              "played; it may not be used as evidence that the schedule's seeds were honoured")
 
 
 def run_eval_report(args) -> None:
@@ -1143,6 +1216,15 @@ def _build_parser() -> argparse.ArgumentParser:
         "battle in seed_index order; requires a fresh server when using "
         "SHOWDOWN_BATTLE_SEED_BASE (Channel A). For eval-report (required): re-verifies seed-"
         "log alignment against this same schedule.",
+    )
+    parser.add_argument(
+        "--allow-unverified-seeds",
+        dest="allow_unverified_seeds",
+        action="store_true",
+        help="gauntlet --schedule: proceed even though the seed-log pairing is half-configured "
+        "(SHOWDOWN_BATTLE_SEED_BASE / SHOWDOWN_EVAL_SEED_LOG not both set). The run then proves "
+        "NOTHING about which seeds were played and may not be used as seed evidence. Without this "
+        "flag a half-configuration aborts before battle 1.",
     )
     parser.add_argument(
         "--result-out",

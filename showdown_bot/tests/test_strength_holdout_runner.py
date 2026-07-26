@@ -3332,3 +3332,47 @@ def test_cli_parses_ledger_justification_and_defaults_to_not_supplied():
     assert given.ledger_justification == "documented repeat"
     blank = parser.parse_args(["champions-strength-holdout-combine", "--ledger-justification", "   "])
     assert _normalized_ledger_justification(blank.ledger_justification) is None
+
+
+# --- seed-log wiring: the SERVER half, discovered after ONE battle rather than after the arm ----
+
+def test_run_strength_holdout_arm_aborts_after_one_battle_when_the_server_never_wrote_the_log(
+        tmp_path, monkeypatch):
+    """The env binding + freshness preflight already runs before battle 1, but it cannot see the
+    SERVER's environment. A server started without SHOWDOWN_EVAL_SEED_LOG writes nothing, and that
+    used to surface only in the post-loop verification -- after every battle key had been played."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    _setup_common(monkeypatch, tmp_path, schedule)
+    # No seed_log_path/seed_base: this fake runner plays healthy battles and logs NOTHING.
+    fake_runner = _fake_gauntlet_runner_factory(winner="hero")
+
+    with pytest.raises(GateBAbort, match="SERVER half"):
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule,
+            out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
+            seed_log_path=str(tmp_path / "seeds.jsonl"), teams_root=str(tmp_path),
+            gauntlet_runner=fake_runner,
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+    assert len(fake_runner.calls) == 1          # ONE battle burned, not the whole arm
+    assert not _arm_out_dir(tmp_path, "arm_a").exists()
+
+
+def test_run_strength_holdout_arm_rejects_a_seed_log_whose_directory_does_not_exist(
+        tmp_path, monkeypatch):
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    _setup_common(monkeypatch, tmp_path, schedule)
+    missing = tmp_path / "no_such_dir" / "seeds.jsonl"
+    monkeypatch.setenv("SHOWDOWN_EVAL_SEED_LOG", str(missing))
+    fake_runner = _fake_gauntlet_runner_factory(winner="hero")
+
+    with pytest.raises(GateBAbort, match="directory"):
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule,
+            out_dir=str(_arm_out_dir(tmp_path, "arm_a")),
+            seed_log_path=str(missing), teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+    assert len(fake_runner.calls) == 0

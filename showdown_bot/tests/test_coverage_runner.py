@@ -138,6 +138,7 @@ def _install(monkeypatch, *, rows_for, seed_log_path, games=1, indices_for=None,
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
     monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
     monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
 
 
 def _run(tmp_path, monkeypatch, *, rows_for, n=8, games=1, indices_for=None, capture=None, out="out"):
@@ -426,6 +427,7 @@ def test_seed_alignment_is_verified(tmp_path, monkeypatch):
 
     monkeypatch.setattr(g, "run_local_gauntlet", _fake)
     monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
     monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
     empty_log = tmp_path / "empty.log"
     empty_log.write_text("", encoding="utf-8")
@@ -945,3 +947,56 @@ def test_an_i8d_verdict_with_the_right_identity_but_verdict_fail_is_refused(tmp_
                           seed_log_path=str(tmp_path / "s.log"), expected_battles=8,
                           teams_root=_TEAMS_ROOT, i8d_verdict_path=fail_path)
     assert not (tmp_path / "out").exists()
+
+
+# ---- seed-log wiring: fail fast, and never pass by omission -----------------------------------
+
+
+def test_coverage_aborts_before_battle_one_on_a_stale_seed_log(tmp_path, monkeypatch):
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
+    seed_log = tmp_path / "seed.log"
+    seed_log.write_text('{"battle_index": 0, "seed_base": "x", "seed": "y"}\n', encoding="utf-8")
+
+    async def _never(**kw):
+        raise AssertionError("a battle was started despite an unusable seed log")
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _never)
+    with pytest.raises(CoverageRunError, match="already exists and is non-empty"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=str(seed_log), expected_battles=8,
+                          teams_root=_TEAMS_ROOT,
+                          i8d_verdict_path=_write_i8d_verdict(tmp_path))
+    assert not (tmp_path / "out").exists() and not (tmp_path / "out.staging").exists()
+
+
+def test_coverage_aborts_after_one_battle_when_the_server_never_wrote_the_seed_log(
+        tmp_path, monkeypatch):
+    """The server was started without SHOWDOWN_EVAL_SEED_LOG: one battle burned, not the schedule,
+    and no verdict is produced -- so nothing can carry a seed_log_verified=True the check never
+    earned."""
+    import showdown_bot.client.gauntlet as g
+
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
+    seed_log = str(tmp_path / "seed.log")
+    battles = {"n": 0}
+
+    async def _fake(**kw):   # a healthy battle -- the SERVER simply logs nothing
+        battles["n"] += 1
+        kw["decision_profile_writer"].write(
+            _row(kw["decision_profile_context"].battle_id, 0))
+        return g.GauntletStats(games=1, hero_wins=1)
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _fake)
+    with pytest.raises(CoverageRunError, match="SERVER half"):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=seed_log, expected_battles=8, teams_root=_TEAMS_ROOT,
+                          i8d_verdict_path=_write_i8d_verdict(tmp_path))
+    assert battles["n"] == 1
+    assert not (tmp_path / "out").exists()
+    assert not (tmp_path / "out.staging" / "verdict.json").exists()

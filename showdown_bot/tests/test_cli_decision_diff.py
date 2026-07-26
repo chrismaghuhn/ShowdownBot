@@ -191,6 +191,7 @@ def test_schedule_with_trace_out_threads_writer_and_context_per_row(_sched_path,
     trace_out = str(tmp_path / "trace.jsonl")
     args = argparse.Namespace(
         schedule=str(_sched_path), result_out=result_out, decision_trace_out=trace_out,
+        allow_unverified_seeds=True,  # no server/seed log: an explicitly unverified-seed run
     )
     cli.run_schedule(args)
 
@@ -239,6 +240,7 @@ def test_schedule_with_trace_out_omits_binding_when_no_battle_ran(_sched_path, t
     trace_out = str(tmp_path / "trace.jsonl")
     args = argparse.Namespace(
         schedule=str(_sched_path), result_out=result_out, decision_trace_out=trace_out,
+        allow_unverified_seeds=True,  # no server/seed log: an explicitly unverified-seed run
     )
     with pytest.raises(SystemExit, match="T2: wrote 0 rows"):
         cli.run_schedule(args)

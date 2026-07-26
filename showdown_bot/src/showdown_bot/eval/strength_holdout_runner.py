@@ -41,7 +41,14 @@ from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 from showdown_bot.eval.i8d_runner import _write_json_atomic
 from showdown_bot.eval.panel import PanelError, team_content_hash
 from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, ResultRowError
-from showdown_bot.eval.seeding import derive_battle_seed, verify_seed_log, SeedLogError
+from showdown_bot.eval.seeding import (
+    SeedLogConfigError,
+    SeedLogError,
+    assert_server_half_is_writing,
+    derive_battle_seed,
+    preflight_seed_log_path,
+    verify_seed_log,
+)
 from showdown_bot.eval.strata_guard import detect_stratum, stratum_output_root
 from showdown_bot.eval.strength_holdout_schedule import (
     build_strength_holdout_schedule, STRENGTH_HOLDOUT_FORMAT_ID, STRENGTH_HOLDOUT_HERO_TEAM_PATH,
@@ -426,6 +433,13 @@ def _assert_seed_log_bound_to_this_run(seed_log_path: str) -> None:
             "battle has played -- a stale or pre-populated seed log cannot prove THIS run's "
             "seeds; restart from a fresh, empty (or absent) seed log"
         )
+    # The shared path preflight adds what the checks above do not cover: the log's directory has
+    # to exist and be writable, or the server could never write there and the arm would play its
+    # whole schedule before finding out.
+    try:
+        preflight_seed_log_path(seed_log_path)
+    except SeedLogConfigError as exc:
+        raise GateBAbort(str(exc)) from exc
 
 
 def _assert_schedule_is_genuine(schedule) -> list[str]:
@@ -768,6 +782,17 @@ def run_strength_holdout_arm(
                 f"validation: {exc}"
             ) from exc
         rows.append(captured)
+        if len(rows) == 1:
+            # The SERVER's environment is invisible from here, so a server started without
+            # SHOWDOWN_EVAL_SEED_LOG only shows up once it has failed to write. Battle 1 is the
+            # earliest sound moment to notice -- the post-loop proof below is otherwise reached
+            # only after every battle key has been played.
+            try:
+                assert_server_half_is_writing(seed_log_path, schedule.seed_base, 1)
+            except SeedLogConfigError as exc:      # a WIRING fault -- names the missing half
+                raise GateBAbort(str(exc)) from exc
+            except SeedLogError as exc:            # the server writes, but the seeds disagree
+                raise GateBAbort(f"seed-log verification failed: {exc}") from exc
 
     # Seed-log proof AFTER the battle loop, BEFORE any publish -- mirrors i8d_runner.py/
     # coverage_runner.py's own private _verify_seed_alignment call site exactly (same position
