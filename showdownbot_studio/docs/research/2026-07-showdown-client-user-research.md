@@ -448,17 +448,53 @@ do not rebuild Showdown prettier; remove the friction without losing the speed.
 
 ### 8.3.1 Decide before the M2 plan is written (binding checklist)
 
+**Status: all four decided by the owner on 2026-07-26 — see §8.3.2 for the decisions themselves.**
+The table below is retained as the reasoning for why each one could not wait.
+
 Most UX work belongs *after* M2's protocol and request model are real: colors, typography, icons,
-spacing, and battle-screen mockups would only churn. Three decisions are the exception — they are
-architectural, they are cheap to fix now and expensive to retrofit, and each must be an explicit
-owner sign-off item in the M2 spec/plan round (the same mechanism that settled the
-`ObservationEventBus` placement and the CLI test-infrastructure exception during M1).
+spacing, and battle-screen mockups would only churn. These four are the exception — they are
+architectural, cheap to fix now and expensive to retrofit. The first three were identified when this
+round-2 research was written; the fourth was added after the M1 live gate showed the problem in real
+traffic.
 
 | Decision | Why it cannot wait for "after M2" |
 |---|---|
 | **Two-step choice review** (first confirm opens a review of the selected actions; a second, separate confirmation sends) | Touches the choice lifecycle in spec §7 directly — the five pre-send checks and the human-provenance rule. Decided before M2e: one line in the plan. Decided after: rework of both the choice UI and the gateway flow. Already flagged as an **[owner]** candidate in §8.2. |
 | **Input routing / shortcut layer** (which component owns keyboard input; shortcuts auto-pause while typing in chat; configurability) | This is input *architecture*, not a key map. Retrofitting a global shortcut layer after the battle UI exists means touching every panel. MASTER_SPEC §5 already requires keyboard operation; what is undecided is who routes it. |
 | **Panel / layout model** (which surfaces are docks, what collapses, what is persisted, the explicit breakpoints) | The live workspace has three panels today and will have roughly eight after M2 — today is the cheapest possible moment. MASTER_SPEC §5 already binds scaling, resizable/collapsible panels and density modes; the concrete breakpoint model is what is missing. |
+| **Where diagnostics are rendered** (added 2026-07-26 after the M1 live gate) | The `[not applied: ...]` diagnostic stream currently shares the battle log panel, a design call made during the M1d review round rather than a specification requirement. In real traffic roughly four in five log lines are diagnostics, so the battle history they sit next to is unreadable — see the M1 evidence packet's follow-up 8. Which panel owns which stream is a layout and wiring decision, cheaper before M2 adds more panels than after. |
+
+### 8.3.2 Decisions taken (owner, 2026-07-26)
+
+All four are decided. They bind the M2 plan; the reasoning for each is the row above it.
+
+**1. Choice submission: both modes, user-switchable.** The client offers direct send *and* a
+two-step review, and the user picks which one is active. **Constraint, binding:** the setting
+governs *presentation only*. In both modes every outbound battle command still originates from an
+explicit human interaction, still travels through `HumanBattleCommandGateway`, and still passes all
+five pre-send checks in spec §7 (room active, latest `rqid`, nothing already submitted for it,
+selection complete, arrived via the privileged gateway). No setting may skip validation, skip
+provenance, or create a second send path — that would defeat the property §11's stop line exists to
+protect. The M2 plan must state which mode is the default and justify it; the recommendation on
+record is review-on-by-default, because a doubles turn commits up to four choices at once and a
+misclick is expensive, with direct send as the opt-in for experienced use.
+
+**2. Keyboard input: one central layer from the start.** A single component owns keyboard input and
+dispatches shortcuts; individual panels do not listen for keys themselves. It suspends automatically
+while a text field has focus (chat, room entry), so shortcuts can never be swallowed by or collide
+with typing. The key map itself is configurable, but the *architecture* is fixed now — retrofitting
+a central layer after the battle UI exists means touching every panel.
+
+**3. Layout: explicit breakpoints and a fixed dock model, decided now.** Which surfaces are docks,
+what collapses, what persists across sessions, and at which window widths the arrangement changes
+are settled before M2 adds panels. This is also where the M1 live gate's small findings land (a
+truncated room URL, a `Connected` label sitting beside the input rather than in a status area).
+
+**4. Diagnostics get their own panel.** The `[not applied: ...]` stream moves out of the battle log
+into a dedicated diagnostics surface. A filter on the shared log was considered and rejected: a
+filter the user must first discover and enable does not help the first glance, and §8.2's own
+finding is that log and diagnostics are different tools. The battle log then carries battle history
+only; nothing is dropped, it is relocated.
 
 Explicitly **not** required before M2, despite appearing in §8.2: the KNOWN/INFERRED/POSSIBLE/
 STALE/UNKNOWN provenance framework. A human-operated client only knows what the server reveals, so
