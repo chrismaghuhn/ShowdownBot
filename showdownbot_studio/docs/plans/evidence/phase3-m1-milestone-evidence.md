@@ -4,8 +4,8 @@
 merged after this packet was first drafted). The gate table, suite runs and slice table below were
 captured at the immediately preceding tip, `main @ f5d88b0` (PR #96, the hardening slice); PR #97
 changed only `studio_root.gd`/`.tscn` and its test, adding one test case, so the suite totals quoted
-in §4 read one case lower than the current tip. Follow-up item 7 in §7 records PR #97 in full and is
-current.
+in §4 read one case lower than the current tip. Follow-up item 7 in §8 records PR #97 in full and is
+current. §6 records the manual live gate, performed after PR #97 merged.
 
 This document records the evidence state of Phase 3 Milestone M1 (Connect + Spectate) as of
 2026-07-26. **It does not itself close the milestone.** Per `docs/ROADMAP.md`'s own current wording
@@ -55,7 +55,7 @@ point in the phase, not a defect in M1.
 | 3 | "isolated branch or worktree per the project's existing workflow" | **SATISFIED** (for F0/M1) | Each of PR #91–#96 has its own `headRefName` (`feat/studio-m1a-transport` … `feat/studio-m1-hardening`), verified via `gh pr view` |
 | 4 | "protocol contract tests, battle-state tests, reconnect/resync tests (§6.2), and choice-lifecycle/`/choose`-family encoder tests (§7, §7.1) green in the `studio-protocol-contract` CI lane" | **PARTIAL** | Protocol/battle-state/reconnect tests green (§4 below; lane green at current `main` HEAD). §6.2's own required scenario list includes "reconnect during team preview" and "reconnect during a forced switch" — neither exists in `godot/tests/battle/` or `godot/tests/e2e/` (checked directory listing); only "reconnect after the battle has already ended" is covered (M1e + hardening's post-battle reconnect test). Choice-lifecycle/`/choose` encoder tests do not exist — `ProtocolCommandEncoder` only encodes room join/leave (M1b scope); `/choose` is M2d |
 | 5 | "E2E tests green in the `studio-live-local-e2e` CI lane, covering the required reconnect scenarios (§6.2) and the required VGC/doubles fixture cases (§7.1)" | **PARTIAL** | Lane green (§4 below); same §6.2 gap as gate 4 (team-preview/forced-switch reconnect scenarios not covered); §7.1's VGC/doubles fixture cases are entirely M2/M2e scope — no choice UI exists in M1 to test against them |
-| 6 | "one manual live gate battle against the official server, with filed evidence" | **PENDING — not performed** | Explicitly requires separate owner authorization per `MASTER_SPEC.md` and this project's own working agreement; not run in this session or any prior one (no evidence file exists for it) |
+| 6 | "one manual live gate battle against the official server, with filed evidence" | **SATISFIED (with scope caveats)** | Performed by the owner on 2026-07-26 against `wss://sim3.psim.us` on `main @ 53a6f09`; observations and caveats recorded in §6 below |
 | 7 | "credential-handling review (§5.1)... confirming no credential path reaches disk, logs, crash reports, event payloads, or exports" | **PENDING (N/A yet)** | M1 introduces no credential code at all: no `session/` directory exists, no `CredentialProvider`/`LoginHttpTransport` (verified: `find . -iname "session*"` under `showdownbot_studio` returns nothing outside `.uid` noise). The review gate itself is M2a's to satisfy once that code exists — nothing to review yet, which is a different state from "reviewed and clean" |
 | 8 | "chat-trust-boundary review (§5.2)" | **PENDING (N/A yet)** | Chat is M2f scope; no chat rendering path exists in M1 to review |
 | 9 | "`TeamBundleV1` review (§3.4)" | **PENDING (N/A yet)** | Team bundle acquisition is M2b scope; not built |
@@ -67,7 +67,7 @@ point in the phase, not a defect in M1.
 | 15 | "maintainer acceptance-question gate... a maintainer can answer all five questions in `AGENTS.md`'s Acceptance questions section unambiguously" | **PENDING** | No artifact recording this Q&A exists for M1 specifically; not attempted in this session |
 | 16 | "explicit owner review and approval before merge, and before any later phase... may be proposed" | **PARTIAL** | Per-PR owner review plainly happened and is the direct source of the 17 hardening findings (§5) — every hardening commit message is dated and attributed to a specific owner review pass. What has **not** happened is an owner sign-off on the **milestone** as a whole (the thing this document is evidence for); `docs/ROADMAP.md`'s own current text still describes the milestone gate as OPEN |
 
-**Summary: 2 SATISFIED (gates 1, 3) / 7 PARTIAL (gates 2, 4, 5, 12, 13, 14, 16) / 7 PENDING (gates 6, 7, 8, 9, 10, 11, 15)**, of 16 gates. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
+**Summary: 3 SATISFIED (gates 1, 3, 6) / 7 PARTIAL (gates 2, 4, 5, 12, 13, 14, 16) / 6 PENDING (gates 7, 8, 9, 10, 11, 15)**, of 16 gates. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
 
 ---
 
@@ -255,7 +255,47 @@ found by human review rather than a deliberate fail-check pass this time.
 
 ---
 
-## 6. What is explicitly NOT claimed
+## 6. Manual live gate (gate 6) — performed 2026-07-26
+
+**Run.** The owner launched the built client from `main @ 53a6f09` (the StudioRoot layout fix, which
+was a precondition: before it the workspace tabs were unclickable, see §8 item 7) and connected to
+the official Showdown server at the hardcoded `wss://sim3.psim.us/showdown/websocket`. A live public
+battle was joined by pasting its `play.pokemonshowdown.com` URL into the room field and pressing
+Watch. Format: `gen9randombattle` (singles). Battle observed at turn 24.
+
+**Observed and verified from the running client:**
+
+| Behavior | Observation |
+|---|---|
+| Connection | Status label read `Connected`; the transport reached `CONNECTED` against the official server without a local proxy or fixture |
+| Room join | URL-to-room-id extraction worked on a pasted battle URL; status read `Watching battle-gen9randombattle-2655170840`, matching the state table's `ACTIVE` wording verbatim |
+| Room controls | `Watch` disabled and `Leave` enabled while `ACTIVE`, `Dismiss` disabled — the documented per-state button model behaved as specified |
+| Battle board | Live and updating: `turn 24`, `Inteleon 32/100`, `Ogerpon-Cornerstone 0/100` — real species and HP decoded from live traffic, not a fixture |
+| Battle log | Live event stream rendering real history: `p1a switched in: Oricorio-Pom-Pom`, `p2a switched in: Scyther`, per-turn markers, `-damage`, `-heal` |
+| Navigation | The `Offline Viewer` / `Live Client` tabs were reachable and clickable (the defect fixed in PR #97) |
+
+**Scope caveats — what this run does NOT establish:**
+
+- **Singles, not doubles.** `gen9randombattle` uses one active slot per side, so only `p1a`/`p2a`
+  were exercised. The board models four slots (`p1a`/`p1b`/`p2a`/`p2b`); doubles slot handling has
+  live evidence only from the local pinned-server captures, never from the official server.
+- **Leave, Dismiss and reconnect were not exercised in this run.** The controls were in their
+  correct states, but no leave, room-close or disconnect/reconnect cycle was performed against the
+  official server. Reconnect remains proven only by the fake-port and local-server tests.
+- **Single battle, single session.** No claim about stability over long sessions, multiple rooms in
+  sequence, or unusual formats.
+- **No screenshots are frozen into the repository** for this run; the evidence is this written
+  record plus the three defects it produced (§8 items 8-10), which are themselves verifiable in the
+  code.
+
+**Verdict.** Gate 6 is satisfied in substance: a real battle on the official server was observed
+end to end through the full production path (transport, decoder, reducer, projection, UI) with no
+crash, no stall and no incorrect state. The run also produced three genuine findings that no green
+suite had surfaced, recorded in §8.
+
+---
+
+## 7. What is explicitly NOT claimed
 
 - **No strength, safety, or quality claim about the bot.** There is no bot in this client at all —
   M1 is a spectator that renders another party's battle. Nothing here should be read as commentary
@@ -278,7 +318,7 @@ found by human review rather than a deliberate fail-check pass this time.
 
 ---
 
-## 7. Open follow-ups
+## 8. Open follow-ups
 
 Each item below was checked against the current tree; none is invented.
 
@@ -363,3 +403,27 @@ Each item below was checked against the current tree; none is invented.
    different levels of composition, were each found only by a human running the app or reading the
    scene file — never once by the automated suite, which was geometry-blind at every composition
    boundary it didn't happen to probe directly.
+
+8. **The battle log is unreadable in real traffic, because diagnostics share it.** Observed during
+   the live gate (§6): roughly four in five log lines read `[not applied: unhandled_type]`, because
+   every decoded-but-not-reduced event type (`move`, `init`, `title`, and others) is reported
+   through `LiveBattleProjection.event_not_applied` and rendered inline in the battle log. The
+   mechanism is correct and was deliberately added so nothing is silently dropped (M1c/M1d review),
+   but routing it into the same panel as the battle history was a design call made during the M1d
+   review round, not a specification requirement, and real traffic shows it drowns the history it
+   sits next to. Candidate resolutions: a separate diagnostics view, or a filter on the log panel.
+   This is a UX decision, not a defect fix, and belongs with the three decisions pinned for the M2
+   round in `docs/research/2026-07-showdown-client-user-research.md` §8.3.1 (it is a concrete
+   instance of that document's own "log and chat/diagnostics are different tools" finding).
+
+9. **`move` is not modelled, and it shows.** Every turn's actual move passes through as
+   `[not applied: unhandled_type] move`. That is exactly M1's declared bounded vocabulary and not a
+   defect — but for a spectator client "which attack was used" is half the information on screen,
+   so promoting `move` from unhandled to a decoded, rendered event is the strongest single
+   candidate for early M2 work.
+
+10. **Small live-gate observations, unfixed.** The room field truncates a pasted battle URL
+    (`wn.com/battle-...` visible rather than the full string); the `Connected` label sits awkwardly
+    beside the input rather than in the status area; and a slot at `0/100` shows no fainted marker
+    even though the reducer tracks `hp_fainted`. None blocks operation; all three are layout/
+    presentation items for the deferred design work.
