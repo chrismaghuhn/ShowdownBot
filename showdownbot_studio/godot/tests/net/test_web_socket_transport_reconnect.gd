@@ -129,6 +129,39 @@ func test_peer_opening_after_backoff_reaches_connected() -> void:
 	assert_int(_transport.get_connection_epoch()).is_equal(2)
 
 
+## Owner finding 1 (M1 hardening, 2026-07-26): after EXHAUSTED, _reconnect_attempt stayed at the
+## schedule length forever. A manual connect_to_server() call transitions EXHAUSTED -> CONNECTING
+## (allowed by ConnectionStateMachine.request_connect()), but without resetting the retry budget,
+## a subsequent synchronous failure jumped straight back to EXHAUSTED instead of walking the full
+## backoff schedule again -- silently skipping every retry the user should get after asking to
+## reconnect by hand.
+func test_manual_reconnect_after_exhausted_resets_retry_budget() -> void:
+	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
+	_fake.connect_result = ERR_CANT_CONNECT
+	_fake.ready_state = SocketPeerPort.ReadyState.CLOSED
+	_transport._process(0.016)  # attempt 1 fails -> RECONNECTING
+	for backoff_s in WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S:
+		_transport._process(backoff_s + 0.1)
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
+	# Manual reconnect after EXHAUSTED. The peer factory still returns the same fake, still
+	# configured to fail synchronously -- this reproduces "the next failure after a manual
+	# reconnect", not a lucky success.
+	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
+	# BUGGY behavior: this lands directly on EXHAUSTED (retry budget never reset). Correct
+	# behavior: the first failure after a manual reconnect walks the backoff schedule again,
+	# landing on RECONNECTING with backoff[0] freshly scheduled.
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.RECONNECTING)
+	var urls_before := _fake.connect_urls.size()
+	_transport._process(WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S[0] + 0.1)
+	assert_int(_fake.connect_urls.size()).is_equal(urls_before + 1)
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.RECONNECTING)
+	# And the full schedule must be walkable again, reaching EXHAUSTED only after all 5 backoffs.
+	for backoff_s in WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S.slice(1):
+		assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.RECONNECTING)
+		_transport._process(backoff_s + 0.1)
+	assert_int(_transport.get_state()).is_equal(ConnectionStateMachine.State.EXHAUSTED)
+
+
 func test_immediate_connect_failure_schedules_the_next_backoff_without_a_busy_loop() -> void:
 	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
 	_fake.ready_state = SocketPeerPort.ReadyState.CLOSED

@@ -55,6 +55,14 @@ func connect_to_server(url: String) -> void:
 	_url = url
 	_connection_epoch += 1
 	_connecting_elapsed_s = 0.0
+	# Owner finding 1 (M1 hardening): request_connect() succeeds from DISCONNECTED or EXHAUSTED
+	# only, so there is never an in-flight reconnect attempt to clobber here. Reset the retry
+	# budget on every manual connect so a manual reconnect after EXHAUSTED walks the full backoff
+	# schedule again on its own subsequent failures, instead of inheriting the exhausted counter
+	# and jumping straight back to EXHAUSTED.
+	_reconnect_attempt = 0
+	_reconnect_attempt_in_flight = false
+	_reconnect_timer_s = 0.0
 	_open_socket()
 
 
