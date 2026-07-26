@@ -244,4 +244,20 @@ func _on_event_decoded(event: ProtocolEventDTO) -> void:
 		elif _room_state_machine.get_state() == RoomStateMachine.State.ACTIVE:
 			_room_state_machine.server_closed_room()
 		return
+	# Owner review, 2026-07-26, fourth pass, P1: everything above this point is a lifecycle frame
+	# (error/noinit/init/deinit) with its own branch and its own `return`; only a NON-lifecycle,
+	# already room-scope-matched event ever reaches here. Fail closed (AGENTS.md rule 10) for
+	# exactly the "not yet confirmed" window: NOT_JOINED (defensive -- should not normally have a
+	# matching room id at all) and JOINING (this room's own battle init has not landed yet). A
+	# same-room-id event arriving in either state (e.g. a resent |win| racing ahead of the room's
+	# own |init|battle|, the owner's exact repro) must never reach the projection's reducer -- it
+	# would corrupt the fresh projection state (wrong battle_completed, wrong room-id attribution)
+	# before that room's own history has even started. Deliberately narrower than "!= ACTIVE": a
+	# battle event arriving while LEAVING (the leave requested but not yet confirmed by the
+	# server) or CLOSED is a different, already-confirmed room and must keep applying normally --
+	# this finding is only about the PRE-confirmation window. Rejected via
+	# LiveBattleProjection.reject_before_room_confirmed(), not silently dropped.
+	if _room_state_machine.get_state() in [RoomStateMachine.State.NOT_JOINED, RoomStateMachine.State.JOINING]:
+		_projection.reject_before_room_confirmed(event)
+		return
 	_projection.apply_event(event)

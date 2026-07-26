@@ -387,6 +387,49 @@ func test_server_closed_room_and_then_dismiss_both_clear_the_battle_board_and_ti
 	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(0)
 
 
+## --- Owner review (2026-07-26, fourth pass), P1: after a reset (leave/dismiss/close), events
+## arriving before the NEW room's own battle init poison it. Owner's exact repro: join room 1,
+## leave, join room 2, feed |win|Alice BEFORE its init -> battle_completed wrongly became true,
+## the timeline gained an entry, and completion was wrongly attributed to the OLD room
+## ("battle-1") because the earlier reset() never cleared _room_id; after |init|battle arrived
+## for room 2, RoomState went ACTIVE but battle_completed STAYED true (poisoned state survived
+## because _has_seen_init had already been driven true by the premature event, so the repeat-init
+## branch never fired its own reset). Two root causes, both fixed here.
+func test_a_premature_event_before_the_new_rooms_init_does_not_poison_it() -> void:
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	_workspace.get_room_entry_panel().press_leave_for_test()
+	_fake.queued_packets = [">battle-1\n|deinit"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
+
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-2")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.JOINING)
+
+	var completions: Array[String] = []
+	_workspace.get_observation_bus_for_test().battle_completed.connect(func(room_id: String): completions.append(room_id))
+
+	# The server (or a racing resend) sends a room-scoped |win| for battle-2 BEFORE battle-2's own
+	# |init|battle| has arrived -- this room's battle is not confirmed yet.
+	_fake.queued_packets = [">battle-2\n|win|Alice"]
+	_workspace.get_transport()._process(0.016)
+
+	assert_int(completions.size()).is_equal(0)  # no completion published at all -- not to any room
+	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(0)
+	assert_bool(_workspace.get_projection_for_test().get_current_snapshot().battle_completed).is_false()
+
+	# Now battle-2's own init arrives.
+	_fake.queued_packets = [">battle-2\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
+	assert_bool(_workspace.get_projection_for_test().get_current_snapshot().battle_completed).is_false()
+	assert_int(completions.size()).is_equal(0)
+
+
 func test_configure_transport_for_test_does_not_rewire_domain_and_ui_a_second_time() -> void:
 	# Watchlist M1d: "configure_transport_for_test() must not reconnect decoder, bus, projection,
 	# or UI signals a second time." before_test() already called configure_transport_for_test()

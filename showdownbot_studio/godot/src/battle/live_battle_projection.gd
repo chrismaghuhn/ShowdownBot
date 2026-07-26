@@ -46,33 +46,50 @@ func set_room_id(room_id: String) -> void:
 	_room_id = room_id
 
 
-## Full reset to the pre-join, empty projection state (owner review of the M1 hardening
-## lifecycle-UI commit, PR #96, second pass, P1 finding 2, 2026-07-26): a fresh empty snapshot
-## and an empty timeline, published through the SAME snapshot_published signal every other state
-## change uses (spec section 4.7's single render path) -- so the board/log panels the bus feeds
-## actually blank, instead of keeping the last-rendered battle visible after the room they were
-## tracking has already ended. Previously, leave/dismiss/room-closure only changed RoomState;
-## nothing ever told this projection (the sole owner of derived battle state, AGENTS.md rule 5)
-## that its room was gone, so the stale board/timeline stayed on screen under a status that
-## already said "Not watching"/"Room closed" -- violating the RoomState table's "UI resets to
-## pre-join state" contract for LEAVING -> NOT_JOINED and CLOSED -> NOT_JOINED.
+## Owner review, 2026-07-26, fourth pass, P1: the previous reset() cleared snapshot/timeline but
+## deliberately preserved _room_id, needed by the repeat-init/reconnect path below. That same
+## choice was WRONG for reset()'s OTHER caller, LiveClientWorkspace's room-ending triggers (leave
+## confirmed / server closed / dismissed): after those, _room_id must NOT survive into the next
+## room's lifecycle, or a battle_completed wrongly emitted for a not-yet-confirmed NEW room
+## misattributes to the OLD room's id (owner repro: join battle-1, leave, join battle-2, a
+## premature |win| before battle-2's own init emitted battle_completed("battle-1")).
 ##
-## Reuses the EXACT clearing shape apply_event() already performs internally below for a repeat
-## battle `init` (M1e's reconnect-resend reset) -- extracted here as the one implementation,
-## called from both trigger points (a repeat init, and this public entry point), never two
-## divergent copies of "what resetting means."
-##
-## Deliberately does NOT touch _room_id: LiveClientWorkspace._on_event_decoded() always calls
-## set_room_id(event.room_id) BEFORE apply_event() for a confirmed init, so clearing it here
-## would wipe a value the caller had just set moments earlier and break battle_completed's
-## room-id attribution the next time a repeat init runs through this same reset. _room_id
-## answers "which room am I attributing completion to," not "is there live battle data to show
-## right now" -- the two are intentionally decoupled.
+## Split into a shared PRIVATE clear (_clear_battle_state(), the exact shape BOTH callers need:
+## fresh empty snapshot, empty timeline, _has_seen_init reset, published through
+## snapshot_published so the board/log panels the bus feeds actually blank -- spec section 4.7's
+## single render path, no second path) plus per-caller room-id handling: this PUBLIC reset()
+## (room ended) also clears _room_id; apply_event()'s repeat-init branch below calls only the
+## shared private clear, keeping whatever room id LiveClientWorkspace already set via
+## set_room_id() moments earlier -- that path legitimately needs it (a reconnect rejoins the SAME
+## room), and clearing it there would wipe a value the caller had just set.
 func reset() -> void:
+	_clear_battle_state()
+	_room_id = ""
+
+
+func _clear_battle_state() -> void:
 	_current = LiveBattleSnapshot.new()
 	_timeline = []
 	_has_seen_init = false
 	snapshot_published.emit(_current)
+
+
+## Fail-closed guard for a genuinely different defect class (owner review, 2026-07-26, fourth
+## pass, P1): an event whose room_id matches the currently joined room can still arrive BEFORE
+## that room's own battle init is confirmed (RoomState reaches ACTIVE) -- e.g. a resent |win| line
+## racing ahead of the |init|battle| line for a just-(re)joined room. LiveClientWorkspace (the one
+## place that holds RoomStateMachine) is the correct, and only, place to decide THIS is true --
+## protocol/'s room-lifecycle state and battle/'s derived state stay strictly separated (AGENTS.md
+## rule 6); this method is where that decision becomes visible. Reuses the EXACT event_not_applied
+## diagnostic signal apply_event() already fires for "unhandled_type"/"inconsistent_state" (a
+## THIRD reason literal, "room_not_confirmed", same discipline) -- but deliberately does NOT
+## append to _timeline the way apply_event()'s own not-applied cases do: unlike those, this event
+## is not even part of the room's real history yet (its own room hasn't started), so it must not
+## seed a timeline that the genuine, ordered, confirmed stream will build from scratch once the
+## real init arrives. Never a silent drop: a real signal fires, observable the same way the other
+## two reasons already are.
+func reject_before_room_confirmed(event: ProtocolEventDTO) -> void:
+	event_not_applied.emit(event, "room_not_confirmed")
 
 
 func apply_event(event: ProtocolEventDTO) -> void:
@@ -87,7 +104,7 @@ func apply_event(event: ProtocolEventDTO) -> void:
 	# regardless of condition_label, so it always falls through to that same path anyway.
 	if event.event_type == "init" and event.condition_label == "battle":
 		if _has_seen_init:
-			reset()
+			_clear_battle_state()
 		_has_seen_init = true
 	_timeline.append(event)
 	if not LiveBattleReducer.is_handled_event_type(event.event_type):
