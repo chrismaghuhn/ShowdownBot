@@ -148,5 +148,13 @@ func _on_connection_state_changed(_old_state: ConnectionStateMachine.State, new_
 	if new_state == ConnectionStateMachine.State.RECONNECTING and _state == State.ACTIVE:
 		connection_reconnecting()
 		return
+	# Deliberate (quality review, 2026-07-26, pinned by
+	# test_interrupted_first_join_is_retried_after_reconnect): this guard is "_state == JOINING",
+	# not "_state == JOINING because connection_reconnecting() just put it there" -- so it also
+	# fires for a FIRST request_join() that a drop-and-reconnect interrupts before the server ever
+	# confirmed it. That is intentional: the user already expressed an intent to join this room,
+	# and a connection drop landing before the server's own answer arrived is not a reason to
+	# discard that intent -- retrying it the same way an ACTIVE-room rejoin is retried is the
+	# correct behavior, not an accidental side effect of the state check being too broad.
 	if new_state == ConnectionStateMachine.State.CONNECTED and _state == State.JOINING and not _room_id.is_empty():
 		automatic_rejoin_requested.emit(_room_id)

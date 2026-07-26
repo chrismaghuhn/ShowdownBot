@@ -45,10 +45,19 @@ func set_room_id(room_id: String) -> void:
 
 
 func apply_event(event: ProtocolEventDTO) -> void:
-	if event.event_type == "init" and _has_seen_init:
-		_current = LiveBattleSnapshot.new()
-		_timeline = []
-	if event.event_type == "init":
+	# Quality-review fix (2026-07-26): gated on condition_label == "battle" INTERNALLY, never
+	# trusting a caller to have already filtered out a non-battle (e.g. "chat") init before
+	# calling apply_event() -- workspace/'s own _on_event_decoded() already does that filtering,
+	# but AGENTS.md rule 10 (fail closed by default) means this class must not fail OPEN if some
+	# other or future caller forwards a chat init anyway. A non-battle init is a complete no-op
+	# for the reset path (never resets, never arms/disarms _has_seen_init) and simply flows into
+	# the normal not-applied/ignored handling below, exactly like any other event_type this
+	# reducer has no arm for -- "init" is never in LiveBattleReducer's own handled-type list
+	# regardless of condition_label, so it always falls through to that same path anyway.
+	if event.event_type == "init" and event.condition_label == "battle":
+		if _has_seen_init:
+			_current = LiveBattleSnapshot.new()
+			_timeline = []
 		_has_seen_init = true
 	_timeline.append(event)
 	if not LiveBattleReducer.is_handled_event_type(event.event_type):

@@ -68,3 +68,33 @@ func test_room_state_machine_never_calls_send_raw_text_itself() -> void:
 	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
 	_transport._process(WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S[0] + 0.1)
 	assert_int(_fake.sent_texts.size()).is_equal(0)
+
+
+func test_interrupted_first_join_is_retried_after_reconnect() -> void:
+	# Pins a deliberate edge the quality review flagged (2026-07-26, see the guard's own doc
+	# comment in room_state_machine.gd): a FIRST request_join() that is never confirmed
+	# (join_confirmed() is never called here) because a connection drop lands first still ends
+	# up emitting automatic_rejoin_requested once the reconnect succeeds -- the guard only checks
+	# "_state == JOINING", which this interrupted-first-join scenario satisfies just as much as
+	# connection_reconnecting()'s own ACTIVE -> JOINING transition does. This is intentional: the
+	# user's join intent should survive a drop that happens to land before the server's own join
+	# confirmation arrives, so it is retried the same way an ACTIVE-room rejoin is.
+	_transport.connect_to_server("ws://localhost:8000/showdown/websocket")
+	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
+	_transport._process(0.016)
+	_room_state_machine.request_join("battle-1")  # JOINING -- never confirmed
+	assert_int(_room_state_machine.get_state()).is_equal(RoomStateMachine.State.JOINING)
+
+	var emitted_room_ids: Array[String] = []
+	_room_state_machine.automatic_rejoin_requested.connect(func(room_id: String): emitted_room_ids.append(room_id))
+
+	_fake.ready_state = SocketPeerPort.ReadyState.CLOSED
+	_transport._process(0.016)  # transport -> RECONNECTING; RoomState stays JOINING (already was)
+	assert_int(_room_state_machine.get_state()).is_equal(RoomStateMachine.State.JOINING)
+
+	_transport._process(WebSocketTransport.RECONNECT_BACKOFF_SCHEDULE_S[0] + 0.1)  # opens the new peer
+	_fake.ready_state = SocketPeerPort.ReadyState.OPEN
+	_transport._process(0.016)  # observes OPEN -> CONNECTED
+
+	assert_int(emitted_room_ids.size()).is_equal(1)
+	assert_str(emitted_room_ids[0]).is_equal("battle-1")
