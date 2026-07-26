@@ -21,6 +21,12 @@ signal event_not_applied(event: ProtocolEventDTO, reason: String)
 var _current: LiveBattleSnapshot = LiveBattleSnapshot.new()
 var _timeline: Array[ProtocolEventDTO] = []
 var _room_id: String = ""
+## M1e (Task 38): true once this projection has observed its first battle `init`. A SECOND
+## `init` after this is real Showdown's own signal that authoritative history is starting over
+## (a reconnect resend, spec section 6.2) -- apply_event() resets both _current and _timeline
+## completely before folding it and everything that follows, never incrementally. Full reset and
+## refold is the intended model; no content-based protocol-line deduplication is introduced.
+var _has_seen_init: bool = false
 
 
 func get_current_snapshot() -> LiveBattleSnapshot:
@@ -39,6 +45,11 @@ func set_room_id(room_id: String) -> void:
 
 
 func apply_event(event: ProtocolEventDTO) -> void:
+	if event.event_type == "init" and _has_seen_init:
+		_current = LiveBattleSnapshot.new()
+		_timeline = []
+	if event.event_type == "init":
+		_has_seen_init = true
 	_timeline.append(event)
 	if not LiveBattleReducer.is_handled_event_type(event.event_type):
 		event_not_applied.emit(event, "unhandled_type")
