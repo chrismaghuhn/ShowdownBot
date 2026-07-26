@@ -1,17 +1,29 @@
 class_name LiveClientWorkspace
-extends Control
+extends VBoxContainer
 
 ## Connection + Spectator areas (spec section 4.6). Holds no derived battle state itself
 ## (battle/LiveBattleProjection owns that); composes modules and routes already-published values
 ## only. Room join/leave never reaches net/'s transport except through SpectatorRoomGateway.
+##
+## Layout fix (owner review, 2026-07-26, third pass, P1): the root used to be a bare Control with
+## all five children at layout_mode = 1 and no anchors/offsets -- a geometry probe over the real
+## instantiated scene found RoomEntryPanel with a real size (from its own earlier internal
+## container fix) but ConnectionStatusPanel/BattleBoardPanel/LiveBattleLogPanel all reporting
+## 0x0, and ConnectButton overlapping the room panel. The root is now a VBoxContainer (same idiom
+## as RoomEntryPanel's own fix and replay/ReplayWorkspace: a Container-typed root with
+## layout_mode = 2 children), arranged as a spectator layout: a top row (Connect + room entry +
+## connection status) and a split body below it (board and log side by side). Each panel that has
+## no real minimum size of its own (its own root is a plain Control, which never aggregates a
+## child's minimum size the way a Container does) carries an explicit custom_minimum_size here at
+## the instance point, so nothing collapses to zero and the HSplitContainer has sane proportions.
 
 const SHOWDOWN_WEBSOCKET_URL := "wss://sim3.psim.us/showdown/websocket"
 
-@onready var _room_entry_panel: RoomEntryPanel = $RoomEntryPanel
-@onready var _connection_status_panel: ConnectionStatusPanel = $ConnectionStatusPanel
-@onready var _battle_board_panel: BattleBoardPanel = $BattleBoardPanel
-@onready var _live_battle_log_panel: LiveBattleLogPanel = $LiveBattleLogPanel
-@onready var _connect_button: Button = $ConnectButton
+@onready var _room_entry_panel: RoomEntryPanel = $TopRow/RoomEntryPanel
+@onready var _connection_status_panel: ConnectionStatusPanel = $TopRow/ConnectionStatusPanel
+@onready var _battle_board_panel: BattleBoardPanel = $BodySplit/BattleBoardPanel
+@onready var _live_battle_log_panel: LiveBattleLogPanel = $BodySplit/LiveBattleLogPanel
+@onready var _connect_button: Button = $TopRow/ConnectButton
 
 var _transport: WebSocketTransport
 var _decoder := ProtocolDecoder.new()

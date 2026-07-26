@@ -6,24 +6,37 @@
 [ext_resource type="PackedScene" path="res://src/ui/panels/battle_board_panel.tscn" id="4_board"]
 [ext_resource type="PackedScene" path="res://src/ui/panels/live_battle_log_panel.tscn" id="5_log"]
 
-[node name="LiveClientWorkspace" type="Control"]
+[node name="LiveClientWorkspace" type="VBoxContainer"]
 layout_mode = 3
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("1_workspace")
 
-[node name="RoomEntryPanel" parent="." instance=ExtResource("2_entry")]
-layout_mode = 1
+[node name="TopRow" type="HBoxContainer" parent="."]
+layout_mode = 2
 
-[node name="ConnectionStatusPanel" parent="." instance=ExtResource("3_status")]
-layout_mode = 1
-
-[node name="BattleBoardPanel" parent="." instance=ExtResource("4_board")]
-layout_mode = 1
-
-[node name="LiveBattleLogPanel" parent="." instance=ExtResource("5_log")]
-layout_mode = 1
-
-[node name="ConnectButton" type="Button" parent="."]
-layout_mode = 1
+[node name="ConnectButton" type="Button" parent="TopRow"]
+layout_mode = 2
 text = "Connect"
+
+[node name="RoomEntryPanel" parent="TopRow" instance=ExtResource("2_entry")]
+layout_mode = 2
+
+[node name="ConnectionStatusPanel" parent="TopRow" instance=ExtResource("3_status")]
+layout_mode = 2
+custom_minimum_size = Vector2(160, 24)
+size_flags_horizontal = 3
+
+[node name="BodySplit" type="HSplitContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BattleBoardPanel" parent="BodySplit" instance=ExtResource("4_board")]
+layout_mode = 2
+custom_minimum_size = Vector2(400, 300)
+size_flags_horizontal = 3
+
+[node name="LiveBattleLogPanel" parent="BodySplit" instance=ExtResource("5_log")]
+layout_mode = 2
+custom_minimum_size = Vector2(300, 300)
+size_flags_horizontal = 3

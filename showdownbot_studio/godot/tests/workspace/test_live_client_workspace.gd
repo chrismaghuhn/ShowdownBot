@@ -22,6 +22,31 @@ func _connect_and_open() -> void:
 	_workspace.get_transport()._process(0.016)
 
 
+## --- Owner review (2026-07-26, third pass), P1: live_client_workspace.tscn's root was a bare
+## Control with all five children at layout_mode = 1 and no anchors/offsets -- owner's Godot
+## geometry probe found RoomEntryPanel 248x121 (its own internal container fix already gave it a
+## real size), ConnectionStatusPanel/BattleBoardPanel/LiveBattleLogPanel all 0x0 (a plain Control
+## root never aggregates its child's minimum size -- only Container types do), and ConnectButton
+## overlapping the room panel. This is a geometry probe over the REAL instantiated workspace
+## scene -- the panels' own isolated tests could never catch a one-level-up composition defect.
+func test_every_panel_has_a_real_nonzero_size_and_none_overlap() -> void:
+	await await_idle_frame()
+	await await_idle_frame()
+	var rects: Array[Rect2] = [
+		_workspace.get_room_entry_panel().get_global_rect(),
+		_workspace.get_connection_status_panel().get_global_rect(),
+		_workspace.get_battle_board_panel().get_global_rect(),
+		_workspace.get_live_battle_log_panel().get_global_rect(),
+		_workspace.get_connect_button_for_test().get_global_rect(),
+	]
+	for r in rects:
+		assert_float(r.size.x).is_greater(0.0)
+		assert_float(r.size.y).is_greater(0.0)
+	for i in range(rects.size()):
+		for j in range(i + 1, rects.size()):
+			assert_bool(rects[i].intersects(rects[j])).is_false()
+
+
 func test_watch_sends_the_join_command_through_the_gateway_not_directly() -> void:
 	_connect_and_open()
 	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
