@@ -51,14 +51,6 @@ func test_reconnect_succeeding_emits_automatic_rejoin_requested_for_the_same_roo
 ## run only the SINGLE _process() call that opens the reconnect peer via backoff -- but
 ## WebSocketTransport._process() returns immediately after _open_socket() on that call (Task 7's
 ## attempt-in-flight fix), without polling in the same frame. The transport therefore never
-## actually reached CONNECTED in this test; "no automatic rejoin" was trivially true for the wrong
-## reason (the success path was never driven at all), not because no room was ever joined. Drives
-## the required SECOND poll (matching every other test in this file's own documented two-call
-## pattern) and asserts CONNECTED was actually reached before asserting on rejoin.
-## Owner finding 7a (M1 hardening, 2026-07-26): this test used to set ready_state = OPEN and then
-## run only the SINGLE _process() call that opens the reconnect peer via backoff -- but
-## WebSocketTransport._process() returns immediately after _open_socket() on that call (Task 7's
-## attempt-in-flight fix), without polling in the same frame. The transport therefore never
 ## actually reached CONNECTED here; "no automatic rejoin" was trivially true for the wrong reason
 ## (the success path was never driven at all), not because no room was ever joined. Confirmed by
 ## a red run: asserting CONNECTED right after the single process call failed (state was still
