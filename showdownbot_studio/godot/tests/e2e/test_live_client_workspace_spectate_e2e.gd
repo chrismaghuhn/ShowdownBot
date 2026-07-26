@@ -52,8 +52,26 @@ func _mark_skip(reason: String) -> void:
 				return
 
 
+## Owner finding 8 (M1 hardening, 2026-07-26): the self-skip above means a server that dies
+## mid-lane (or was never started at all by a broken workflow step) still yields a green run --
+## the dedicated studio-live-local-e2e lane is exactly the ONE place that must never tolerate
+## that silently. STUDIO_E2E_REQUIRED=1 is set ONLY by that workflow/orchestration script
+## (run_live_e2e_ci.ps1), never by an ordinary local run or the studio-windows lane -- so this
+## check changes behavior in the one place that actually requires the server, and nowhere else.
+func _server_required_by_ci() -> bool:
+	return OS.get_environment("STUDIO_E2E_REQUIRED") == "1"
+
+
 func test_spectating_a_real_local_battle_observes_real_content_not_just_room_state() -> void:
 	if not await _local_server_is_reachable():
+		if _server_required_by_ci():
+			fail(
+				"STUDIO_E2E_REQUIRED=1 but no local pokemon-showdown server is reachable on %s:%d "
+				% [_LOCAL_SERVER_HOST, _LOCAL_SERVER_PORT]
+				+ "-- the dedicated live e2e lane must FAIL here, not skip green (a server dying "
+				+ "mid-lane, or never starting, must never look like a passing run)"
+			)
+			return
 		_mark_skip(
 			"no local pokemon-showdown server reachable on %s:%d -- run "
 			% [_LOCAL_SERVER_HOST, _LOCAL_SERVER_PORT]

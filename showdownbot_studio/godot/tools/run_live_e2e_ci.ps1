@@ -137,8 +137,21 @@ try {
     Start-Sleep -Seconds $SettleSecondsAfterMarker
 
     Write-Host "Running live-local-e2e gdUnit suite..."
-    & (Join-Path $ToolsDir "run_gdunit_headless.ps1") -a "res://tests/e2e/"
-    $gdUnitExitCode = $LASTEXITCODE
+    # Owner finding 8 (M1 hardening, 2026-07-26): STUDIO_E2E_REQUIRED=1 is set ONLY here, by this
+    # dedicated orchestration script -- it tells
+    # tests/e2e/test_live_client_workspace_spectate_e2e.gd's own self-skip seam that a server MUST
+    # be reachable in this lane, so a server that died mid-lane (or a broken earlier step that
+    # never started it) fails the run instead of silently skipping green. No other caller of
+    # run_gdunit_headless.ps1 sets this, so an ordinary local run or the studio-windows lane keeps
+    # skipping exactly as before.
+    $env:STUDIO_E2E_REQUIRED = "1"
+    try {
+        & (Join-Path $ToolsDir "run_gdunit_headless.ps1") -a "res://tests/e2e/"
+        $gdUnitExitCode = $LASTEXITCODE
+    }
+    finally {
+        Remove-Item Env:\STUDIO_E2E_REQUIRED -ErrorAction SilentlyContinue
+    }
     if ($gdUnitExitCode -ne 0) {
         Write-FailureDiagnostics
         throw "run_gdunit_headless.ps1 failed (exit $gdUnitExitCode)"
