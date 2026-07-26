@@ -41,6 +41,43 @@ func test_unknown_slot_letter_fails_closed_to_null_side_and_slot() -> void:
 	assert_object(e.pokemon_slot).is_null()
 
 
+## Owner-reviewed regression (2026-07-26, post-finding-4): _parse_pokemon_identifier only checked
+## `colon_index < 3`, so an identifier with a VALID two-char-side + one-char-slot PREFIX plus
+## extra trailing characters before the colon (e.g. "p1abc") still parsed side="p1"/slot="a",
+## silently dropping "bc" -- exactly the guessing behavior finding 4 was supposed to eliminate,
+## just one character later. The identifier before the colon must match one of the four known
+## slot identifiers EXACTLY, not merely start with one.
+func test_identifier_with_valid_prefix_plus_extra_characters_fails_closed() -> void:
+	_decoder.decode_frame(">battle-1\n|switch|p1abc: Whoever|Whoever, L50|100/100")
+	var e := _events[0]
+	assert_object(e.pokemon_side).is_null()
+	assert_object(e.pokemon_slot).is_null()
+
+
+func test_second_identifier_with_valid_prefix_plus_extra_characters_also_fails_closed() -> void:
+	_decoder.decode_frame(">battle-1\n|switch|p2ab: Whoever|Whoever, L50|100/100")
+	var e := _events[0]
+	assert_object(e.pokemon_side).is_null()
+	assert_object(e.pokemon_slot).is_null()
+
+
+## All four exact identifiers must still parse correctly -- the exact-match fix must not become
+## an over-correction that breaks the real, valid cases.
+func test_all_four_exact_slot_identifiers_still_parse() -> void:
+	_decoder.decode_frame(
+		">battle-1" +
+		"\n|switch|p1a: A|A, L50|100/100" +
+		"\n|switch|p1b: B|B, L50|100/100" +
+		"\n|switch|p2a: C|C, L50|100/100" +
+		"\n|switch|p2b: D|D, L50|100/100"
+	)
+	assert_int(_events.size()).is_equal(4)
+	var expected := [["p1", "a"], ["p1", "b"], ["p2", "a"], ["p2", "b"]]
+	for i in range(4):
+		assert_str(str(_events[i].pokemon_side)).is_equal(expected[i][0])
+		assert_str(str(_events[i].pokemon_slot)).is_equal(expected[i][1])
+
+
 func test_switch_line_decodes_side_slot_species_and_hp() -> void:
 	_decoder.decode_frame(">battle-1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100")
 	var e := _events[0]

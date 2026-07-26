@@ -132,9 +132,17 @@ const _KNOWN_SIDES: PackedStringArray = ["p1", "p2"]
 const _KNOWN_SLOTS: PackedStringArray = ["a", "b"]
 
 
+## Owner-reviewed regression fix (2026-07-26, post-finding-4): `colon_index < 3` only checked a
+## MINIMUM length, so a longer identifier with a valid two-char-side + one-char-slot PREFIX
+## (e.g. "p1abc: Whoever", colon_index=5) still passed -- side_slot's own substr(0,2)/substr(2,1)
+## silently dropped the trailing "bc" and returned side="p1"/slot="a" as if it were a real,
+## exact "p1a" identifier. That is exactly the guessing behavior finding 4 set out to eliminate,
+## just one character later. `colon_index == 3` (exact length: two side chars + one slot char,
+## no more, no less) closes that gap; combined with the existing side/slot membership checks
+## below, the text before the colon must match one of p1a/p1b/p2a/p2b EXACTLY, never by prefix.
 static func _parse_pokemon_identifier(identifier: String) -> Dictionary:
 	var colon_index := identifier.find(":")
-	if colon_index < 3:
+	if colon_index != 3:
 		return {"side": null, "slot": null}
 	var side_slot := identifier.substr(0, colon_index)
 	var side := side_slot.substr(0, 2)
