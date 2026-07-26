@@ -111,3 +111,10 @@ docs/projects/champions/audits/2026-07-21-task13-source-evidence/** text eol=lf
 # whitespace defect. Same class of exemption as the report.md blank-at-eof rule above;
 # scoped to the plans directory only.
 showdownbot_studio/docs/plans/*.md whitespace=-space-before-tab
+
+# Live Spectator mockup set is pinned by a content hash recorded in its own README.
+# Same rationale as the viewer-v0 mockups and the protocol fixtures above: without an
+# attribute, Windows core.autocrlf rewrites LF blobs to CRLF on checkout and the recorded
+# sha256 can no longer be reproduced. text eol=lf normalises on add as well, so a CRLF
+# working copy can never be committed back in.
+showdownbot_studio/docs/design/live-spectator-mockups/* text eol=lf
