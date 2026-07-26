@@ -390,12 +390,15 @@ because three later passes landed further commits on the same branch before merg
 `net/`, `protocol/`, `battle/`, `workspace/`, `ui/`, tests, and e2e tooling. A follow-up P1, found
 by the owner launching the real app (the workspace tabs were unclickable because `StudioRoot` had
 no layout and the live workspace instance had no anchors), is **MERGED** via PR #97
-(`main @ 53a6f09`). The **manual live gate RAN on 2026-07-26** against the official server on that
-same tip: a live `gen9randombattle` was joined by URL and observed at turn 24 with the board and log
-updating from real traffic, no crash and no incorrect state — caveats (singles not doubles; leave/
-reconnect not exercised live) and the three findings it produced are in the evidence packet §6/§8.
-The milestone gate remains **OPEN** — pending explicit owner sign-off on the milestone as a whole;
-see
+(`main @ 53a6f09`). A **manual live-gate run happened on 2026-07-26** against the official server on
+that same tip and technically succeeded (live `gen9randombattle` joined by URL, board and log
+updating from real traffic at turn 24, no crash, no incorrect state), but it ran **out of the order
+§9 prescribes**: gate 11's rate-limit review is required before the live gate and was written
+afterwards, so gate 6 is recorded as performed-but-not-satisfying pending either a re-run or a
+recorded owner deviation. Caveats (singles not doubles; leave/reconnect not exercised live) and the
+three findings the run produced are in the evidence packet §6/§8. The milestone gate remains
+**OPEN** — pending that gate-6 resolution and explicit owner sign-off on the milestone as a whole,
+which §9 gate 16 requires *before* the evidence packet is merged; see
 `showdownbot_studio/docs/plans/evidence/phase3-m1-milestone-evidence.md` for the full gate-by-gate
 evidence packet. Does not change the Champions decision front; see
 `showdownbot_studio/docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md` and

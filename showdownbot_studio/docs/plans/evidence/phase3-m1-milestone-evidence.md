@@ -8,11 +8,15 @@ in §4 read one case lower than the current tip. Follow-up item 7 in §8 records
 current. §6 records the manual live gate, performed after PR #97 merged.
 
 This document records the evidence state of Phase 3 Milestone M1 (Connect + Spectate) as of
-2026-07-26. **It does not itself close the milestone.** Per `docs/ROADMAP.md`'s own current wording
-and per §9 gate 16 of the design spec, closing M1 requires an owner review-and-approval step this
-document cannot perform on its own behalf, plus a manual live gate (gate 6) that has not been
-attempted. Everything below is either directly verified in this session (commands run, output
-quoted) or explicitly marked unverified/pending with the reason.
+2026-07-26. **It does not itself close the milestone.** Per §9 gate 16 of the design spec, closing
+M1 requires an explicit owner review-and-approval step that this document cannot perform on its own
+behalf, and gate 16 requires that approval **before merge** — so this packet is written to be signed
+off first and merged second, not the reverse. The manual live gate (gate 6) has been performed
+(§6), but out of the order §9 gate 11 prescribes: gate 11's rate-limit review is required *before*
+the live gate is attempted and was not done first. That sequence deviation is stated plainly at
+gate 6, gate 11 and in §6 rather than smoothed over, and is itself an owner decision, not something
+this document resolves. Everything below is either directly verified in this session (commands run,
+output quoted) or explicitly marked unverified/pending with the reason.
 
 ---
 
@@ -55,19 +59,19 @@ point in the phase, not a defect in M1.
 | 3 | "isolated branch or worktree per the project's existing workflow" | **SATISFIED** (for F0/M1) | Each of PR #91–#96 has its own `headRefName` (`feat/studio-m1a-transport` … `feat/studio-m1-hardening`), verified via `gh pr view` |
 | 4 | "protocol contract tests, battle-state tests, reconnect/resync tests (§6.2), and choice-lifecycle/`/choose`-family encoder tests (§7, §7.1) green in the `studio-protocol-contract` CI lane" | **PARTIAL** | Protocol/battle-state/reconnect tests green (§4 below; lane green at current `main` HEAD). §6.2's own required scenario list includes "reconnect during team preview" and "reconnect during a forced switch" — neither exists in `godot/tests/battle/` or `godot/tests/e2e/` (checked directory listing); only "reconnect after the battle has already ended" is covered (M1e + hardening's post-battle reconnect test). Choice-lifecycle/`/choose` encoder tests do not exist — `ProtocolCommandEncoder` only encodes room join/leave (M1b scope); `/choose` is M2d |
 | 5 | "E2E tests green in the `studio-live-local-e2e` CI lane, covering the required reconnect scenarios (§6.2) and the required VGC/doubles fixture cases (§7.1)" | **PARTIAL** | Lane green (§4 below); same §6.2 gap as gate 4 (team-preview/forced-switch reconnect scenarios not covered); §7.1's VGC/doubles fixture cases are entirely M2/M2e scope — no choice UI exists in M1 to test against them |
-| 6 | "one manual live gate battle against the official server, with filed evidence" | **SATISFIED (with scope caveats)** | Performed by the owner on 2026-07-26 against `wss://sim3.psim.us` on `main @ 53a6f09`; observations and caveats recorded in §6 below |
+| 6 | "one manual live gate battle against the official server, with filed evidence" | **PERFORMED, OUT OF SEQUENCE — verdict is the owner's** | The run itself happened and is fully recorded in §6 (owner, 2026-07-26, `wss://sim3.psim.us`, `main @ 53a6f09`). It is **not** marked SATISFIED here, because gate 11 requires the rate-limit review *before* the live gate is attempted and that review did not exist at the time. Two ways to close this, both the owner's call: re-authorize and re-run the live gate now that the review exists (§9 of this packet is written to accept a second run), or record an explicit owner deviation from the gate-11/gate-6 sequence. Until one of those is recorded, this gate is not counted as satisfied |
 | 7 | "credential-handling review (§5.1)... confirming no credential path reaches disk, logs, crash reports, event payloads, or exports" | **PENDING (N/A yet)** | M1 introduces no credential code at all: no `session/` directory exists, no `CredentialProvider`/`LoginHttpTransport` (verified: `find . -iname "session*"` under `showdownbot_studio` returns nothing outside `.uid` noise). The review gate itself is M2a's to satisfy once that code exists — nothing to review yet, which is a different state from "reviewed and clean" |
 | 8 | "chat-trust-boundary review (§5.2)" | **PENDING (N/A yet)** | Chat is M2f scope; no chat rendering path exists in M1 to review |
 | 9 | "`TeamBundleV1` review (§3.4)" | **PENDING (N/A yet)** | Team bundle acquisition is M2b scope; not built |
 | 10 | "`ReplayExportGateway` review (§4.5.1)" | **PENDING (N/A yet)** | Replay export is M3 scope; not built |
-| 11 | "rate-limit behavior review... before the live gate is attempted" | **PENDING — not performed** | No rate-limit review document exists anywhere under `showdownbot_studio/docs/` (checked); required before gate 6, which also has not run |
+| 11 | "rate-limit behavior review... before the live gate is attempted" | **PENDING — performed late** | The review now exists at `docs/security/RATE_LIMIT_REVIEW.md`, but it was written *after* the live gate ran on 2026-07-26, which is the opposite of the order this gate specifies. It therefore cannot retroactively satisfy its own precondition role for that run; it does satisfy the review requirement going forward. Closing this gate cleanly needs either a re-run of gate 6 with the review in place, or a recorded owner deviation — see gate 6 |
 | 12 | "licensing review: client code is self-written... no sprite or other official/community asset is introduced" | **PARTIAL** | Verified directly: every file M1 added under `godot/src/{net,protocol,battle,ui,workspace}/` is original `.gd` source (`git diff --dirstat` shows only `.gd`/`.gd.uid`/`README.md` churn, no binary/asset additions); no dedicated Phase-3 licensing-review artifact exists yet (the repo's `docs/research/2026-07-license-data-audit.md` predates Phase 3 and covers the exporter/bundle track, not this client code) |
 | 13 | "human/bot separation review... `HumanBattleCommandGateway`... is the only path to an outbound battle command" | **PARTIAL** | `HumanBattleCommandGateway` itself does not exist until M2d — nothing to review yet at the level the gate names. What does exist and is green: the `studio-security-invariants` architecture tests (`test_f0_gateway_import_guard.py` et al., part of the 13 architecture passes) enforcing the forbidden-dependency rules those invariants require, and M1's own `SpectatorRoomGateway` sends only join/leave, never a battle choice (verified: `grep -rln "/choose" godot/src/` matches only two comments explicitly noting M1 sends none) |
 | 14 | "accessibility and layout checks proportional to the new UI surface... per `MASTER_SPEC.md` §5" | **PARTIAL** | No formal manual checklist/capture packet exists for M1's UI (unlike Viewer v0's `viewer-v0-f-manual-checklist.md`). What does exist: real geometry-probe tests introduced during hardening caught and fixed two genuine layout defects — `RoomEntryPanel`'s controls all rendering at `(0,0)` (fixed in `32dde42`) and three of the live workspace's five panels rendering at `0x0` (fixed in `6e5edbc`) — see §5 below. Proportional but ad hoc, not a checklist audit |
 | 15 | "maintainer acceptance-question gate... a maintainer can answer all five questions in `AGENTS.md`'s Acceptance questions section unambiguously" | **PENDING** | No artifact recording this Q&A exists for M1 specifically; not attempted in this session |
 | 16 | "explicit owner review and approval before merge, and before any later phase... may be proposed" | **PARTIAL** | Per-PR owner review plainly happened and is the direct source of the 17 hardening findings (§5) — every hardening commit message is dated and attributed to a specific owner review pass. What has **not** happened is an owner sign-off on the **milestone** as a whole (the thing this document is evidence for); `docs/ROADMAP.md`'s own current text still describes the milestone gate as OPEN |
 
-**Summary: 3 SATISFIED (gates 1, 3, 6) / 7 PARTIAL (gates 2, 4, 5, 12, 13, 14, 16) / 6 PENDING (gates 7, 8, 9, 10, 11, 15)**, of 16 gates. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
+**Summary: 2 SATISFIED (gates 1, 3) / 8 PARTIAL (gates 2, 4, 5, 6, 12, 13, 14, 16) / 6 PENDING (gates 7, 8, 9, 10, 11, 15)**, of 16 gates. Gate 6 is PARTIAL rather than SATISFIED on a sequence technicality, not on the quality of the run: the live battle was observed successfully end to end, but its own precondition (gate 11) was not met first. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
 
 ---
 
@@ -255,7 +259,19 @@ found by human review rather than a deliberate fail-check pass this time.
 
 ---
 
-## 6. Manual live gate (gate 6) — performed 2026-07-26
+## 6. Manual live gate (gate 6) — performed 2026-07-26, out of sequence
+
+**Sequence problem, stated first because it governs how this section may be cited.** §9 gate 11
+requires the rate-limit review to happen *before* the live gate is attempted, precisely so the live
+run cannot trip a limit by surprise. That review did not exist when this run happened; it was
+written afterwards (`docs/security/RATE_LIMIT_REVIEW.md`). The run below is therefore recorded as
+**performed but not gate-satisfying on its own**. Two clean ways to close gate 6, both the owner's
+decision and neither of them something this packet can grant itself:
+
+- **Re-run**, now that the review exists — the observations below would be superseded by the new
+  run's; or
+- **Record an explicit owner deviation** from the gate-11-before-gate-6 sequence, on the strength
+  of the rate-limit review's own findings about what this client can actually emit.
 
 **Run.** The owner launched the built client from `main @ 53a6f09` (the StudioRoot layout fix, which
 was a precondition: before it the workspace tabs were unclickable, see §8 item 7) and connected to
@@ -288,10 +304,13 @@ Watch. Format: `gen9randombattle` (singles). Battle observed at turn 24.
   record plus the three defects it produced (§8 items 8-10), which are themselves verifiable in the
   code.
 
-**Verdict.** Gate 6 is satisfied in substance: a real battle on the official server was observed
-end to end through the full production path (transport, decoder, reducer, projection, UI) with no
-crash, no stall and no incorrect state. The run also produced three genuine findings that no green
-suite had surfaced, recorded in §8.
+**Verdict.** Technically the run succeeded: a real battle on the official server was observed end to
+end through the full production path (transport, decoder, reducer, projection, UI) with no crash, no
+stall and no incorrect state, and it produced three genuine findings no green suite had surfaced
+(§8 items 8-10). Procedurally it does not satisfy gate 6 on its own, for the sequence reason stated
+at the top of this section. The technical result and the gate verdict are deliberately kept apart
+here: a good run out of order is still out of order, and only the owner can decide whether to
+re-run or to record a deviation.
 
 ---
 
@@ -421,6 +440,22 @@ Each item below was checked against the current tree; none is invented.
    defect — but for a spectator client "which attack was used" is half the information on screen,
    so promoting `move` from unhandled to a decoded, rendered event is the strongest single
    candidate for early M2 work.
+
+11. **Reconnect backoff never escalates when the connection flaps — the one way M1 can plausibly
+    trip a real server limit.** Found by the gate-11 rate-limit review
+    (`docs/security/RATE_LIMIT_REVIEW.md`), not by any test.
+    `WebSocketTransport._on_peer_open()` resets the attempt counter to 0 on every successful open,
+    so a connection that opens and immediately drops never advances past the first backoff step:
+    the schedule's escalation and the `EXHAUSTED` terminal state are reachable only from an
+    unbroken run of *failures*. Worst case computed in the review: roughly one fresh connection and
+    one automatic rejoin per second, indefinitely, with no session-wide cap. Measured against the
+    pinned server source, that reaches the 500-connections-per-IP-per-30-minutes ban threshold
+    (`server/monitor.ts:187-206`) after about eight minutes of continuous flapping — reachable by
+    ordinary bad Wi-Fi, with no bug and no malice required. Candidate fix: keep a separate
+    flap counter that does not reset on a short-lived success, or require a connection to stay open
+    for some minimum time before the backoff schedule is considered recovered. This finding is also
+    the reason the gate-11-before-gate-6 ordering is not a formality: the review found a genuine
+    operational risk that the live run itself would not have revealed.
 
 10. **Small live-gate observations, unfixed.** The room field truncates a pasted battle URL
     (`wn.com/battle-...` visible rather than the full string); the `Connected` label sits awkwardly
