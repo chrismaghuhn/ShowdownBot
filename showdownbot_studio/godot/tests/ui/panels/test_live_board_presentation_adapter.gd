@@ -40,3 +40,21 @@ func test_turn_and_side_conditions_carry_over() -> void:
 	var snapshot := LiveBoardPresentationAdapter.build_snapshot(live)
 	assert_int(snapshot.turn).is_equal(3)
 	assert_bool(snapshot.side_conditions["p1"].has("Stealth Rock")).is_true()
+
+
+func _fieldstart_event(condition_label: String) -> ProtocolEventDTO:
+	var event := ProtocolEventDTO.new()
+	event.event_type = "-fieldstart"
+	event.condition_label = condition_label
+	event.seal()
+	return event
+
+
+## Owner finding 5 (M1 hardening, 2026-07-26): terrain now reaches LiveBattleSnapshot via
+## LiveBattleReducer's terrain routing instead of never being set at all -- this proves the
+## adapter's own pre-existing `snapshot.terrain = live.terrain` line (build_snapshot()) actually
+## surfaces a real terrain value end to end, not only that the underlying field exists.
+func test_terrain_carries_over_from_a_real_fieldstart_event() -> void:
+	var live := LiveBattleReducer.apply(LiveBattleSnapshot.new(), _fieldstart_event("Electric Terrain"))
+	var snapshot := LiveBoardPresentationAdapter.build_snapshot(live)
+	assert_str(str(snapshot.terrain)).is_equal("Electric Terrain")

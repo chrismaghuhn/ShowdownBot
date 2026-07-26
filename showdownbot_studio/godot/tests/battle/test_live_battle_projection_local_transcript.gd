@@ -52,6 +52,34 @@ func test_folding_the_real_transcript_twice_yields_equal_by_value_snapshots() ->
 ## This was cross-checked with an independent, from-scratch Python re-implementation of the same
 ## reducer rules run directly against golden_events.jsonl (not against this test's own
 ## expectations) before being pinned here -- it agrees with the values below exactly.
+## Owner finding 5 (M1 hardening, 2026-07-26): golden_events.jsonl lines 11/63 record a real
+## Electric Terrain -fieldstart/-fieldend pair (see local-spectate-01/SOURCES.md provenance).
+## The end-state pin below cannot see this on its own -- the matching -fieldend has already
+## cleared it by the time the transcript finishes folding -- so this test observes every
+## PUBLISHED snapshot along the way via snapshot_published, proving terrain was actually SET to
+## "Electric Terrain" at some point mid-battle, not only that it ends null (which a decoder that
+## never sets terrain at all would also satisfy).
+func test_folding_the_real_transcript_sets_and_clears_terrain_from_the_real_electric_terrain_pair() -> void:
+	var terrain_values: Array = []
+	var decoder := ProtocolDecoder.new()
+	var projection := LiveBattleProjection.new()
+	projection.snapshot_published.connect(func(s: LiveBattleSnapshot): terrain_values.append(s.terrain))
+	decoder.event_decoded.connect(projection.apply_event)
+	var file := FileAccess.open(_TRANSCRIPT_PATH, FileAccess.READ)
+	while not file.eof_reached():
+		var raw_line := file.get_line()
+		if raw_line.is_empty():
+			continue
+		var frame_obj: Dictionary = JSON.parse_string(raw_line)
+		decoder.decode_frame(str(frame_obj["raw_frame"]))
+	file.close()
+	assert_bool(terrain_values.has("Electric Terrain")).is_true()
+	var final_snapshot := projection.get_current_snapshot()
+	assert_object(final_snapshot.terrain).is_null()  # cleared by the real -fieldend
+	# Electric Terrain must never leak into field_conditions -- routed to `terrain` exclusively.
+	assert_bool(Array(final_snapshot.get_field_conditions()).has("Electric Terrain")).is_false()
+
+
 func test_folding_the_real_transcript_pins_the_golden_end_state() -> void:
 	var snapshot := _fold_transcript().get_current_snapshot()
 

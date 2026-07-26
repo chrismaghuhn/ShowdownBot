@@ -67,9 +67,9 @@ static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> Live
 		"-weather":
 			return previous._with_weather(event.condition_label)
 		"-fieldstart":
-			return previous.with_field_condition_added(str(event.condition_label))
+			return _apply_fieldstart(previous, event)
 		"-fieldend":
-			return previous.with_field_condition_removed(str(event.condition_label))
+			return _apply_fieldend(previous, event)
 		"-sidestart":
 			return previous.with_side_condition_added(str(event.side), str(event.condition_label))
 		"-sideend":
@@ -78,6 +78,29 @@ static func apply(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> Live
 			return previous.with_battle_completed()
 		_:
 			return previous
+
+
+## Owner finding 5 (M1 hardening, 2026-07-26): real Showdown terrain names are always "<X>
+## Terrain" (Electric/Grassy/Misty/Psychic Terrain, verified against the real captured golden
+## transcript's own Electric Terrain pair). A terrain-class field event is routed to the
+## dedicated `terrain` field instead of the generic field_conditions array, mirroring how
+## "-weather" already gets its own dedicated field rather than sharing field_conditions.
+static func _is_terrain_condition_label(label: String) -> bool:
+	return label.ends_with("Terrain")
+
+
+static func _apply_fieldstart(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
+	var label := str(event.condition_label)
+	if _is_terrain_condition_label(label):
+		return previous._with_terrain(event.condition_label)
+	return previous.with_field_condition_added(label)
+
+
+static func _apply_fieldend(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
+	var label := str(event.condition_label)
+	if _is_terrain_condition_label(label):
+		return previous._with_terrain(null)
+	return previous.with_field_condition_removed(label)
 
 
 static func _apply_switch(previous: LiveBattleSnapshot, event: ProtocolEventDTO) -> LiveBattleSnapshot:
