@@ -305,3 +305,47 @@ def test_run_schedule_aborts_cleanly_after_one_battle_on_a_non_fresh_server(
     with pytest.raises(SystemExit, match="expected 1 battles, found 2"):
         cli.run_schedule(_args(_sched_path))
     assert battles["n"] == 1
+
+
+# --- seed_log_verified must be DERIVED from the verification, not asserted beside it -----------
+#
+# The flag used to be a literal ``True`` placed after the verification call. That was correct only
+# by POSITION: nothing in the code stopped a later early-return or swallowed exception above it
+# from turning the field into a silent lie -- the same false-clean family that has already cost a
+# ledger slot. ``seed_log_verified_flag`` makes the value come out of what the verification itself
+# returned, so a caller that skipped it has nothing to derive a truthy flag from.
+
+
+def test_the_flag_is_true_only_for_a_complete_record_set():
+    from showdown_bot.eval.seeding import seed_log_verified_flag
+
+    records = [{"battle_index": i} for i in range(3)]
+    assert seed_log_verified_flag(records, 3) is True
+
+
+def test_the_flag_is_false_when_the_verification_returned_nothing():
+    """What a skipped verification leaves behind: no records at all."""
+    from showdown_bot.eval.seeding import seed_log_verified_flag
+
+    assert seed_log_verified_flag(None, 3) is False
+
+
+def test_the_flag_is_false_for_a_bare_truthy_value_standing_in_for_records():
+    """A caller cannot hand it a stand-in claim instead of the verification's own output."""
+    from showdown_bot.eval.seeding import seed_log_verified_flag
+
+    assert seed_log_verified_flag(True, 3) is False
+    assert seed_log_verified_flag("verified", 3) is False
+
+
+def test_the_flag_is_false_for_a_record_set_that_does_not_cover_every_battle():
+    from showdown_bot.eval.seeding import seed_log_verified_flag
+
+    assert seed_log_verified_flag([{"battle_index": 0}], 3) is False
+
+
+def test_the_flag_is_false_when_no_battle_was_played():
+    """Zero records for zero battles is not a proof of anything; the old literal said True."""
+    from showdown_bot.eval.seeding import seed_log_verified_flag
+
+    assert seed_log_verified_flag([], 0) is False

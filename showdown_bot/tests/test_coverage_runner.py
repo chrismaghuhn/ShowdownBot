@@ -1000,3 +1000,14 @@ def test_coverage_aborts_after_one_battle_when_the_server_never_wrote_the_seed_l
     assert battles["n"] == 1
     assert not (tmp_path / "out").exists()
     assert not (tmp_path / "out.staging" / "verdict.json").exists()
+
+
+# ---- seed_log_verified is DERIVED from the verification, not asserted beside it ---------------
+
+def test_coverage_seed_log_verified_is_not_true_when_the_alignment_check_is_mutated_away(
+        tmp_path, monkeypatch):
+    """Same mutation as the I8-D case: a no-op alignment check must not be able to yield a
+    verdict that claims its seeds were proven."""
+    monkeypatch.setattr(cr, "_verify_seed_alignment", lambda *a, **k: None)
+    report = _run(tmp_path, monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], n=8)
+    assert report["seed_log_verified"] is not True

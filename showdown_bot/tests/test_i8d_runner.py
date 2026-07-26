@@ -498,3 +498,29 @@ def test_run_aborts_after_one_battle_when_the_server_never_wrote_the_seed_log(
     assert battles["n"] == 1                       # ONE battle burned, not 24
     assert not (tmp_path / "out").exists()         # no verdict at all -> no seed_log_verified
     assert not (tmp_path / "out.staging" / "verdict.json").exists()
+
+
+# ---- seed_log_verified is DERIVED from the verification, not asserted beside it ---------------
+
+def test_seed_log_verified_is_not_true_when_the_alignment_check_is_mutated_away(
+        tmp_path, monkeypatch):
+    """Mutation: replace the alignment check with a no-op that proves nothing. The verdict must
+    not be able to claim verification anyway -- the flag has to come out of what the check
+    returned. With the old literal ``True`` this test passes a lie."""
+    import showdown_bot.eval.i8d_runner as i8
+
+    monkeypatch.setattr(i8, "_verify_seed_alignment", lambda *a, **k: None)
+
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    assert report["seed_log_verified"] is not True
+
+
+def test_seed_log_verified_is_true_on_a_genuinely_verified_run(tmp_path, monkeypatch):
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    assert report["seed_log_verified"] is True

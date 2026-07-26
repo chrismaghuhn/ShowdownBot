@@ -47,6 +47,7 @@ from showdown_bot.eval.seeding import (
     assert_server_half_is_writing,
     derive_battle_seed,
     preflight_seed_log_path,
+    seed_log_verified_flag,
     verify_seed_log,
 )
 from showdown_bot.eval.strata_guard import detect_stratum, stratum_output_root
@@ -850,7 +851,10 @@ def run_strength_holdout_arm(
         # this manifest value and pass it on to the upstream verifiers, never hardcode "oneshot".
         **provenance,
         "seed_log_relpath": seed_log_relpath, "seed_log_sha256": seed_log_sha256,
-        "seed_log_n_lines": len(seed_records), "seed_log_verified": True,
+        # seed_log_verified is DERIVED from the verification's own output, never asserted beside
+        # it: a skipped or short-circuited check leaves no record set to derive a truthy flag from.
+        "seed_log_n_lines": len(seed_records),
+        "seed_log_verified": seed_log_verified_flag(seed_records, len(rows)),
         "n_rows": len(rows),
     })
     # Publish via the Windows-retry-safe atomic rename: all 180 battles already ran and staged, so a
