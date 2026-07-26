@@ -68,7 +68,11 @@ func apply_event(event: ProtocolEventDTO) -> void:
 	if not LiveBattleReducer.is_event_data_consistent(event):
 		event_not_applied.emit(event, "inconsistent_state")
 		return
+	# Owner finding 6 (M1 hardening, 2026-07-26): battle_completed must fire exactly once, on the
+	# false->true transition -- not level-triggered on every event applied while battle_completed
+	# stays true (a trailing event after win/tie previously re-published completion).
+	var was_completed := _current.battle_completed
 	_current = LiveBattleReducer.apply(_current, event)
 	snapshot_published.emit(_current)
-	if _current.battle_completed:
+	if _current.battle_completed and not was_completed:
 		battle_completed.emit(_room_id)

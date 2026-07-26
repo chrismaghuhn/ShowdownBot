@@ -77,6 +77,27 @@ func test_win_publishes_completion_but_does_not_close_the_room() -> void:
 	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
 
 
+## Owner finding 6 (M1 hardening, 2026-07-26): completion was re-derived manually in
+## _on_event_decoded() (checking get_current_snapshot().battle_completed after every applied
+## event) instead of subscribing once to LiveBattleProjection's own battle_completed signal --
+## level-triggered, so any event after win republished completion. Proves the real wiring: a
+## further event after win publishes exactly one completion total on the bus.
+func test_battle_completed_publishes_exactly_once_even_with_further_events_after_win() -> void:
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	var completions: Array[String] = []
+	_workspace.get_observation_bus_for_test().battle_completed.connect(func(room_id: String): completions.append(room_id))
+	_fake.queued_packets = [">battle-1\n|win|Alice"]
+	_workspace.get_transport()._process(0.016)
+	_fake.queued_packets = [">battle-1\n|-heal|p1a: Pikachu|50/100"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(completions.size()).is_equal(1)
+	assert_str(completions[0]).is_equal("battle-1")
+
+
 func test_deinit_while_active_closes_the_room() -> void:
 	_connect_and_open()
 	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")

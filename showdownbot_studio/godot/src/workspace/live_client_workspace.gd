@@ -72,6 +72,12 @@ func _wire_domain_and_ui() -> void:
 	# which caught a genuine double-publish before the manual calls were removed).
 	_projection.snapshot_published.connect(_bus.publish_battle_state_published)
 	_projection.event_not_applied.connect(_on_event_not_applied)
+	# Owner finding 6 (M1 hardening, 2026-07-26): subscribed exactly once here, replacing the
+	# manual re-derivation that used to follow every _projection.apply_event() call in
+	# _on_event_decoded() (checking get_current_snapshot().battle_completed after every applied
+	# event, which republished on every event once battle_completed was true). LiveBattleProjection
+	# now owns firing this signal exactly once, on the false->true transition.
+	_projection.battle_completed.connect(_bus.publish_battle_completed)
 
 
 func _on_battle_state_published_for_log(_snapshot: LiveBattleSnapshot) -> void:
@@ -187,5 +193,3 @@ func _on_event_decoded(event: ProtocolEventDTO) -> void:
 			_room_state_machine.server_closed_room()
 		return
 	_projection.apply_event(event)
-	if _projection.get_current_snapshot().battle_completed:
-		_bus.publish_battle_completed(event.room_id)

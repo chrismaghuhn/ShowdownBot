@@ -41,6 +41,24 @@ func test_battle_completed_signal_fires_on_win() -> void:
 	assert_str(completed_rooms[0]).is_equal("battle-1")
 
 
+## Owner finding 6 (M1 hardening, 2026-07-26): battle_completed was level-triggered (fires again
+## on every subsequently applied event once _current.battle_completed is true), not edge-triggered
+## on the false->true transition. A trailing event after win/tie (e.g. a late -heal/upkeep-shaped
+## event some real transcripts still carry) must not re-publish completion.
+func test_battle_completed_signal_fires_only_once_even_after_further_events() -> void:
+	var p := LiveBattleProjection.new()
+	var completed_rooms: Array[String] = []
+	p.battle_completed.connect(func(room_id: String): completed_rooms.append(room_id))
+	p.set_room_id("battle-1")
+	p.apply_event(_event({"event_type": "win"}))
+	p.apply_event(_event({
+		"event_type": "-heal", "pokemon_side": "p1", "pokemon_slot": "a", "hp_current": 50,
+	}))
+	p.apply_event(_event({"event_type": "turn", "turn_number": 99}))
+	assert_int(completed_rooms.size()).is_equal(1)
+	assert_str(completed_rooms[0]).is_equal("battle-1")
+
+
 func test_get_timeline_returns_an_independent_copy() -> void:
 	var p := LiveBattleProjection.new()
 	p.apply_event(_event({"event_type": "turn", "turn_number": 1}))
