@@ -377,6 +377,20 @@ CRLF/config-hash impact audit is a separate provenance task and may run in paral
 Studio desktop-client/exporter track may also continue in its own worktree; neither task
 changes the Champions decision front.
 
+### ShowdownBot Studio track (parallel, non-front-track — detail lives under `showdownbot_studio/docs/`)
+
+Phase 0 (desktop client foundation) closed 2026-07-25. **Phase 3 authorized**: client design
+spec APPROVED + F0 architecture foundation MERGED (PR #88); the M1 connect+spectate
+implementation plan approved with a binding implementation-review watchlist MERGED (PR #90);
+sub-slices **M1a–M1e MERGED** (transport/`net/` PR #91, protocol decoder PR #92, derived battle
+state PR #93, spectator UI + local E2E lane PR #94, reconnect-and-rebuild PR #95). An
+owner-itemized **M1 hardening slice is in progress** (9 findings across `net/`, `protocol/`,
+`battle/`, `workspace/`, `ui/`, tests, and e2e tooling; not yet merged). The milestone gate
+remains **OPEN** — pending the hardening merge, milestone evidence, and a separately
+owner-authorized manual live gate. Does not change the Champions decision front; see
+`showdownbot_studio/docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md` and
+`showdownbot_studio/docs/plans/2026-07-25-phase3-m1-connect-spectate.md` for the binding detail.
+
 ### Scalar-aggregation experiments (detail — the status-matrix row summarizes these four)
 
 | Experiment | Dev-strength result | Held-out result | Evidence | Merged to main? |
