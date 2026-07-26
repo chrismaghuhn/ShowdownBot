@@ -21,6 +21,11 @@ var _connection_epoch: int = 0
 var _connecting_elapsed_s: float = 0.0
 var _reconnect_attempt: int = 0
 var _reconnect_timer_s: float = 0.0
+## Elapsed handshake time for the CURRENTLY in-flight reconnect peer only; reset to 0.0 each time
+## a new reconnect attempt opens. Owner finding 2 (M1 hardening): without this, a reconnect peer
+## that never resolves (stays CONNECTING forever) was polled every frame indefinitely -- no
+## timeout, no next backoff, EXHAUSTED unreachable via a hung handshake.
+var _reconnect_connecting_elapsed_s: float = 0.0
 ## True from the moment a reconnect attempt's _open_socket() call returns until that attempt
 ## resolves (peer opens or closes) or a new attempt is scheduled. Without this flag, the
 ## RECONNECTING branch of _process() re-fires every frame once the backoff timer is <= 0.0,
@@ -132,11 +137,13 @@ func _process(delta: float) -> void:
 			_reconnect_timer_s -= delta
 			if _reconnect_timer_s <= 0.0:
 				_reconnect_attempt_in_flight = true
+				_reconnect_connecting_elapsed_s = 0.0
 				_connection_epoch += 1
 				_open_socket()
 			return
 		# An attempt is already in flight for this backoff period: fall through to poll it,
 		# exactly like the CONNECTING branch below -- never open a second peer for it.
+		_reconnect_connecting_elapsed_s += delta
 	elif _state_machine.get_state() == ConnectionStateMachine.State.CONNECTING:
 		_connecting_elapsed_s += delta
 	# _peer is guaranteed non-null whenever state is CONNECTING or RECONNECTING-with-an-attempt-
@@ -153,6 +160,20 @@ func _process(delta: float) -> void:
 			and ready != SocketPeerPort.ReadyState.OPEN \
 			and _connecting_elapsed_s >= CONNECT_TIMEOUT_S:
 		cancel_connect_attempt()
+		return
+	# Owner finding 2 (M1 hardening): apply the same handshake timeout to an in-flight reconnect
+	# attempt. Evaluated from the POST-poll ready state (same ordering fix as the CONNECTING
+	# branch above), and excludes OPEN/CLOSED so a same-frame resolution below still wins. A
+	# timed-out reconnect peer counts as a failed attempt: close it and hand off to the same
+	# _advance_after_failed_attempt() path the CLOSED branch below already uses, so the next
+	# backoff is scheduled (or EXHAUSTED, when the schedule is spent).
+	if _state_machine.get_state() == ConnectionStateMachine.State.RECONNECTING \
+			and ready != SocketPeerPort.ReadyState.OPEN \
+			and ready != SocketPeerPort.ReadyState.CLOSED \
+			and _reconnect_connecting_elapsed_s >= CONNECT_TIMEOUT_S:
+		_peer.close(1000, "reconnect handshake timeout")
+		_peer = null
+		_advance_after_failed_attempt()
 		return
 	if ready == SocketPeerPort.ReadyState.OPEN:
 		_reconnect_attempt_in_flight = false
