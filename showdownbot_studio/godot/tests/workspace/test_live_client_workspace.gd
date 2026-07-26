@@ -361,7 +361,15 @@ func test_leave_confirmed_clears_the_battle_board_and_timeline() -> void:
 	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(0)
 
 
-func test_server_closed_room_and_then_dismiss_both_clear_the_battle_board_and_timeline() -> void:
+func test_server_closed_room_keeps_the_final_battle_view_until_dismissed() -> void:
+	# [P2] Owner review (2026-07-26, fifth pass): docs/architecture/LIVE_STATE_MACHINES.md's
+	# RoomState table gives ACTIVE -> CLOSED only "Room closed" shown -- no "UI resets to
+	# pre-join state" annotation. That annotation appears ONLY on the CLOSED -> NOT_JOINED row
+	# (dismiss) and the LEAVING -> NOT_JOINED row (leave confirmed). An earlier fix over-reached by
+	# also resetting on ACTIVE -> CLOSED, which made the final battle view vanish while "Room
+	# closed" was still displayed -- exactly backwards from a spectator wanting to see how the
+	# battle they just watched ended. The board and timeline must REMAIN visible while CLOSED is
+	# displayed, and clear only once the user actually dismisses.
 	_connect_and_open()
 	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
 	_workspace.get_room_entry_panel().press_watch_for_test()
@@ -372,14 +380,16 @@ func test_server_closed_room_and_then_dismiss_both_clear_the_battle_board_and_ti
 	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("Pikachu")
 	assert_bool(_workspace.get_live_battle_log_panel().get_log_text().is_empty()).is_false()
 
-	# The room closing (deinit while ACTIVE) must clear the stale battle immediately -- there is
-	# nothing left to show once the room is closed, before the user even dismisses it.
+	# The room closing (deinit while ACTIVE) must NOT clear the final battle view -- the table
+	# gives this transition only "Room closed" shown, nothing about resetting the UI.
 	_fake.queued_packets = [">battle-1\n|deinit"]
 	_workspace.get_transport()._process(0.016)
 	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.CLOSED)
-	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("")
-	assert_str(_workspace.get_live_battle_log_panel().get_log_text()).is_equal("")
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("Pikachu")
+	assert_bool(_workspace.get_live_battle_log_panel().get_log_text().is_empty()).is_false()
+	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_greater(0)
 
+	# Only dismiss (CLOSED -> NOT_JOINED) actually resets to pre-join state.
 	_workspace.get_room_entry_panel().press_dismiss_for_test()
 	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
 	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("")

@@ -172,25 +172,27 @@ func _on_connection_state_changed(old_state: ConnectionStateMachine.State, new_s
 	_bus.publish_connection_state_changed(old_state, new_state)
 
 
-## Owner review of PR #96 (M1 hardening lifecycle-UI commit), second pass, P1 finding 2
-## (2026-07-26): three named trigger points where "the room I was displaying just ended" --
-## a confirmed human leave, the server closing the room, and the user dismissing an
-## already-closed room -- per the RoomState table's "UI resets to pre-join state" contract for
-## LEAVING -> NOT_JOINED and CLOSED -> NOT_JOINED, plus the server-close moment itself (ACTIVE ->
-## CLOSED): there is nothing left to show once the room is closed, so the stale battle clears
-## immediately rather than waiting for the user to also dismiss it. LiveBattleProjection.reset()
-## publishes the cleared snapshot through the SAME snapshot_published -> bus -> board/log wiring
-## every other state change already uses (_wire_domain_and_ui(), one-time) -- no second render
-## path is introduced here, only a new trigger for the existing one.
+## Owner review, 2026-07-26, fifth pass, P2: docs/architecture/LIVE_STATE_MACHINES.md's RoomState
+## table gives the "UI resets to pre-join state" annotation ONLY on the LEAVING -> NOT_JOINED row
+## (a confirmed human leave) and the CLOSED -> NOT_JOINED row (the user dismissing an already-
+## closed room) -- verified against the table directly. The ACTIVE -> CLOSED row itself carries
+## only "Room closed" shown, nothing about resetting the UI. An earlier revision of this method
+## also reset on ACTIVE -> CLOSED, reasoning that "there is nothing left to show once the room is
+## closed" -- that over-reached the binding contract: the consequence was that the FINAL battle
+## view (the very thing a spectator wants to see right as a battle ends) vanished the instant
+## "Room closed" appeared, before the user had any chance to look at it. Fixed: only the two
+## table-named triggers reset; the board/timeline now correctly remain visible through CLOSED and
+## clear only on dismiss. LiveBattleProjection.reset() still publishes the cleared snapshot
+## through the SAME snapshot_published -> bus -> board/log wiring every other state change already
+## uses (_wire_domain_and_ui(), one-time) -- no second render path.
 func _on_room_state_changed_for_battle_reset(old_state: RoomStateMachine.State, new_state: RoomStateMachine.State) -> void:
 	var leave_confirmed := (
 		old_state == RoomStateMachine.State.LEAVING and new_state == RoomStateMachine.State.NOT_JOINED
 	)
-	var server_closed := new_state == RoomStateMachine.State.CLOSED
 	var dismissed := (
 		old_state == RoomStateMachine.State.CLOSED and new_state == RoomStateMachine.State.NOT_JOINED
 	)
-	if leave_confirmed or server_closed or dismissed:
+	if leave_confirmed or dismissed:
 		_projection.reset()
 
 
