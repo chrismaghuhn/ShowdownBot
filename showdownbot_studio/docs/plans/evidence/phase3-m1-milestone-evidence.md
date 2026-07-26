@@ -3,8 +3,9 @@
 **Date:** 2026-07-26. **Base:** `main @ b0d2141` (PR #99, the reconnect-flap fix). This packet was
 drafted at `f5d88b0` and two follow-up fixes merged while it was in review: PR #97 (StudioRoot
 composition layout, `53a6f09`) and PR #99 (`b0d2141`). The gate table, slice table and suite runs in
-§1-§4 were captured at `f5d88b0`, so their suite totals read two test cases lower than the current
-tip; nothing else in them changed. §6 (the live gate), §8 items 7 and 11, and gates 6 and 11 are
+§1-§4 were captured at `f5d88b0` (536 gdUnit cases), so their suite totals read three test cases
+lower than the current tip's 539 — PR #97 added one case and PR #99 added two; nothing else in them
+changed. §6 (the live gate), §8 items 7 and 11, and gates 6 and 11 are
 current as of `b0d2141`.
 
 This document records the evidence state of Phase 3 Milestone M1 (Connect + Spectate) as of
@@ -58,7 +59,7 @@ point in the phase, not a defect in M1.
 | 3 | "isolated branch or worktree per the project's existing workflow" | **SATISFIED** (for F0/M1) | Each of PR #91–#96 has its own `headRefName` (`feat/studio-m1a-transport` … `feat/studio-m1-hardening`), verified via `gh pr view` |
 | 4 | "protocol contract tests, battle-state tests, reconnect/resync tests (§6.2), and choice-lifecycle/`/choose`-family encoder tests (§7, §7.1) green in the `studio-protocol-contract` CI lane" | **PARTIAL** | Protocol/battle-state/reconnect tests green (§4 below; lane green at current `main` HEAD). §6.2's own required scenario list includes "reconnect during team preview" and "reconnect during a forced switch" — neither exists in `godot/tests/battle/` or `godot/tests/e2e/` (checked directory listing); only "reconnect after the battle has already ended" is covered (M1e + hardening's post-battle reconnect test). Choice-lifecycle/`/choose` encoder tests do not exist — `ProtocolCommandEncoder` only encodes room join/leave (M1b scope); `/choose` is M2d |
 | 5 | "E2E tests green in the `studio-live-local-e2e` CI lane, covering the required reconnect scenarios (§6.2) and the required VGC/doubles fixture cases (§7.1)" | **PARTIAL** | Lane green (§4 below); same §6.2 gap as gate 4 (team-preview/forced-switch reconnect scenarios not covered); §7.1's VGC/doubles fixture cases are entirely M2/M2e scope — no choice UI exists in M1 to test against them |
-| 6 | "one manual live gate battle against the official server, with filed evidence" | **SATISFIED (bounded by §6's caveats)** | Three live battles on `wss://sim3.psim.us` observed by the owner on 2026-07-26 from `main @ b0d2141`, after gate 11's review and the fix it produced were in place — the order §9 prescribes. Two watched to completion, plus a live room switch with a verified clean reset. Full record and caveats (singles only, reconnect and dismiss not exercised live) in §6 |
+| 6 | "one manual live gate battle against the official server, with filed evidence" | **SATISFIED (bounded by §6's caveats)** | **Two** live battles (§6 rows #2 and #3) on `wss://sim3.psim.us` observed by the owner on 2026-07-26 from `main @ b0d2141`, after gate 11's review and the fix it produced were in place — the order §9 prescribes. Both watched to completion, plus a live room switch with a verified clean reset. §6's row #1 belongs to the superseded pre-review run and does not count toward this gate. Caveats (singles only, reconnect and dismiss not exercised live) in §6 |
 | 7 | "credential-handling review (§5.1)... confirming no credential path reaches disk, logs, crash reports, event payloads, or exports" | **PENDING (N/A yet)** | M1 introduces no credential code at all: no `session/` directory exists, no `CredentialProvider`/`LoginHttpTransport` (verified: `find . -iname "session*"` under `showdownbot_studio` returns nothing outside `.uid` noise). The review gate itself is M2a's to satisfy once that code exists — nothing to review yet, which is a different state from "reviewed and clean" |
 | 8 | "chat-trust-boundary review (§5.2)" | **PENDING (N/A yet)** | Chat is M2f scope; no chat rendering path exists in M1 to review |
 | 9 | "`TeamBundleV1` review (§3.4)" | **PENDING (N/A yet)** | Team bundle acquisition is M2b scope; not built |
@@ -67,10 +68,10 @@ point in the phase, not a defect in M1.
 | 12 | "licensing review: client code is self-written... no sprite or other official/community asset is introduced" | **PARTIAL** | Verified directly: every file M1 added under `godot/src/{net,protocol,battle,ui,workspace}/` is original `.gd` source (`git diff --dirstat` shows only `.gd`/`.gd.uid`/`README.md` churn, no binary/asset additions); no dedicated Phase-3 licensing-review artifact exists yet (the repo's `docs/research/2026-07-license-data-audit.md` predates Phase 3 and covers the exporter/bundle track, not this client code) |
 | 13 | "human/bot separation review... `HumanBattleCommandGateway`... is the only path to an outbound battle command" | **PARTIAL** | `HumanBattleCommandGateway` itself does not exist until M2d — nothing to review yet at the level the gate names. What does exist and is green: the `studio-security-invariants` architecture tests (`test_f0_gateway_import_guard.py` et al., part of the 13 architecture passes) enforcing the forbidden-dependency rules those invariants require, and M1's own `SpectatorRoomGateway` sends only join/leave, never a battle choice (verified: `grep -rln "/choose" godot/src/` matches only two comments explicitly noting M1 sends none) |
 | 14 | "accessibility and layout checks proportional to the new UI surface... per `MASTER_SPEC.md` §5" | **PARTIAL** | No formal manual checklist/capture packet exists for M1's UI (unlike Viewer v0's `viewer-v0-f-manual-checklist.md`). What does exist: real geometry-probe tests introduced during hardening caught and fixed two genuine layout defects — `RoomEntryPanel`'s controls all rendering at `(0,0)` (fixed in `32dde42`) and three of the live workspace's five panels rendering at `0x0` (fixed in `6e5edbc`) — see §5 below. Proportional but ad hoc, not a checklist audit |
-| 15 | "maintainer acceptance-question gate... a maintainer can answer all five questions in `AGENTS.md`'s Acceptance questions section unambiguously" | **PENDING** | No artifact recording this Q&A exists for M1 specifically; not attempted in this session |
+| 15 | "maintainer acceptance-question gate... a maintainer can answer all five questions in `AGENTS.md`'s Acceptance questions section unambiguously" | **PARTIAL** | Answered for every module M1 built, in §9's "Gate 15 answered for M1's surface" table (ownership, mutation rights, outbound-action origin, invalid/stale-data behaviour, what user data can leave). Stays open at whole-phase level because the gate also covers `session/`, the choice gateway and replay export, which M2/M3 have not built |
 | 16 | "explicit owner review and approval before merge, and before any later phase... may be proposed" | **PARTIAL** | Per-PR owner review plainly happened and is the direct source of the 17 hardening findings (§5) — every hardening commit message is dated and attributed to a specific owner review pass. What has **not** happened is an owner sign-off on the **milestone** as a whole (the thing this document is evidence for); `docs/ROADMAP.md`'s own current text still describes the milestone gate as OPEN |
 
-**Summary: 4 SATISFIED (gates 1, 3, 6, 11) / 7 PARTIAL (gates 2, 4, 5, 12, 13, 14, 16) / 5 PENDING (gates 7, 8, 9, 10, 15)**, of 16 gates. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
+**Summary: 4 SATISFIED (gates 1, 3, 6, 11) / 8 PARTIAL (gates 2, 4, 5, 12, 13, 14, 15, 16) / 4 PENDING (gates 7, 8, 9, 10)**, of 16 gates. All four PENDING gates are N/A-until-built rather than attempted-and-failed: the code they would review (credentials, chat, team bundles, replay export) is M2/M3 scope. Read this as "on track for a phase still mid-flight," not as a completion score — several of the PENDING gates (7, 8, 9, 10) are N/A-until-built rather than attempted-and-failed: the code those reviews would examine (credentials, chat, team bundles, replay export) does not exist yet because it is M2/M3 scope.
 
 ---
 
@@ -271,17 +272,21 @@ superseded and is retained only as the origin of follow-ups 8-10. This is what g
 first is for: it changed the code before the gate-satisfying run happened, rather than being
 back-filled around it.
 
-**Runs.** The owner launched the built client (`main @ b0d2141`) and connected to the official
-Showdown server at the hardcoded `wss://sim3.psim.us/showdown/websocket`, then watched three
-different public battles, joining each by pasting its `play.pokemonshowdown.com` URL into the room
-field. The session stayed connected well past the new 30-second stability threshold, so the
-backoff-reset path introduced by PR #99 was exercised in its normal, non-flapping form.
+**Runs.** The gate-satisfying repetition consists of **two battles, #2 and #3 below**, watched on
+`main @ b0d2141` after gate 11's review and the PR #99 fix were both in place. Battle #1 is listed
+for completeness only: it belongs to the **superseded first run** on `main @ 53a6f09`, before the
+review existed, and nothing in this packet's gate verdicts rests on it. In all cases the owner
+launched the built client and connected to the official Showdown server at the hardcoded
+`wss://sim3.psim.us/showdown/websocket`, joining each room by pasting its
+`play.pokemonshowdown.com` URL. The gate-satisfying session stayed connected well past the new
+30-second stability threshold, so PR #99's backoff-reset path was exercised in its normal,
+non-flapping form.
 
-| # | Room | Format | What was observed |
-|---|---|---|---|
-| 1 | `battle-gen9randombattle-2655170840` | gen9 random battle (singles) | Joined mid-battle at turn 24; board showed `Inteleon 32/100`, `Ogerpon-Cornerstone 0/100`; log carried real switches, per-turn markers, `-damage`, `-heal` (this room was watched during the superseded first run and is retained here because its observations still hold) |
-| 2 | `battle-gen9nationaldexag-2655222988` | gen9 National Dex AG (singles) | Watched from turn 10 through to the end; board showed `Deoxys 0/100`, `Maushold 17/100 par` and the `Spikes` side condition; log ended with `battle ended (win)` |
-| 3 | `battle-gen3randombattle-2655222985` | gen3 random battle (singles) | Reached by pressing **Leave** and entering a different battle URL; watched from `init` at turn 1 through to `battle ended (win)` at turn 5 |
+| # | Run | Room | Format | What was observed |
+|---|---|---|---|---|
+| 1 | superseded first run (`53a6f09`, before gate 11) | `battle-gen9randombattle-2655170840` | gen9 random battle (singles) | Joined mid-battle at turn 24; board showed `Inteleon 32/100`, `Ogerpon-Cornerstone 0/100`; log carried real switches, per-turn markers, `-damage`, `-heal`. Retained as the origin of follow-ups 8-10; **not** counted toward gate 6 |
+| 2 | gate-satisfying (`b0d2141`) | `battle-gen9nationaldexag-2655222988` | gen9 National Dex AG (singles) | Watched from turn 10 through to the end; board showed `Deoxys 0/100`, `Maushold 17/100 par` and the `Spikes` side condition; log ended with `battle ended (win)` |
+| 3 | gate-satisfying (`b0d2141`) | `battle-gen3randombattle-2655222985` | gen3 random battle (singles) | Reached by pressing **Leave** and entering a different battle URL; watched from `init` at turn 1 through to `battle ended (win)` at turn 5 |
 
 **Observed and verified from the running client:**
 
@@ -312,11 +317,12 @@ backoff-reset path introduced by PR #99 was exercised in its normal, non-flappin
 - **No screenshots are frozen into the repository**; the evidence is this written record plus the
   findings the runs produced (§8 items 8-10), which are themselves verifiable in the code.
 
-**Verdict.** Gate 6 is **SATISFIED**. Three real battles on the official server were observed end to
-end through the full production path (transport, decoder, reducer, projection, UI) across three
-formats, two of them to completion, including a live room switch with a clean reset — with no crash,
-no stall and no incorrect state, and with gate 11's review and its resulting fix in place
-beforehand, in the order §9 prescribes. The caveats above bound what may be cited from it.
+**Verdict.** Gate 6 is **SATISFIED on battles #2 and #3**. Two real battles on the official server
+were observed end to end through the full production path (transport, decoder, reducer, projection,
+UI), both to completion, across two different generations, including a live room switch with a clean
+reset — with no crash, no stall and no incorrect state, and with gate 11's review and its resulting
+fix in place beforehand, in the order §9 prescribes. Battle #1 is not part of this verdict. The
+caveats above bound what may be cited from it.
 
 ---
 
@@ -337,9 +343,10 @@ beforehand, in the order §9 prescribes. The caveats above bound what may be cit
   `docs/research/2026-07-showdown-client-user-research.md` §8.3.1 (two-step choice review, input
   routing/shortcut layer, panel/layout model) are recorded as **required before the M2 plan is
   written**, not as work already done.
-- **The M1 milestone gate is OPEN.** Per gates 6, 11, 15, and 16 above (manual live gate, rate-limit
-  review, maintainer acceptance-question gate, and milestone-level owner sign-off), M1 is not
-  closed. `docs/ROADMAP.md`'s own current text agrees, though see the stale-docs item in §7 below.
+- **The M1 milestone gate is OPEN.** Gates 6 and 11 are now satisfied (§6 and the rate-limit
+  review), but gate 16 — the milestone-level owner sign-off — is not, and until §9 records a
+  decision M1 is not closed. Gate 15 (the maintainer acceptance-question gate) is answered for M1's
+  own surface in §9 and remains open at whole-phase level.
 
 ---
 
@@ -358,10 +365,10 @@ Each item below was checked against the current tree; none is invented.
    §8.3.1** (two-step choice review; input routing/shortcut layer; panel/layout model) are flagged
    there as binding owner sign-off items for the M2 plan round — not yet decided, per that section's
    own text.
-3. **Gates 6, 7 (deferred, not a gap), 8 (deferred), 9 (deferred), 10 (deferred), 11, 15, and 16**
-   from §2 remain open, as detailed there. Gates 6 and 11 in particular are the ones that block
-   further M2 work from being treated as complete against a "live-verified" bar, though they do not
-   block M2 development from starting once authorized.
+3. **Gates 7, 8, 9, 10 (all deferred-until-built, not gaps), 15 (answered for M1 in §9, open at
+   whole-phase level) and 16 (the milestone sign-off) remain open**, as detailed in §2. Gates 6 and
+   11 are satisfied and are no longer in this list. None of the open gates blocks M2 development
+   from starting once authorized; gate 16 blocks calling M1 closed.
 4. **§6.2's required reconnect scenarios are only one-third covered.** "Reconnect during team
    preview" and "reconnect during a forced switch" have no corresponding test anywhere in
    `godot/tests/battle/` or `godot/tests/e2e/` (checked directly) — both require choice-state
@@ -491,9 +498,30 @@ that:
   reconnect or dismiss;
 - gates 7-10 are N/A-until-built (credentials, chat, team bundles, replay export are M2/M3 scope),
   not attempted-and-failed;
+- gate 15, the maintainer acceptance-question gate, is **answered below for M1's own surface** and
+  otherwise inherited by the phase: it asks about modules M2/M3 have not built yet, so it cannot be
+  closed at whole-phase level from here;
 - gates 2, 4, 5, 12, 13, 14 remain partial for the reasons given, and are inherited by M2 rather
   than waived;
 - the follow-ups in §8 stay open and are not closed by this sign-off.
+
+### Gate 15 answered for M1's surface
+
+`AGENTS.md`'s five acceptance questions, answered for every module M1 actually built. Gate 15 is a
+whole-phase gate and stays open for modules M2/M3 have not created; these answers close it for M1.
+
+| Question | Answer for M1 |
+|---|---|
+| Which module owns this data? | Connection state: `net/WebSocketTransport` (via `ConnectionStateMachine`). Room state: `protocol/RoomStateMachine`. Derived battle state and the timeline: `battle/LiveBattleProjection`, exclusively. Presentation-only text: the `ui/panels/` widget rendering it. `workspace/` owns none of it and composes only |
+| Which module may change it? | Only the owning module above. Battle state is derived: `LiveBattleReducer` is a pure function and `LiveBattleProjection` is its only caller, so nothing outside `battle/` can write a snapshot or a timeline entry — the snapshot value objects expose no setters at all |
+| Where does every outbound server action originate? | `ui/panels/SpectatorRoomGateway`, and nowhere else: it is the only holder of both the encoder and the transport. `RoomStateMachine` may only *request* an automatic rejoin by signal; it never encodes or sends. `ProtocolCommandEncoder` emits join/leave only — there is no `/choose` path in M1 |
+| What happens on invalid or stale data? | Fail closed and stay visible: unknown protocol lines are classified `UNKNOWN_EVENT` and surfaced, never guessed; malformed turn numbers and identities outside `p1a/p1b/p2a/p2b` are rejected rather than coerced; events arriving before a room's battle `init` is confirmed are rejected with reason `room_not_confirmed`; unhandled or inconsistent events are reported through `LiveBattleProjection.event_not_applied` rather than silently dropped |
+| Which user data can leave this process? | Only the room commands the human triggers (`/join`, `/leave`) and their automatic rejoin. M1 has no credentials, no login, no chat sending, no `/choose`, no file writes and no telemetry — nothing else leaves the process |
+
+None of these answers is "somewhere via the event bus" or "the UI decides", which `AGENTS.md` names
+as the failure condition for this gate.
+
+### Decision
 
 **Owner decision:** _pending_
 
