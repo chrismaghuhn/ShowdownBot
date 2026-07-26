@@ -2,6 +2,13 @@ name: studio live local e2e lane
 
 # Spec section 8.2: introduced with M1d. First CI lane in this repository to provision the
 # pinned local pokemon-showdown server. Never touches the official production server.
+#
+# Server start, readiness poll, the background gauntlet seeder, marker parse, the Godot e2e
+# gdUnit run, the truncation check, and cleanup all happen inside ONE step
+# (godot/tools/run_live_e2e_ci.ps1) -- fixed 2026-07-26 after PR #94 CI: windows-latest tears
+# down a step's own job-object process tree at step END, killing the backgrounded node server
+# the moment the earlier "start server" step finished, even though it had already printed its own
+# ready line inside that step. See run_live_e2e_ci.ps1's own header for the full diagnosis.
 
 on:
   push:
@@ -31,45 +38,6 @@ jobs:
           path: ~/.cache/showdownbot/pokemon-showdown
           key: pokemon-showdown-${{ hashFiles('config/eval/provenance.yaml', 'tools/eval/patches/pokemon-showdown-seeded-battle.patch') }}
 
-      - name: Start pinned local pokemon-showdown server (polls for readiness)
-        shell: pwsh
-        run: ./showdownbot_studio/godot/tools/start_local_showdown_server.ps1
-
-      - name: Seed a long-running battle in the background, parse the SHOWDOWN_ROOM_ID= marker
-        shell: pwsh
-        run: |
-          $stdoutPath = Join-Path $env:RUNNER_TEMP "gauntlet_stdout.txt"
-          # --server-url is explicit here (2026-07-26 fix): this CI runner resolves "localhost"
-          # (gauntlet's own default) to IPv6 first, where the pinned local server (IPv4-only)
-          # never answers -- the seeder's hero connection then threw ConnectionRefusedError and
-          # the marker poll below timed out. 127.0.0.1 sidesteps the resolution order entirely,
-          # the same fix already applied on the Godot side (tests/e2e's own _LOCAL_SERVER_URL).
-          $proc = Start-Process -FilePath "python" `
-            -ArgumentList "-m", "showdown_bot.cli", "gauntlet", "--games", "1", "--villain", "max_damage", "--print-room-id", "--move-delay-seconds", "3", "--server-url", "ws://127.0.0.1:8000/showdown/websocket" `
-            -RedirectStandardOutput $stdoutPath -PassThru -NoNewWindow
-          $proc.Id | Out-File -FilePath (Join-Path $env:RUNNER_TEMP "gauntlet.pid") -Encoding ascii
-
-          # Poll the redirected stdout file for the marker line WHILE the process keeps running
-          # (it does not exit after printing it -- Task 33's keep-alive mode) -- never wait for
-          # the process to exit and read its complete output, which would defeat the point.
-          $deadline = (Get-Date).AddSeconds(30)
-          $roomId = $null
-          while ((Get-Date) -lt $deadline) {
-              if (Test-Path $stdoutPath) {
-                  $match = Select-String -Path $stdoutPath -Pattern '^SHOWDOWN_ROOM_ID=(\S+)$' | Select-Object -First 1
-                  if ($match) {
-                      $roomId = $match.Matches[0].Groups[1].Value
-                      break
-                  }
-              }
-              Start-Sleep -Seconds 1
-          }
-          if (-not $roomId) {
-              Write-Host "ERROR: no SHOWDOWN_ROOM_ID= marker found within 30s"
-              exit 2
-          }
-          echo "STUDIO_E2E_ROOM_ID=$roomId" >> $env:GITHUB_ENV
-
       - name: Cache pinned Godot engine
         id: cache-engine
         uses: actions/cache@v4
@@ -95,25 +63,9 @@ jobs:
         shell: pwsh
         run: ./showdownbot_studio/godot/tools/verify_engine_pin.ps1
 
-      - name: Run live-local-e2e gdUnit suite
+      # ONE step, deliberately: server start/readiness, the background seeder, the marker poll,
+      # the Godot e2e gdUnit run, the truncation check, and cleanup of BOTH background processes
+      # all run inside run_live_e2e_ci.ps1's own try/finally -- see that script's header comment.
+      - name: Run the live-local-e2e lane (server + seeder + gdUnit + cleanup, one step)
         shell: pwsh
-        run: ./showdownbot_studio/godot/tools/run_gdunit_headless.ps1 -a "res://tests/e2e/"
-
-      - name: Assert gdUnit results were not truncated
-        shell: pwsh
-        run: ./showdownbot_studio/godot/tools/check_gdunit_truncation.ps1
-
-      - name: Stop the background gauntlet seeder process
-        if: always()
-        shell: pwsh
-        run: |
-          $pidFile = Join-Path $env:RUNNER_TEMP "gauntlet.pid"
-          if (Test-Path $pidFile) {
-              $procId = Get-Content -LiteralPath $pidFile | Select-Object -First 1
-              Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-          }
-
-      - name: Stop pinned local pokemon-showdown server
-        if: always()
-        shell: pwsh
-        run: ./showdownbot_studio/godot/tools/stop_local_showdown_server.ps1
+        run: ./showdownbot_studio/godot/tools/run_live_e2e_ci.ps1

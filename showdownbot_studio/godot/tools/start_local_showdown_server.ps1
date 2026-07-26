@@ -5,7 +5,12 @@
 param(
     [string]$CacheDir = (Join-Path $env:USERPROFILE ".cache/showdownbot/pokemon-showdown"),
     [int]$Port = 8000,
-    [int]$ReadinessTimeoutSeconds = 60
+    [int]$ReadinessTimeoutSeconds = 60,
+    # Optional, additive (2026-07-26): when given, the node server's own stdout/stderr are
+    # redirected to this path (+ ".err") instead of inheriting the caller's console -- lets
+    # run_live_e2e_ci.ps1 print a diagnostic tail on failure. Default "" is the ORIGINAL
+    # behavior, byte-identical for every existing caller that never passes this.
+    [string]$StdoutLogPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -51,8 +56,18 @@ try {
     node build
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    $proc = Start-Process -FilePath "node" -ArgumentList "pokemon-showdown", "start", "$Port", "--no-security" `
-        -WorkingDirectory $CacheDir -PassThru -NoNewWindow
+    $startArgs = @{
+        FilePath = "node"
+        ArgumentList = @("pokemon-showdown", "start", "$Port", "--no-security")
+        WorkingDirectory = $CacheDir
+        PassThru = $true
+        NoNewWindow = $true
+    }
+    if ($StdoutLogPath) {
+        $startArgs["RedirectStandardOutput"] = $StdoutLogPath
+        $startArgs["RedirectStandardError"] = "$StdoutLogPath.err"
+    }
+    $proc = Start-Process @startArgs
     $proc.Id | Out-File -FilePath (Join-Path $PSScriptRoot ".local_showdown_server.pid") -Encoding ascii
 
     # FIXED (2026-07-25 review): poll for readiness instead of assuming the port is open the
