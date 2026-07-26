@@ -42,7 +42,12 @@ Do not duplicate volatile phase status, commit hashes, or measurements in this f
 ## Documentation placement
 
 Store new documentation by subject under `docs/projects/<project>/`: designs and
-contracts in `specs/`, implementation plans in `plans/`, audits in `audits/`, and
-reviews in `reviews/`. Put user-facing material in `docs/guides/<topic>/` and
+contracts in `specs/`, implementation plans in `plans/`, audits in `audits/`,
+reviews in `reviews/`, and decision records in `decisions/`. An audit reports
+findings, a review judges work already done, and a decision record freezes a
+ruling and the reasoning it rested on — written before the thing it authorises
+happens, so a later reader can judge the reasoning against the outcome. First
+instance: `docs/projects/champions/decisions/2026-07-27-gate-b-justified-repeat.md`.
+Put user-facing material in `docs/guides/<topic>/` and
 cross-project architecture in `docs/architecture/`. Do not recreate
 `docs/superpowers/`; see `docs/README.md` and `docs/PATH_MIGRATION.md`.
