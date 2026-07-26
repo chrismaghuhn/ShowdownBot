@@ -3376,3 +3376,48 @@ def test_run_strength_holdout_arm_rejects_a_seed_log_whose_directory_does_not_ex
             date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
         )
     assert len(fake_runner.calls) == 0
+
+
+# --- seed_log_verified is DERIVED from the verification, not asserted beside it ----------------
+
+def test_arm_seed_log_verified_is_not_true_when_the_verification_proves_nothing(
+        tmp_path, monkeypatch):
+    """Mutation: the seed-log verification runs but returns an empty proof. The arm manifest must
+    not be able to claim seed_log_verified anyway -- with a literal True it published a lie that
+    only the combine's own re-verification would have caught."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    fake_runner = _fake_gauntlet_runner_factory(
+        winner="hero", seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+    monkeypatch.setattr(
+        "showdown_bot.eval.strength_holdout_runner.verify_seed_log", lambda *a, **k: [])
+
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+        seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+    with open(out_dir / "arm_manifest.json", "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    assert manifest["seed_log_verified"] is not True
+
+
+def test_arm_seed_log_verified_is_true_on_a_genuinely_verified_run(tmp_path, monkeypatch):
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    fake_runner = _fake_gauntlet_runner_factory(
+        winner="hero", seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+        seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+    with open(out_dir / "arm_manifest.json", "r", encoding="utf-8") as fh:
+        manifest = json.load(fh)
+    assert manifest["seed_log_verified"] is True
+    assert manifest["seed_log_n_lines"] == len(schedule.battle_keys)

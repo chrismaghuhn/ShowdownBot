@@ -142,6 +142,25 @@ def assert_server_half_is_writing(seed_log_path: str, base: str, battles_played:
         ) from exc
 
 
+def seed_log_verified_flag(records, expected_battles: int) -> bool:
+    """The ``seed_log_verified`` value, DERIVED from what the verification actually returned.
+
+    ``verify_seed_log`` returns the parsed Channel-A records and raises otherwise, so a complete
+    record set is the only artifact a successful verification produces. Binding the field to that
+    artifact -- rather than writing a literal ``True`` next to the call -- means a caller who
+    skipped, swallowed or short-circuited the verification has nothing to derive a truthy flag
+    from: ``None``, a stand-in ``True``, and a truncated record set all yield ``False``.
+
+    Zero records for zero battles is likewise not a proof, and is refused: the old literal said
+    ``True`` there too.
+    """
+    if not isinstance(records, (list, tuple)) or isinstance(records, str):
+        return False
+    if not isinstance(expected_battles, int) or isinstance(expected_battles, bool):
+        return False
+    return expected_battles > 0 and len(records) == expected_battles
+
+
 def _seed_log_record_count(seed_log_path: str) -> int:
     """How many non-blank lines the log holds right now; 0 for an absent or unreadable file."""
     try:

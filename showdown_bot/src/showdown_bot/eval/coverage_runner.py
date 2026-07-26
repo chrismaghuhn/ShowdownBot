@@ -184,7 +184,9 @@ def _assert_server_half_after_first_battle(seed_log_path: str, seed_base: str) -
         raise CoverageRunError(f"seed-log verification failed: {exc}") from exc
 
 
-def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
+def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> list:
+    """Returns the verified records so the verdict's ``seed_log_verified`` is DERIVED from this
+    call's own output rather than asserted next to it (``seeding.seed_log_verified_flag``)."""
     from showdown_bot.eval.seeding import SeedLogError, verify_seed_log
     try:
         records = verify_seed_log(seed_log_path, seed_base, battles_played)
@@ -196,6 +198,7 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
                 f"seed-log/schedule misalignment: row seed_index {row.seed_index} != logged "
                 f"battle_index {rec['battle_index']}"
             )
+    return records
 
 
 def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
@@ -207,7 +210,7 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     out_dir and never a verdict."""
     from showdown_bot.client.gauntlet import run_local_gauntlet
     from showdown_bot.eval.result_jsonl import make_battle_id
-    from showdown_bot.eval.seeding import derive_battle_seed
+    from showdown_bot.eval.seeding import derive_battle_seed, seed_log_verified_flag
     from showdown_bot.team.pack import load_packed_team
 
     prov = resolve_coverage_provenance(hero_agent=hero_agent)   # DERIVED, never caller-supplied
@@ -635,7 +638,7 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     # schedule with an unmet floor as INCONCLUSIVE/max_battles rather than FAIL/schedule_exhausted.
     schedule_complete = battles_played >= len(schedule.rows)
 
-    _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
+    seed_records = _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
     validate_live_profile_dataset(staging_profile)   # final dataset validation before publishing
 
     verdict = coverage_verdict(
@@ -652,7 +655,8 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         "hero_team_hash": schedule.rows[0].hero_team_hash if schedule.rows else None,
         "opp_team_hashes": sorted({r.opp_team_hash for r in schedule.rows if r.opp_team_hash is not None}),
         "seed_base": seed_base,
-        "seed_log_verified": True,
+        # DERIVED from the verification's own output, never asserted beside it.
+        "seed_log_verified": seed_log_verified_flag(seed_records, battles_played),
         "battles_played": battles_played,
         "scored_decisions": scored_decisions,
         "max_scored_decisions": COVERAGE_MAX_SCORED_DECISIONS,

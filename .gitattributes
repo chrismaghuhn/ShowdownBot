@@ -106,6 +106,15 @@ showdownbot_studio/godot/tests/fixtures/** text eol=lf
 # index. Independent-source evidence has no weaker a claim to byte-stability than a fixture.
 docs/projects/champions/audits/2026-07-21-task13-source-evidence/** text eol=lf
 
+# The SECOND source-evidence freeze was added without the rule its predecessor got, and that
+# omission is load-bearing: the sealed holdout team .txt files are covered by the
+# `showdown_bot/teams/** -text` rule near the top of this file, so they check out with their blob
+# bytes (LF), while these frozen pastes had no attribute at all and core.autocrlf rewrote them to
+# CRLF. The two sets are the SAME blobs -- git stores one object per identical content -- yet the
+# tests asserting their byte-identity failed on any fresh Windows checkout, i.e. exactly where the
+# evidence needs to be reproducible. Same treatment, same rationale as the block above.
+docs/projects/champions/audits/2026-07-22-task13-vgcpastes-source-evidence/** text eol=lf
+
 # Studio plan documents embed tab-indented GDScript inside space-indented markdown
 # code fences, so "space before tab in indent" is intentional content there, not a
 # whitespace defect. Same class of exemption as the report.md blank-at-eof rule above;

@@ -164,13 +164,16 @@ def _assert_server_half_after_first_battle(seed_log_path: str, seed_base: str) -
         raise I8DRunError(f"seed-log verification failed: {exc}") from exc
 
 
-def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> None:
+def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles_played: int) -> list:
     """Prove the server actually played the approved seeds for the battles that ran (finding 2).
 
     ``verify_seed_log`` requires EXACTLY ``battles_played`` Channel-A records, contiguous
     ``battle_index`` 0..N-1, ``seed_base == seed_base``, and ``seed == derive_battle_seed(...)``;
     a retried/extra battle or a Python↔server derivation mismatch fails it. Then the played rows'
-    ``seed_index`` is cross-checked against the logged ``battle_index``."""
+    ``seed_index`` is cross-checked against the logged ``battle_index``.
+
+    Returns the verified records, so the verdict's ``seed_log_verified`` can be DERIVED from this
+    call's own output instead of asserted next to it (see ``seeding.seed_log_verified_flag``)."""
     from showdown_bot.eval.seeding import SeedLogError, verify_seed_log
 
     try:
@@ -183,6 +186,7 @@ def _verify_seed_alignment(seed_log_path: str, seed_base: str, schedule, battles
                 f"seed-log/schedule misalignment: row seed_index {row.seed_index} != logged "
                 f"battle_index {rec['battle_index']}"
             )
+    return records
 
 
 def resolve_i8d_provenance(*, hero_agent: str = "heuristic", format_id: str = I8D_FORMAT) -> dict:
@@ -275,7 +279,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
     from showdown_bot.client.gauntlet import run_local_gauntlet
     from showdown_bot.eval.i8d_schedule import verify_i8d_schedule
     from showdown_bot.eval.result_jsonl import make_battle_id
-    from showdown_bot.eval.seeding import derive_battle_seed
+    from showdown_bot.eval.seeding import derive_battle_seed, seed_log_verified_flag
     from showdown_bot.learning.provenance import make_candidate_identity
     from showdown_bot.team.pack import load_packed_team
 
@@ -396,7 +400,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
 
     # (finding 2) prove the server played the approved seeds for the battles that ran, BEFORE any
     # verdict is written: a run whose seeds cannot be proven yields no verdict (and no out_dir).
-    _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
+    seed_records = _verify_seed_alignment(seed_log_path, seed_base, schedule, battles_played)
     validate_live_profile_dataset(staging_profile)   # final dataset validation before publishing
 
     verdict = i8d_verdict(active_valid=active_valid, distinct_battles=distinct_battles,
@@ -415,7 +419,9 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         "opp_team_hashes": sorted({r.opp_team_hash for r in schedule.rows
                                    if r.opp_team_hash is not None}),
         "seed_base": seed_base,
-        "seed_log_verified": True,
+        # DERIVED from the verification's own output, never asserted beside it: a skipped or
+        # short-circuited check leaves no record set to derive a truthy flag from.
+        "seed_log_verified": seed_log_verified_flag(seed_records, battles_played),
         "battles_played": battles_played,
         "scored_decisions": scored_decisions,
         "max_scored_decisions": I8D_MAX_SCORED_DECISIONS,
