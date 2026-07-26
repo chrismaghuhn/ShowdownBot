@@ -1,8 +1,11 @@
 # Phase 3 M1 (Connect + Spectate) — milestone gate-evidence packet
 
-**Date:** 2026-07-26. **Base:** `main @ f5d88b0` (verified: `git log -1 --format="%H" main` ==
-`f5d88b0f7ea584d564104a73585bd5162c6d1b56`, which is also PR #96's own `headRefOid` — the hardening
-PR is the current tip of `main`).
+**Date:** 2026-07-26. **Base:** `main @ 53a6f09` (PR #97, the StudioRoot composition-layout fix,
+merged after this packet was first drafted). The gate table, suite runs and slice table below were
+captured at the immediately preceding tip, `main @ f5d88b0` (PR #96, the hardening slice); PR #97
+changed only `studio_root.gd`/`.tscn` and its test, adding one test case, so the suite totals quoted
+in §4 read one case lower than the current tip. Follow-up item 7 in §7 records PR #97 in full and is
+current.
 
 This document records the evidence state of Phase 3 Milestone M1 (Connect + Spectate) as of
 2026-07-26. **It does not itself close the milestone.** Per `docs/ROADMAP.md`'s own current wording
@@ -327,21 +330,30 @@ Each item below was checked against the current tree; none is invented.
    hardening are real and did catch real defects (§5), but they are targeted regression tests for
    specific found bugs, not a systematic capture-and-review pass across the new UI surface at
    multiple resolutions/scales the way Plan E/F's packet was for Viewer v0.
-7. **A third layout defect of the same class, found by the owner running the real app, not yet
-   committed.** `godot/src/workspace/studio_root.tscn` at the current `main` HEAD (`f5d88b0`,
-   verified via `git diff` against the working tree) has `StudioRoot` as a bare `Control` (not a
-   `Container`) with `NavBar` at `layout_mode = 1` and no anchors, sitting beside `WorkspaceRouter`
-   at `anchors_preset = 15` (full rect) — the router visually covers the whole window including the
-   nav bar. Worse, the committed `LiveClientWorkspace` instance node inside the router carries only
-   `layout_mode = 1` and **no anchor properties at all** (confirmed by reading the committed file:
-   its node block ends after `layout_mode = 1` with nothing following, unlike
-   `OfflineViewerWorkspace`'s sibling node, which has the full `anchors_preset = 15` block) — so it
-   would render collapsed. A fix already exists as **uncommitted local changes** in this checkout
-   (not yet on `main`): `StudioRoot` becomes a `VBoxContainer` (`NavBar` and `WorkspaceRouter` as
-   `layout_mode = 2` children, `WorkspaceRouter` at `size_flags_vertical = 3`), and both workspace
-   instances inside the router get explicit `anchors_preset = 15`. This is not this document's fix
-   to make or claim — recorded here as an open, owner-found defect against the already-merged M1
-   surface, still pending commit and its own PR/review.
+7. **A third layout defect of the same class, found by the owner running the real app — since
+   fixed and merged.** `godot/src/workspace/studio_root.tscn` had `StudioRoot` as a bare `Control`
+   (not a `Container`) with `NavBar` at `layout_mode = 1` and no anchors, sitting beside
+   `WorkspaceRouter` at `anchors_preset = 15` (full rect) — the router visually covered the whole
+   window including the nav bar, so the workspace tabs could not be clicked. Worse, the
+   `LiveClientWorkspace` instance node inside the router carried only `layout_mode = 1` and **no
+   anchor properties at all**, unlike its `OfflineViewerWorkspace` sibling, so it would have
+   rendered collapsed even if the tab had been reachable.
+   **Status: closed.** Fixed in commit `53a6f09` via PR #97 (merged; `main` advanced
+   `f5d88b0` -> `53a6f09`): `StudioRoot` is now a `VBoxContainer` (`NavBar` and `WorkspaceRouter`
+   as `layout_mode = 2` children, `WorkspaceRouter` at `size_flags_vertical = 3`), and both
+   workspace instances inside the router carry explicit `anchors_preset = 15`. `WorkspaceRouter`
+   deliberately stays a plain `Control` rather than a container, because a container would arrange
+   its children side by side while a page router needs each child able to occupy the whole area on
+   its own turn. The accompanying test probes the **composed** `StudioRoot` scene (nav rect must
+   not intersect the router rect; each workspace fills the router area after switching; nav buttons
+   stay uncovered) and was red on five assertions against the unfixed scene. One further
+   methodological finding from that work, recorded because it invalidates a whole class of test:
+   the headless gdUnit viewport defaults to 64x64, smaller than `NavBar`'s own minimum size, which
+   makes any "fills the area" assertion vacuously true unless the test sets
+   `get_tree().root.size` first (the idiom already existed in `test_app_shell_plan_e.gd`).
+   This item's earlier "uncommitted, pending PR" wording described the state at the moment this
+   packet was drafted; the owner caught the resulting contradiction with the status documents
+   before the packet was merged.
    **The pattern across all three layout defects (§5's `0x0` workspace and `(0,0)` room-entry-panel
    controls, plus this one) is the same and worth stating plainly:** the geometry-probe test for
    `LiveClientWorkspace` instantiates it **standalone** as the scene root and measures its own

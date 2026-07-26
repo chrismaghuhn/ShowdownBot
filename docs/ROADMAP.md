@@ -387,9 +387,11 @@ state PR #93, spectator UI + local E2E lane PR #94, reconnect-and-rebuild PR #95
 owner-itemized **M1 hardening slice is MERGED** (PR #96, `main @ f5d88b0`) — 17 findings closed
 across five owner review passes (not the 9 the PR's own title names; the title undercounts
 because three later passes landed further commits on the same branch before merge) spanning
-`net/`, `protocol/`, `battle/`, `workspace/`, `ui/`, tests, and e2e tooling. The milestone gate
-remains **OPEN** — pending a separately owner-authorized manual live gate and explicit owner
-sign-off on the milestone as a whole; see
+`net/`, `protocol/`, `battle/`, `workspace/`, `ui/`, tests, and e2e tooling. A follow-up P1, found
+by the owner launching the real app (the workspace tabs were unclickable because `StudioRoot` had
+no layout and the live workspace instance had no anchors), is **MERGED** via PR #97
+(`main @ 53a6f09`). The milestone gate remains **OPEN** — pending a separately owner-authorized
+manual live gate and explicit owner sign-off on the milestone as a whole; see
 `showdownbot_studio/docs/plans/evidence/phase3-m1-milestone-evidence.md` for the full gate-by-gate
 evidence packet. Does not change the Champions decision front; see
 `showdownbot_studio/docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md` and
