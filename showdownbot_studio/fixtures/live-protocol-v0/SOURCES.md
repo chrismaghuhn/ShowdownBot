@@ -27,6 +27,34 @@
   enriched golden with no decoder change required.
 - Captured for M1b (`docs/plans/2026-07-25-phase3-m1-connect-spectate.md`) on 2026-07-25.
 
+## `local-noinit-nonexistent-01/transcript.jsonl` + `local-noinit-nonexistent-01/golden_events.jsonl`
+
+- Captured from the same repository-pinned local `pokemon-showdown` checkout
+  (`~/.cache/showdownbot/pokemon-showdown`, commit `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5`,
+  `--no-security`, port 8000) as `local-spectate-01`, started via
+  `godot/tools/start_local_showdown_server.ps1`.
+- A single throwaway, unauthenticated WebSocket connection sent `|/join
+  battle-studio-nonexistent-room-capture` for a room ID that does not exist on the server, and the
+  server's own rejection frame was recorded verbatim. No chat content, no credentials, no named
+  account.
+- `transcript.jsonl`: one frame (`{"sequence": 0, "raw_frame"}`) -- the server's real
+  `tryJoinRoom()` rejection (`server/users.ts` ~1305, verified directly against the pinned
+  checkout's own source): `>battle-studio-nonexistent-room-capture\n|noinit|nonexistent|The room
+  "battle-studio-nonexistent-room-capture" does not exist.` -- never `|error|`, which is what
+  `protocol/protocol_decoder.gd` incorrectly assumed before this fixture was captured (owner
+  finding 3, M1 hardening, 2026-07-26).
+- `golden_events.jsonl`: the single expected `DECODED_STATE_EVENT` (`event_type: "noinit"`,
+  `noinit_subtype: "nonexistent"`, `error_reason` carrying the server's own message verbatim).
+- The sibling `joinfailed` subtype (`server/users.ts` ~1310-1335: invite-only room, tournament
+  join rejection, room ban, groupchat ban) is real and documented in the same pinned server source
+  but was not captured live for this fixture set -- reproducing it requires a trusted/authenticated
+  connection and a pre-existing private room, both out of this finding's scope. Its decode path is
+  covered by a non-transcript unit test
+  (`test_noinit_joinfailed_line_decodes_with_subtype_and_reason`,
+  `godot/tests/protocol/test_protocol_decoder_room_lifecycle.gd`) using the exact wire shape from
+  that source, not a live capture.
+- Captured for the M1 hardening slice (owner finding 3, `docs/plans/2026-07-25-phase3-m1-implementation-watchlist.md`) on 2026-07-26.
+
 ## Bounded-vocabulary note
 
 The real battle naturally produced several genuine, valid Showdown protocol message types beyond

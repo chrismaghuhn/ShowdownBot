@@ -11,6 +11,14 @@ signal event_decoded(event: ProtocolEventDTO)
 signal known_ignored_event(raw_line: String, message_type: String)
 signal line_not_understood(raw_line: String)
 
+## `|noinit|<subtype>|<reason>` subtypes verified against the pinned local server's own source
+## (server/users.ts ~1305-1335, owner finding 3, M1 hardening): "nonexistent" (room does not
+## exist) and "joinfailed" (invite-only/banned/tour-rejected). Any OTHER noinit subtype (e.g.
+## rooms.ts:973's own "rename") is real and valid Showdown protocol but outside this bounded
+## vocabulary -- classified "UNKNOWN" rather than guessed, never silently dropped (AGENTS.md rule
+## 10: fail closed on unknown data, never guess).
+const _KNOWN_NOINIT_SUBTYPES: PackedStringArray = ["nonexistent", "joinfailed"]
+
 ## Real, valid Showdown protocol lines M1's bounded vocabulary deliberately does not model yet.
 ## Each is a candidate for later, deliberate promotion to DECODED_STATE_EVENT -- never silently
 ## dropped, never mistaken for a genuinely unrecognized line.
@@ -65,6 +73,8 @@ func _decode_line(room_id: String, line: String) -> void:
 			_emit(room_id, "title", {})
 		"error":
 			_emit(room_id, "error", {"error_reason": _arg(parts, 2)})
+		"noinit":
+			_emit_noinit(room_id, parts)
 		"deinit":
 			_emit(room_id, "deinit", {})
 		"turn":
@@ -161,6 +171,19 @@ func _emit_side_slot(room_id: String, event_type: String, parts: PackedStringArr
 	var fields := {"pokemon_side": identifier["side"], "pokemon_slot": identifier["slot"]}
 	fields.merge(extra)
 	_emit(room_id, event_type, fields)
+
+
+## Owner finding 3 (M1 hardening): always emits a DECODED_STATE_EVENT for `noinit` -- a pending
+## join must never be left hanging regardless of whether the specific subtype is one of the two
+## known ones, so this never routes through line_not_understood the way a genuinely unknown
+## MESSAGE TYPE does. The subtype value itself is what fails closed (UNKNOWN), not the event.
+func _emit_noinit(room_id: String, parts: PackedStringArray) -> void:
+	var subtype := _arg(parts, 2)
+	var classified_subtype := subtype if subtype in _KNOWN_NOINIT_SUBTYPES else "UNKNOWN"
+	_emit(room_id, "noinit", {
+		"noinit_subtype": classified_subtype,
+		"error_reason": _arg(parts, 3),
+	})
 
 
 func _emit_faint(room_id: String, parts: PackedStringArray) -> void:

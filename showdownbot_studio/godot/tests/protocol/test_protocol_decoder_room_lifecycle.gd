@@ -40,6 +40,54 @@ func test_error_line_decodes_with_reason() -> void:
 	assert_str(str(_events[0].error_reason)).is_equal("[Room not found]")
 
 
+## Owner finding 3 (M1 hardening, 2026-07-26): the pinned local server rejects an unknown/private
+## room join with `|noinit|<subtype>|<reason>`, never `|error|` (verified against the real server,
+## fixtures/live-protocol-v0/local-noinit-nonexistent-01/). Before this fix, `noinit` fell through
+## to the decoder's default case and was reported line_not_understood -- RoomState never learned
+## the join was rejected and silently hung in JOINING forever.
+func test_noinit_nonexistent_line_decodes_with_subtype_and_reason() -> void:
+	_decoder.decode_frame(
+		">battle-studio-nonexistent-room-capture\n" +
+		"|noinit|nonexistent|The room \"battle-studio-nonexistent-room-capture\" does not exist."
+	)
+	assert_int(_unrecognized.size()).is_equal(0)
+	assert_int(_events.size()).is_equal(1)
+	if _events.size() != 1:
+		return  # guard: avoid an out-of-bounds crash on the pre-fix red run below
+	assert_str(_events[0].event_type).is_equal("noinit")
+	assert_str(str(_events[0].noinit_subtype)).is_equal("nonexistent")
+	assert_str(str(_events[0].error_reason)).is_equal(
+		"The room \"battle-studio-nonexistent-room-capture\" does not exist."
+	)
+
+
+## Real, valid subtype (server/users.ts ~1310-1335: invite-only room, tour-join failure, room ban,
+## groupchat ban all use joinfailed) -- not captured live (requires a trusted/authenticated setup
+## beyond this finding's scope), but the wire shape is identical and documented in server source.
+func test_noinit_joinfailed_line_decodes_with_subtype_and_reason() -> void:
+	_decoder.decode_frame(">groupchat-x\n|noinit|joinfailed|You are banned from the room \"groupchat-x\".")
+	assert_int(_events.size()).is_equal(1)
+	if _events.size() != 1:
+		return
+	assert_str(_events[0].event_type).is_equal("noinit")
+	assert_str(str(_events[0].noinit_subtype)).is_equal("joinfailed")
+	assert_str(str(_events[0].error_reason)).is_equal("You are banned from the room \"groupchat-x\".")
+
+
+## Fail-closed per finding 3(b): a noinit subtype outside the known {nonexistent, joinfailed} set
+## (e.g. server/rooms.ts:973's own "rename" noinit, unrelated to a join rejection) must never be
+## guessed as one of the known subtypes -- it is still surfaced as a DECODED_STATE_EVENT (so a
+## pending join is never left hanging), but tagged UNKNOWN rather than misclassified.
+func test_noinit_unrecognized_subtype_stays_fail_closed_as_unknown() -> void:
+	_decoder.decode_frame(">some-room\n|noinit|rename|newroomid|New Title")
+	assert_int(_unrecognized.size()).is_equal(0)
+	assert_int(_events.size()).is_equal(1)
+	if _events.size() != 1:
+		return
+	assert_str(_events[0].event_type).is_equal("noinit")
+	assert_str(str(_events[0].noinit_subtype)).is_equal("UNKNOWN")
+
+
 func test_deinit_line_decodes_as_its_own_event_type() -> void:
 	_decoder.decode_frame(">battle-1\n|deinit")
 	assert_str(_events[0].event_type).is_equal("deinit")

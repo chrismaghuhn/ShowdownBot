@@ -23,6 +23,11 @@ var _condition_label: Variant = null
 var _side: Variant = null
 var _turn_number: Variant = null
 var _error_reason: Variant = null
+## `|noinit|<subtype>|<reason>` only (owner finding 3, M1 hardening): "nonexistent" or
+## "joinfailed" (server/users.ts's own two real join-rejection subtypes) verbatim, or the literal
+## string "UNKNOWN" for any other noinit subtype (fail-closed per AGENTS.md rule 10 -- never
+## guessed as one of the known two). Null for every other event type.
+var _noinit_subtype: Variant = null
 
 var protocol_index: int:
 	get: return _protocol_index
@@ -107,6 +112,12 @@ var error_reason: Variant:
 	set(value):
 		if _sealed: return
 		_error_reason = value
+
+var noinit_subtype: Variant:
+	get: return _noinit_subtype
+	set(value):
+		if _sealed: return
+		_noinit_subtype = value
 
 
 func seal() -> void:

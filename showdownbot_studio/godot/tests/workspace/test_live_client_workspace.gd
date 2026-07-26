@@ -117,14 +117,26 @@ func test_confirmed_battle_init_is_forwarded_to_the_projection() -> void:
 	assert_str(_workspace.get_projection_for_test().get_timeline()[0].event_type).is_equal("init")
 
 
-func test_unknown_room_error_rejects_join_and_shows_error_text() -> void:
+## Owner finding 3 (M1 hardening, 2026-07-26): replaces the synthetic `|error|`-based version of
+## this test. The pinned local server actually rejects an unknown room join with
+## `|noinit|nonexistent|...` (verified live, captured raw frame in
+## fixtures/live-protocol-v0/local-noinit-nonexistent-01/, exact text used below) -- `|error|`
+## was never what the real server sends for this case. Before this fix, ProtocolDecoder reported
+## `noinit` as line_not_understood and neither RoomStateMachine nor RoomEntryPanel ever learned
+## the join was rejected, leaving RoomState silently stuck in JOINING forever.
+func test_unknown_room_noinit_rejects_join_and_shows_error_text() -> void:
 	_connect_and_open()
-	_workspace.get_room_entry_panel().set_input_text_for_test("battle-missing")
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-studio-nonexistent-room-capture")
 	_workspace.get_room_entry_panel().press_watch_for_test()
-	_fake.queued_packets = [">battle-missing\n|error|[Room not found]"]
+	_fake.queued_packets = [
+		">battle-studio-nonexistent-room-capture\n" +
+		"|noinit|nonexistent|The room \"battle-studio-nonexistent-room-capture\" does not exist.",
+	]
 	_workspace.get_transport()._process(0.016)
 	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
-	assert_str(_workspace.get_room_entry_panel().get_error_text()).is_equal("[Room not found]")
+	assert_str(_workspace.get_room_entry_panel().get_error_text()).is_equal(
+		"The room \"battle-studio-nonexistent-room-capture\" does not exist."
+	)
 
 
 func test_foreign_room_error_during_joining_leaves_the_join_in_flight() -> void:

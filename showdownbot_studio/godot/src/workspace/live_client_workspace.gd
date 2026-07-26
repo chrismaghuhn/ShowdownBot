@@ -153,7 +153,12 @@ func _on_event_decoded(event: ProtocolEventDTO) -> void:
 	# get_room_id(), set immediately by request_join()).
 	if event.room_id != _room_state_machine.get_room_id():
 		return
-	if event.event_type == "error" and _room_state_machine.get_state() == RoomStateMachine.State.JOINING:
+	# Owner finding 3 (M1 hardening, 2026-07-26): the pinned real server rejects an unknown or
+	# private room join with `noinit`, verified live -- never `error`. Both are handled
+	# identically here (join rejection, surfaced reason); `error` stays handled too since it
+	# remains a real, valid decode for other rejection paths and removing it would be an
+	# unproven, unrequested behavior change.
+	if event.event_type in ["error", "noinit"] and _room_state_machine.get_state() == RoomStateMachine.State.JOINING:
 		_room_state_machine.join_rejected(str(event.error_reason))
 		_room_entry_panel.on_join_rejected(str(event.error_reason))
 		return
