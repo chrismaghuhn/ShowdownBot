@@ -20,6 +20,16 @@ New (M1c):
   `apply_event(event)`, `get_current_snapshot()`, `get_timeline()`. `workspace/`/`ui/panels/`
   never hold or compute derived battle state themselves — they only receive what this class
   publishes.
+- `LiveBattleProjection` reset-on-repeat-`init` (M1e, spec section 6.2): a second `event_type ==
+  "init"` whose `condition_label == "battle"` (i.e. a genuine repeat battle init, not this
+  projection's own first one) discards the current snapshot and the entire timeline and starts
+  folding from scratch — real Showdown's own signal that a reconnect resend of authoritative room
+  history is starting over. Gated internally on `condition_label == "battle"`: a non-battle init
+  (e.g. a room's own `"chat"` init) is a complete no-op for the reset path and falls through to
+  the normal not-applied/ignored handling instead — `apply_event()` never trusts a caller to have
+  already filtered this (`AGENTS.md` rule 10), even though `workspace/`'s own event routing
+  already does. No content-based protocol-line deduplication exists anywhere; full reset and
+  authoritative refolding is the only rebuild model.
 
 ## Dependencies
 
