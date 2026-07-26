@@ -304,6 +304,64 @@ func test_failed_leave_send_surfaces_an_error_and_leaves_the_ui_usable() -> void
 	assert_bool(_workspace.get_room_entry_panel().is_leave_enabled_for_test()).is_true()
 
 
+## --- Owner review of PR #96 (M1 hardening lifecycle-UI commit), second pass, P1 finding 2,
+## 2026-07-26: the deinit path and the dismiss path only changed RoomState -- the old room's
+## board/timeline stayed visible while the status already said "Not watching"/"Room closed".
+## These fill the room with REAL visible battle data first (a discriminating test must prove
+## something was actually there before asserting it is gone), then assert board and timeline are
+## EMPTY immediately after leave/close/dismiss, before any next init.
+
+
+func test_leave_confirmed_clears_the_battle_board_and_timeline() -> void:
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [
+		">battle-1\n|init|battle\n|turn|1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100",
+	]
+	_workspace.get_transport()._process(0.016)
+	# Prove real, non-empty data is actually showing before the leave -- otherwise the emptiness
+	# assertions below would pass vacuously even against the un-fixed code.
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("Pikachu")
+	assert_bool(_workspace.get_live_battle_log_panel().get_log_text().is_empty()).is_false()
+	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_greater(0)
+
+	_workspace.get_room_entry_panel().press_leave_for_test()
+	_fake.queued_packets = [">battle-1\n|deinit"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
+
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("")
+	assert_str(_workspace.get_live_battle_log_panel().get_log_text()).is_equal("")
+	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(0)
+
+
+func test_server_closed_room_and_then_dismiss_both_clear_the_battle_board_and_timeline() -> void:
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [
+		">battle-1\n|init|battle\n|turn|1\n|switch|p1a: Pikachu|Pikachu, L50, M|100/100",
+	]
+	_workspace.get_transport()._process(0.016)
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("Pikachu")
+	assert_bool(_workspace.get_live_battle_log_panel().get_log_text().is_empty()).is_false()
+
+	# The room closing (deinit while ACTIVE) must clear the stale battle immediately -- there is
+	# nothing left to show once the room is closed, before the user even dismisses it.
+	_fake.queued_packets = [">battle-1\n|deinit"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.CLOSED)
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("")
+	assert_str(_workspace.get_live_battle_log_panel().get_log_text()).is_equal("")
+
+	_workspace.get_room_entry_panel().press_dismiss_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
+	assert_str(_workspace.get_battle_board_panel().get_board_view().get_slot_species("p1", "a")).is_equal("")
+	assert_str(_workspace.get_live_battle_log_panel().get_log_text()).is_equal("")
+	assert_int(_workspace.get_projection_for_test().get_timeline().size()).is_equal(0)
+
+
 func test_configure_transport_for_test_does_not_rewire_domain_and_ui_a_second_time() -> void:
 	# Watchlist M1d: "configure_transport_for_test() must not reconnect decoder, bus, projection,
 	# or UI signals a second time." before_test() already called configure_transport_for_test()

@@ -59,6 +59,49 @@ func test_first_init_never_triggers_a_reset() -> void:
 	assert_int(projection.get_timeline().size()).is_equal(2)  # not discarded by its own first init
 
 
+## --- Owner review of PR #96 (M1 hardening lifecycle-UI commit), second pass, P1 finding 2,
+## 2026-07-26: a public reset() the workspace can call when a room ends (leave confirmed, server
+## closed, dismissed) -- reusing the exact clearing shape apply_event() already performs
+## internally for a repeat init (above), not a second, divergent implementation.
+func test_reset_clears_snapshot_and_timeline_and_publishes_the_cleared_state() -> void:
+	var projection := LiveBattleProjection.new()
+	projection.apply_event(_event({"event_type": "init", "condition_label": "battle"}))
+	projection.apply_event(_event({
+		"event_type": "switch", "pokemon_side": "p1", "pokemon_slot": "a",
+		"pokemon_species": "Pikachu", "hp_current": 100, "hp_maximum": 100, "hp_fainted": false,
+	}))
+	# Prove real, non-empty state exists before reset -- otherwise the assertions below would
+	# pass vacuously even against a no-op reset().
+	assert_bool(projection.get_current_snapshot().get_slot("p1", "a").species == null).is_false()
+	assert_int(projection.get_timeline().size()).is_greater(0)
+
+	var published: Array = []
+	projection.snapshot_published.connect(func(s: LiveBattleSnapshot): published.append(s))
+
+	projection.reset()
+
+	assert_int(projection.get_timeline().size()).is_equal(0)
+	assert_bool(projection.get_current_snapshot().get_slot("p1", "a").species == null).is_true()
+	# Published through the SAME snapshot_published signal every other applied event uses (single
+	# render path) -- no second, independent way the board/log panels ever learn the state cleared.
+	assert_int(published.size()).is_equal(1)
+	assert_bool(published[0].equals(projection.get_current_snapshot())).is_true()
+
+
+func test_reset_then_a_fresh_first_init_is_treated_as_a_genuine_first_init_not_a_repeat() -> void:
+	# reset() also clears _has_seen_init: a NEW room's first init must behave exactly like a
+	# truly fresh projection's first init (no spurious extra internal reset immediately
+	# before applying it), not like apply_event()'s "second init" repeat-reset special case.
+	var projection := LiveBattleProjection.new()
+	projection.apply_event(_event({"event_type": "init", "condition_label": "battle"}))
+	projection.apply_event(_event({"event_type": "turn", "turn_number": 1}))
+	projection.reset()
+
+	projection.apply_event(_event({"event_type": "init", "condition_label": "battle"}))
+	projection.apply_event(_event({"event_type": "turn", "turn_number": 1}))
+	assert_int(projection.get_timeline().size()).is_equal(2)  # init + turn, not reset away again
+
+
 ## Quality-review fix (2026-07-26): the reset path must not fail-open by trusting a caller to
 ## have already filtered non-battle inits before calling apply_event() -- workspace/'s own
 ## _on_event_decoded() already does this filtering (it never forwards a "chat" init to the

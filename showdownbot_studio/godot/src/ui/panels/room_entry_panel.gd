@@ -98,19 +98,28 @@ func _on_room_state_changed(old_state: RoomStateMachine.State, new_state: RoomSt
 	_join_button.disabled = new_state != RoomStateMachine.State.NOT_JOINED
 	_leave_button.disabled = new_state != RoomStateMachine.State.ACTIVE
 	_dismiss_button.disabled = new_state != RoomStateMachine.State.CLOSED
-	_status_label.text = _describe_state(new_state)
+	_status_label.text = _describe_state(old_state, new_state)
 	if _is_local_error_transition(old_state, new_state):
 		_error_label.text = UntrustedTextSanitizer.sanitize(_room_state_machine.get_last_error_reason())
 	else:
 		_error_label.text = ""
 
 
-func _describe_state(state: RoomStateMachine.State) -> String:
-	match state:
+## [P2] Owner review of the M1 hardening lifecycle-UI commit (PR #96, second pass, 2026-07-26):
+## exact wording verified against docs/architecture/LIVE_STATE_MACHINES.md's RoomState table --
+## JOINING has TWO different documented texts depending on old_state: "Joining room..." for
+## NOT_JOINED -> JOINING (the first-ever join) and "Rejoining..." for ACTIVE -> JOINING (a
+## reconnect while this room was active, section 6.2). The table's own wording is "Joining
+## room...", not the plain "Joining..." this method previously returned for both cases
+## regardless of old_state.
+func _describe_state(old_state: RoomStateMachine.State, new_state: RoomStateMachine.State) -> String:
+	match new_state:
 		RoomStateMachine.State.NOT_JOINED:
 			return "Not watching"
 		RoomStateMachine.State.JOINING:
-			return "Joining..."
+			if old_state == RoomStateMachine.State.ACTIVE:
+				return "Rejoining..."
+			return "Joining room..."
 		RoomStateMachine.State.ACTIVE:
 			return "Watching " + _room_state_machine.get_room_id()
 		RoomStateMachine.State.LEAVING:

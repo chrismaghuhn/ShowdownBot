@@ -114,7 +114,9 @@ func test_each_documented_room_state_renders_its_visible_text_and_button_state()
 	panel.configure(_FakeGatewayPort.new(), rsm)
 
 	rsm.request_join("battle-1")
-	assert_str(panel.get_status_text()).is_equal("Joining...")
+	# Exact wording verified against docs/architecture/LIVE_STATE_MACHINES.md's RoomState table
+	# row "NOT_JOINED -> JOINING": "Joining room..." (not the panel's previous "Joining...").
+	assert_str(panel.get_status_text()).is_equal("Joining room...")
 	assert_bool(panel.is_join_enabled_for_test()).is_false()
 	assert_bool(panel.is_leave_enabled_for_test()).is_false()
 
@@ -137,6 +139,27 @@ func test_each_documented_room_state_renders_its_visible_text_and_button_state()
 	assert_str(panel.get_status_text()).is_equal("Room closed")
 	assert_bool(panel.is_dismiss_enabled_for_test()).is_true()
 	assert_bool(panel.is_join_enabled_for_test()).is_false()
+	panel.free()
+
+
+func test_joining_shows_joining_room_from_not_joined_but_rejoining_from_active() -> void:
+	# [P2] Owner review of the M1 hardening lifecycle-UI commit (PR #96, 2026-07-26, second
+	# pass): docs/architecture/LIVE_STATE_MACHINES.md's RoomState table gives JOINING two
+	# DIFFERENT visible texts depending on old_state -- "Joining room..." for NOT_JOINED ->
+	# JOINING (the first-ever join) and "Rejoining..." for ACTIVE -> JOINING (a reconnect while
+	# this room was active, section 6.2). The previous implementation rendered "Joining..." for
+	# both regardless of old_state, contradicting the table for the reconnect case.
+	var panel: RoomEntryPanel = preload("res://src/ui/panels/room_entry_panel.tscn").instantiate()
+	add_child(panel)
+	var rsm := RoomStateMachine.new(_transport)
+	panel.configure(_FakeGatewayPort.new(), rsm)
+
+	rsm.request_join("battle-1")
+	assert_str(panel.get_status_text()).is_equal("Joining room...")
+
+	rsm.join_confirmed()
+	rsm.connection_reconnecting()
+	assert_str(panel.get_status_text()).is_equal("Rejoining...")
 	panel.free()
 
 

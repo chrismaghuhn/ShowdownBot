@@ -54,6 +54,15 @@ func _wire_transport() -> void:
 	# fresh RoomStateMachine instance each time this function re-runs, so this never double-wires
 	# the same object twice.
 	_room_entry_panel.configure(_gateway, _room_state_machine)
+	# Owner review of PR #96 (M1 hardening lifecycle-UI commit), second pass, P1 finding 2
+	# (2026-07-26): a SEPARATE subscriber to the same state_changed signal RoomEntryPanel already
+	# subscribes to (via configure(), above) -- this workspace is the one place that holds both
+	# RoomStateMachine and LiveBattleProjection, so it is the correct (and only) place to
+	# translate "the room I was displaying just ended" into "reset the projection" (AGENTS.md
+	# rule 5: battle state is derived and owned by battle/, never patched by protocol/'s state
+	# machine or ui/panels/ reaching into it themselves). A fresh RoomStateMachine instance each
+	# time this function re-runs, so this never double-wires the same object twice.
+	_room_state_machine.state_changed.connect(_on_room_state_changed_for_battle_reset)
 	_transport.connection_state_changed.connect(_on_connection_state_changed)
 	_transport.raw_text_received.connect(_decoder.decode_frame)
 
@@ -149,6 +158,28 @@ func get_live_battle_log_panel() -> LiveBattleLogPanel:
 
 func _on_connection_state_changed(old_state: ConnectionStateMachine.State, new_state: ConnectionStateMachine.State) -> void:
 	_bus.publish_connection_state_changed(old_state, new_state)
+
+
+## Owner review of PR #96 (M1 hardening lifecycle-UI commit), second pass, P1 finding 2
+## (2026-07-26): three named trigger points where "the room I was displaying just ended" --
+## a confirmed human leave, the server closing the room, and the user dismissing an
+## already-closed room -- per the RoomState table's "UI resets to pre-join state" contract for
+## LEAVING -> NOT_JOINED and CLOSED -> NOT_JOINED, plus the server-close moment itself (ACTIVE ->
+## CLOSED): there is nothing left to show once the room is closed, so the stale battle clears
+## immediately rather than waiting for the user to also dismiss it. LiveBattleProjection.reset()
+## publishes the cleared snapshot through the SAME snapshot_published -> bus -> board/log wiring
+## every other state change already uses (_wire_domain_and_ui(), one-time) -- no second render
+## path is introduced here, only a new trigger for the existing one.
+func _on_room_state_changed_for_battle_reset(old_state: RoomStateMachine.State, new_state: RoomStateMachine.State) -> void:
+	var leave_confirmed := (
+		old_state == RoomStateMachine.State.LEAVING and new_state == RoomStateMachine.State.NOT_JOINED
+	)
+	var server_closed := new_state == RoomStateMachine.State.CLOSED
+	var dismissed := (
+		old_state == RoomStateMachine.State.CLOSED and new_state == RoomStateMachine.State.NOT_JOINED
+	)
+	if leave_confirmed or server_closed or dismissed:
+		_projection.reset()
 
 
 func _on_event_decoded(event: ProtocolEventDTO) -> void:
