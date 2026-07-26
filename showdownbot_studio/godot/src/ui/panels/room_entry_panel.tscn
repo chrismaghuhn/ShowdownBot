@@ -14,6 +14,20 @@ placeholder_text = "battle room ID or URL"
 layout_mode = 0
 text = "Watch"
 
+[node name="LeaveButton" type="Button" parent="."]
+layout_mode = 0
+text = "Leave"
+disabled = true
+
+[node name="DismissButton" type="Button" parent="."]
+layout_mode = 0
+text = "Dismiss"
+disabled = true
+
+[node name="StatusLabel" type="Label" parent="."]
+layout_mode = 0
+text = "Not watching"
+
 [node name="ErrorLabel" type="Label" parent="."]
 layout_mode = 0
 text = ""

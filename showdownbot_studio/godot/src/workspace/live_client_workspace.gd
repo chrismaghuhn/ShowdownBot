@@ -49,7 +49,11 @@ func configure_transport_for_test(peer_factory: Callable) -> void:
 func _wire_transport() -> void:
 	_room_state_machine = RoomStateMachine.new(_transport)
 	_gateway = SpectatorRoomGateway.new(_transport, _room_state_machine)
-	_room_entry_panel.configure(_gateway)
+	# M1 hardening (owner review of PR #94, P1 item 2, 2026-07-26): configure() now also wires
+	# RoomEntryPanel's RoomStateMachine.state_changed subscription (see its own doc comment) -- a
+	# fresh RoomStateMachine instance each time this function re-runs, so this never double-wires
+	# the same object twice.
+	_room_entry_panel.configure(_gateway, _room_state_machine)
 	_transport.connection_state_changed.connect(_on_connection_state_changed)
 	_transport.raw_text_received.connect(_decoder.decode_frame)
 
@@ -165,8 +169,13 @@ func _on_event_decoded(event: ProtocolEventDTO) -> void:
 	# remains a real, valid decode for other rejection paths and removing it would be an
 	# unproven, unrequested behavior change.
 	if event.event_type in ["error", "noinit"] and _room_state_machine.get_state() == RoomStateMachine.State.JOINING:
+		# M1 hardening (owner review of PR #94, P1 item 2, 2026-07-26): RoomEntryPanel now
+		# subscribes directly to RoomStateMachine.state_changed (wired once in
+		# _wire_transport(), via configure()) and renders get_last_error_reason() uniformly
+		# for every JOINING -> NOT_JOINED transition, whether the rejection came from the
+		# server (this case) or from a local join_send_failed() -- this call used to reach
+		# the panel through a second, independent path for the exact same render.
 		_room_state_machine.join_rejected(str(event.error_reason))
-		_room_entry_panel.on_join_rejected(str(event.error_reason))
 		return
 	if event.event_type == "init":
 		if str(event.condition_label) != "battle":

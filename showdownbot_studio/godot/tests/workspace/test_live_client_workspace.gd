@@ -234,6 +234,76 @@ func test_inconsistent_event_produces_a_visible_diagnostic_line_in_the_log_panel
 	assert_str(_workspace.get_live_battle_log_panel().get_log_text()).contains("[not applied: inconsistent_state]")
 
 
+## --- M1 hardening (owner review of PR #94, P1 item 2, 2026-07-26): RoomEntryPanel gains Leave/
+## Dismiss and a RoomStateMachine.state_changed subscription, wired once in _wire_transport()
+## alongside the gateway. These prove the full real stack (real gateway, real RoomStateMachine,
+## real transport) end to end -- the panel-level tests in test_room_entry_panel.gd already prove
+## the same behaviors against a port fake in isolation (test (e)).
+
+
+func test_watch_leave_then_watch_a_different_room_works_end_to_end() -> void:
+	# Proves test (a): the one-shot dead end the finding named -- after a successful join+leave, a
+	# second Watch on a DIFFERENT room id must still reach the gateway and send its own /join.
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
+
+	_workspace.get_room_entry_panel().press_leave_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.LEAVING)
+	_fake.queued_packets = [">battle-1\n|deinit"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
+
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-2")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.JOINING)
+	assert_str(_workspace.get_room_state_machine().get_room_id()).is_equal("battle-2")
+	assert_str(_fake.sent_texts[_fake.sent_texts.size() - 1]).is_equal("|/join battle-2")
+
+
+func test_dismiss_after_closed_lets_the_user_watch_a_different_room() -> void:
+	# Proves test (b): after CLOSED, dismiss must return the UI to a reusable state so the user can
+	# open a DIFFERENT room -- previously the UI had no way to reach dismiss_closed_room() at all.
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	_fake.queued_packets = [">battle-1\n|deinit"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.CLOSED)
+	assert_str(_workspace.get_room_entry_panel().get_status_text()).is_equal("Room closed")
+
+	_workspace.get_room_entry_panel().press_dismiss_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.NOT_JOINED)
+
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-2")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.JOINING)
+	assert_str(_workspace.get_room_state_machine().get_room_id()).is_equal("battle-2")
+
+
+func test_failed_leave_send_surfaces_an_error_and_leaves_the_ui_usable() -> void:
+	# Proves test (d): a local leave-send failure must surface visible, sanitized error text and
+	# leave the room ACTIVE (per the RoomState table) with Leave usable again -- not wedged.
+	_connect_and_open()
+	_workspace.get_room_entry_panel().set_input_text_for_test("battle-1")
+	_workspace.get_room_entry_panel().press_watch_for_test()
+	_fake.queued_packets = [">battle-1\n|init|battle"]
+	_workspace.get_transport()._process(0.016)
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
+	_workspace.get_transport().disconnect_from_server()  # send_raw_text now fails (not CONNECTED)
+
+	_workspace.get_room_entry_panel().press_leave_for_test()
+
+	assert_int(_workspace.get_room_state_machine().get_state()).is_equal(RoomStateMachine.State.ACTIVE)
+	assert_bool(_workspace.get_room_entry_panel().get_error_text().is_empty()).is_false()
+	assert_bool(_workspace.get_room_entry_panel().is_leave_enabled_for_test()).is_true()
+
+
 func test_configure_transport_for_test_does_not_rewire_domain_and_ui_a_second_time() -> void:
 	# Watchlist M1d: "configure_transport_for_test() must not reconnect decoder, bus, projection,
 	# or UI signals a second time." before_test() already called configure_transport_for_test()
