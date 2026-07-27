@@ -257,17 +257,43 @@ class BattleState:
         spent_snapshot = self.side_mega_spent.get(pid.side, False)
 
         try:
-            # Coherence: the reconcile event's claimed actor must match the
-            # Pokemon actually occupying this slot (guards against a
-            # misrouted/mismatched -mega pairing reaching state application).
-            if mon.base_species_id != to_id(event.base_species):
+            # Coherence: the reconcile event's claimed actor must match the Pokemon actually
+            # occupying this slot (guards against a misrouted/mismatched -mega pairing reaching
+            # state application).
+            #
+            # Compared at FAMILY granularity, because that is the granularity the event has.
+            # sim/pokemon.ts::formeChange emits `species.baseSpecies` as this field -- the family
+            # base, never the pre-Mega forme (the dex names that separately, as `battleOnly`).
+            # For nearly every Mega the two coincide and a forme-level comparison happened to
+            # work; where they diverge it rejects a perfectly correct pairing. Comparing a forme
+            # id against a field that cannot express formes was the defect.
+            #
+            # Resolving through species_meta rather than mon.base_species_id is what makes this a
+            # correction instead of a loosening: base_species_id is our own derived value, while
+            # the meta table's base_species_id is the dex's own baseSpecies -- the very field the
+            # sim emits. An unknown species falls back to the stored id, i.e. to the previous
+            # behaviour, rather than passing unchecked.
+            actor_meta = get_species_form_meta(mon.species)
+            actor_family_id = actor_meta.base_species_id if actor_meta else mon.base_species_id
+            if actor_family_id != to_id(event.base_species):
                 raise MegaReconcileError(
                     f"mega_reconcile_actor_mismatch: slot={pid.raw} "
-                    f"holds base_species_id={mon.base_species_id!r}, "
+                    f"holds base_species_id={mon.base_species_id!r} "
+                    f"(family {actor_family_id!r}), "
                     f"event claims base_species={event.base_species!r}"
                 )
 
-            mega_form = mega_form_for(event.base_species, event.stone_display)
+            # Resolve the Mega form from the ACTOR's own forme, not from the event's family field.
+            # The item table is keyed by the PRE-MEGA forme -- `floettite` maps
+            # {'floetteeternal': 'Floette-Mega'}, while `gengarite` maps {'gengar': 'Gengar-Mega'}
+            # -- so it already encodes exactly the relationship the dex spells out as `battleOnly`,
+            # and no data change is needed. Passing event.base_species here was the same defect as
+            # in the actor guard above: the family base cannot address a forme-keyed table, so this
+            # resolved to None for the one family where the two differ. Using the actor's forme also
+            # makes this check STRICTER than before -- a same-family wrong actor that the
+            # family-granularity guard above lets through is refused right here, because its forme
+            # is not a key for that stone.
+            mega_form = mega_form_for(mon.base_species_id, event.stone_display)
             if mega_form is None or to_id(mega_form.form_species_name) != to_id(details.species):
                 raise MegaReconcileError(
                     f"mega_reconcile_incoherent: base_species={event.base_species!r} "
