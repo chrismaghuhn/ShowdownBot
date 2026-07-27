@@ -80,6 +80,11 @@ def _valid_i8d_verdict(schedule, **overrides):
         "stop_reason": "exposure_floor_met", "exposure_floor_met": True,
         "min_active_decisions": I8D_MIN_ACTIVE_DECISIONS, "min_distinct_battles": I8D_MIN_DISTINCT_BATTLES,
         "budget_ms": _BUDGET_MS, "p95_ms": 250.0,
+        # The measured-runtime block a real I8-D verdict carries (PR #107). Repaired here rather
+        # than relaxed in the required set: the set exists so a fixture missing what a real run
+        # produces is refused.
+        "environment": {"python": "3.14.5", "node": "v24.16.0",
+                        "platform": "fixture-platform", "deps": {}},
     }
     data.update(overrides)
     return data
@@ -149,6 +154,9 @@ def _valid_coverage_verdict(schedule, **overrides):
         "cell_floors": {cell: list(floor) for cell, floor in COVERAGE_CELL_FLOORS.items()},
         "cell_counts": _valid_cell_counts(), "safety_violations": 0, "schedule_complete": False,
         "verdict": "PASS", "stop_reason": "coverage_floor_met",
+        # Same repair as the I8-D fixture above, same reason.
+        "environment": {"python": "3.14.5", "node": "v24.16.0",
+                        "platform": "fixture-platform", "deps": {}},
     }
     data.update(overrides)
     return data
@@ -803,3 +811,56 @@ def test_gate_b_verdict_cell_flips_is_an_immutable_tuple_of_tuples():
     assert isinstance(verdict.cell_flips[0], tuple)
     with pytest.raises(AttributeError):
         verdict.cell_flips.append(("x", "y"))
+
+
+# ---- the crossing, from the suite that OWNS both Gate B field sets ----------------------------
+#
+# Both Gate B lists live in strength_holdout_verdict.py, and until now no test in THIS suite bound
+# them to anything outside the module: editing a list and running its own suite still showed green.
+# That is exactly the too-narrow scope that let PR #107 ship a one-sided change.
+#
+# What these two add is a LOCAL anchor for a bare list edit -- and no more than that. They do not
+# catch a list-and-fixture edit made together, which is the likelier mistake; only the producer
+# crossings in test_i8d_runner / test_coverage_runner do. The docstring on
+# test_this_suites_own_verdict_fixtures_satisfy_both_gate_b_sets states that boundary in full and
+# names the node IDs to run; read it before trusting either list.
+
+
+def test_gate_bs_i8d_set_matches_the_coverage_gates_copy():
+    from showdown_bot.eval.coverage_runner import _I8D_VERDICT_REQUIRED_FIELDS as COVERAGE_COPY
+    from showdown_bot.eval.strength_holdout_verdict import _I8D_VERDICT_REQUIRED_FIELDS
+
+    assert set(_I8D_VERDICT_REQUIRED_FIELDS) == set(COVERAGE_COPY), (
+        "the two I8-D required-field sets have drifted: only here "
+        f"{sorted(set(_I8D_VERDICT_REQUIRED_FIELDS) - set(COVERAGE_COPY))}, only in "
+        f"coverage_runner {sorted(set(COVERAGE_COPY) - set(_I8D_VERDICT_REQUIRED_FIELDS))}"
+    )
+
+
+def test_this_suites_own_verdict_fixtures_satisfy_both_gate_b_sets(stub_i8d_schedule,
+                                                                  stub_coverage_schedule):
+    """Binds this file's fixtures to this file's lists through the real both-ways checker.
+
+    Scope, stated honestly: this catches a BARE list edit. It does NOT catch the repaired edit --
+    list AND fixture changed together, which is exactly what the 69-red fixture episode trains a
+    developer to do. This test is self-referential (the fixtures are maintained beside the lists),
+    there is no count pin, and this file imports no producer report, only schedule builders. For
+    the I8-D set, test_gate_bs_i8d_set_matches_the_coverage_gates_copy still catches a one-sided
+    edit; _COVERAGE_VERDICT_REQUIRED_FIELDS has no second constant and so no local anchor at all.
+
+    The ONLY guard against a coordinated list+fixture drift is the producer crossings, which live
+    elsewhere -- run these before trusting a change to either list:
+        showdown_bot/tests/test_i8d_runner.py::test_a_real_verdict_satisfies_gate_bs_required_field_set
+        showdown_bot/tests/test_coverage_runner.py::test_a_real_coverage_verdict_satisfies_gate_bs_required_field_set
+    """
+    from showdown_bot.eval.strength_holdout_verdict import (
+        _COVERAGE_VERDICT_REQUIRED_FIELDS,
+        _I8D_VERDICT_REQUIRED_FIELDS,
+        _check_closed_schema,
+    )
+
+    _check_closed_schema(_valid_i8d_verdict(stub_i8d_schedule), _I8D_VERDICT_REQUIRED_FIELDS,
+                         verdict_path="<fixture>", gate_name="I8-D")
+    _check_closed_schema(_valid_coverage_verdict(stub_coverage_schedule),
+                         _COVERAGE_VERDICT_REQUIRED_FIELDS,
+                         verdict_path="<fixture>", gate_name="coverage")

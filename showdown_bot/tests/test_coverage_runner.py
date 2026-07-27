@@ -74,7 +74,7 @@ def _write_i8d_verdict(tmp_path, *, omit_fields=(), name="i8d_verdict.json", **o
     """A fully-shaped I8-D verdict artifact for the T3 identity+PASS+contract guard. Defaults to a
     valid, matching, PASSing artifact carrying the REAL field set a genuine I8-D verdict.json always
     has (review round 7: the guard now requires -- and where a canonical value is knowable, checks
-    -- the full 25-field report i8d_runner.run_i8d_live_gate writes, not just the 11 fields it
+    -- the full report i8d_runner.run_i8d_live_gate writes, not just the 11 fields it
     originally happened to read values from) so every OTHER test in this file (not testing the guard
     itself) sails through unchanged. A test targeting the guard overrides exactly the field(s) it
     wants wrong via **overrides (e.g. _write_i8d_verdict(tmp_path, git_sha="wrong")), or lists a
@@ -1040,3 +1040,27 @@ def test_an_i8d_verdict_without_an_environment_block_is_refused(tmp_path, monkey
             schedule=_schedule(8), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
             expected_battles=8, teams_root=_TEAMS_ROOT,
             i8d_verdict_path=_write_i8d_verdict(tmp_path, omit_fields=("environment",)))
+
+
+# ---- the crossing: coverage producer output must satisfy Gate B's verifier ---------------------
+
+def test_a_real_coverage_verdict_satisfies_gate_bs_required_field_set(tmp_path, monkeypatch):
+    from showdown_bot.eval.strength_holdout_verdict import (
+        _COVERAGE_VERDICT_REQUIRED_FIELDS as GATE_B_EXPECTS,
+        StrengthHoldoutRunError,
+        _check_closed_schema,
+    )
+
+    report = _run(tmp_path, monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], n=8)
+    produced, need = set(report), set(GATE_B_EXPECTS)
+    # Calls the consumer's own both-ways checker rather than re-deriving the set differences here:
+    # relaxing that function must not leave this test green. The differences are computed only for
+    # the failure message.
+    try:
+        _check_closed_schema(report, GATE_B_EXPECTS, verdict_path="<producer output>",
+                             gate_name="coverage -> Gate B")
+    except StrengthHoldoutRunError as exc:  # pragma: no cover - only on drift
+        raise AssertionError(
+            f"coverage producer output does not satisfy Gate B's field set -- missing "
+            f"{sorted(need - produced)}, extra {sorted(produced - need)} ({exc})"
+        ) from exc
