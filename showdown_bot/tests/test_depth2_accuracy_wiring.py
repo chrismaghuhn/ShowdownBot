@@ -13,6 +13,7 @@ import pytest
 from showdown_bot.battle import evaluate as evaluate_module
 from showdown_bot.battle import search as search_module
 from showdown_bot.battle.decision import _choose_best
+from showdown_bot.battle.decision_trace import DecisionTrace
 from showdown_bot.engine.state import BattleState, PokemonState
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -205,3 +206,183 @@ def test_depth2_accuracy_forwarded_mega(monkeypatch):
     for c in d2_calls:
         assert c["accuracy_mode"] is True, f"d2 mega call missing accuracy_mode: {c}"
         assert c["accuracy_branch_cap"] == 6, f"d2 mega call wrong cap: {c}"
+
+
+# ---- §8.1: Depth-1 deterministic projection is unchanged ----
+
+def test_depth1_projection_unchanged(monkeypatch):
+    """With SHOWDOWN_SEARCH_DEPTH unset (=1), the deterministic decision projection
+    matches the pre-slice golden exactly (spec §8.1)."""
+    for var in ("SHOWDOWN_SEARCH_DEPTH", "SHOWDOWN_SEARCH_TOPN", "SHOWDOWN_SEARCH_TOPM",
+                "SHOWDOWN_WORLD_SAMPLES"):
+        monkeypatch.delenv(var, raising=False)
+
+    from showdown_bot.battle.decision import heuristic_choose_for_request
+
+    req = _d2_req()
+    tr = DecisionTrace()
+    choice = heuristic_choose_for_request(req, trace=tr, **_d2_kwargs())
+
+    assert choice == "/choose move 3, move 3|2"
+    assert tr.chosen_candidate_id == "(Protect, Protect)"
+    assert tr.game_mode == "NEUTRAL"
+    assert len(tr.candidates) == 6
+    assert tr.candidates[0].score_vector == [5.4, 5.4, 3.6, 1.8, 3.6]
+    assert tr.candidates[0].aggregate_score == 3.0528
+
+
+# ---- §8.2: Accuracy-off Depth-2 projection is unchanged ----
+
+def test_accuracy_off_depth2_unchanged(monkeypatch):
+    """With SHOWDOWN_ACCURACY_MODE=0 and SHOWDOWN_SEARCH_DEPTH=2, passing
+    explicit False/cap through eval_kwargs must not change evaluate_line's
+    legacy accuracy-off behavior (spec §8.2)."""
+    from showdown_bot.battle import decision as decision_module
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "0")
+    for var in ("SHOWDOWN_SEARCH_TOPN", "SHOWDOWN_SEARCH_TOPM", "SHOWDOWN_WORLD_SAMPLES"):
+        monkeypatch.delenv(var, raising=False)
+
+    d2_calls = []
+    real_d2 = decision_module.depth2_value
+
+    def _spy(*args, **kwargs):
+        ek = kwargs.get("eval_kwargs") or {}
+        d2_calls.append({
+            "accuracy_mode": ek.get("accuracy_mode"),
+            "accuracy_branch_cap": ek.get("accuracy_branch_cap"),
+        })
+        return real_d2(*args, **kwargs)
+
+    monkeypatch.setattr(decision_module, "depth2_value", _spy)
+
+    choice_ja, _ = _choose_best(_d2_req(), **_d2_kwargs())
+
+    assert len(d2_calls) == 4, f"expected 4 depth2_value calls, got {len(d2_calls)}"
+    for c in d2_calls:
+        assert c["accuracy_mode"] is False
+        assert c["accuracy_branch_cap"] is not None
+
+
+# ---- §10.2 Test 1: consumption counterproof ----
+
+def test_accuracy_on_changes_turn2_value(monkeypatch):
+    """A controlled scenario where accuracy on/off produces different refined
+    values, proving the parameter is consumed not just forwarded (spec §10.2 test 1)."""
+    from showdown_bot.battle import decision as decision_module
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.delenv("SHOWDOWN_SEARCH_TOPN", raising=False)
+    monkeypatch.delenv("SHOWDOWN_SEARCH_TOPM", raising=False)
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+
+    real_d2 = decision_module.depth2_value
+
+    def _run_with_mode(mode_val):
+        values = []
+
+        def _capture(*args, **kwargs):
+            v = real_d2(*args, **kwargs)
+            values.append(v)
+            return v
+
+        monkeypatch.setattr(decision_module, "depth2_value", _capture)
+        monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", mode_val)
+        _choose_best(_d2_req(), **_d2_kwargs())
+        monkeypatch.setattr(decision_module, "depth2_value", real_d2)
+        return values
+
+    off_values = _run_with_mode("0")
+    on_values = _run_with_mode("1")
+
+    assert len(off_values) == len(on_values) == 4
+    assert off_values != on_values, (
+        "accuracy_mode=True produced the same Turn-2 values as accuracy_mode=False — "
+        "the parameter is forwarded but not consumed"
+    )
+
+
+# ---- §6.4 / §10.2 Test 4: one Turn-2 successor per selected slot ----
+
+def test_one_successor_per_selected_slot(monkeypatch):
+    """Multiple Turn-1 accuracy leaves still produce exactly one Depth-2 successor
+    per selected (candidate, response slot). Call count bounded by frontier (N*M),
+    never multiplied by Turn-1 accuracy leaves (spec §6.4)."""
+    from showdown_bot.battle import decision as decision_module
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+
+    d2_calls = []
+    real_d2 = decision_module.depth2_value
+
+    def _spy(*args, **kwargs):
+        d2_calls.append(1)
+        return real_d2(*args, **kwargs)
+
+    monkeypatch.setattr(decision_module, "depth2_value", _spy)
+
+    _choose_best(_d2_req(), **_d2_kwargs())
+
+    top_n = 2  # default SHOWDOWN_SEARCH_TOPN
+    top_m = 2  # default SHOWDOWN_SEARCH_TOPM
+    assert len(d2_calls) == top_n * top_m, (
+        f"expected {top_n * top_m} depth2_value calls but got {len(d2_calls)} — "
+        "Turn-1 accuracy leaves may have expanded into Turn-2"
+    )
+
+
+# ---- §10.2 Test 5: K-world active suppresses Depth-2 ----
+
+def test_kworld_suppresses_depth2_with_accuracy(monkeypatch):
+    """With SHOWDOWN_WORLD_SAMPLES=2, depth2_value must NOT fire even when
+    SHOWDOWN_SEARCH_DEPTH=2 and SHOWDOWN_ACCURACY_MODE=1 (spec §10.2 test 5)."""
+    from showdown_bot.battle import decision as decision_module
+
+    d2_calls = []
+    real_d2 = decision_module.depth2_value
+
+    def _spy(*args, **kwargs):
+        d2_calls.append(1)
+        return real_d2(*args, **kwargs)
+
+    monkeypatch.setattr(decision_module, "depth2_value", _spy)
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "2")
+
+    _choose_best(_d2_req(), **_d2_kwargs())
+
+    assert len(d2_calls) == 0, "depth2_value fired with K-world sampling active"
+
+
+# ---- §10.1 Test 4: no new accuracy env reads downstream ----
+
+def test_no_accuracy_env_reads_in_search(monkeypatch):
+    """Neither search.py::depth2_value nor search.py::_score_turn2_plans
+    reads SHOWDOWN_ACCURACY_MODE or SHOWDOWN_ACCURACY_BRANCH_CAP from the
+    environment (spec §10.1 test 4)."""
+    import os
+
+    original_getenv = os.environ.get
+    forbidden = {"SHOWDOWN_ACCURACY_MODE", "SHOWDOWN_ACCURACY_BRANCH_CAP"}
+    violations = []
+
+    def _guarded_get(key, *args):
+        if key in forbidden:
+            import traceback
+            tb = traceback.format_stack()
+            if any("search.py" in frame for frame in tb):
+                violations.append(key)
+        return original_getenv(key, *args)
+
+    monkeypatch.setattr(os.environ, "get", _guarded_get)
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+
+    _choose_best(_d2_req(), **_d2_kwargs())
+
+    assert violations == [], f"search.py read forbidden env vars: {violations}"
