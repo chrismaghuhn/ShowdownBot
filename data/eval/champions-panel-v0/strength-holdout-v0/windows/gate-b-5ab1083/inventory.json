@@ -1,0 +1,90 @@
+{
+  "candidate_identity": "908883ee69a0b713",
+  "combine_arm_copies_identical": {
+    "arm_a": true,
+    "arm_b": true
+  },
+  "combine_arm_copies_note": "the combine wrote its own copies under combine/arm_a/ and combine/arm_b/. All six were verified byte-identical (cmp) to the arm directories frozen here BEFORE anything was copied, which is what justifies omitting the duplicates from this freeze. Same convention as the bc2d6df freeze.",
+  "counts": {
+    "hero_logs_arm_a": 0,
+    "hero_logs_arm_b": 0,
+    "hero_logs_total": 0,
+    "rows_arm_a": 180,
+    "rows_arm_b": 180
+  },
+  "date_stratum_id": "2026-07-27-windows-gate-b-5ab1083",
+  "files": {
+    "REPORT.md": {
+      "bytes": 5620,
+      "sha256": "ecf5e0d81b83df1f47d94f04f4a65c5a82be56ee51ea0357305b9382549118d6"
+    },
+    "arm-a-heuristic/arm_manifest.json": {
+      "bytes": 1827,
+      "sha256": "35d1f576f86f5d9e7a8677d030d084ab39c083052e05dc6030c32dcb9781f9fc"
+    },
+    "arm-a-heuristic/rows.jsonl": {
+      "bytes": 176012,
+      "sha256": "ed986f99e76432e88f538722049e6cbe3d78cd9755f6ba67ef787f6400898b22"
+    },
+    "arm-a-heuristic/seeds.jsonl": {
+      "bytes": 20410,
+      "sha256": "29f8d198d39ad2b3dd922764176a8146e9ca87cedf1f9222356c7de4e01c8303"
+    },
+    "arm-b-max-damage/arm_manifest.json": {
+      "bytes": 1828,
+      "sha256": "6adb0e6916304755e03a85ce5657a399f8c7b3cc200e42b50dd8ce0721f3c073"
+    },
+    "arm-b-max-damage/rows.jsonl": {
+      "bytes": 176247,
+      "sha256": "15977ced4746593b9eefbf809c405fb37fe478a377a4d086e1b08fa7bf9e9ff2"
+    },
+    "arm-b-max-damage/seeds.jsonl": {
+      "bytes": 20410,
+      "sha256": "29f8d198d39ad2b3dd922764176a8146e9ca87cedf1f9222356c7de4e01c8303"
+    },
+    "combine/cells.json": {
+      "bytes": 9992,
+      "sha256": "cef027c6f707c5585bd55b7692fa1a294a2d43950ea22577cc14f183489661ad"
+    },
+    "combine/verdict.json": {
+      "bytes": 2307,
+      "sha256": "206154b12b1fef0e85c63ecefebce9c8222628bf3255947ae4d91bcdcc1399b7"
+    }
+  },
+  "git_sha": "5ab10830513c7fbb5995ea92751509d830f7418e",
+  "hero_logs": {
+    "arm-a": [],
+    "arm-b": []
+  },
+  "hero_logs_absent": {
+    "cause": "the raw room dump is env-gated on SHOWDOWN_ROOM_RAW_DUMP (showdown_bot/src/showdown_bot/client/gauntlet.py:1151); the variable was not set for either arm of this run, so dump_room_raw was never called and room_raw_path is null in all 360 rows",
+    "not_recoverable_because": "hero logs exist only as a by-product of playing the battles; the held-out one-attempt budget for config_hash 594295543f13a55d is consumed by ledger entry 7, and section 7 of docs/projects/champions/decisions/2026-07-27-gate-b-justified-repeat.md forbids a third attempt on this configuration",
+    "precedent_difference": "the bc2d6df freeze contains 360 hero logs and 370 files; this freeze contains 0 and 10. The difference is captured evidence, not a difference in what was played: both runs played 180 + 180 battles",
+    "reader_warning": "the 360 rows DO carry valid normalized_room_log_sha256 values. Those are computed from the in-memory frames (gauntlet.py:1295) independently of the dump, so they are hashes of logs that were never written to disk. No such files exist anywhere and none can be produced. Do not go looking for them.",
+    "status": "NOT CAPTURED, NOT RECOVERABLE"
+  },
+  "inventory_self_exception": "inventory.json itself is not listed in 'files' (it cannot contain its own hash); the closed-set check is {on-disk} == {declared files} + {inventory.json}",
+  "ledger_entry": {
+    "config_hash": "594295543f13a55d",
+    "date": "2026-07-23",
+    "git_sha": "bc2d6df1fcfa61c7a8bda9fe52a6899f93d27aee",
+    "justification": null,
+    "kind": "run",
+    "panel_hash": "122764211b6db3ba",
+    "purpose": "champions-strength-holdout-v0",
+    "result_sha256": "0dd2e8305f40df34f669dccdc3d28e32459fc5e71e1413bc4aa0bd058ebcbe52",
+    "schedule_hash": "37df91c10c24801d"
+  },
+  "no_strength_claim": true,
+  "normalization_recipe": "not applicable: no room logs were captured, so no normalized log was produced from disk. The rows' normalized_room_log_sha256 values come from eval.room_dump.normalized_room_log_sha256 applied to in-memory frames",
+  "purpose": "champions-strength-holdout-v0",
+  "rows_path_transform": "NO-OP for this run. The bc2d6df freeze rewrote room_raw_path from an absolute machine path to a relative frozen log path; here room_raw_path is null in all 360 rows, so there was nothing to rewrite. The frozen rows.jsonl are BYTE-IDENTICAL to what the arms produced (verified by cmp against the source worktrees before hashing). No other row byte was touched either.",
+  "stratum": "windows",
+  "upstream_artifacts": {
+    "coverage": "data/eval/champions-panel-v0/coverage-v0-5ab1083/",
+    "file_count_difference": "each carries 2 files (profile.jsonl, verdict.json) plus sha256.txt, where the existing i8d-live-post-guard-hardening / coverage-v0-post-guard-hardening freezes carry 3 (they include seeds.jsonl). seeds.jsonl is deliberately OMITTED here: neither gate verdict records any seed-log hash - they carry only seed_log_verified (a boolean) and seed_base - so a copied seed log would be a file we believe is the seed log, not evidence bound to the verdict. The same gap exists in the older freezes, where seeds.jsonl is hashed into sha256.txt but bound to no verdict field.",
+    "i8d": "data/eval/champions-panel-v0/i8d-live-5ab1083/",
+    "location": "frozen BESIDE this run-dir, under their own paths, like the existing i8d-live-* and coverage-v0-* freezes"
+  },
+  "verdict": "NO-GO"
+}

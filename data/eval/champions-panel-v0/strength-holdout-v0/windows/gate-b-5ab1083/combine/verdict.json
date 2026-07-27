@@ -1,0 +1,99 @@
+{
+  "candidate_identity": "908883ee69a0b713",
+  "cell_flips": [
+    [
+      "heuristic",
+      "7f026166ceb58d38"
+    ],
+    [
+      "max_damage",
+      "cb76e5fbf51a992d"
+    ]
+  ],
+  "config_hash_a": "594295543f13a55d",
+  "config_hash_b": "ccac8a92bc71ee80",
+  "delta": 0.07222222222222222,
+  "exact_p": 0.21805368187049984,
+  "git_sha": "5ab10830513c7fbb5995ea92751509d830f7418e",
+  "n_discordant": 95,
+  "n_total": 180,
+  "near_duplicate_flags": [
+    {
+      "candidate_team_id": "gbh_b",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_both",
+      "shared_species": [
+        "aerodactyl",
+        "basculegion",
+        "garchomp",
+        "kingambit"
+      ]
+    },
+    {
+      "candidate_team_id": "gbh_b",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_tie",
+      "shared_species": [
+        "aerodactyl",
+        "basculegion",
+        "garchomp",
+        "kingambit"
+      ]
+    },
+    {
+      "candidate_team_id": "gbh_d",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_both",
+      "shared_species": [
+        "aerodactyl",
+        "garchomp",
+        "kingambit",
+        "sneasler"
+      ]
+    },
+    {
+      "candidate_team_id": "gbh_d",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_tie",
+      "shared_species": [
+        "aerodactyl",
+        "garchomp",
+        "kingambit",
+        "sneasler"
+      ]
+    },
+    {
+      "candidate_team_id": "gbh_e",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_both",
+      "shared_species": [
+        "aerodactyl",
+        "garchomp",
+        "kingambit",
+        "sneasler"
+      ]
+    },
+    {
+      "candidate_team_id": "gbh_e",
+      "overlap_fraction": 0.5,
+      "reference_team_id": "cov_foe_tie",
+      "shared_species": [
+        "aerodactyl",
+        "garchomp",
+        "kingambit",
+        "sneasler"
+      ]
+    }
+  ],
+  "panel_hash": "122764211b6db3ba",
+  "reasons": [
+    "p too high (p=0.2181 >= 0.05)",
+    "cell flip winning->losing: heuristic x 7f026166ceb58d38, max_damage x cb76e5fbf51a992d"
+  ],
+  "report_banner": "HELD-OUT RUN -- these numbers must never inform tuning.",
+  "safety_pass": true,
+  "schedule_hash": "37df91c10c24801d",
+  "stratum": "windows",
+  "strength_delta": 0.07222222222222222,
+  "verdict": "NO-GO"
+}
