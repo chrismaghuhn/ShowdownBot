@@ -40,6 +40,7 @@ from pathlib import Path
 from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
 from showdown_bot.eval.i8d_runner import _write_json_atomic
 from showdown_bot.eval.panel import PanelError, team_content_hash
+from showdown_bot.eval.run_manifest import collect_environment
 from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, ResultRowError
 from showdown_bot.eval.seeding import (
     SeedLogConfigError,
@@ -856,6 +857,9 @@ def run_strength_holdout_arm(
         "seed_log_n_lines": len(seed_records),
         "seed_log_verified": seed_log_verified_flag(seed_records, len(rows)),
         "n_rows": len(rows),
+        # The MEASURED runtime this arm's rows were produced on -- same probe and same shape as
+        # the I8-D and coverage verdicts, so a paired A/B can be checked for runtime parity.
+        "environment": collect_environment(),
     })
     # Publish via the Windows-retry-safe atomic rename: all 180 battles already ran and staged, so a
     # lone unguarded os.replace could still throw the whole arm away on a transient WinError 5/32/33
@@ -965,7 +969,13 @@ _MANIFEST_REQUIRED_KEYS = ("n_rows", "config_hash", "git_sha", "schedule_hash", 
                           "calc_backend", "seed_log_relpath", "seed_log_sha256",
                           "seed_log_n_lines", "seed_log_verified",
                           # Review-fix (Step 2): the pinned reproducibility seed each arm ran under.
-                          "pythonhashseed")
+                          "pythonhashseed",
+                          # The MEASURED runtime (python/node/platform/dep versions). The arm
+                          # already carried platform_attestation and pythonhashseed but no
+                          # versions, so a frozen arm could not say which Node/Python produced its
+                          # rows. Presence-required like every other field here: an arm without it
+                          # fails closed rather than passing by omission.
+                          "environment")
 _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK = ("config_hash", "git_sha", "schedule_hash", "seed_base", "panel_hash")
 # Rev. 14 fix (§1m, third review round P1): presence-checked in the SAME per-row loop as
 # _ROW_REQUIRED_KEYS_FOR_MANIFEST_CHECK (both are just "does this row have the key"), but bound

@@ -102,7 +102,8 @@ NO-GO.**
 **Still open, none started:** the **ledger re-run decision** (the gating item — documented justified
 repeat vs. a new independent holdout); runtime detection of unmodelled request keys for a server no
 pin governs, e.g. the live ladder — explicitly **not** via `extra="allow"`, which would re-break the
-serialization hashes above; the un-pinned Node version (P0-4); and the local suite's pre-existing
+serialization hashes above; gate-artifact runtime provenance (P0-4 — the Node version was never
+un-pinned, it was measured but never stamped onto a gate artifact; see the correction there); and the local suite's pre-existing
 115 failures / 21 errors from missing `npm ci --prefix tools/calc` in fresh worktrees.
 
 **Post-merge reconciliation (2026-07-23, PR #52 @ `7a9685c` — Champions Gate B implemented).**
@@ -459,9 +460,20 @@ evidence packet. Does not change the Champions decision front; see
    = GO for *counterfactual data collection*, not proof a value-head is justified.
 3. **This file.** Keep it current; supersede ad-hoc roadmap prose scattered across memory
    entries and old planning docs.
-4. **Reproducibility rounding-out.** Python/Node version pins, dependency/lockfile hashes,
-   `tools/calc/package-lock.json` provenance, OS/arch, optional container digest. Env
+4. **Reproducibility rounding-out.** Dependency/lockfile hashes,
+   `tools/calc/package-lock.json` provenance, optional container digest. Env
    provenance partially built (T4c hardening); lockfile/container side still open.
+   **Correction 2026-07-27:** this item, and the "still open" line above, used to say the Node
+   version was *un-pinned*. That was wrong. `run_manifest.collect_environment()` has always
+   MEASURED python/node/platform/dep versions and is deliberately kept out of `config_hash`. What
+   was actually missing is that the block was stamped at exactly ONE site — `cli.run_schedule`'s
+   `--result-out` branch, into the run-manifest sidecar — and never onto a gate artifact: the I8-D
+   verdict carried no environment keys at all, and the Gate B arm manifest carried
+   `platform_attestation` + `pythonhashseed` but no versions. So the LATENCY gate froze a p95
+   against a fixed 1000 ms budget without recording the runtime that produced it. **Closed** by
+   stamping the existing measurement onto the I8-D verdict, the coverage verdict and the Gate B
+   arm manifest, required on each. Recording only — no version enforcement was added, and
+   `config_hash` is unmoved.
 5. **Wire `AccuracyDiagnostics` into `DecisionTrace`.** The accuracy/hit-probability slice
    (merged `3fd3b09`) implemented and unit-tested `battle/evaluate.py::accuracy_diagnostics`
    (ko/survival probability, accuracy-required, miss-punish-value) as a standalone function —

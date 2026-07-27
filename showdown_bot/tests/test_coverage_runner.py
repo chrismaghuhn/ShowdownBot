@@ -93,6 +93,11 @@ def _write_i8d_verdict(tmp_path, *, omit_fields=(), name="i8d_verdict.json", **o
         "min_active_decisions": I8D_MIN_ACTIVE_DECISIONS,
         "min_distinct_battles": I8D_MIN_DISTINCT_BATTLES,
         "budget_ms": load_latency_budget_ms(), "p95_ms": 1.0,
+        # The measured-runtime block a real I8-D verdict now always carries. Repaired here rather
+        # than relaxed in the guard: the whole point of the required-field set is that a
+        # hand-crafted artifact missing what a real run produces is refused.
+        "environment": {"python": "3.14.5", "node": "v24.16.0",
+                        "platform": "fixture-platform", "deps": {}},
     }
     data.update(overrides)
     for field in omit_fields:
@@ -1011,3 +1016,27 @@ def test_coverage_seed_log_verified_is_not_true_when_the_alignment_check_is_muta
     monkeypatch.setattr(cr, "_verify_seed_alignment", lambda *a, **k: None)
     report = _run(tmp_path, monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], n=8)
     assert report["seed_log_verified"] is not True
+
+
+# ---- the coverage verdict records the runtime, and refuses an I8-D verdict that does not ------
+
+def test_the_coverage_verdict_records_the_measured_runtime_environment(tmp_path, monkeypatch):
+    import sys
+
+    report = _run(tmp_path, monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], n=8)
+    env = report["environment"]
+    assert set(env) == {"python", "node", "platform", "deps"}
+    assert env["python"] == sys.version.split()[0]
+
+
+def test_an_i8d_verdict_without_an_environment_block_is_refused(tmp_path, monkeypatch):
+    """The upstream gate artifact must carry its own runtime provenance too -- absent means the
+    p95 it certifies cannot be attributed to a runtime, so it is not a genuine gate artifact."""
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _install(monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], seed_log_path=seed_log)
+    with pytest.raises(CoverageRunError, match="environment"):
+        run_coverage_gate(
+            schedule=_schedule(8), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
+            expected_battles=8, teams_root=_TEAMS_ROOT,
+            i8d_verdict_path=_write_i8d_verdict(tmp_path, omit_fields=("environment",)))

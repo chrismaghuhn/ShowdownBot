@@ -144,6 +144,23 @@ The run still requires, each separately authorised by the owner:
 I8-D currently stands at FAIL (p95 1110.213 ms > the 1000 ms budget), so the sequence cannot start
 until the latency-reduction slice lands and I8-D is repeated unchanged under its own authorisation.
 
+> **Correction, 2026-07-27 (same day, before any run).** The paragraph above is **wrong** and is
+> left standing rather than rewritten, because this note is a pre-registration and silently editing
+> it would defeat the point.
+>
+> `p95 1110.213 ms / FAIL` was the **first** of four I8-D runs. The frozen evidence records:
+> `i8d-live` FAIL 1110.213 ms → `i8d-live-post-lever-a` FAIL 1160.515 ms → `i8d-live-post-lever-b`
+> **PASS** 850.245 ms → `i8d-live-post-coverage-harness` **PASS** 864.940 ms (merged, PR #39); the
+> I8-D run accompanying the Gate B attempt also PASSed at 873.762 ms (external, unfrozen). The
+> latency-reduction work (Lever A, Lever B) has long since landed, and the 1000 ms blocker is
+> **closed** for the candidates that were measured.
+>
+> **The conclusion survives, for a different reason.** An I8-D PASS binds to the candidate identity
+> that produced it and does not transfer to a new `git_sha` (the approved spec's shared-candidate-
+> identity requirement). Every PASS above belongs to an earlier candidate. The current candidate
+> therefore has **no I8-D result at all** — the blocker is an *unestablished* latency precondition,
+> not a failed one, and the sequence still begins with a fresh, separately authorised I8-D run.
+
 ## 9. Pre-registration attestation
 
 This note was written and committed **before** any run of the new attempt. At the time of writing,
