@@ -224,6 +224,38 @@ def _latency_p95(latencies) -> float:
     return ordered[idx]
 
 
+def _seat_counters(hero, villain) -> dict:
+    """The per-seat counters, read off the two client objects in ONE place.
+
+    Two consumers need the same numbers ~75 lines apart: ``_PerBattleCounters.emit``, which turns
+    them into per-battle deltas for the Gate B result row, and the ``GauntletStats`` population,
+    which hands this call's totals to the upstream gates. Reading the same attributes twice is how
+    two artifacts start disagreeing about what was counted -- the defect class that put
+    ``environment`` into three lists and only two of them. This is the single read site; neither
+    consumer touches ``hero.degraded``/``.invalid`` directly.
+
+    ``invalid_total`` and ``crashes_total`` are the SUMMED historical fields (Gate B finding 5) and
+    keep their meaning and their values exactly -- frozen evidence reads ``stats.invalid_choices``
+    and ``stats.crashes``. They are folded in only so the sums have one read site too, never to
+    change what they mean. Leaving one instance of the duplicated pattern standing would be worse
+    than the widening: the pattern is what this helper exists to remove.
+
+    The values are the clients' LIFETIME-cumulative counts. Both clients are constructed once per
+    ``run_local_gauntlet`` call, outside the battle loop, so for a ``games=1`` caller -- which is
+    what both upstream gates use -- these equal that single battle's counts. A future ``games>1``
+    caller would get RUN totals here, not per-battle values; ``emit`` is the thing that produces
+    per-battle deltas, and it must stay that way.
+    """
+    return {
+        "hero_degraded": hero.degraded,
+        "villain_degraded": villain.degraded,
+        "hero_invalid": hero.invalid,
+        "villain_invalid": villain.invalid,
+        "invalid_total": hero.invalid + villain.invalid,
+        "crashes_total": hero.crashes + villain.crashes,
+    }
+
+
 class _PerBattleCounters:
     """Turn lifetime-cumulative client counters into per-battle deltas (T3e-P0).
 
@@ -293,6 +325,15 @@ class GauntletStats:
     # Task 6 (coverage safety): the hero seat's OWN invalid-choice decision indices for this battle
     # (a -1 marks an unattributable |error|). In-memory only -- NEVER on the closed T2 result row.
     hero_invalid_decision_indices: tuple[int, ...] = ()
+    # PER SEAT, deliberately not summed -- `invalid_choices` above is the summed historical field
+    # and keeps that meaning. These four exist so the upstream gates (I8-D, coverage) can see
+    # degradation at all: before them, a decision that fell to the blind chooser was still timed
+    # and still counted toward the p95, and a PASS could not distinguish the bot's decisions from
+    # the fallback's. Populated from `_seat_counters`, the single read site.
+    hero_degraded_decisions: int = 0
+    villain_degraded_decisions: int = 0
+    hero_invalid_choices: int = 0
+    villain_invalid_choices: int = 0
 
     @property
     def winrate(self) -> float:
@@ -1525,14 +1566,15 @@ async def run_local_gauntlet(
                 # Advance the per-battle watermark first (T3e-P0): even if record assembly
                 # raises for this battle, its counts are "spent" and must not leak into the
                 # next row. Deltas are the finishing battle's counts, not the run totals.
+                seats = _seat_counters(hero, villain)
                 deltas = per_battle.emit(
-                    invalid=hero.invalid + villain.invalid,
-                    crashes=hero.crashes + villain.crashes,
+                    invalid=seats["invalid_total"],
+                    crashes=seats["crashes_total"],
                     latencies=hero.latencies,
-                    hero_degraded=hero.degraded,
-                    villain_degraded=villain.degraded,
-                    hero_invalid=hero.invalid,
-                    villain_invalid=villain.invalid,
+                    hero_degraded=seats["hero_degraded"],
+                    villain_degraded=seats["villain_degraded"],
+                    hero_invalid=seats["hero_invalid"],
+                    villain_invalid=seats["villain_invalid"],
                 )
                 record = _battle_result_record(
                     hero.name, villain.name, room_frames,
@@ -1607,9 +1649,16 @@ async def run_local_gauntlet(
         villain.close()
 
     stats.latencies = hero.latencies
-    stats.invalid_choices = hero.invalid + villain.invalid
+    # Same single read site the per-battle emitter uses, so the two artifacts cannot disagree
+    # about what was counted. invalid_choices keeps its exact summed value and meaning.
+    _seats = _seat_counters(hero, villain)
+    stats.invalid_choices = _seats["invalid_total"]
+    stats.hero_degraded_decisions = _seats["hero_degraded"]
+    stats.villain_degraded_decisions = _seats["villain_degraded"]
+    stats.hero_invalid_choices = _seats["hero_invalid"]
+    stats.villain_invalid_choices = _seats["villain_invalid"]
     # Task 6: the HERO seat's own invalid-choice decision indices (never the villain's) -- the
     # per-seat, foe-Mega-bindable safety signal, in-memory only (off the closed T2 row).
     stats.hero_invalid_decision_indices = tuple(hero._invalid_decision_indices)
-    stats.crashes = hero.crashes + villain.crashes
+    stats.crashes = _seats["crashes_total"]
     return stats

@@ -616,3 +616,105 @@ def test_the_two_i8d_required_field_sets_are_in_lockstep():
         f"I8-D required-field sets have drifted: only in coverage_runner {sorted(set(A) - set(B))}, "
         f"only in strength_holdout_verdict {sorted(set(B) - set(A))}"
     )
+
+
+# ---- per-seat degradation fails the gate closed ----------------------------------------------
+#
+# Until now I8-D could not see degradation at all: a decision that fell to the blind chooser was
+# still timed and still counted toward the p95. A PASS then only said "the latency was N ms on
+# decisions we cannot show were the bot's". Gate B stopped the Floette defect after three battles
+# for exactly the counters this adds.
+
+def _stub_with_degradation(monkeypatch, *, seed_log_path, hero_degraded=0, villain_degraded=0,
+                           hero_invalid=0, villain_invalid=0, rows_for=None):
+    import showdown_bot.client.gauntlet as g
+    counter = {"i": 0}
+
+    async def _fake(**kw):
+        writer, ctx = kw["decision_profile_writer"], kw["decision_profile_context"]
+        for row in (rows_for or (lambda b: []))(ctx.battle_id):
+            writer.write(row)
+        i = counter["i"]
+        counter["i"] += 1
+        with open(seed_log_path, "a", encoding="utf-8", newline="") as fh:
+            fh.write(json.dumps({"battle_index": i, "seed_base": I8D_SEED_BASE,
+                                 "seed": derive_battle_seed(I8D_SEED_BASE, i)}) + "\n")
+        st = g.GauntletStats(games=1, hero_wins=1)
+        st.hero_degraded_decisions = hero_degraded
+        st.villain_degraded_decisions = villain_degraded
+        st.hero_invalid_choices = hero_invalid
+        st.villain_invalid_choices = villain_invalid
+        return st
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _fake)
+
+
+@pytest.mark.parametrize("seat_kwargs,expected", [
+    ({"hero_degraded": 3}, "hero_degraded_decisions"),
+    ({"villain_degraded": 2}, "villain_degraded_decisions"),
+    ({"hero_invalid": 1}, "hero_invalid_choices"),
+    ({"villain_invalid": 1}, "villain_invalid_choices"),
+])
+def test_any_non_zero_per_seat_counter_fails_the_i8d_gate(tmp_path, monkeypatch, seat_kwargs,
+                                                          expected):
+    """Per seat, never summed: a VILLAIN-only degradation must fail exactly as a hero-only one
+    does. A blind baseline is not the baseline the p95 claims to have measured against."""
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _stub_with_degradation(
+        monkeypatch, seed_log_path=seed_log,
+        rows_for=lambda bid: [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24,
+                                  latency_ms=100.0)],
+        **seat_kwargs)
+    with pytest.raises(I8DRunError, match=expected):
+        run_i8d_live_gate(
+            schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
+            config_hash="c", git_sha="d", expected_battles=6,
+            teams_root=_fixture_teams(tmp_path))
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_clean_run_still_records_all_four_counters_as_zero(tmp_path, monkeypatch):
+    # Same shape as test_driver_stops_on_the_exposure_floor_and_passes: 3 active decisions per
+    # battle over a 24-row schedule, so the D-1 floor is genuinely met and the verdict is a PASS
+    # rather than INCONCLUSIVE -- the counters must be recorded on a real PASS, not just present.
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=k, outcome="ok", twins=24, latency_ms=100.0)
+                for k in range(3)]
+
+    report = _run(tmp_path, _canon(24), monkeypatch, rows_for=rows_for)
+    assert report["hero_degraded_decisions"] == 0
+    assert report["villain_degraded_decisions"] == 0
+    assert report["hero_invalid_choices"] == 0
+    assert report["villain_invalid_choices"] == 0
+    assert report["verdict"] == "PASS"
+
+
+def test_the_abort_path_leaves_a_machine_readable_record(tmp_path, monkeypatch):
+    """The abort raises, so no verdict.json is ever published -- correct, a verdict is a
+    certification artifact and there is nothing to certify. But the numbers must not live only in
+    a traceback: the Floette counts had to be hand-reconstructed into a diagnosis doc precisely
+    because no artifact survived. abort.json is deliberately NOT named like a verdict."""
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", I8D_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _stub_with_degradation(
+        monkeypatch, seed_log_path=seed_log, villain_degraded=7,
+        rows_for=lambda bid: [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24,
+                                  latency_ms=100.0)])
+    with pytest.raises(I8DRunError):
+        run_i8d_live_gate(
+            schedule=_canon(6), out_dir=str(tmp_path / "out"), seed_log_path=seed_log,
+            config_hash="c", git_sha="d", expected_battles=6,
+            teams_root=_fixture_teams(tmp_path))
+
+    assert not (tmp_path / "out").exists()                    # no verdict, nothing published
+    assert not (tmp_path / "out.staging" / "verdict.json").exists()
+    record = json.loads((tmp_path / "out.staging" / "abort.json").read_text(encoding="utf-8"))
+    assert record["stop_reason"] == "degraded_decisions_detected"
+    assert record["gate"] == "I8-D"
+    assert record["battles_played"] == 1
+    assert record["villain_degraded_decisions"] == 7
+    assert record["hero_degraded_decisions"] == 0
+    # the per-decision rows survive alongside it -- the same source that let the diagnosis
+    # derive 59/180 and 57/180 from frozen evidence
+    assert (tmp_path / "out.staging" / "profile.jsonl").exists()
