@@ -104,6 +104,7 @@ def agent_choose(
     opp_mega_evidence_sink=None,
     stage_sink=None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -194,6 +195,7 @@ def agent_choose(
             # sidecar.
             opp_mega_evidence_sink=opp_mega_evidence_sink,
             stage_sink=stage_sink, shape_sink=shape_sink,
+            readiness_sink=readiness_sink,
         )
         if override is None:
             return heuristic_choose
@@ -213,6 +215,7 @@ def agent_choose(
         # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
         opp_mega_evidence_sink=opp_mega_evidence_sink,
             stage_sink=stage_sink, shape_sink=shape_sink,
+            readiness_sink=readiness_sink,
     )
 
 
@@ -808,6 +811,10 @@ class _Client:
         # scalar assignments; it never touches the returned action.
         profile_stage_sink = SelectionStageSink()
         profile_shape_sink = MegaShapeCounts() if profile_on else None
+        readiness_sink = None
+        if profile_on:
+            from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+            readiness_sink = Depth2ReadinessCounts()
         profile_before = (
             snapshot_calc_counters(oracle, calc.backend)
             if (profile_on and calc is not None) else None
@@ -826,6 +833,7 @@ class _Client:
                 opp_mega_evidence_sink=opp_mega_evidence,
                 stage_sink=profile_stage_sink,
                 shape_sink=profile_shape_sink,
+                readiness_sink=readiness_sink,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -985,6 +993,15 @@ class _Client:
                     latency_ms=decision_latency_ms,
                     counters_before=profile_before, counters_after=profile_after,
                     shape=profile_shape_sink,
+                    readiness=readiness_sink,
+                    selection_stage=(
+                        profile_stage_sink.selection_stage
+                        if profile_stage_sink is not None else None
+                    ),
+                    fallback_reason=(
+                        profile_stage_sink.fallback_reason
+                        if profile_stage_sink is not None else None
+                    ),
                 )
                 self.decision_profile_writer.write(row)
             except Exception as exc:  # noqa: BLE001 - best-effort; never stall the battle

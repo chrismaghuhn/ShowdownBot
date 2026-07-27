@@ -230,3 +230,78 @@ def test_v3_row_still_validates():
     row = {f: None for f in PROFILE_ROW_FIELDS_LIVE}
     row["schema_version"] = SCHEMA_VERSION_LIVE
     validate_profile_row_fields(row)  # should not raise
+
+
+# ---- §7: build_live_profile_row v4 integration ----
+
+def test_build_live_profile_row_v4():
+    """build_live_profile_row with readiness produces a valid v4 row."""
+    from showdown_bot.eval.decision_profile import build_live_profile_row, SCHEMA_VERSION_V4
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    sink = Depth2ReadinessCounts()
+    sink.search_depth = 1
+    sink.search_topn_requested = 2
+    sink.search_topm_requested = 2
+    sink.accuracy_mode = True
+    sink.accuracy_branch_cap = 6
+    sink.add_turn1_accuracy(leaf_count=10, cap_hits=0)
+
+    counters_before = {
+        "damage_batch_calls": 0, "planned_damage_batches": 0, "implicit_damage_batches": 0,
+        "stats_batch_calls": 0, "types_batch_calls": 0, "mixed_batch_calls": 0,
+        "transport_attempts": 0, "requests_total": 0, "requests_unique": 0,
+        "cache_hits": 0, "spawn_count": 0,
+    }
+    counters_after = {
+        "damage_batch_calls": 5, "planned_damage_batches": 3, "implicit_damage_batches": 2,
+        "stats_batch_calls": 1, "types_batch_calls": 0, "mixed_batch_calls": 0,
+        "transport_attempts": 6, "requests_total": 20, "requests_unique": 15,
+        "cache_hits": 5, "spawn_count": 0,
+    }
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+    shape = MegaShapeCounts(n_candidates=6, n_responses=5)
+
+    row = build_live_profile_row(
+        battle_id="b1", decision_index=0, schedule_hash="sh",
+        config_id="c", format_id="f", git_sha="g", config_hash="h",
+        calc_backend="persistent", outcome="ok", latency_ms=100.0,
+        counters_before=counters_before, counters_after=counters_after,
+        shape=shape,
+        readiness=sink,
+        selection_stage="heuristic",
+        fallback_reason=None,
+    )
+
+    assert row["schema_version"] == SCHEMA_VERSION_V4
+    assert row["search_depth"] == 1
+    assert row["accuracy_mode"] is True
+    assert row["turn1_accuracy_leaf_count"] == 10
+    assert row["selection_stage"] == "heuristic"
+    assert row["fallback_reason"] is None
+    validate_profile_row_fields(row)
+    validate_decision_profile_row(row, manifest=None)
+
+
+def test_build_live_profile_row_no_readiness_stays_v3():
+    """Without readiness, build_live_profile_row produces v3 as before."""
+    from showdown_bot.eval.decision_profile import build_live_profile_row, SCHEMA_VERSION_LIVE
+
+    counters_before = {
+        "damage_batch_calls": 0, "planned_damage_batches": 0, "implicit_damage_batches": 0,
+        "stats_batch_calls": 0, "types_batch_calls": 0, "mixed_batch_calls": 0,
+        "transport_attempts": 0, "requests_total": 0, "requests_unique": 0,
+        "cache_hits": 0, "spawn_count": 0,
+    }
+    counters_after = dict(counters_before)
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+    shape = MegaShapeCounts(n_candidates=2, n_responses=3)
+
+    row = build_live_profile_row(
+        battle_id="b1", decision_index=0, schedule_hash="sh",
+        config_id="c", format_id="f", git_sha="g", config_hash="h",
+        calc_backend="persistent", outcome="ok", latency_ms=50.0,
+        counters_before=counters_before, counters_after=counters_after,
+        shape=shape,
+    )
+    assert row["schema_version"] == SCHEMA_VERSION_LIVE

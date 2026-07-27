@@ -1441,6 +1441,7 @@ def _choose_best_ja(
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> JointAction:
     """Thin alias for ``_choose_best`` that returns only the chosen ``JointAction``.
 
@@ -1467,6 +1468,7 @@ def _choose_best_ja(
         trace=trace,
         format_config=format_config,
         opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
+        readiness_sink=readiness_sink,
     )[0]
 
 
@@ -1492,6 +1494,7 @@ def heuristic_choose_for_request(
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> str:
     """One-ply heuristic decision. Raises on any inability so the caller's
     fallback chain can take over.
@@ -1524,6 +1527,7 @@ def heuristic_choose_for_request(
         trace=trace,
         format_config=format_config,
         opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
+        readiness_sink=readiness_sink,
     )
     return encode_choose(best_ja.as_pair(), rqid=req.rqid)
 

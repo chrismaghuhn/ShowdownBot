@@ -356,7 +356,9 @@ def snapshot_calc_counters(oracle, backend) -> dict:
 def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash: str,
                            config_id: str, format_id: str, git_sha: str, config_hash: str,
                            calc_backend: str, outcome: str, latency_ms: float,
-                           counters_before: dict, counters_after: dict, shape) -> dict:
+                           counters_before: dict, counters_after: dict, shape,
+                           readiness=None, selection_stage=None,
+                           fallback_reason=None) -> dict:
     """Assemble ONE live decision-profile row -- the single place a live row is built (§2.4/§2.6).
 
     ``measured_ms`` is the ``agent_choose`` latency ONLY when ``outcome == "ok"``; otherwise it
@@ -428,6 +430,11 @@ def build_live_profile_row(*, battle_id: str, decision_index: int, schedule_hash
         "foe_mega_slots": sorted(shape.foe_mega_slots) if shape is not None else [],
         "foe_mega_order_tie": bool(shape.foe_mega_order_tie) if shape is not None else False,
     }
+    if readiness is not None:
+        row["schema_version"] = SCHEMA_VERSION_V4
+        row.update(readiness.to_dict())
+        row["selection_stage"] = selection_stage
+        row["fallback_reason"] = fallback_reason
     validate_profile_row_fields(row)   # exact-closed field set, fail closed
     return row
 
