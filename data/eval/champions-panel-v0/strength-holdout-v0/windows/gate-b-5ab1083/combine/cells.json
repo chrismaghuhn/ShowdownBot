@@ -1,0 +1,422 @@
+{
+  "aggregates_a": {
+    "losing_cells": [
+      [
+        "max_damage",
+        "14965e1f2a0d36c3"
+      ],
+      [
+        "max_damage",
+        "5cff8b4cad64c6dc"
+      ],
+      [
+        "max_damage",
+        "cb76e5fbf51a992d"
+      ]
+    ],
+    "overall_pooled": {
+      "n": 180,
+      "wilson_hi": 0.5885567459871371,
+      "wilson_lo": 0.44408004568569426,
+      "win_rate": 0.5166666666666667,
+      "wins": 93
+    },
+    "per_policy": [
+      {
+        "n": 90,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.7053024113608994,
+        "wilson_lo": 0.5078226845453937,
+        "win_rate": 0.6111111111111112,
+        "wins": 55
+      },
+      {
+        "n": 90,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.525390019773125,
+        "wilson_lo": 0.32542241309246966,
+        "win_rate": 0.4222222222222222,
+        "wins": 38
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.5166666666666667,
+    "worst_cell": {
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "5cff8b4cad64c6dc",
+      "wilson_hi": 0.3788249920651624,
+      "wilson_lo": 0.0373604698913593,
+      "win_rate": 0.13333333333333333
+    }
+  },
+  "aggregates_b": {
+    "losing_cells": [
+      [
+        "heuristic",
+        "14965e1f2a0d36c3"
+      ],
+      [
+        "heuristic",
+        "5cff8b4cad64c6dc"
+      ],
+      [
+        "max_damage",
+        "14965e1f2a0d36c3"
+      ]
+    ],
+    "overall_pooled": {
+      "n": 180,
+      "wilson_hi": 0.5174448596741402,
+      "wilson_lo": 0.37376583474975517,
+      "win_rate": 0.4444444444444444,
+      "wins": 80
+    },
+    "per_policy": [
+      {
+        "n": 90,
+        "opp_policy": "heuristic",
+        "wilson_hi": 0.5143695127228572,
+        "wilson_lo": 0.3151304105521081,
+        "win_rate": 0.4111111111111111,
+        "wins": 37
+      },
+      {
+        "n": 90,
+        "opp_policy": "max_damage",
+        "wilson_hi": 0.5797561742151601,
+        "wilson_lo": 0.37761880660358116,
+        "win_rate": 0.4777777777777778,
+        "wins": 43
+      }
+    ],
+    "tie_flag": false,
+    "tie_rate": 0.0,
+    "unweighted_cell_mean": 0.4444444444444444,
+    "worst_cell": {
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "14965e1f2a0d36c3",
+      "wilson_hi": 0.20388926630434784,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "cells_a": [
+    {
+      "losing": false,
+      "losses": 7,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "14965e1f2a0d36c3",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.7519077474025355,
+      "wilson_lo": 0.3011663015105079,
+      "win_rate": 0.5333333333333333,
+      "wins": 8
+    },
+    {
+      "losing": false,
+      "losses": 6,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "5cff8b4cad64c6dc",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.8017577191740534,
+      "wilson_lo": 0.357464427565077,
+      "win_rate": 0.6,
+      "wins": 9
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "7f026166ceb58d38",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 3,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "b46b101c7c25c768",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.9295257935638959,
+      "wilson_lo": 0.5481406466534955,
+      "win_rate": 0.8,
+      "wins": 12
+    },
+    {
+      "losing": false,
+      "losses": 9,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "cb76e5fbf51a992d",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.642535572434923,
+      "wilson_lo": 0.19824228082594664,
+      "win_rate": 0.4,
+      "wins": 6
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "e3e2c1c1dce08a57",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.7961107336956521,
+      "win_rate": 1.0,
+      "wins": 15
+    },
+    {
+      "losing": true,
+      "losses": 12,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "14965e1f2a0d36c3",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.4518593533465045,
+      "wilson_lo": 0.07047420643610414,
+      "win_rate": 0.2,
+      "wins": 3
+    },
+    {
+      "losing": true,
+      "losses": 13,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "5cff8b4cad64c6dc",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.3788249920651624,
+      "wilson_lo": 0.0373604698913593,
+      "win_rate": 0.13333333333333333,
+      "wins": 2
+    },
+    {
+      "losing": false,
+      "losses": 9,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "7f026166ceb58d38",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.642535572434923,
+      "wilson_lo": 0.19824228082594664,
+      "win_rate": 0.4,
+      "wins": 6
+    },
+    {
+      "losing": false,
+      "losses": 4,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "b46b101c7c25c768",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.8910272389681718,
+      "wilson_lo": 0.4804911034231324,
+      "win_rate": 0.7333333333333333,
+      "wins": 11
+    },
+    {
+      "losing": true,
+      "losses": 13,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "cb76e5fbf51a992d",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.3788249920651624,
+      "wilson_lo": 0.0373604698913593,
+      "win_rate": 0.13333333333333333,
+      "wins": 2
+    },
+    {
+      "losing": false,
+      "losses": 1,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e3e2c1c1dce08a57",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.9881334113938051,
+      "wilson_lo": 0.7018292244757601,
+      "win_rate": 0.9333333333333333,
+      "wins": 14
+    }
+  ],
+  "cells_b": [
+    {
+      "losing": true,
+      "losses": 12,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "14965e1f2a0d36c3",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.4518593533465045,
+      "wilson_lo": 0.07047420643610414,
+      "win_rate": 0.2,
+      "wins": 3
+    },
+    {
+      "losing": true,
+      "losses": 14,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "5cff8b4cad64c6dc",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.2981707755242399,
+      "wilson_lo": 0.011866588606194856,
+      "win_rate": 0.06666666666666667,
+      "wins": 1
+    },
+    {
+      "losing": false,
+      "losses": 3,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "7f026166ceb58d38",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.9295257935638959,
+      "wilson_lo": 0.5481406466534955,
+      "win_rate": 0.8,
+      "wins": 12
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "b46b101c7c25c768",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "cb76e5fbf51a992d",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 4,
+      "n": 15,
+      "opp_policy": "heuristic",
+      "opp_team_hash": "e3e2c1c1dce08a57",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.8910272389681718,
+      "wilson_lo": 0.4804911034231324,
+      "win_rate": 0.7333333333333333,
+      "wins": 11
+    },
+    {
+      "losing": true,
+      "losses": 15,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "14965e1f2a0d36c3",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.20388926630434784,
+      "wilson_lo": 0.0,
+      "win_rate": 0.0,
+      "wins": 0
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "5cff8b4cad64c6dc",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "7f026166ceb58d38",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 10,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "b46b101c7c25c768",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.5828687484878701,
+      "wilson_lo": 0.15176100694691236,
+      "win_rate": 0.3333333333333333,
+      "wins": 5
+    },
+    {
+      "losing": false,
+      "losses": 2,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "cb76e5fbf51a992d",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 0.9626395301086407,
+      "wilson_lo": 0.6211750079348376,
+      "win_rate": 0.8666666666666667,
+      "wins": 13
+    },
+    {
+      "losing": false,
+      "losses": 0,
+      "n": 15,
+      "opp_policy": "max_damage",
+      "opp_team_hash": "e3e2c1c1dce08a57",
+      "opp_team_path": "",
+      "ties": 0,
+      "wilson_hi": 1.0,
+      "wilson_lo": 0.7961107336956521,
+      "win_rate": 1.0,
+      "wins": 15
+    }
+  ]
+}
