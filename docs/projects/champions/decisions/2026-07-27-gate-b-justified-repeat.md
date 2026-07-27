@@ -158,7 +158,9 @@ third repeat on this configuration.
 > on this configuration. That commitment never rested on the projection: it follows from §3 — the
 > repeat is justified because the strength question was left *unanswered* by a fail-closed
 > SAFETY-FAIL, and any valid verdict, null included, is an **answer**. Removing the calibration
-> does not remove the argument.
+> does not remove the argument. Read the closing sentence above accordingly: the word *expected*
+> in it no longer carries any calibration — per "the new attempt is simply un-predicted" above,
+> what survives there is the **commitment** (no third repeat), never a surviving **prediction**.
 >
 > **Scope.** This correction touches §7 only. §5's contamination assessment and its residual-risk
 > passage remain true exactly as written — they describe what was *known* to whoever chose the fix
