@@ -4,7 +4,11 @@ import copy
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from showdown_bot.battle.evaluate import DamageModel, evaluate_line
+from showdown_bot.battle.evaluate import (
+    DamageModel,
+    _evaluate_line_details,
+    evaluate_line,
+)
 from showdown_bot.battle.opponent import OppResponse, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import aggregate_scores, pick_best
@@ -58,6 +62,7 @@ def _score_turn2_plans(
     predict_kwargs: dict,
     model_kwargs: dict,
     eval_kwargs: dict,
+    readiness_sink=None,
 ) -> list[tuple[str, list[float]]]:
     """Turn-2 analogue of ``_choose_best``'s single-world ``score_plan`` seam
     (decision.py ~360-390): for every plausible turn-2 action of ours, score it
@@ -83,32 +88,68 @@ def _score_turn2_plans(
     convention (``_our_roll``).
     """
     my_resps = predict_responses(
-        state, opp_side, our_side, book=book, field=state.field, **predict_kwargs
+        state, opp_side, our_side,
+        book=book, field=state.field, **predict_kwargs,
     )
     my_plans: list[tuple[str, list[PlannedAction]]] = [
-        (r.label, [replace(a, is_ours=True) for a in r.actions]) for r in my_resps
+        (r.label, [replace(a, is_ours=True) for a in r.actions])
+        for r in my_resps
     ]
 
     model = DamageModel(
-        state, our_side, opp_side, book=book, oracle=oracle, field=state.field,
+        state, our_side, opp_side,
+        book=book, oracle=oracle, field=state.field,
         **model_kwargs,
     )
-    groups = [plan for _label, plan in my_plans] + [r.actions for r in opp_resps]
-    # Enqueue only -- the shared oracle is flushed once across the whole depth-2
-    # frontier by the caller (Task 4), not per turn-2 leaf.
+    groups = (
+        [plan for _label, plan in my_plans]
+        + [r.actions for r in opp_resps]
+    )
+    # Enqueue only -- the shared oracle is flushed once across
+    # the whole depth-2 frontier by the caller (Task 4), not per
+    # turn-2 leaf.
     model.enqueue(groups)
 
-    def score_plan(my_plan: list[PlannedAction]) -> list[float]:
-        targets = [r.actions for r in opp_resps] if opp_resps else [[]]
+    def score_plan(
+        my_plan: list[PlannedAction],
+    ) -> list[float]:
+        targets = (
+            [r.actions for r in opp_resps]
+            if opp_resps
+            else [[]]
+        )
+        if readiness_sink is not None:
+            scores: list[float] = []
+            for opp_actions in targets:
+                d = _evaluate_line_details(
+                    state, my_plan, opp_actions,
+                    model.damage_fn,
+                    our_side=our_side,
+                    field=state.field, **eval_kwargs,
+                )
+                scores.append(d.score)
+                for t in d.tie_order_details:
+                    readiness_sink.add_turn2_accuracy(
+                        leaf_count=t.accuracy_leaf_count,
+                        cap_hits=(
+                            t.accuracy_branch_cap_hits
+                        ),
+                    )
+            return scores
         return [
             evaluate_line(
-                state, my_plan, opp_actions, model.damage_fn,
-                our_side=our_side, field=state.field, **eval_kwargs,
+                state, my_plan, opp_actions,
+                model.damage_fn,
+                our_side=our_side,
+                field=state.field, **eval_kwargs,
             )[0]
             for opp_actions in targets
         ]
 
-    return [(label, score_plan(plan)) for label, plan in my_plans]
+    return [
+        (label, score_plan(plan))
+        for label, plan in my_plans
+    ]
 
 
 def depth2_value(
@@ -124,6 +165,7 @@ def depth2_value(
     predict_kwargs: dict | None = None,
     model_kwargs: dict | None = None,
     eval_kwargs: dict | None = None,
+    readiness_sink=None,
 ) -> float:
     """The depth-2 leaf value for one turn-1 (my_plan, opp_response) line.
 
@@ -162,9 +204,13 @@ def depth2_value(
     opp_resps = sorted(opp_resps, key=lambda r: -r.weight)[:top_m]
 
     items = _score_turn2_plans(
-        nxt, our_side=our_side, opp_side=opp_side, opp_resps=opp_resps,
-        book=book, oracle=oracle, predict_kwargs=predict_kwargs,
-        model_kwargs=model_kwargs, eval_kwargs=eval_kwargs,
+        nxt, our_side=our_side, opp_side=opp_side,
+        opp_resps=opp_resps,
+        book=book, oracle=oracle,
+        predict_kwargs=predict_kwargs,
+        model_kwargs=model_kwargs,
+        eval_kwargs=eval_kwargs,
+        readiness_sink=readiness_sink,
     )
 
     resp_weights = [r.weight for r in opp_resps] if opp_resps else None
@@ -210,6 +256,7 @@ def depth2_value_for_mega_context(
     predict_kwargs: dict | None = None,
     model_kwargs: dict | None = None,
     eval_kwargs: dict | None = None,
+    readiness_sink=None,
 ) -> float:
     """Depth-2 leaf value for one (Mega evaluation context, turn-1 response)
     frontier entry (I7a-B Task 3 depth-2 binding rule).
@@ -224,9 +271,20 @@ def depth2_value_for_mega_context(
     depth-2 refinement see the projected Mega'd species/ability/speed at turn 2
     instead of silently falling back to the pre-Mega mon.
     """
-    applied_damage = _applied_damage_from_outcome(outcome, ctx.projected_state)
+    applied_damage = _applied_damage_from_outcome(
+        outcome, ctx.projected_state,
+    )
     return depth2_value(
-        ctx.projected_state, our_side=our_side, applied_damage=applied_damage, mode=mode,
-        risk_lambda=risk_lambda, top_m=top_m, book=book, oracle=ctx.damage_model.oracle,
-        predict_kwargs=predict_kwargs, model_kwargs=model_kwargs, eval_kwargs=eval_kwargs,
+        ctx.projected_state,
+        our_side=our_side,
+        applied_damage=applied_damage,
+        mode=mode,
+        risk_lambda=risk_lambda,
+        top_m=top_m,
+        book=book,
+        oracle=ctx.damage_model.oracle,
+        predict_kwargs=predict_kwargs,
+        model_kwargs=model_kwargs,
+        eval_kwargs=eval_kwargs,
+        readiness_sink=readiness_sink,
     )

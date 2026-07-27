@@ -386,3 +386,86 @@ def test_no_accuracy_env_reads_in_search(monkeypatch):
     _choose_best(_d2_req(), **_d2_kwargs())
 
     assert violations == [], f"search.py read forbidden env vars: {violations}"
+
+
+# ---- §10.3: Telemetry wiring ----
+
+def test_readiness_sink_populated_depth2(monkeypatch):
+    """With profiling conceptually on and SHOWDOWN_SEARCH_DEPTH=2, the
+    readiness sink is populated with correct search/accuracy settings
+    and non-zero Turn-1 accuracy counts (spec §10.3 tests 1-3)."""
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+
+    sink = Depth2ReadinessCounts()
+    _choose_best(_d2_req(), readiness_sink=sink, **_d2_kwargs())
+
+    assert sink.search_depth == 2
+    assert sink.search_topn_requested == 2
+    assert sink.search_topm_requested == 2
+    assert sink.accuracy_mode is True
+    assert sink.accuracy_branch_cap == 6
+    assert sink.turn1_accuracy_leaf_count > 0
+    assert sink.depth2_candidates_selected > 0
+    assert sink.depth2_response_slots_eligible > 0
+
+
+def test_readiness_sink_none_does_not_crash(monkeypatch):
+    """With readiness_sink=None (profiling off), the decision runs
+    identically with no allocation or crash (spec §10.3 test 4)."""
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+
+    choice, _ = _choose_best(_d2_req(), readiness_sink=None, **_d2_kwargs())
+    assert choice is not None
+
+
+def test_readiness_sink_depth1_zeros(monkeypatch):
+    """With SHOWDOWN_SEARCH_DEPTH=1, Turn-2 and depth2 counters are all zero."""
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.delenv("SHOWDOWN_SEARCH_DEPTH", raising=False)
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+
+    sink = Depth2ReadinessCounts()
+    _choose_best(_d2_req(), readiness_sink=sink, **_d2_kwargs())
+
+    assert sink.search_depth == 1
+    assert sink.depth2_candidates_selected == 0
+    assert sink.depth2_response_slots_eligible == 0
+    assert sink.turn2_accuracy_leaf_count == 0
+    assert sink.turn2_accuracy_cap_hits == 0
+    assert sink.turn1_accuracy_leaf_count > 0  # Turn-1 still counted
+
+
+def test_trace_recomputation_does_not_alter_counts(monkeypatch):
+    """Passing trace= and report= to _choose_best triggers _breakdowns_for
+    recomputation inside the trace path. That recomputation must NOT increment
+    the readiness sink's counters (spec §10.3 test 2).
+
+    Runs two decisions with the same board: one with trace/report (which triggers
+    recomputation), one without. The sink counts must be identical."""
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+
+    sink_no_trace = Depth2ReadinessCounts()
+    _choose_best(_d2_req(), readiness_sink=sink_no_trace, **_d2_kwargs())
+
+    sink_with_trace = Depth2ReadinessCounts()
+    _choose_best(
+        _d2_req(), readiness_sink=sink_with_trace,
+        report=[], trace=DecisionTrace(), **_d2_kwargs(),
+    )
+
+    assert sink_no_trace.turn1_accuracy_leaf_count == sink_with_trace.turn1_accuracy_leaf_count
+    assert sink_no_trace.turn1_accuracy_cap_hits == sink_with_trace.turn1_accuracy_cap_hits
+    assert sink_no_trace.turn2_accuracy_leaf_count == sink_with_trace.turn2_accuracy_leaf_count
+    assert sink_no_trace.turn2_accuracy_cap_hits == sink_with_trace.turn2_accuracy_cap_hits

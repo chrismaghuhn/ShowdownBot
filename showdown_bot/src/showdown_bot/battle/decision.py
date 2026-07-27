@@ -7,7 +7,12 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dataclasses import dataclass
 
 from showdown_bot.battle.actions import JointAction, enumerate_my_actions
-from showdown_bot.battle.evaluate import DamageModel, EvalWeights, evaluate_line
+from showdown_bot.battle.evaluate import (
+    DamageModel,
+    EvalWeights,
+    _evaluate_line_details,
+    evaluate_line,
+)
 from showdown_bot.battle.opponent import SpeciesDex, opp_speed_branch, predict_responses
 from showdown_bot.battle.oracle import DamageOracle
 from showdown_bot.battle.policy import _risk_lambda, aggregate_scores, pick_best, tera_decision
@@ -386,6 +391,7 @@ def _choose_best(
     format_config=None,
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> tuple[JointAction, float]:
     """One-ply heuristic decision core. Returns ``(chosen_ja, best_val)``.
 
@@ -408,6 +414,11 @@ def _choose_best(
         risk_lambda = _risk_lambda()
     accuracy_mode = _accuracy_mode()
     accuracy_branch_cap = _accuracy_branch_cap()
+
+    if readiness_sink is not None:
+        readiness_sink.search_depth = _search_depth()
+        readiness_sink.accuracy_mode = accuracy_mode
+        readiness_sink.accuracy_branch_cap = accuracy_branch_cap
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -525,6 +536,7 @@ def _choose_best(
             accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
             endgame=endgame, fast_board=fast_board, resolve_mode=_resolve_mode, my_actions=my_actions,
             opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
+            readiness_sink=readiness_sink,
         )
 
     plans = {
@@ -614,50 +626,94 @@ def _choose_best(
         mode = _resolve_mode()  # Lever A: incoming folded into the prefetch flush above; resolve now
 
         def score_plan(my_plan: list[PlannedAction]) -> list[float]:
-            if opp_resps:
-                return [
-                    evaluate_line(
-                        state, my_plan, r.actions, model.damage_fn,
-                        our_side=our_side, weights=weights, field=state.field,
-                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
-                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
-                    )[0]
-                    for r in opp_resps
-                ]
-            return [
-                evaluate_line(
-                    state, my_plan, [], model.damage_fn,
-                    our_side=our_side, weights=weights, field=state.field,
-                    rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
-                    accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
-                )[0]
-            ]
+            targets = (
+                [r.actions for r in opp_resps] if opp_resps else [[]]
+            )
+            scores: list[float] = []
+            for opp_actions in targets:
+                if readiness_sink is not None:
+                    d = _evaluate_line_details(
+                        state, my_plan, opp_actions, model.damage_fn,
+                        our_side=our_side, weights=weights,
+                        field=state.field,
+                        rollout_horizon=rollout_horizon,
+                        endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode,
+                        accuracy_branch_cap=accuracy_branch_cap,
+                    )
+                    scores.append(d.score)
+                    for t in d.tie_order_details:
+                        readiness_sink.add_turn1_accuracy(
+                            leaf_count=t.accuracy_leaf_count,
+                            cap_hits=t.accuracy_branch_cap_hits,
+                        )
+                else:
+                    scores.append(evaluate_line(
+                        state, my_plan, opp_actions, model.damage_fn,
+                        our_side=our_side, weights=weights,
+                        field=state.field,
+                        rollout_horizon=rollout_horizon,
+                        endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode,
+                        accuracy_branch_cap=accuracy_branch_cap,
+                    )[0])
+            return scores
 
         if _search_depth() > 1 and world_samples() <= 1:
             # --- depth-2 wrap (guarded; the verbatim 1-ply branch below runs
             # unchanged whenever this condition is false -> byte-identical off) ---
-            def score_plan_with_outcome(my_plan: list[PlannedAction]) -> list[tuple[float, object]]:
-                targets = [r.actions for r in opp_resps] if opp_resps else [[]]
-                return [
-                    evaluate_line(
+            def score_plan_with_outcome(
+                my_plan: list[PlannedAction],
+            ) -> list[tuple[float, object]]:
+                targets = (
+                    [r.actions for r in opp_resps]
+                    if opp_resps
+                    else [[]]
+                )
+                results: list[tuple[float, object]] = []
+                for opp_actions in targets:
+                    d = _evaluate_line_details(
                         state, my_plan, opp_actions, model.damage_fn,
-                        our_side=our_side, weights=weights, field=state.field,
-                        rollout_horizon=rollout_horizon, endgame=endgame, fast_board=fast_board,
-                        accuracy_mode=accuracy_mode, accuracy_branch_cap=accuracy_branch_cap,
+                        our_side=our_side, weights=weights,
+                        field=state.field,
+                        rollout_horizon=rollout_horizon,
+                        endgame=endgame, fast_board=fast_board,
+                        accuracy_mode=accuracy_mode,
+                        accuracy_branch_cap=accuracy_branch_cap,
                     )
-                    for opp_actions in targets
-                ]
+                    results.append(
+                        (d.score, d.representative_outcome),
+                    )
+                    if readiness_sink is not None:
+                        for t in d.tie_order_details:
+                            readiness_sink.add_turn1_accuracy(
+                                leaf_count=t.accuracy_leaf_count,
+                                cap_hits=(
+                                    t.accuracy_branch_cap_hits
+                                ),
+                            )
+                return results
 
-            full = {ja: score_plan_with_outcome(plan) for ja, plan in plans.items()}
-            items = [(ja, [s for s, _o in vec]) for ja, vec in full.items()]
+            full = {
+                ja: score_plan_with_outcome(plan)
+                for ja, plan in plans.items()
+            }
+            items = [
+                (ja, [s for s, _o in vec])
+                for ja, vec in full.items()
+            ]
 
-            # Frontier caps: N turn-1 candidates x M1 opponent-response slots.
+            # Frontier caps: N turn-1 candidates x M response slots.
             top_n = _search_topn()
             top_m = _search_topm()
+            if readiness_sink is not None:
+                readiness_sink.search_topn_requested = top_n
+                readiness_sink.search_topm_requested = top_m
             ranked_pos = sorted(
                 range(len(items)),
                 key=lambda i: aggregate_scores(
-                    items[i][1], mode, risk_lambda=risk_lambda, weights=resp_weights
+                    items[i][1], mode, risk_lambda=risk_lambda,
+                    weights=resp_weights,
                 ),
                 reverse=True,
             )
@@ -665,19 +721,27 @@ def _choose_best(
 
             n_resps = len(opp_resps) if opp_resps else 1
             if resp_weights is not None:
-                top_m_idx = sorted(range(len(resp_weights)), key=lambda i: -resp_weights[i])[:top_m]
+                top_m_idx = sorted(
+                    range(len(resp_weights)),
+                    key=lambda i: -resp_weights[i],
+                )[:top_m]
             else:
                 top_m_idx = list(range(min(top_m, n_resps)))
 
-            d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
+            d2_predict_kwargs = {
+                "dex": dex,
+                "speed_oracle": speed_oracle,
+            }
             d2_model_kwargs = {
                 "our_spreads": our_spreads,
                 "opp_sets": opp_sets,
                 "calc_profile": calc_profile,
             }
             d2_eval_kwargs = {
-                "weights": weights, "rollout_horizon": rollout_horizon,
-                "endgame": endgame, "fast_board": fast_board,
+                "weights": weights,
+                "rollout_horizon": rollout_horizon,
+                "endgame": endgame,
+                "fast_board": fast_board,
                 "accuracy_mode": accuracy_mode,
                 "accuracy_branch_cap": accuracy_branch_cap,
             }
@@ -687,14 +751,31 @@ def _choose_best(
                 outcomes = full[ja]
                 for i in top_m_idx:
                     _score1, outcome = outcomes[i]
-                    applied_damage = _applied_damage_from_outcome(outcome, state)
+                    applied_damage = _applied_damage_from_outcome(
+                        outcome, state,
+                    )
                     v = depth2_value(
-                        state, our_side=our_side, applied_damage=applied_damage, mode=mode,
-                        risk_lambda=risk_lambda, top_m=2, book=book, oracle=model.oracle,
-                        predict_kwargs=d2_predict_kwargs, model_kwargs=d2_model_kwargs,
+                        state,
+                        our_side=our_side,
+                        applied_damage=applied_damage,
+                        mode=mode,
+                        risk_lambda=risk_lambda,
+                        top_m=2,
+                        book=book,
+                        oracle=model.oracle,
+                        predict_kwargs=d2_predict_kwargs,
+                        model_kwargs=d2_model_kwargs,
                         eval_kwargs=d2_eval_kwargs,
+                        readiness_sink=readiness_sink,
                     )
                     scores_vec[i] = v
+            if readiness_sink is not None:
+                readiness_sink.depth2_candidates_selected = (
+                    len(top_n_pos)
+                )
+                readiness_sink.depth2_response_slots_eligible = (
+                    len(top_n_pos) * len(top_m_idx)
+                )
         else:
             items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
         best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
@@ -809,6 +890,7 @@ def _choose_best_mega(
     my_actions: list[JointAction],
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> tuple[JointAction, float]:
     """Own-Mega-aware ranking (I7a-B Task 4, design spec Sec.7.1/7.3): every
     own-Mega variant is scored as a first-class candidate in the SAME grid as
@@ -855,14 +937,24 @@ def _choose_best_mega(
         if format_config is not None and format_config.mega else {}
     )
     records = score_evaluated_variants(
-        evaluated, contexts, req=req, state=state, book=book, our_side=our_side,
-        opp_side=opp_side, calc=calc, oracle=oracle, speed_oracle=speed_oracle,
-        dex=dex, priors=priors, weights=weights, resolve_mode=resolve_mode, risk_lambda=risk_lambda,
-        rollout_horizon=rollout_horizon, our_spreads=our_spreads, opp_sets=opp_sets,
-        calc_profile=calc_profile, accuracy_mode=accuracy_mode,
-        accuracy_branch_cap=accuracy_branch_cap, endgame=endgame, fast_board=fast_board,
-        foe_mega_eligibility=_foe_eligibility, species_meta=species_meta_table(),
-        opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
+        evaluated, contexts, req=req, state=state,
+        book=book, our_side=our_side,
+        opp_side=opp_side, calc=calc, oracle=oracle,
+        speed_oracle=speed_oracle,
+        dex=dex, priors=priors, weights=weights,
+        resolve_mode=resolve_mode,
+        risk_lambda=risk_lambda,
+        rollout_horizon=rollout_horizon,
+        our_spreads=our_spreads, opp_sets=opp_sets,
+        calc_profile=calc_profile,
+        accuracy_mode=accuracy_mode,
+        accuracy_branch_cap=accuracy_branch_cap,
+        endgame=endgame, fast_board=fast_board,
+        foe_mega_eligibility=_foe_eligibility,
+        species_meta=species_meta_table(),
+        opp_mega_evidence_sink=opp_mega_evidence_sink,
+        shape_sink=shape_sink,
+        readiness_sink=readiness_sink,
     )
     # Lever A: GameMode is resolved inside score_evaluated_variants after the first world's
     # flush; retrieve the memoized value for this function's downstream trace/tera/report uses.
