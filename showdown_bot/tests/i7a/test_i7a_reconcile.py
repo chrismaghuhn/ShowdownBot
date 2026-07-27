@@ -404,3 +404,76 @@ def test_belief_tracker_feed_matches_full_log_rebuild_for_double_mega(book):
     mon_b = tracker.state.active("p1", "b")
     assert mon_b.species == "Aerodactyl"
     assert tracker.state.side_mega_spent["p1"] is True
+
+
+# ---------------------------------------------------------------------------
+# Family-granularity coherence: the `-mega` line carries the FAMILY base
+# ---------------------------------------------------------------------------
+#
+# sim/pokemon.ts::formeChange emits `species.baseSpecies` as the second field, i.e. the family
+# base -- never the pre-Mega forme. For nearly every Mega the two coincide, so comparing our
+# stored forme id against that field happened to work. It is not true in general: the dex names
+# the pre-Mega forme in a different field (`battleOnly`), and the Eternal-Flower forme is the one
+# case in the pinned dex where they diverge. Comparing a forme id against a field that cannot
+# express formes is the defect; the fix is to compare at the granularity the event actually has.
+
+RAW_ETERNAL_FLOWER_MEGA_LOG = """\
+|switch|p2b: Floette|Floette-Eternal, L50|100/100
+|switch|p1a: Incineroar|Incineroar, L50|100/100
+|turn|1
+|detailschange|p2b: Floette|Floette-Mega, L50
+|-mega|p2b: Floette|Floette|Floettite
+"""
+
+
+def test_mega_reconcile_accepts_a_forme_whose_family_base_differs_from_it():
+    """The exact protocol line the frozen evidence contains. Before the fix this raised
+    mega_reconcile_actor_mismatch: state held 'floetteeternal', the event said 'Floette'."""
+    state = BattleState.from_log_text(RAW_ETERNAL_FLOWER_MEGA_LOG)
+    mon = state.active("p2", "b")
+    assert mon.species == "Floette-Mega"
+    assert state.side_mega_spent["p2"] is True
+
+
+def test_mega_reconcile_still_refuses_a_foreign_actor():
+    """The guard must stay sharp: an event naming a different FAMILY is still refused."""
+    st = BattleState()
+    st.sides["p2"]["b"] = PokemonState(species="Amoonguss", item=None, item_known=False)
+    event = MegaReconcileEvent(
+        pokemon=PokemonId.parse("p2b: Amoonguss"),
+        mega_species_details="Floette-Mega, L50",
+        base_species="Floette",
+        stone_display="Floettite",
+    )
+    with pytest.raises(MegaReconcileError, match="mega_reconcile_actor_mismatch"):
+        st.apply_event(event)
+
+
+def test_mega_reconcile_still_refuses_a_second_foreign_actor():
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Venusaur", item=None, item_known=False)
+    event = MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1a: Venusaur"),
+        mega_species_details="Gengar-Mega, L50",
+        base_species="Gengar",
+        stone_display="Gengarite",
+    )
+    with pytest.raises(MegaReconcileError, match="mega_reconcile_actor_mismatch"):
+        st.apply_event(event)
+
+
+def test_a_within_family_wrong_actor_is_caught_downstream_not_by_this_guard():
+    """Family granularity deliberately stops distinguishing formes WITHIN one family, so a
+    same-family wrong actor passes THIS guard. It is still refused, by the coherence check
+    immediately after it: mega_form_for(base_species, stone) must resolve to a form whose species
+    equals the details species. Here the stone does not belong to the claimed family at all."""
+    st = BattleState()
+    st.sides["p1"]["a"] = PokemonState(species="Charizard", item=None, item_known=False)
+    event = MegaReconcileEvent(
+        pokemon=PokemonId.parse("p1a: Charizard"),
+        mega_species_details="Charizard-Mega-Y, L50",
+        base_species="Charizard",
+        stone_display="Gengarite",
+    )
+    with pytest.raises(MegaReconcileError, match="mega_reconcile_incoherent|mega_reconcile_item"):
+        st.apply_event(event)
