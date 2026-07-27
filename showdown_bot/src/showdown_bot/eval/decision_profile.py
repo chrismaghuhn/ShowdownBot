@@ -124,6 +124,20 @@ _V3_ONLY_FIELDS = ("foe_mega_slots", "foe_mega_order_tie")
 PROFILE_ROW_FIELDS_LIVE: tuple[str, ...] = PROFILE_ROW_FIELDS + _V3_ONLY_FIELDS
 _FIELD_SET_LIVE = _FIELD_SET | frozenset(_V3_ONLY_FIELDS)
 
+# v4 readiness telemetry (Stage-3): the v3 live field set PLUS 15 new fields -- the 13
+# Depth2ReadinessCounts.to_dict() fields plus selection_stage and fallback_reason.
+_V4_ONLY_FIELDS = (
+    "search_depth", "search_topn_requested", "search_topm_requested",
+    "depth2_candidates_selected", "depth2_response_slots_eligible",
+    "accuracy_mode", "accuracy_branch_cap",
+    "turn1_accuracy_leaf_count", "turn1_accuracy_cap_hits", "turn1_accuracy_cap_fallback",
+    "turn2_accuracy_leaf_count", "turn2_accuracy_cap_hits", "turn2_accuracy_cap_fallback",
+    "selection_stage", "fallback_reason",
+)
+SCHEMA_VERSION_V4 = "decision-profile-v4"
+PROFILE_ROW_FIELDS_V4: tuple[str, ...] = PROFILE_ROW_FIELDS_LIVE + _V4_ONLY_FIELDS
+_FIELD_SET_V4 = _FIELD_SET_LIVE | frozenset(_V4_ONLY_FIELDS)
+
 # Classified NON_BEHAVIORAL in eval/config_env.py, and that REGISTRATION is what makes the
 # claim true -- not this comment. config_env.is_excluded fails closed toward INCLUSION, so
 # an unclassified SHOWDOWN_* var lands in behavior_env and therefore in config_hash: an
@@ -157,6 +171,8 @@ def validate_profile_row_fields(row: dict) -> None:
         expected = _FIELD_SET_V1
     elif sv == SCHEMA_VERSION_LIVE:
         expected = _FIELD_SET_LIVE
+    elif sv == SCHEMA_VERSION_V4:
+        expected = _FIELD_SET_V4
     else:
         expected = _FIELD_SET
     missing = expected - set(row)
@@ -219,7 +235,7 @@ SCHEMA_VERSION_LIVE = "decision-profile-v3"
 # evidence that predates it. The two differ ONLY by mixed_batch_calls (and hence by the
 # transport_calls identity that folds it in); every other field and rule is shared, so the
 # same recomputing validator serves both by branching on the row's own schema_version.
-_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_LIVE})
+_SCHEMA_VERSIONS = frozenset({SCHEMA_VERSION_V1, SCHEMA_VERSION_V2, SCHEMA_VERSION_LIVE, SCHEMA_VERSION_V4})
 _SOURCES = frozenset({"live", "microprofile"})
 _BACKENDS = frozenset({"oneshot", "persistent"})
 _OUTCOMES = frozenset({"ok", "crash", "fallback", "degraded_state"})
@@ -933,6 +949,92 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         _require(
             not (row["foe_mega_order_tie"] and (row["n_mega_twins"] == 0 or not slots)),
             "foe_mega_order_tie True requires n_mega_twins > 0 and a recorded foe_mega_slot",
+        )
+
+    # ---- v4 readiness telemetry (Stage-3) ---------------------------------
+    if row.get("schema_version") == SCHEMA_VERSION_V4:
+        sd = row["search_depth"]
+        _require(
+            isinstance(sd, int) and not isinstance(sd, bool) and sd in (1, 2),
+            f"search_depth must be 1 or 2, got {sd!r}",
+        )
+        _require(
+            isinstance(row["accuracy_mode"], bool),
+            f"accuracy_mode must be a strict bool, got {row['accuracy_mode']!r}",
+        )
+
+        for field in ("search_topn_requested", "search_topm_requested",
+                       "depth2_candidates_selected", "depth2_response_slots_eligible",
+                       "accuracy_branch_cap",
+                       "turn1_accuracy_leaf_count", "turn1_accuracy_cap_hits",
+                       "turn2_accuracy_leaf_count", "turn2_accuracy_cap_hits"):
+            v = row[field]
+            _require(
+                isinstance(v, int) and not isinstance(v, bool) and v >= 0,
+                f"{field} must be a non-negative int, got {v!r}",
+            )
+
+        _require(
+            isinstance(row["turn1_accuracy_cap_fallback"], bool),
+            f"turn1_accuracy_cap_fallback must be bool, got {row['turn1_accuracy_cap_fallback']!r}",
+        )
+        _require(
+            isinstance(row["turn2_accuracy_cap_fallback"], bool),
+            f"turn2_accuracy_cap_fallback must be bool, got {row['turn2_accuracy_cap_fallback']!r}",
+        )
+
+        # Cross-field invariants (spec §7.3)
+        if sd == 1:
+            _require(row["depth2_candidates_selected"] == 0,
+                     "search_depth==1 but depth2_candidates_selected != 0")
+            _require(row["depth2_frontier"] == 0,
+                     "search_depth==1 but depth2_frontier != 0")
+            _require(row["turn2_accuracy_leaf_count"] == 0,
+                     "search_depth==1 but turn2_accuracy_leaf_count != 0")
+            _require(row["turn2_accuracy_cap_hits"] == 0,
+                     "search_depth==1 but turn2_accuracy_cap_hits != 0")
+            _require(row["turn2_accuracy_cap_fallback"] is False,
+                     "search_depth==1 but turn2_accuracy_cap_fallback is True")
+
+        _require(
+            row["depth2_frontier"] <= row["depth2_response_slots_eligible"],
+            "depth2_frontier > depth2_response_slots_eligible",
+        )
+        _require(
+            row["depth2_candidates_selected"] <= row["search_topn_requested"],
+            "depth2_candidates_selected > search_topn_requested",
+        )
+        _require(
+            row["depth2_frontier"] <= row["depth2_candidates_selected"] * row["search_topm_requested"],
+            "depth2_frontier > candidates * topm",
+        )
+
+        if not row["accuracy_mode"]:
+            for field in ("turn1_accuracy_leaf_count", "turn1_accuracy_cap_hits",
+                          "turn2_accuracy_leaf_count", "turn2_accuracy_cap_hits"):
+                _require(row[field] == 0,
+                         f"accuracy_mode is False but {field} != 0")
+
+        _require(
+            row["turn1_accuracy_cap_fallback"] == (row["turn1_accuracy_cap_hits"] > 0),
+            "turn1_accuracy_cap_fallback inconsistent with turn1_accuracy_cap_hits",
+        )
+        _require(
+            row["turn2_accuracy_cap_fallback"] == (row["turn2_accuracy_cap_hits"] > 0),
+            "turn2_accuracy_cap_fallback inconsistent with turn2_accuracy_cap_hits",
+        )
+
+        if row["depth2_frontier"] == 0:
+            _require(row["turn2_accuracy_leaf_count"] == 0,
+                     "no depth2 but turn2_accuracy_leaf_count != 0")
+            _require(row["turn2_accuracy_cap_fallback"] is False,
+                     "no depth2 but turn2_accuracy_cap_fallback is True")
+
+        # selection_stage / fallback_reason vocabulary
+        ss = row["selection_stage"]
+        _require(
+            ss is None or ss in ({LIVE_OK_STAGE} | LIVE_FALLBACK_STAGES),
+            f"selection_stage must be None or a known stage, got {ss!r}",
         )
 
     # ---- outcome <-> measured_ms (§2.6) ---------------------------------
