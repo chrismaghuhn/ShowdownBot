@@ -3451,3 +3451,129 @@ def test_the_arm_manifest_records_the_measured_runtime_environment(tmp_path, mon
     env = manifest["environment"]
     assert set(env) == {"python", "node", "platform", "deps"}
     assert env["python"] == sys.version.split()[0]
+
+
+# --- Degradation abort in the ARM (the gap PR #111 left open) ------------------------------
+#
+# PR #111 gave I8-D and coverage a fail-closed abort on the FIRST non-zero per-seat counter. The
+# arms never got it, and compute_safety_pass runs in the COMBINE -- so a contaminated arm played
+# all 180 battles and nobody learned of it until afterwards. The only thing standing in that gap
+# was an operator watching counters by hand; on the 2026-07-27 Floette run that is literally what
+# happened, and in the Arm A run of 2026-07-27 the monitor meant to replace the human produced no
+# reading at all. These tests pin the code path so the protection is not a person paying attention.
+
+
+def _fake_runner_degrading_at(*, battle_index, field, value=1, seed_log_path=None, seed_base=None):
+    """Like _fake_gauntlet_runner_factory, but the 0-based battle at ``battle_index`` reports
+    ``field=value`` on its on_battle_result record. Every other battle is clean."""
+    calls = []
+    next_index = [0]
+
+    async def fake_run_local_gauntlet(*, on_battle_result=None, **kwargs):
+        calls.append(kwargs)
+        index = next_index[0]
+        next_index[0] += 1
+        if seed_log_path is not None:
+            seed = derive_battle_seed(seed_base, index)
+            with open(seed_log_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({"battle_index": index, "seed": seed, "seed_base": seed_base}) + "\n")
+        if on_battle_result is not None:
+            record = {
+                "winner": "hero", "turns": 5, "end_reason": "normal", "end_hp_diff": 0.0,
+                "invalid_choices": 0, "crashes": 0, "decision_latency_p95_ms": 10.0,
+                "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+                "hero_invalid_choices": 0, "villain_invalid_choices": 0,
+                "room_raw_path": None, "normalized_room_log_sha256": None,
+            }
+            if index == battle_index:
+                record[field] = value
+            on_battle_result(record)
+        return _FakeGauntletStats(games=1)
+
+    fake_run_local_gauntlet.calls = calls
+    return fake_run_local_gauntlet
+
+
+@pytest.mark.parametrize("field", [
+    "hero_degraded_decisions",
+    "villain_degraded_decisions",
+    "hero_invalid_choices",
+    "villain_invalid_choices",
+])
+def test_arm_aborts_at_the_first_non_zero_per_seat_counter(tmp_path, monkeypatch, field):
+    """Per SEAT, never summed -- villain-only included, because a hero-centric test skips exactly
+    the case PR #111 found. The arm must stop AT that battle, not after the schedule."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    fake_runner = _fake_runner_degrading_at(
+        battle_index=1, field=field, seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+
+    with pytest.raises(GateBAbort) as excinfo:
+        run_strength_holdout_arm(
+            hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+            seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+
+    assert field in str(excinfo.value)
+    # stopped AT battle 2 of 180 -- the whole point; a completed schedule means the gap is open
+    assert len(fake_runner.calls) == 2
+    assert not out_dir.exists()
+
+
+def test_arm_degradation_abort_writes_abort_json_naming_the_arm(tmp_path, monkeypatch):
+    """The abort artifact must identify WHICH arm degraded -- a mis-wired call site that passes a
+    generic or wrong gate label is otherwise invisible, and the numbers would live only in a
+    traceback (exactly why the Floette counts had to be hand-reconstructed)."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    staging = out_dir.with_name(out_dir.name + ".staging")
+
+    with pytest.raises(GateBAbort):
+        run_strength_holdout_arm(
+            hero_agent="max_damage", schedule=schedule, out_dir=str(out_dir),
+            seed_log_path=seed_log_path, teams_root=str(tmp_path),
+            gauntlet_runner=_fake_runner_degrading_at(
+                battle_index=2, field="villain_degraded_decisions",
+                seed_log_path=seed_log_path, seed_base=schedule.seed_base),
+            holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+            date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+        )
+
+    assert not out_dir.exists()          # no publish: there is nothing to certify
+    assert staging.is_dir()              # staging survives, by design
+    with open(staging / "abort.json", "r", encoding="utf-8") as fh:
+        abort = json.load(fh)
+    assert "max_damage" in abort["gate"]           # names the ARM, not just "Gate B"
+    assert abort["battles_played"] == 3
+    assert abort["villain_degraded_decisions"] == 1
+    assert abort["hero_degraded_decisions"] == 0
+    # the partial rows survive beside it -- the per-battle source a diagnosis would need
+    with open(staging / "rows.jsonl", "r", encoding="utf-8") as fh:
+        assert len(fh.readlines()) == 3
+
+
+def test_arm_with_all_counters_zero_completes_and_publishes_unchanged(tmp_path, monkeypatch):
+    """The clean path must be untouched: the 360 frozen rows on main are the reference."""
+    schedule = build_strength_holdout_schedule(holdout_team_ids=_six_teams(), panel_hash="a" * 16)
+    seed_log_path = _setup_common(monkeypatch, tmp_path, schedule)
+    out_dir = _arm_out_dir(tmp_path, "arm_a")
+    fake_runner = _fake_gauntlet_runner_factory(
+        winner="hero", seed_log_path=seed_log_path, seed_base=schedule.seed_base)
+
+    result = run_strength_holdout_arm(
+        hero_agent="heuristic", schedule=schedule, out_dir=str(out_dir),
+        seed_log_path=seed_log_path, teams_root=str(tmp_path), gauntlet_runner=fake_runner,
+        holdout_team_content_hashes=_compute_real_team_content_hashes(tmp_path),
+        date_stratum_id="fixture-date-stratum-0", stratum_env_override="windows",
+    )
+
+    assert len(fake_runner.calls) == 180
+    assert len(result["rows"]) == 180
+    assert out_dir.exists()
+    assert not out_dir.with_name(out_dir.name + ".staging").exists()
+    with open(out_dir / "rows.jsonl", "r", encoding="utf-8") as fh:
+        assert len(fh.readlines()) == 180

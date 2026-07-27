@@ -38,7 +38,7 @@ from datetime import date
 from pathlib import Path
 
 from showdown_bot.eval.holdout_leakage_scan import HOLDOUT_TEAMS_DIR
-from showdown_bot.eval.i8d_runner import _write_json_atomic
+from showdown_bot.eval.i8d_runner import _abort_on_degradation, _write_json_atomic
 from showdown_bot.eval.panel import PanelError, team_content_hash
 from showdown_bot.eval.run_manifest import collect_environment
 from showdown_bot.eval.result_jsonl import BattleResultWriter, make_battle_id, ResultRowError
@@ -784,6 +784,22 @@ def run_strength_holdout_arm(
                 f"validation: {exc}"
             ) from exc
         rows.append(captured)
+        # Fail closed on the FIRST non-zero per-seat counter, exactly as the two upstream gates do
+        # (PR #111). Until this existed the arm played all 180 battles and `compute_safety_pass` in
+        # the COMBINE was the first thing to notice -- so a contaminated arm cost its whole schedule
+        # and the only thing standing in the gap was an operator watching counters by hand. The
+        # SHARED helper is reused rather than reimplemented: one rule that cannot drift between the
+        # three gates is the entire point, and seats are reported separately, never summed.
+        _abort_on_degradation(
+            hero_degraded=sum((r.get("hero_degraded_decisions") or 0) for r in rows),
+            villain_degraded=sum((r.get("villain_degraded_decisions") or 0) for r in rows),
+            hero_invalid=sum((r.get("hero_invalid_choices") or 0) for r in rows),
+            villain_invalid=sum((r.get("villain_invalid_choices") or 0) for r in rows),
+            battles_played=len(rows), error_cls=GateBAbort,
+            # names WHICH arm: a generic label would make a mis-wired call site invisible, and the
+            # combine pairs two arms whose contamination has to be told apart.
+            gate=f"Gate B arm ({hero_agent})", staging_dir=staging_dir,
+        )
         if len(rows) == 1:
             # The SERVER's environment is invisible from here, so a server started without
             # SHOWDOWN_EVAL_SEED_LOG only shows up once it has failed to write. Battle 1 is the
