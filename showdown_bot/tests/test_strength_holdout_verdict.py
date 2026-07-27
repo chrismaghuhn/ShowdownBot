@@ -85,6 +85,8 @@ def _valid_i8d_verdict(schedule, **overrides):
         # produces is refused.
         "environment": {"python": "3.14.5", "node": "v24.16.0",
                         "platform": "fixture-platform", "deps": {}},
+        "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+        "hero_invalid_choices": 0, "villain_invalid_choices": 0,
     }
     data.update(overrides)
     return data
@@ -157,6 +159,8 @@ def _valid_coverage_verdict(schedule, **overrides):
         # Same repair as the I8-D fixture above, same reason.
         "environment": {"python": "3.14.5", "node": "v24.16.0",
                         "platform": "fixture-platform", "deps": {}},
+        "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+        "hero_invalid_choices": 0, "villain_invalid_choices": 0,
     }
     data.update(overrides)
     return data

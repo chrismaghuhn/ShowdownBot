@@ -43,6 +43,7 @@ from showdown_bot.eval.i8d_runner import (
     I8D_MAX_SCORED_DECISIONS,
     I8D_MIN_ACTIVE_DECISIONS,
     I8D_MIN_DISTINCT_BATTLES,
+    _abort_on_degradation,
     _adopt_battle_atomic,
     _write_json_atomic,
     build_i8d_live_schedule,
@@ -70,6 +71,10 @@ _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     # already fails earlier on the calc preflight. This records provenance, it does not pin a
     # version.)
     "environment",
+    # PER SEAT (counters slice): degradation makes a run uncertifiable, so a genuine I8-D
+    # verdict always carries all four. Never summed, here or anywhere.
+    "hero_degraded_decisions", "villain_degraded_decisions",
+    "hero_invalid_choices", "villain_invalid_choices",
 })
 
 
@@ -564,6 +569,7 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
     battles_played = 0
     scored_decisions = 0
     safety_violations = 0
+    hero_degraded = villain_degraded = hero_invalid = villain_invalid = 0
     cell_counts: dict = {}
     stop_reason: str | None = None
     for row in schedule.rows:
@@ -630,6 +636,19 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         battles_played += 1
         if battles_played == 1:
             _assert_server_half_after_first_battle(seed_log_path, seed_base)
+        # Per-seat degradation, same shared rule as I8-D, aborting on the first non-zero counter.
+        # Sharper here than there: the cells measure what the OPPONENT does with its Megas, so a
+        # blind villain means the cell measured nothing. Kept strictly separate from
+        # safety_violations above, which counts foe-Mega-attributed HERO illegal choices -- a
+        # different quantity, and folding these into it would hide which seat degraded.
+        hero_degraded += stats.hero_degraded_decisions
+        villain_degraded += stats.villain_degraded_decisions
+        hero_invalid += stats.hero_invalid_choices
+        villain_invalid += stats.villain_invalid_choices
+        _abort_on_degradation(
+            hero_degraded=hero_degraded, villain_degraded=villain_degraded,
+            hero_invalid=hero_invalid, villain_invalid=villain_invalid,
+            battles_played=battles_played, error_cls=CoverageRunError, gate="coverage", staging_dir=staging_dir)
         scored_decisions = validate_live_profile_dataset(staging_profile)["rows"]
         cell_counts = coverage_cell_counts(staging_profile)
         stop, stop_reason = coverage_should_stop(
@@ -668,6 +687,20 @@ def run_coverage_gate(*, schedule, out_dir: str, seed_log_path: str,
         # The MEASURED runtime that produced this run's rows -- same probe, same shape as the
         # I8-D verdict and the Gate B arm manifest.
         "environment": collect_environment(),
+        # PER SEAT, never summed. In a PUBLISHED verdict these are always ZERO -- the run aborts
+        # on the first non-zero counter, so a verdict exists only when all four are clean. That is
+        # not redundancy: it is the difference between "the gate checked and found zero" and "the
+        # gate did not look", which is exactly what these gates could not say before. An ABSENT
+        # counter fails closed at the consumer, by the required-field sets.
+        # This is NOT where a distribution can appear: on the abort path there is no verdict at
+        # all. The numbers for a contaminated run live in <out_dir>.staging/abort.json, and the
+        # per-DECISION detail in the profile.jsonl beside it.
+        # Never folded into safety_violations above, which counts a different quantity
+        # (foe-Mega-attributed HERO illegal choices) and would hide which seat degraded.
+        "hero_degraded_decisions": hero_degraded,
+        "villain_degraded_decisions": villain_degraded,
+        "hero_invalid_choices": hero_invalid,
+        "villain_invalid_choices": villain_invalid,
         "battles_played": battles_played,
         "scored_decisions": scored_decisions,
         "max_scored_decisions": COVERAGE_MAX_SCORED_DECISIONS,

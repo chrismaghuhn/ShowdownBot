@@ -133,6 +133,61 @@ def _adopt_battle_atomic(dataset_path: str, battle_path: str) -> None:
     os.replace(tmp, dataset_path)
 
 
+DEGRADED_STOP_REASON = "degraded_decisions_detected"
+
+
+def _abort_on_degradation(*, hero_degraded: int, villain_degraded: int, hero_invalid: int,
+                          villain_invalid: int, battles_played: int, error_cls, gate: str,
+                          staging_dir: str) -> None:
+    """Fail closed on the FIRST non-zero per-seat counter, naming the seat.
+
+    Shared by both upstream gates so the rule cannot drift between them. Seats are reported
+    SEPARATELY and never summed: which seat degraded is the whole diagnostic value, and summing
+    would let a blind baseline hide behind a clean candidate (Gate B finding 5's original defect,
+    one artifact over).
+
+    Aborting at the first non-zero counter rather than completing the schedule is deliberate: a
+    contaminated run gets cheaper the sooner it stops, and nothing later in the run can un-degrade
+    the decisions already taken.
+
+    NO verdict is published on this path -- the raise propagates, so the single atomic
+    ``os.replace`` that would create ``out_dir`` never runs. That is correct: a verdict is a
+    CERTIFICATION artifact and there is nothing here to certify. But the numbers must not live
+    only in a traceback either; the Floette counts had to be hand-reconstructed into a diagnosis
+    document precisely because no artifact survived the abort. So this writes ``abort.json`` into
+    the staging directory first -- machine-readable, deliberately NOT named like a verdict, and
+    outside every closed schema.
+
+    Two documented side effects of the staging directory surviving, both intended:
+      * ``profile.jsonl`` survives beside it, carrying the per-DECISION ``outcome`` rows -- the
+        same source the diagnosis used to derive its per-battle figures from frozen evidence.
+      * a leftover staging directory makes the NEXT run refuse to start (the restart guard at the
+        top of ``run_i8d_live_gate``). That refusal is deliberate, not collateral: a contaminated
+        run must be looked at and cleared by hand, never silently overwritten.
+    """
+    seats = (
+        ("hero_degraded_decisions", hero_degraded),
+        ("villain_degraded_decisions", villain_degraded),
+        ("hero_invalid_choices", hero_invalid),
+        ("villain_invalid_choices", villain_invalid),
+    )
+    hit = [(name, value) for name, value in seats if value]
+    if not hit:
+        return
+    _write_json_atomic(os.path.join(staging_dir, "abort.json"), {
+        "gate": gate,
+        "stop_reason": DEGRADED_STOP_REASON,
+        "battles_played": battles_played,
+        **{name: value for name, value in seats},
+    })
+    detail = ", ".join(f"{name}={value}" for name, value in hit)
+    raise error_cls(
+        f"{gate} aborted after battle {battles_played}: {detail}. A degraded decision fell to the "
+        f"blind chooser -- it is not the agent's decision, so this run cannot certify what it "
+        f"claims to measure. stop_reason={DEGRADED_STOP_REASON}"
+    )
+
+
 def _preflight_seed_log(seed_log_path: str) -> None:
     """Everything about the seed log this process can check BEFORE battle 1: the path is named,
     its directory exists and is writable, and the file is absent or empty. A run that could never
@@ -328,6 +383,7 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
 
     battles_played = 0
     scored_decisions = active_valid = distinct_battles = 0
+    hero_degraded = villain_degraded = hero_invalid = villain_invalid = 0
     stop_reason: str | None = None
     for row in schedule.rows:   # verified contiguous seed_index from 0 (bound up front)
         seed = derive_battle_seed(seed_base, row.seed_index)
@@ -387,6 +443,19 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         battles_played += 1
         if battles_played == 1:
             _assert_server_half_after_first_battle(seed_log_path, seed_base)
+        # Per-seat degradation, checked after EVERY battle and aborting on the FIRST non-zero
+        # counter. A degraded decision is not the decision whose latency is being certified: it
+        # fell to the blind chooser, was still timed, and would still enter the p95. Without this
+        # an I8-D PASS says only "the latency was N ms on decisions we cannot show were the bot's".
+        # Seats stay SEPARATE -- a blind baseline is not the baseline the p95 measured against.
+        hero_degraded += stats.hero_degraded_decisions
+        villain_degraded += stats.villain_degraded_decisions
+        hero_invalid += stats.hero_invalid_choices
+        villain_invalid += stats.villain_invalid_choices
+        _abort_on_degradation(
+            hero_degraded=hero_degraded, villain_degraded=villain_degraded,
+            hero_invalid=hero_invalid, villain_invalid=villain_invalid,
+            battles_played=battles_played, error_cls=I8DRunError, gate="I8-D", staging_dir=staging_dir)
         counts = validate_live_profile_dataset(staging_profile)
         scored_decisions = counts["rows"]
         active_valid = counts["active_valid_rows"]
@@ -438,6 +507,18 @@ def run_i8d_live_gate(*, schedule, out_dir: str, seed_log_path: str,
         # I8-D freezes a latency number against a fixed budget, so the verdict has to say which
         # runtime produced it. Reuses run_manifest's existing probe -- one measurement, one place.
         "environment": collect_environment(),
+        # PER SEAT, never summed. In a PUBLISHED verdict these are always ZERO -- the run aborts
+        # on the first non-zero counter, so a verdict exists only when all four are clean. That is
+        # not redundancy: it is the difference between "the gate checked and found zero" and "the
+        # gate did not look", which is exactly what these gates could not say before. An ABSENT
+        # counter fails closed at the consumer, by the required-field sets.
+        # This is NOT where a distribution can appear: on the abort path there is no verdict at
+        # all. The numbers for a contaminated run live in <out_dir>.staging/abort.json, and the
+        # per-DECISION detail in the profile.jsonl beside it.
+        "hero_degraded_decisions": hero_degraded,
+        "villain_degraded_decisions": villain_degraded,
+        "hero_invalid_choices": hero_invalid,
+        "villain_invalid_choices": villain_invalid,
         "candidate_identity": candidate_identity,
         **verdict,
     }

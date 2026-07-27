@@ -63,6 +63,9 @@ _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     "budget_ms", "p95_ms",
     # The measured runtime the p95 was produced on (PR #107).
     "environment",
+    # PER SEAT (counters slice), mirroring coverage_runner's copy.
+    "hero_degraded_decisions", "villain_degraded_decisions",
+    "hero_invalid_choices", "villain_invalid_choices",
 })
 
 # The field set a genuine coverage verdict.json always carries, per coverage_runner.
@@ -78,6 +81,9 @@ _COVERAGE_VERDICT_REQUIRED_FIELDS = frozenset({
     # runs a REAL producer verdict through this consumer set rather than checking it against
     # itself.
     "environment",
+    # PER SEAT (counters slice); distinct from safety_violations above.
+    "hero_degraded_decisions", "villain_degraded_decisions",
+    "hero_invalid_choices", "villain_invalid_choices",
 })
 
 _CELL_COUNT_FIELDS = frozenset({"decisions", "distinct_battles"})

@@ -98,6 +98,8 @@ def _write_i8d_verdict(tmp_path, *, omit_fields=(), name="i8d_verdict.json", **o
         # hand-crafted artifact missing what a real run produces is refused.
         "environment": {"python": "3.14.5", "node": "v24.16.0",
                         "platform": "fixture-platform", "deps": {}},
+        "hero_degraded_decisions": 0, "villain_degraded_decisions": 0,
+        "hero_invalid_choices": 0, "villain_invalid_choices": 0,
     }
     data.update(overrides)
     for field in omit_fields:
@@ -1064,3 +1066,94 @@ def test_a_real_coverage_verdict_satisfies_gate_bs_required_field_set(tmp_path, 
             f"coverage producer output does not satisfy Gate B's field set -- missing "
             f"{sorted(need - produced)}, extra {sorted(produced - need)} ({exc})"
         ) from exc
+
+
+# ---- per-seat degradation fails the coverage gate closed --------------------------------------
+#
+# Sharper here than for I8-D: the cells measure what the OPPONENT does with its Megas. If the
+# villain plays blind, the cell measures nothing -- so a villain-only degradation must fail just
+# as hard as a hero-only one, and must never be folded into safety_violations, which counts a
+# different thing (foe-Mega-attributed hero illegal choices) and would hide which seat degraded.
+
+def _install_with_degradation(monkeypatch, *, seed_log_path, rows_for, **seat):
+    import showdown_bot.client.gauntlet as g
+    counter = {"i": 0}
+
+    async def _fake(**kw):
+        writer, ctx = kw["decision_profile_writer"], kw["decision_profile_context"]
+        for row in rows_for(ctx.battle_id, counter["i"]):
+            writer.write(row)
+        i = counter["i"]; counter["i"] += 1
+        with open(seed_log_path, "a", encoding="utf-8", newline="") as fh:
+            fh.write(json.dumps({"battle_index": i, "seed_base": COVERAGE_SEED_BASE,
+                                 "seed": derive_battle_seed(COVERAGE_SEED_BASE, i)}) + "\n")
+        st = g.GauntletStats(games=1, hero_wins=1)
+        st.hero_invalid_decision_indices = ()
+        st.hero_degraded_decisions = seat.get("hero_degraded", 0)
+        st.villain_degraded_decisions = seat.get("villain_degraded", 0)
+        st.hero_invalid_choices = seat.get("hero_invalid", 0)
+        st.villain_invalid_choices = seat.get("villain_invalid", 0)
+        return st
+
+    monkeypatch.setattr(g, "run_local_gauntlet", _fake)
+    monkeypatch.setattr(cr, "resolve_coverage_provenance", lambda **k: dict(_PROV))
+    monkeypatch.setattr(cr, "build_i8d_canonical_schedule", lambda **k: _i8d_canonical_stub())
+
+
+@pytest.mark.parametrize("seat_kwargs,expected", [
+    ({"hero_degraded": 4}, "hero_degraded_decisions"),
+    ({"villain_degraded": 5}, "villain_degraded_decisions"),
+    ({"hero_invalid": 1}, "hero_invalid_choices"),
+    ({"villain_invalid": 1}, "villain_invalid_choices"),
+])
+def test_any_non_zero_per_seat_counter_fails_the_coverage_gate(tmp_path, monkeypatch,
+                                                               seat_kwargs, expected):
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _install_with_degradation(monkeypatch, seed_log_path=seed_log,
+                              rows_for=lambda bid, i: [_row(bid, 0)], **seat_kwargs)
+    with pytest.raises(CoverageRunError, match=expected):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=seed_log, expected_battles=8, teams_root=_TEAMS_ROOT,
+                          i8d_verdict_path=_write_i8d_verdict(tmp_path))
+    assert not (tmp_path / "out").exists()
+
+
+def test_a_clean_coverage_run_records_all_four_counters_as_zero(tmp_path, monkeypatch):
+    report = _run(tmp_path, monkeypatch, rows_for=lambda bid, i: [_row(bid, 0)], n=8)
+    assert report["hero_degraded_decisions"] == 0
+    assert report["villain_degraded_decisions"] == 0
+    assert report["hero_invalid_choices"] == 0
+    assert report["villain_invalid_choices"] == 0
+    # separate from safety_violations, which counts something else entirely
+    assert report["safety_violations"] == 0
+
+
+def test_the_coverage_abort_path_leaves_a_machine_readable_record(tmp_path, monkeypatch):
+    """Mirrors the I8-D abort test, villain-only, and asserts gate == "coverage".
+
+    Not redundant with the I8-D one: _abort_on_degradation is shared, but `staging_dir` and `gate`
+    are passed by each caller SEPARATELY. A shared function protects the rule, not the wiring -- a
+    coverage call site handing over the wrong staging path or the wrong gate label would fail no
+    test on the I8-D side. The gate assertion is the one that catches exactly that.
+    """
+    monkeypatch.setenv("SHOWDOWN_BATTLE_SEED_BASE", COVERAGE_SEED_BASE)
+    seed_log = str(tmp_path / "seed.log")
+    _install_with_degradation(monkeypatch, seed_log_path=seed_log,
+                              rows_for=lambda bid, i: [_row(bid, 0)], villain_degraded=6)
+    with pytest.raises(CoverageRunError):
+        run_coverage_gate(schedule=_schedule(8), out_dir=str(tmp_path / "out"),
+                          seed_log_path=seed_log, expected_battles=8, teams_root=_TEAMS_ROOT,
+                          i8d_verdict_path=_write_i8d_verdict(tmp_path))
+
+    assert not (tmp_path / "out").exists()
+    assert not (tmp_path / "out.staging" / "verdict.json").exists()
+    record = json.loads((tmp_path / "out.staging" / "abort.json").read_text(encoding="utf-8"))
+    assert record["gate"] == "coverage"          # catches a mis-wired caller
+    assert record["stop_reason"] == "degraded_decisions_detected"
+    assert record["battles_played"] == 1
+    assert record["villain_degraded_decisions"] == 6
+    assert record["hero_degraded_decisions"] == 0
+    assert record["hero_invalid_choices"] == 0
+    assert record["villain_invalid_choices"] == 0
+    assert (tmp_path / "out.staging" / "profile.jsonl").exists()
