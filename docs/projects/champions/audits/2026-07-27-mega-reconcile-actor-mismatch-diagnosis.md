@@ -11,6 +11,26 @@ after 3 battles — per-seat degradation counters non-zero on **both** seats (he
 frozen `bc2d6df` evidence, and the answer is that the same defect **did** fire there — in 59 of
 180 battles in Arm A and 57 of 180 in Arm B. See §5.
 
+> **Addendum, 2026-07-27 (appended on landing; the body above is unchanged).** This is a
+> point-in-time diagnosis, written *before* the fix and deliberately left as written — an audit is
+> a dated record of what was known when, not a live status page. Read on its own the status line
+> above describes an OPEN defect; it is not one any more.
+>
+> **The defect is fixed.** PR #109 @ `f4a5239` landed the family-granularity comparison: the guard
+> now resolves the actor's family through `species_meta` instead of comparing a forme id against a
+> field that cannot express formes, and `mega_form_for` is resolved from the actor's own forme
+> rather than the event's family base. Neither required a data change — see the PR for the
+> real-data A/B over this document's own corpus.
+>
+> **The citations still resolve.** `mega_reconcile_actor_mismatch` is at `engine/state.py:280` on
+> current `main`; PR #109 changed what the guard compares, not where it fires. Everything §1–§5
+> establishes about the cause, the scope and the retroactive question stands unchanged, and the
+> `bc2d6df` SAFETY-FAIL record is untouched.
+>
+> **Still open from §4's second half:** a reconcile mismatch continues to null the entire state
+> build, so any future mismatch still blinds the rest of that battle. That was scoped out of the
+> fix deliberately and remains its own slice.
+
 ---
 
 ## 1. Where the mismatch fires — CONFIRMED
