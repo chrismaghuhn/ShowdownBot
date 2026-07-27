@@ -132,3 +132,31 @@ the remaining two gates must run on.
 This PASS closes the latency precondition **for candidate `111cf0d16a4f8a59` only**. The coverage
 gate and the independent Strength holdout are separately authorised and have not run.
 **Champions Strength remains NO-GO.**
+
+## SUPERSEDED as a precondition, 2026-07-27 (appended; nothing above is reworded)
+
+**VALID as a record.** This run happened and this is what it returned. The gate PASSed at
+p95 **890.6084999907762 ms** against the **1000 ms** budget. Nothing above is withdrawn, and
+nothing here is a latency or a quality finding: **this run failed nothing.**
+
+**SUPERSEDED as a precondition**, for two independent reasons. Either one alone is sufficient;
+they are recorded separately because fixing one would not revive this verdict.
+
+1. **Identity.** The verdict binds to `candidate_identity 111cf0d16a4f8a59` at
+   `git_sha 0390668`, and `main` has moved several commits since. `_check_identity_fields` can
+   never match this verdict again.
+2. **Schema.** Since PR #111 the I8-D verdict schema requires the four per-seat counter fields
+   (`hero_degraded_decisions`, `villain_degraded_decisions`, `hero_invalid_choices`,
+   `villain_invalid_choices`). This verdict predates them and carries 26 of the 30 required
+   fields, so it now fails the closed-schema check as **missing** — by design.
+
+**Consequence.** This verdict can never again serve as an upstream PASS for a Gate B run and
+**must not be cited as one**. It remains fully citable as evidence of what was measured.
+
+**One paragraph above is overtaken by this landing.** "Non-claims and status" says this freeze
+stays off `main` because merging would void the shared candidate identity. That identity is
+already void for reason 1, so there is nothing left to protect; the freeze is landed here to
+preserve the artifacts, not to serve a gate. The paragraph is left standing as the record of
+what was true when the run was frozen.
+
+**Champions Strength remains NO-GO.**
