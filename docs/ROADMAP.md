@@ -555,6 +555,28 @@ evidence packet. Does not change the Champions decision front; see
    (`reports/2026-07-14-accuracy-default-on-devstrength-verdict.md`): SAFETY-PASS, strength
    UNDERPOWERED (n_discordant=6); directional warning only (off favored in all discordants) —
    not equivalence, not regression proven.
+7. **Three tracked request-key risks, lifted out of a test allowlist.** These lived only as
+   comments in `showdown_bot/tests/test_maybe_trapped.py`'s unmodelled-key allowlist, which is
+   where such things rot: nobody reads a test file to find out what the bot does not model. The
+   comments stay where they are — they are the authoritative detail and the allowlist is what
+   keeps them honest — but the risks are recorded here so they are visible without opening a test.
+   **All three are latent. None is a known live defect**, and each is unreachable for a specific,
+   checkable reason rather than by assumption:
+   - **`commanding`** — a commanding Pokémon (Tatsugiri under Commander) cannot act, so a request
+     carrying `commanding=true` would need that slot treated as unable to choose. *Becomes live* the
+     moment any format or team the bot plays can trigger Commander; today no Champions Reg-MA team
+     it plays contains Tatsugiri/Dondozo.
+   - **`reviving`** — during a Revival Blessing replacement phase, `reviving=true` marks a fainted
+     Pokémon as a **legal** switch target, inverting the `fnt` exclusion that **both**
+     `_voluntary_switches` and `_bench_switch_targets` apply. This is the same class of defect as
+     the B1 `maybeTrapped` bug that failed Gate B — a server flag the bot does not read, changing
+     what is legal — only in the opposite direction: B1 offered an illegal switch, this would
+     withhold a legal one. *Becomes live* with any team carrying Revival Blessing.
+   - **`maxChosenTeamSize`** — the sim emits this key, while `BattleRequest` models
+     `max_team_size` aliased to `maxTeamSize`. The names never meet, so the real key is dropped
+     **and** the modelled one is never populated. Inert today only because the bot brings six and
+     picks four by the panel's fixed rule instead of reading a server limit. *Becomes live* the
+     moment any code path relies on a server-supplied pick limit.
 
 ## P1 — Nächster realer Stärkeversuch
 
