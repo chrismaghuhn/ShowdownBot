@@ -34,8 +34,25 @@ from showdown_bot.eval.pairing import Pair
 from showdown_bot.eval.report import _build_cells, _find_cell_flips, _paired_verdict, _strength_delta
 from showdown_bot.eval.stats import exact_binom_two_sided_p, mcnemar_counts
 
-# (mirrors coverage_runner._I8D_VERDICT_REQUIRED_FIELDS exactly -- the field set a genuine I8-D
-# verdict.json always carries, per i8d_runner.run_i8d_live_gate's own report construction.)
+# Mirrors coverage_runner._I8D_VERDICT_REQUIRED_FIELDS exactly -- the field set a genuine I8-D
+# verdict.json always carries, per i8d_runner.run_i8d_live_gate's own report construction.
+#
+# That "mirrors exactly" used to be a promise in prose, and it went false the moment PR #107 added
+# `environment` to the producer and to the coverage gate's copy but not to this one: both suites
+# stayed green because each side only ever checked its own list, and the rejection would first
+# appear at the combine, after both arms had played 360 battles.
+#
+# LOAD-BEARING, keep these: two crossings run a REAL producer verdict through a consumer's own
+# both-ways checker --
+#   test_i8d_runner.test_a_real_verdict_satisfies_gate_bs_required_field_set
+#   test_i8d_runner.test_a_real_verdict_satisfies_the_coverage_gates_required_field_set
+# (and test_coverage_runner.test_a_real_coverage_verdict_satisfies_gate_bs_required_field_set for
+# the coverage set below). Only those bind a list to what is actually produced.
+#
+# SECONDARY: test_the_two_i8d_required_field_sets_are_in_lockstep, and the pair in
+# test_strength_holdout_verdict that binds these constants from the suite that owns them. Both
+# constants can drift away from the producer TOGETHER and those stay green, so they are the cheap
+# half -- never the reason to delete a crossing.
 _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     "candidate_identity", "git_sha", "config_hash", "calc_backend", "hero_agent",
     "verdict", "panel_hash", "schedule_hash", "seed_base", "seed_log_verified",
@@ -44,6 +61,8 @@ _I8D_VERDICT_REQUIRED_FIELDS = frozenset({
     "active_valid_decisions", "distinct_active_battles", "stop_reason",
     "exposure_floor_met", "min_active_decisions", "min_distinct_battles",
     "budget_ms", "p95_ms",
+    # The measured runtime the p95 was produced on (PR #107).
+    "environment",
 })
 
 # The field set a genuine coverage verdict.json always carries, per coverage_runner.
@@ -54,6 +73,11 @@ _COVERAGE_VERDICT_REQUIRED_FIELDS = frozenset({
     "seed_log_verified", "battles_played", "scored_decisions", "max_scored_decisions",
     "cell_floors", "cell_counts", "safety_violations", "schedule_complete",
     "verdict", "stop_reason",
+    # The measured runtime the cell counts were produced on (PR #107). Same drift as the I8-D set
+    # above; enforced by test_a_real_coverage_verdict_satisfies_gate_bs_required_field_set, which
+    # runs a REAL producer verdict through this consumer set rather than checking it against
+    # itself.
+    "environment",
 })
 
 _CELL_COUNT_FIELDS = frozenset({"decisions", "distinct_battles"})

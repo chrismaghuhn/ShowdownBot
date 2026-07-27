@@ -544,3 +544,75 @@ def test_the_verdict_records_the_measured_runtime_environment(tmp_path, monkeypa
     # MEASURED, not a caller-supplied label: the python version must be this interpreter's.
     assert env["python"] == sys.version.split()[0]
     assert isinstance(env["deps"], dict)
+
+
+# ---- the crossing: producer output must satisfy the CONSUMER's verifier ------------------------
+#
+# Every schema list here is hand-maintained, and each side's unit tests only ever check it against
+# its OWN list. That is why PR #107 could add `environment` to the I8-D verdict and to the coverage
+# gate's copy of the required set while Gate B's copy went stale: both suites stayed green, and the
+# rejection would first appear at the combine -- after both arms had played 360 battles.
+# These tests exercise the crossing itself, which is the only place the real contract lives.
+
+def _assert_crossing(report: dict, required, *, gate_name: str) -> None:
+    """Run producer output through the CONSUMER's own both-ways checker.
+
+    Deliberately calls `_check_closed_schema` rather than re-deriving the two set differences
+    here: the whole contract being protected is that function's strictness in both directions, and
+    a hand-rolled set-diff would keep passing if someone later relaxed it. The set difference is
+    still computed -- but only to make the failure message useful.
+    """
+    from showdown_bot.eval.strength_holdout_verdict import (
+        StrengthHoldoutRunError,
+        _check_closed_schema,
+    )
+
+    produced, need = set(report), set(required)
+    try:
+        _check_closed_schema(report, required, verdict_path="<producer output>", gate_name=gate_name)
+    except StrengthHoldoutRunError as exc:  # pragma: no cover - only on drift
+        raise AssertionError(
+            f"{gate_name}: producer output does not satisfy the consumer's field set -- "
+            f"missing {sorted(need - produced)}, extra {sorted(produced - need)} ({exc})"
+        ) from exc
+
+
+def test_a_real_verdict_satisfies_the_coverage_gates_required_field_set(tmp_path, monkeypatch):
+    """The coverage gate's own check is inline in run_coverage_gate, so this binds the producer to
+    that gate's constant through the identical both-ways contract. That inline path is itself
+    exercised in BOTH directions by test_coverage_runner:
+    test_an_i8d_verdict_without_an_environment_block_is_refused (missing) and
+    test_an_i8d_verdict_with_an_unexpected_extra_field_is_refused (extra)."""
+    from showdown_bot.eval.coverage_runner import _I8D_VERDICT_REQUIRED_FIELDS as COVERAGE_EXPECTS
+
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    _assert_crossing(report, COVERAGE_EXPECTS, gate_name="I8-D -> coverage gate")
+
+
+def test_a_real_verdict_satisfies_gate_bs_required_field_set(tmp_path, monkeypatch):
+    """The one that was broken: Gate B keeps its own copy of the same set."""
+    from showdown_bot.eval.strength_holdout_verdict import (
+        _I8D_VERDICT_REQUIRED_FIELDS as GATE_B_EXPECTS,
+    )
+
+    def rows_for(bid):
+        return [_mk(battle_id=bid, decision_index=0, outcome="ok", twins=24, latency_ms=100.0)]
+
+    report = _run(tmp_path, _canon(6), monkeypatch, rows_for=rows_for)
+    _assert_crossing(report, GATE_B_EXPECTS, gate_name="I8-D -> Gate B")
+
+
+def test_the_two_i8d_required_field_sets_are_in_lockstep():
+    """Secondary to the two producer crossings above, and deliberately so: two constants can drift
+    away from the producer TOGETHER and this test would still pass. It only catches the cheaper
+    half -- one list edited without the other."""
+    from showdown_bot.eval.coverage_runner import _I8D_VERDICT_REQUIRED_FIELDS as A
+    from showdown_bot.eval.strength_holdout_verdict import _I8D_VERDICT_REQUIRED_FIELDS as B
+
+    assert set(A) == set(B), (
+        f"I8-D required-field sets have drifted: only in coverage_runner {sorted(set(A) - set(B))}, "
+        f"only in strength_holdout_verdict {sorted(set(B) - set(A))}"
+    )
