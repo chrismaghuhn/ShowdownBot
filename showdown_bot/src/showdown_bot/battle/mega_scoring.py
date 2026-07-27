@@ -830,13 +830,11 @@ def score_evaluated_variants(
         d2_model_kwargs = {
             "our_spreads": our_spreads, "opp_sets": opp_sets, "calc_profile": calc_profile,
         }
-        # [accuracy-slice parity] Deliberately excludes accuracy_mode/
-        # accuracy_branch_cap -- same known, accepted gap as decision.py's
-        # non-Mega depth-2 wrap (see its own comment there): depth-2
-        # refinement is out of scope for the accuracy slice.
         d2_eval_kwargs = {
             "weights": weights, "rollout_horizon": rollout_horizon,
             "endgame": endgame, "fast_board": fast_board,
+            "accuracy_mode": accuracy_mode,
+            "accuracy_branch_cap": accuracy_branch_cap,
         }
         for pos in ranked_pos[:top_n]:
             rec = records[pos]

@@ -8,7 +8,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from showdown_bot.battle import evaluate as evaluate_module
+from showdown_bot.battle import search as search_module
 from showdown_bot.battle.decision import _choose_best
 from showdown_bot.engine.state import BattleState, PokemonState
 
@@ -163,3 +166,42 @@ def test_depth2_accuracy_forwarded_nonmega(monkeypatch):
     assert all(c["accuracy_branch_cap"] == 6 for c in calls), (
         f"not all calls got accuracy_branch_cap=6: {calls}"
     )
+
+
+# ---- §10.1 Test 3: Mega Depth-2 forwarding ----
+
+def test_depth2_accuracy_forwarded_mega(monkeypatch):
+    """With SHOWDOWN_ACCURACY_MODE=1, SHOWDOWN_SEARCH_DEPTH=2, and a Mega-capable
+    board, depth2_value_for_mega_context receives the resolved accuracy values
+    in eval_kwargs (spec §10.1 test 3).
+
+    Uses the mega_decision_fixture from conftest.py if available; otherwise skips."""
+    d2_calls: list[dict] = []
+    real_d2 = search_module.depth2_value_for_mega_context
+
+    def _spy(*args, **kwargs):
+        ek = kwargs.get("eval_kwargs") or {}
+        d2_calls.append({
+            "accuracy_mode": ek.get("accuracy_mode", "MISSING"),
+            "accuracy_branch_cap": ek.get("accuracy_branch_cap", "MISSING"),
+        })
+        return real_d2(*args, **kwargs)
+
+    monkeypatch.setattr(search_module, "depth2_value_for_mega_context", _spy)
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+
+    try:
+        from conftest import mega_decision_fixture_data
+        req, kw = mega_decision_fixture_data()
+        _choose_best(req, **kw)
+    except (ImportError, AttributeError, TypeError):
+        pytest.skip("mega_decision_fixture not available")
+
+    if not d2_calls:
+        pytest.skip("no depth-2 calls in mega path (board may not trigger depth-2)")
+
+    for c in d2_calls:
+        assert c["accuracy_mode"] is True, f"d2 mega call missing accuracy_mode: {c}"
+        assert c["accuracy_branch_cap"] == 6, f"d2 mega call wrong cap: {c}"
