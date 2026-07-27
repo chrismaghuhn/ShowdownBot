@@ -171,14 +171,16 @@ def test_depth2_accuracy_forwarded_nonmega(monkeypatch):
 
 # ---- §10.1 Test 3: Mega Depth-2 forwarding ----
 
-def test_depth2_accuracy_forwarded_mega(monkeypatch):
+def test_depth2_accuracy_forwarded_mega(mega_decision_fixture, monkeypatch):
     """With SHOWDOWN_ACCURACY_MODE=1, SHOWDOWN_SEARCH_DEPTH=2, and a Mega-capable
     board, depth2_value_for_mega_context receives the resolved accuracy values
     in eval_kwargs (spec §10.1 test 3).
 
-    Uses the mega_decision_fixture from conftest.py if available; otherwise skips."""
+    Patches the already-imported reference in mega_scoring, not search_module."""
+    from showdown_bot.battle import mega_scoring as mega_scoring_module
+
     d2_calls: list[dict] = []
-    real_d2 = search_module.depth2_value_for_mega_context
+    real_d2 = mega_scoring_module.depth2_value_for_mega_context
 
     def _spy(*args, **kwargs):
         ek = kwargs.get("eval_kwargs") or {}
@@ -188,17 +190,22 @@ def test_depth2_accuracy_forwarded_mega(monkeypatch):
         })
         return real_d2(*args, **kwargs)
 
-    monkeypatch.setattr(search_module, "depth2_value_for_mega_context", _spy)
+    monkeypatch.setattr(mega_scoring_module, "depth2_value_for_mega_context", _spy)
     monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
     monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
     monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
 
-    try:
-        from conftest import mega_decision_fixture_data
-        req, kw = mega_decision_fixture_data()
-        _choose_best(req, **kw)
-    except (ImportError, AttributeError, TypeError):
-        pytest.skip("mega_decision_fixture not available")
+    req, kw = mega_decision_fixture
+    # Filter to only kwargs _choose_best accepts (fixture also provides
+    # calc_profile, evaluated_variants, contexts, mode for _choose_best_mega).
+    _CB_KEYS = {
+        "state", "book", "our_side", "calc", "oracle", "speed_oracle", "dex",
+        "priors", "weights", "risk_lambda", "tera_margin", "rollout_horizon",
+        "report", "our_spreads", "opp_sets", "trace", "format_config",
+        "opp_mega_evidence_sink", "shape_sink", "readiness_sink",
+    }
+    cb_kw = {k: v for k, v in kw.items() if k in _CB_KEYS}
+    _choose_best(req, **cb_kw)
 
     if not d2_calls:
         pytest.skip("no depth-2 calls in mega path (board may not trigger depth-2)")
@@ -412,6 +419,28 @@ def test_readiness_sink_populated_depth2(monkeypatch):
     assert sink.turn1_accuracy_leaf_count > 0
     assert sink.depth2_candidates_selected > 0
     assert sink.depth2_response_slots_eligible > 0
+
+
+def test_shape_sink_depth2_frontier_nonmega(monkeypatch):
+    """The non-Mega depth-2 path must increment shape_sink.depth2_frontier
+    for each (candidate, response_slot) evaluation, matching the Mega path's
+    behavior (Blocker 1 fix)."""
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_ACCURACY_MODE", "1")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_BRANCH_CAP", raising=False)
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+
+    shape = MegaShapeCounts()
+    _choose_best(_d2_req(), shape_sink=shape, **_d2_kwargs())
+
+    top_n = 2
+    top_m = 2
+    assert shape.depth2_frontier == top_n * top_m, (
+        f"expected depth2_frontier={top_n * top_m} but got {shape.depth2_frontier} — "
+        "non-Mega depth-2 must increment shape_sink.depth2_frontier"
+    )
 
 
 def test_readiness_sink_none_does_not_crash(monkeypatch):

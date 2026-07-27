@@ -214,6 +214,75 @@ def test_counters_reject_negative():
         validate_decision_profile_row(row, manifest=None)
 
 
+def test_depth2_topn_must_be_positive():
+    """search_depth==2 requires search_topn_requested >= 1."""
+    row = _minimal_v4_row()
+    row["search_depth"] = 2
+    row["search_topn_requested"] = 0
+    row["search_topm_requested"] = 2
+    row["depth2_candidates_selected"] = 0
+    row["depth2_response_slots_eligible"] = 0
+    row["depth2_frontier"] = 0
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_depth2_topm_must_be_positive():
+    """search_depth==2 requires search_topm_requested >= 1."""
+    row = _minimal_v4_row()
+    row["search_depth"] = 2
+    row["search_topn_requested"] = 2
+    row["search_topm_requested"] = 0
+    row["depth2_candidates_selected"] = 0
+    row["depth2_response_slots_eligible"] = 0
+    row["depth2_frontier"] = 0
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_accuracy_branch_cap_must_be_positive():
+    """accuracy_branch_cap must be >= 1 (resolver always returns >= 1)."""
+    row = _minimal_v4_row()
+    row["accuracy_branch_cap"] = 0
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_fallback_reason_must_be_none_or_str():
+    """fallback_reason rejects non-string objects."""
+    row = _minimal_v4_row()
+    row["fallback_reason"] = {"key": "value"}
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_ok_outcome_rejects_fallback_stage():
+    """outcome='ok' with a fallback selection_stage is inconsistent."""
+    row = _minimal_v4_row()
+    row["outcome"] = "ok"
+    row["selection_stage"] = "max_damage_fallback"
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_fallback_outcome_rejects_ok_stage():
+    """outcome='fallback' with selection_stage='heuristic' is inconsistent."""
+    row = _minimal_v4_row()
+    row["outcome"] = "fallback"
+    row["measured_ms"] = None
+    row["selection_stage"] = "heuristic"
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
+def test_v4_foe_mega_slots_validated():
+    """v4 rows must also pass the v3 foe_mega_slots validation."""
+    row = _minimal_v4_row()
+    row["foe_mega_slots"] = ["x"]
+    with pytest.raises(DecisionProfileError):
+        validate_decision_profile_row(row, manifest=None)
+
+
 # ---- backward compatibility: v1/v2/v3 rows still validate ----
 
 def test_v1_row_still_validates():

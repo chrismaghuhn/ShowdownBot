@@ -769,6 +769,8 @@ def _choose_best(
                         readiness_sink=readiness_sink,
                     )
                     scores_vec[i] = v
+                    if shape_sink is not None:
+                        shape_sink.depth2_frontier += 1
             if readiness_sink is not None:
                 readiness_sink.depth2_candidates_selected = (
                     len(top_n_pos)

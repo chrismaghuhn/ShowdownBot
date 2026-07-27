@@ -933,10 +933,9 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         "n_mega_twins > 0 but foe_mega_active is false",
     )
 
-    # ---- v3 live-only foe-Mega coverage telemetry (Task 1) --------------
-    # These fields exist ONLY on a decision-profile-v3 row (validate_profile_row_fields keeps them
-    # off v1/v2), so the rules are scoped to v3.
-    if row.get("schema_version") == SCHEMA_VERSION_LIVE:
+    # ---- v3+ live-only foe-Mega coverage telemetry (Task 1) --------------
+    # These fields exist on v3 and v4 rows (validate_profile_row_fields keeps them off v1/v2).
+    if row.get("schema_version") in (SCHEMA_VERSION_LIVE, SCHEMA_VERSION_V4):
         slots = row["foe_mega_slots"]
         _require(
             isinstance(slots, list)
@@ -1037,12 +1036,38 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
             _require(row["turn2_accuracy_cap_fallback"] is False,
                      "no depth2 but turn2_accuracy_cap_fallback is True")
 
+        if sd == 2:
+            _require(row["search_topn_requested"] >= 1,
+                     "search_depth==2 but search_topn_requested < 1")
+            _require(row["search_topm_requested"] >= 1,
+                     "search_depth==2 but search_topm_requested < 1")
+
+        _require(
+            row["accuracy_branch_cap"] >= 1,
+            f"accuracy_branch_cap must be >= 1, got {row['accuracy_branch_cap']}",
+        )
+
         # selection_stage / fallback_reason vocabulary
         ss = row["selection_stage"]
         _require(
             ss is None or ss in ({LIVE_OK_STAGE} | LIVE_FALLBACK_STAGES),
             f"selection_stage must be None or a known stage, got {ss!r}",
         )
+        fr = row["fallback_reason"]
+        _require(
+            fr is None or isinstance(fr, str),
+            f"fallback_reason must be None or str, got {type(fr).__name__}",
+        )
+        if ss == LIVE_OK_STAGE:
+            _require(
+                row["outcome"] == "ok",
+                f"selection_stage={ss!r} but outcome={row['outcome']!r} (expected 'ok')",
+            )
+        if ss in LIVE_FALLBACK_STAGES:
+            _require(
+                row["outcome"] == "fallback",
+                f"selection_stage={ss!r} but outcome={row['outcome']!r} (expected 'fallback')",
+            )
 
     # ---- outcome <-> measured_ms (§2.6) ---------------------------------
     # A crashed decision's wall clock is the crash handler, not decision work; recording

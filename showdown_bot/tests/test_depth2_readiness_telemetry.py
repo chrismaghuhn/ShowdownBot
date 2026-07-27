@@ -13,7 +13,7 @@ def test_initial_state():
     assert c.depth2_candidates_selected == 0
     assert c.depth2_response_slots_eligible == 0
     assert c.accuracy_mode is False
-    assert c.accuracy_branch_cap == 0
+    assert c.accuracy_branch_cap == 6
     assert c.turn1_accuracy_leaf_count == 0
     assert c.turn1_accuracy_cap_hits == 0
     assert c.turn2_accuracy_leaf_count == 0

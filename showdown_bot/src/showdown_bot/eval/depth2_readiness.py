@@ -17,7 +17,7 @@ class Depth2ReadinessCounts:
     depth2_candidates_selected: int = 0
     depth2_response_slots_eligible: int = 0
     accuracy_mode: bool = False
-    accuracy_branch_cap: int = 0
+    accuracy_branch_cap: int = 6
     turn1_accuracy_leaf_count: int = 0
     turn1_accuracy_cap_hits: int = 0
     turn2_accuracy_leaf_count: int = 0
