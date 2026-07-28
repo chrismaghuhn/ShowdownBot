@@ -83,6 +83,8 @@ def _tie_board():
 
 
 def _score(b, *, shape_sink=None):
+    from showdown_bot.battle.decision import _search_depth, _search_topn, _search_topm
+
     elig = foe_mega_eligibility(b["state"], "p2", opp_sets=None)
     return score_evaluated_variants(
         b["variants"], b["contexts"], req=b["req"], state=b["state"], book=b["book"],
@@ -92,6 +94,7 @@ def _score(b, *, shape_sink=None):
         opp_sets=None, calc_profile=b["profile"], accuracy_mode=False, accuracy_branch_cap=6,
         endgame=False, fast_board=False, foe_mega_eligibility=elig,
         species_meta=species_meta_table(), shape_sink=shape_sink,
+        search_depth=_search_depth(), search_topn=_search_topn(), search_topm=_search_topm(),
     )
 
 

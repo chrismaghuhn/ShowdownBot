@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field, replace
 
 from showdown_bot.battle.actions import JointAction
-from showdown_bot.battle.decision import _plan_my_actions, _search_depth, _search_topm, _search_topn
+from showdown_bot.battle.decision import _plan_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, LineEvaluation, _evaluate_line_details
 from showdown_bot.battle.mega_variants import (
     ScoredMegaVariant,
@@ -404,6 +404,10 @@ def score_evaluated_variants(
     species_meta: dict[str, SpeciesFormMeta] | None = None,
     opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None,
     shape_sink: MegaShapeCounts | None = None,
+    readiness_sink=None,
+    search_depth: int = 1,
+    search_topn: int = 2,
+    search_topm: int = 2,
 ) -> list[MegaScoreRecord]:
     """Expand no actions -- score exactly the supplied ``evaluated_variants``
     against the already-built ``contexts`` (I7a-B Task 3).
@@ -726,6 +730,12 @@ def score_evaluated_variants(
                         raw_w = r.weight if (priors is not None and r is not None) else 1.0  # legacy, unchanged
                     rec.score_vector.append(detail.score)
                     rec.score_weights.append(world_w * raw_w)
+                    if readiness_sink is not None:
+                        for t in detail.tie_order_details:
+                            readiness_sink.add_turn1_accuracy(
+                                leaf_count=t.accuracy_leaf_count,
+                                cap_hits=t.accuracy_branch_cap_hits,
+                            )
                     if world_idx == 0:
                         rec.diagnostic_details.append(detail)
                         rec.diagnostic_weights.append(raw_w)
@@ -780,11 +790,25 @@ def score_evaluated_variants(
                             )
                         raw_w = original.weight
                         rec.score_vector.append(detail.score)
-                        rec.score_weights.append(world_w * raw_w * branch.weight)
+                        rec.score_weights.append(
+                            world_w * raw_w * branch.weight,
+                        )
+                        if readiness_sink is not None:
+                            for t in detail.tie_order_details:
+                                readiness_sink.add_turn1_accuracy(
+                                    leaf_count=t.accuracy_leaf_count,
+                                    cap_hits=(
+                                        t.accuracy_branch_cap_hits
+                                    ),
+                                )
                         if world_idx == 0:
                             rec.diagnostic_details.append(detail)
-                            rec.diagnostic_weights.append(raw_w * branch.weight)
-                            rec.diagnostic_contexts.append(bundle["branch_ctx"])  # Task 6
+                            rec.diagnostic_weights.append(
+                                raw_w * branch.weight,
+                            )
+                            rec.diagnostic_contexts.append(
+                                bundle["branch_ctx"],
+                            )  # Task 6
                         if opp_mega_evidence_sink is not None:
                             _pending_evidence.append((ScoredResponseEvidence(
                                 candidate_key=candidate_key, response_id=original.response_id,
@@ -801,7 +825,7 @@ def score_evaluated_variants(
     # the resolve would otherwise score with an unset mode.
     assert mode is not None, "score_evaluated_variants needs mode= or resolve_mode()"
 
-    if _search_depth() > 1 and world_samples() <= 1:
+    if search_depth > 1 and world_samples() <= 1:
         # --- depth-2 wrap for the Mega grid (I7a-B Task 1 follow-up; mirrors
         # decision.py's single-world depth-2 wrap in spirit): base AND
         # own-Mega candidates are ranked together in the SAME grid for the
@@ -816,64 +840,86 @@ def score_evaluated_variants(
         # ``diagnostic_weights`` populated; that is also the only world that
         # exists when this gate is true (``world_samples() <= 1``), so
         # ``score_vector``'s indices line up with them one-to-one here.
-        top_n = _search_topn()
-        top_m = _search_topm()
+        top_n = search_topn
+        top_m = search_topm
         ranked_pos = sorted(
             range(len(records)),
             key=lambda i: aggregate_scores(
-                records[i].score_vector, mode, risk_lambda=risk_lambda,
+                records[i].score_vector, mode,
+                risk_lambda=risk_lambda,
                 weights=records[i].score_weights,
             ),
             reverse=True,
         )
-        d2_predict_kwargs = {"dex": dex, "speed_oracle": speed_oracle}
+        d2_predict_kwargs = {
+            "dex": dex,
+            "speed_oracle": speed_oracle,
+        }
         d2_model_kwargs = {
-            "our_spreads": our_spreads, "opp_sets": opp_sets, "calc_profile": calc_profile,
+            "our_spreads": our_spreads,
+            "opp_sets": opp_sets,
+            "calc_profile": calc_profile,
         }
-        # [accuracy-slice parity] Deliberately excludes accuracy_mode/
-        # accuracy_branch_cap -- same known, accepted gap as decision.py's
-        # non-Mega depth-2 wrap (see its own comment there): depth-2
-        # refinement is out of scope for the accuracy slice.
         d2_eval_kwargs = {
-            "weights": weights, "rollout_horizon": rollout_horizon,
-            "endgame": endgame, "fast_board": fast_board,
+            "weights": weights,
+            "rollout_horizon": rollout_horizon,
+            "endgame": endgame,
+            "fast_board": fast_board,
+            "accuracy_mode": accuracy_mode,
+            "accuracy_branch_cap": accuracy_branch_cap,
         }
+        _d2_n_candidates = 0
+        _d2_eligible_slots = 0
         for pos in ranked_pos[:top_n]:
             rec = records[pos]
-            resp_ws = rec.diagnostic_weights or [1.0] * len(rec.score_vector)
-            top_m_idx = sorted(range(len(resp_ws)), key=lambda i: -resp_ws[i])[:top_m]
+            _d2_n_candidates += 1
+            resp_ws = (
+                rec.diagnostic_weights
+                or [1.0] * len(rec.score_vector)
+            )
+            _d2_eligible_slots += len(resp_ws)
+            top_m_idx = sorted(
+                range(len(resp_ws)),
+                key=lambda i: -resp_ws[i],
+            )[:top_m]
 
             for i in top_m_idx:
                 if shape_sink is not None:
-                    shape_sink.depth2_frontier += 1   # this (record, index) is actually refined
-                outcome = rec.diagnostic_details[i].representative_outcome
-                # Task 6: bind to THIS index's own context -- the own-only ctx_by_slot
-                # entry for a no-mega index, or that specific foe-mega branch's own
-                # branch_ctx for a foe-mega index. A record's top-M may legitimately
-                # span both, since Task 4 interleaves foe-Mega branch responses into
-                # the same score_vector/diagnostic_details arrays; binding one blanket
-                # ctx_by_slot[rec.variant.own_mega_slot] to every index refined a
-                # foe-Mega branch's diagnostic against the own-only board.
-                # diagnostic_contexts is EMPTY on the legacy/I7a path (Task 4 populates
-                # it only when _i7b_active), so the else-branch preserves pre-I7b-B
-                # behavior byte-identically.
+                    shape_sink.depth2_frontier += 1
+                outcome = (
+                    rec.diagnostic_details[i]
+                    .representative_outcome
+                )
+                # Task 6: bind to THIS index's own context
                 bound_ctx = (
                     rec.diagnostic_contexts[i]
                     if rec.diagnostic_contexts
-                    else ctx_by_slot[rec.variant.own_mega_slot]
+                    else ctx_by_slot[
+                        rec.variant.own_mega_slot
+                    ]
                 )
-                rec.score_vector[i] = depth2_value_for_mega_context(
-                    bound_ctx,
-                    outcome,
-                    our_side=our_side,
-                    mode=mode,
-                    risk_lambda=risk_lambda,
-                    top_m=2,
-                    book=book,
-                    predict_kwargs=d2_predict_kwargs,
-                    model_kwargs=d2_model_kwargs,
-                    eval_kwargs=d2_eval_kwargs,
+                rec.score_vector[i] = (
+                    depth2_value_for_mega_context(
+                        bound_ctx,
+                        outcome,
+                        our_side=our_side,
+                        mode=mode,
+                        risk_lambda=risk_lambda,
+                        top_m=2,
+                        book=book,
+                        predict_kwargs=d2_predict_kwargs,
+                        model_kwargs=d2_model_kwargs,
+                        eval_kwargs=d2_eval_kwargs,
+                        readiness_sink=readiness_sink,
+                    )
                 )
+        if readiness_sink is not None:
+            readiness_sink.depth2_candidates_selected = (
+                _d2_n_candidates
+            )
+            readiness_sink.depth2_response_slots_eligible = (
+                _d2_eligible_slots
+            )
 
     # [REV.9 finding 3] Finalise evidence AFTER the depth-2 wrap and BEFORE the
     # aggregate below, resolving each row's raw_score from the score_vector slot it

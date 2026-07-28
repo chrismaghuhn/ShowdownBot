@@ -104,6 +104,7 @@ def agent_choose(
     opp_mega_evidence_sink=None,
     stage_sink=None,
     shape_sink=None,
+    readiness_sink=None,
 ) -> str:
     """Pure per-request dispatch shared by both gauntlet clients (unit-testable).
 
@@ -194,6 +195,7 @@ def agent_choose(
             # sidecar.
             opp_mega_evidence_sink=opp_mega_evidence_sink,
             stage_sink=stage_sink, shape_sink=shape_sink,
+            readiness_sink=readiness_sink,
         )
         if override is None:
             return heuristic_choose
@@ -213,6 +215,7 @@ def agent_choose(
         # heuristic_choose_for_request -- no second container there (I7b-C Task 2).
         opp_mega_evidence_sink=opp_mega_evidence_sink,
             stage_sink=stage_sink, shape_sink=shape_sink,
+            readiness_sink=readiness_sink,
     )
 
 
@@ -254,6 +257,20 @@ def _seat_counters(hero, villain) -> dict:
         "invalid_total": hero.invalid + villain.invalid,
         "crashes_total": hero.crashes + villain.crashes,
     }
+
+
+def check_profile_rows_dropped(hero, villain) -> None:
+    """Fail-closed check: any dropped decision-profile row aborts the run.
+
+    Called AFTER both clients are fully closed, so resource cleanup is never
+    skipped regardless of the outcome.
+    """
+    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
+    if dropped > 0:
+        raise RuntimeError(
+            f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
+            f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
+        )
 
 
 class _PerBattleCounters:
@@ -444,6 +461,7 @@ class _Client:
         # [P1] Rows WRITTEN, not the decision index. The two differ whenever a decision
         # produces no row, which is why this must never be used to number one.
         self._opp_mega_rows_written = 0
+        self._profile_rows_dropped = 0
         # [P1] The shared request/decision sequence: advances once per handled non-wait
         # request, independent of any writer, and is what every sidecar row's
         # `decision_index` is stamped with. A per-writer row counter cannot do this job:
@@ -808,6 +826,10 @@ class _Client:
         # scalar assignments; it never touches the returned action.
         profile_stage_sink = SelectionStageSink()
         profile_shape_sink = MegaShapeCounts() if profile_on else None
+        readiness_sink = None
+        if profile_on:
+            from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+            readiness_sink = Depth2ReadinessCounts()
         profile_before = (
             snapshot_calc_counters(oracle, calc.backend)
             if (profile_on and calc is not None) else None
@@ -826,6 +848,7 @@ class _Client:
                 opp_mega_evidence_sink=opp_mega_evidence,
                 stage_sink=profile_stage_sink,
                 shape_sink=profile_shape_sink,
+                readiness_sink=readiness_sink,
             )
         except Exception as exc:  # noqa: BLE001 - last-ditch, keep the battle alive
             logger.warning("[%s] agent crashed: %s", self.name, exc)
@@ -985,11 +1008,22 @@ class _Client:
                     latency_ms=decision_latency_ms,
                     counters_before=profile_before, counters_after=profile_after,
                     shape=profile_shape_sink,
+                    readiness=readiness_sink,
+                    selection_stage=(
+                        profile_stage_sink.selection_stage
+                        if profile_stage_sink is not None else None
+                    ),
+                    fallback_reason=(
+                        profile_stage_sink.fallback_reason
+                        if profile_stage_sink is not None else None
+                    ),
                 )
                 self.decision_profile_writer.write(row)
-            except Exception as exc:  # noqa: BLE001 - best-effort; never stall the battle
-                logger.debug(
-                    "[%s] decision-profile write failed (row dropped): %s", self.name, exc
+            except Exception as exc:  # noqa: BLE001 - fail-closed: count for post-battle abort
+                self._profile_rows_dropped += 1
+                logger.warning(
+                    "[%s] decision-profile write FAILED (row #%d dropped): %s",
+                    self.name, self._profile_rows_dropped, exc,
                 )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
@@ -1647,6 +1681,8 @@ async def run_local_gauntlet(
         # calls don't leak a Node process per hero/villain client per battle.
         hero.close()
         villain.close()
+
+    check_profile_rows_dropped(hero, villain)
 
     stats.latencies = hero.latencies
     # Same single read site the per-battle emitter uses, so the two artifacts cannot disagree

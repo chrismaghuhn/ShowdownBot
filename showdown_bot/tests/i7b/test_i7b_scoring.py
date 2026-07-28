@@ -54,6 +54,7 @@ def _assert_pre_mega_speeds_tie(kw):
 
 
 def _score(kw, req, *, eligibility=None, sink=None, mode=None):
+    from showdown_bot.battle.decision import _search_depth, _search_topn, _search_topm
     from showdown_bot.engine.species_meta import species_meta_table
 
     return score_evaluated_variants(
@@ -65,6 +66,7 @@ def _score(kw, req, *, eligibility=None, sink=None, mode=None):
         endgame=False, fast_board=False,
         foe_mega_eligibility=eligibility, species_meta=species_meta_table() if eligibility else None,
         opp_mega_evidence_sink=sink,
+        search_depth=_search_depth(), search_topn=_search_topn(), search_topm=_search_topm(),
     )
 
 

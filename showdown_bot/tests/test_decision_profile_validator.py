@@ -16,8 +16,12 @@ from __future__ import annotations
 import pytest
 
 from showdown_bot.eval.decision_profile import (
+    KNOWN_FALLBACK_REASONS,
+    LIVE_FALLBACK_STAGES,
+    LIVE_OK_STAGE,
     PROFILE_MANIFEST_SCHEMA_VERSION,
     SCHEMA_VERSION,
+    SCHEMA_VERSION_V4,
     DecisionProfileError,
     backend_class_of,
     expected_cache_class,
@@ -626,3 +630,164 @@ def test_the_validator_still_rejects_a_missing_field():
     del row["outcome"]
     with pytest.raises(DecisionProfileError):
         validate_decision_profile_row(row, manifest=_manifest())
+
+
+# ==========================================================================
+# V4 selection_stage / fallback_reason mutation tests
+# ==========================================================================
+
+def _v4_ok(**over) -> dict:
+    """A VALID V4 row with outcome=ok, selection_stage=heuristic, fallback_reason=None."""
+    row = _live(
+        schema_version=SCHEMA_VERSION_V4,
+        outcome="ok",
+        selection_stage=LIVE_OK_STAGE,
+        fallback_reason=None,
+        foe_mega_slots=[],
+        foe_mega_order_tie=False,
+        search_depth=1,
+        search_topn_requested=2,
+        search_topm_requested=2,
+        depth2_candidates_selected=0,
+        depth2_response_slots_eligible=0,
+        depth2_frontier=0,
+        accuracy_mode=False,
+        accuracy_branch_cap=6,
+        turn1_accuracy_leaf_count=0,
+        turn1_accuracy_cap_hits=0,
+        turn1_accuracy_cap_fallback=False,
+        turn2_accuracy_leaf_count=0,
+        turn2_accuracy_cap_hits=0,
+        turn2_accuracy_cap_fallback=False,
+    )
+    row.update(over)
+    return row
+
+
+def _v4_fallback(stage: str | None = "max_damage_fallback", reason: str | None = "heuristic_timeout", **over) -> dict:
+    """A VALID V4 row with outcome=fallback and a known stage+reason."""
+    row = _v4_ok(
+        outcome="fallback",
+        measured_ms=None,
+        selection_stage=stage,
+        fallback_reason=reason,
+    )
+    row.update(over)
+    return row
+
+
+def test_v4_ok_row_passes():
+    validate_decision_profile_row(_v4_ok(), manifest=None)
+
+
+def test_v4_fallback_row_passes():
+    validate_decision_profile_row(_v4_fallback(), manifest=None)
+
+
+def test_v4_unknown_selection_stage_rejected():
+    with pytest.raises(DecisionProfileError, match="selection_stage must be None or a known stage"):
+        validate_decision_profile_row(
+            _v4_ok(selection_stage="invented_stage"), manifest=None)
+
+
+def test_v4_unknown_fallback_reason_rejected():
+    with pytest.raises(DecisionProfileError, match="fallback_reason must be None or one of"):
+        validate_decision_profile_row(
+            _v4_fallback(reason="invented_reason"), manifest=None)
+
+
+def test_v4_ok_stage_with_fallback_outcome_rejected():
+    with pytest.raises(DecisionProfileError, match="selection_stage=.*but outcome="):
+        validate_decision_profile_row(
+            _v4_ok(outcome="fallback", measured_ms=None), manifest=None)
+
+
+def test_v4_ok_stage_with_fallback_reason_rejected():
+    with pytest.raises(DecisionProfileError, match="ok path.*but fallback_reason="):
+        validate_decision_profile_row(
+            _v4_ok(fallback_reason="heuristic_timeout"), manifest=None)
+
+
+def test_v4_fallback_stage_with_ok_outcome_rejected():
+    with pytest.raises(DecisionProfileError, match="selection_stage=.*but outcome=.*expected 'fallback'"):
+        validate_decision_profile_row(
+            _v4_ok(selection_stage="max_damage_fallback"), manifest=None)
+
+
+def test_v4_fallback_stage_with_no_reason_rejected():
+    with pytest.raises(DecisionProfileError, match="fallback.*but fallback_reason is None"):
+        validate_decision_profile_row(
+            _v4_fallback(reason=None, outcome="fallback", measured_ms=None,
+                         selection_stage="max_damage_fallback"), manifest=None)
+
+
+def test_v4_outcome_ok_with_null_stage_rejected():
+    """outcome=ok but selection_stage=None — the reverse check (outcome→stage) fires."""
+    with pytest.raises(DecisionProfileError, match="outcome='ok' but selection_stage="):
+        validate_decision_profile_row(
+            _v4_ok(selection_stage=None), manifest=None)
+
+
+def test_v4_outcome_fallback_with_null_stage_rejected():
+    """outcome=fallback but selection_stage=None — the reverse check fires."""
+    with pytest.raises(DecisionProfileError, match="outcome='fallback' but selection_stage=.*is not a known fallback"):
+        validate_decision_profile_row(
+            _v4_fallback(stage=None, reason="heuristic_timeout"), manifest=None)
+
+
+def test_v4_dict_fallback_reason_rejected():
+    """An unhashable fallback_reason (e.g. dict from a serialization bug) must not crash."""
+    with pytest.raises(DecisionProfileError, match="fallback_reason must be None or one of"):
+        validate_decision_profile_row(
+            _v4_fallback(fallback_reason={"key": "value"}), manifest=None)
+
+
+def test_v4_k_world_with_depth2_frontier_rejected():
+    with pytest.raises(DecisionProfileError, match="n_worlds=.*but depth2_frontier"):
+        validate_decision_profile_row(
+            _v4_ok(n_worlds=3, depth2_frontier=1,
+                   search_depth=2, search_topn_requested=2, search_topm_requested=2,
+                   depth2_candidates_selected=1, depth2_response_slots_eligible=2),
+            manifest=None)
+
+
+def test_v4_k_world_with_depth2_candidates_rejected():
+    with pytest.raises(DecisionProfileError, match="n_worlds=.*but depth2_candidates_selected"):
+        validate_decision_profile_row(
+            _v4_ok(n_worlds=3, depth2_candidates_selected=1,
+                   search_depth=2, search_topn_requested=2, search_topm_requested=2,
+                   depth2_response_slots_eligible=2),
+            manifest=None)
+
+
+def test_v4_each_stage_accepts_its_coupled_reasons():
+    """Every stage→reason pair from STAGE_ALLOWED_REASONS passes."""
+    validate_decision_profile_row(
+        _v4_fallback(stage="max_damage_fallback", reason="heuristic_timeout"), manifest=None)
+    validate_decision_profile_row(
+        _v4_fallback(stage="max_damage_fallback", reason="heuristic_error"), manifest=None)
+    validate_decision_profile_row(
+        _v4_fallback(stage="deterministic_default_pair", reason="max_damage_error"), manifest=None)
+    validate_decision_profile_row(
+        _v4_fallback(stage="server_default", reason="default_pair_error"), manifest=None)
+
+
+def test_v4_mismatched_stage_reason_rejected():
+    """A reason valid in isolation but not for this stage is rejected."""
+    with pytest.raises(DecisionProfileError, match="does not allow fallback_reason="):
+        validate_decision_profile_row(
+            _v4_fallback(stage="server_default", reason="heuristic_timeout"), manifest=None)
+
+
+def test_v4_deterministic_default_pair_rejects_heuristic_reason():
+    with pytest.raises(DecisionProfileError, match="does not allow fallback_reason="):
+        validate_decision_profile_row(
+            _v4_fallback(stage="deterministic_default_pair", reason="heuristic_error"),
+            manifest=None)
+
+
+def test_v4_max_damage_fallback_rejects_max_damage_error():
+    with pytest.raises(DecisionProfileError, match="does not allow fallback_reason="):
+        validate_decision_profile_row(
+            _v4_fallback(stage="max_damage_fallback", reason="max_damage_error"),
+            manifest=None)
