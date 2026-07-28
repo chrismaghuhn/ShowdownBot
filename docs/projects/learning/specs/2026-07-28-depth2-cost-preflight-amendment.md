@@ -33,11 +33,18 @@ evidence, because no single one covers all five arm variables — the empty-`beh
 `config_hash` settles the three hashed variables, and the profile rows' `2`/`2` frontier
 caps settle the two that are excluded from the hash by construction (§6.3, A.4).
 
-The defect is closed by four independent checks added in this revision: full variable
-names (§6.3), same-process environment delivery (§6.4), a pre-arm resolver and
+The defect is now **guarded** by four independent checks added in this revision: full
+variable names (§6.3), same-process environment delivery (§6.4), a pre-arm resolver and
 `config_hash` gate (§7.3), and per-arm treatment validation — enforced between arms —
 including a depth-2 frontier requirement (§11.0, §11.1a) and cross-arm `config_hash`
 uniqueness (§11.3).
+
+Guarded is not the same as demonstrated. Attempt 5 exercised the pre-arm gate only
+(§A.5): it confirmed the corrected variable names, the resolver outputs, and the expected
+`config_hash` **in the verifier child**. Shared-parent delivery to the gauntlet child, that
+child's manifest `config_hash`, the profile rows it emits, and an actually executed depth-2
+frontier are all still unverified. **End-to-end execution remains unverified until a valid
+attempt completes.**
 
 ---
 
@@ -1070,6 +1077,12 @@ resolvers returned `depth=1, accuracy=False, cap=6, topn=2, topm=2`, the compute
 `config_hash` was `03d2d5ee27911fc4` — exactly the pre-registered value — and §4.2's
 schedule rebuild, panel-content binding, and non-empty team check all succeeded.
 
+**Scope of that evidence.** All of it was produced **inside the verifier child**. It shows
+the corrected variable names reach a Python process and resolve to the intended treatment.
+It shows nothing about the gauntlet child — not shared-parent delivery, not its manifest
+`config_hash`, not the profile rows it would emit, and not whether a depth-2 frontier is
+ever expanded. Those remain unverified.
+
 **Failure.** §6.4 requires one PowerShell process per arm to launch **both** Python
 children. The operator ran the verification child in one shell invocation, which then
 exited; the gauntlet would have run in a new shell. Every step was individually correct
@@ -1118,7 +1131,7 @@ later attempt.
 | Property | Value |
 |---|---|
 | Reason for repeat | Operator split the arm block across two shell processes (§A.5), breaking §6.4's shared-parent inheritance before battle 1. No battles executed |
-| Prior defect status | Attempt 4's treatment defect stays closed: the arm-1 gate in Attempt 5 resolved the correct treatment and the correct pre-registered `config_hash`, so §6.3/§7.3 are demonstrated working |
+| Prior defect status | **Partial counterproof.** Attempt 5 verified the corrected variable names, resolver outputs, and expected `config_hash` in the **verifier child**. Shared-parent delivery to the gauntlet child and the emitted treatment rows remain unverified until Attempt 6 runs validly |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
 | Candidate worktree | same detached worktree as Attempts 1–5 |
 | Output root | `cost-preflight-d2-d64982a-attempt6/` (sibling of candidate worktree, outside git tree) |
