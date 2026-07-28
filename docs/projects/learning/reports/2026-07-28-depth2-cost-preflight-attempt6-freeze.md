@@ -11,6 +11,11 @@ Attempt 6 is the first valid execution of the Depth-2 Cost Preflight. Attempts 1
 invalidated; see Appendix A.1–A.5 of the amendment. **No data from any earlier attempt is
 reused, pooled, or cited here.**
 
+**Operator artifacts:** every script that executed this run is frozen verbatim, with its
+SHA-256, in the companion document
+`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. Where this report shows
+a command, it is the command as actually invoked; nothing in §6 is a reconstruction.
+
 ---
 
 ## 1. What this establishes
@@ -240,6 +245,7 @@ values that *were* pinned during the run live in `operator-preflight.json` and t
 | `<candidate>` | `C:\Users\chris\Documents\cost-preflight-worktree-d64982a` |
 | `<output-root>` | `C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6` |
 | `<server-dir>` | `C:\Users\chris\.cache\showdownbot\pokemon-showdown` |
+| `<scratchpad>` | `C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad` |
 
 ### 6.3 Arm block — one PowerShell process per arm
 
@@ -251,51 +257,67 @@ PID 14744. That snapshot cannot retroactively prove the verifier child's parenta
 already exited — which is carried instead by the immutable `operator-server-<arm>.json` and
 the contiguous arm block.
 
-The literal command executed for arm 1, with every placeholder resolved. The other three
-arms are byte-identical except for the five arm-specific assignments in §6.4 and the arm
-name in the three output paths:
+That single process is `run_arm.ps1`, frozen verbatim with its SHA-256 in
+`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. It is an operator
+script living outside the repository; the candidate tree is unmodified (`dirty = false` in
+all four manifests).
+
+**The four literal invocations, exactly as executed, in order:**
 
 ```powershell
-Get-ChildItem Env: | Where-Object { $_.Name -like 'SHOWDOWN_*' } |
-  ForEach-Object { Remove-Item "Env:$($_.Name)" }
+& "<scratchpad>\run_arm.ps1" -Arm d1_acc_off -Depth 1 -AccMode "0"                        -PrevPid 0
+& "<scratchpad>\run_arm.ps1" -Arm d1_acc_on  -Depth 1 -AccMode "1" -Cap "6"               -PrevPid 16808
+& "<scratchpad>\run_arm.ps1" -Arm d2_acc_off -Depth 2 -AccMode "0"          -TopN 3 -TopM 3 -PrevPid 8876
+& "<scratchpad>\run_arm.ps1" -Arm d2_acc_on  -Depth 2 -AccMode "1" -Cap "6" -TopN 3 -TopM 3 -PrevPid 19796
+```
 
-$env:PYTHONPATH                    = "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src"
-$env:PYTHONHASHSEED                = "0"
-$env:SHOWDOWN_CALC_BACKEND         = "persistent"
-$env:SHOWDOWN_DECISION_PROFILE_OUT = "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_profile.jsonl"
-$env:SHOWDOWN_BATTLE_SEED_BASE     = "champions-panel-v0-d2-cost-preflight"
-$env:SHOWDOWN_EVAL_SEED_LOG        = "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_seedlog.jsonl"
-$env:SHOWDOWN_SEARCH_DEPTH         = "1"
-$env:SHOWDOWN_ACCURACY_MODE        = "0"
-# SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S deliberately unset -> effective 180 s
+Each ran as a background process so it would survive beyond the 10-minute foreground tool
+ceiling; backgrounding does not split the process — server, verifier and gauntlet remain
+children of that one PowerShell instance. `-PrevPid` is the previous arm's server, which
+the block stops and confirms dead before starting its own.
 
-Start-Process -FilePath "node" `
-  -ArgumentList "pokemon-showdown","start","--no-security" `
-  -WorkingDirectory "C:\Users\chris\.cache\showdownbot\pokemon-showdown" `
-  -PassThru -WindowStyle Hidden
+The two Python children that `run_arm.ps1` launches, with the placeholder resolved:
 
-Set-Location "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot"
+```powershell
+python "<scratchpad>\verify_arm6.py" d1_acc_off "<scratchpad>\life6_d1_acc_off.json"
 
-# first Python child: pre-arm gate (§7.3)
-python verify_arm6.py d1_acc_off <lifecycle-json>
-
-# no environment mutation between the two children
-
-# second Python child: the gauntlet
 python -m showdown_bot.cli gauntlet `
   --schedule "C:\Users\chris\Documents\SHowdown BOt\config\eval\schedules\cost_preflight_d2_30.yaml" `
   --result-out "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_result.jsonl"
 ```
 
-`verify_arm6.py` is the operator-side pre-arm gate: it asserts
-`showdown_bot.battle.decision.__file__` lies under the candidate, calls the five resolvers,
-recomputes `config_hash` against the pre-registered value, runs the §4.2 schedule/panel/team
-checks, and writes `operator-server-<arm>.json`. It is an operator script, not production
-code; the candidate tree is unmodified (`dirty = false` in all four manifests).
+The `life6_<arm>.json` files are transient scratchpad inputs carrying the server-lifecycle
+fields into the verifier. Their content is **not lost**: `verify_arm6.py` merges the whole
+object into the record it writes, so every lifecycle field is preserved verbatim inside the
+frozen `operator-server-<arm>.json` (§7).
 
-Server PIDs, in arm order: **16808, 8876, 19796, 3280.** Each was stopped before the next
-arm began and port 8000 was confirmed free each time. Endpoint
-`ws://localhost:8000/showdown/websocket`.
+The environment assignments themselves are not reproduced here as a typed command, because
+no such command was typed — they are executed by `run_arm.ps1` from its parameters. §6.4
+gives the resolved per-arm values; the script body in the artifacts document is the
+authority for how they are set.
+
+### 6.4a Validation commands
+
+Run after each arm, before the next arm started:
+
+```powershell
+python "<scratchpad>\post_arm6.py" d1_acc_off
+python "<scratchpad>\post_arm6.py" d1_acc_on
+python "<scratchpad>\post_arm6.py" d2_acc_off
+python "<scratchpad>\post_arm6.py" d2_acc_on
+```
+
+Run once after all four arms:
+
+```powershell
+python "<scratchpad>\cross_arm6.py"     # §11.3, §11.4, §10 inventory, SHA-256 freeze
+python "<scratchpad>\evidence6.py"      # §12 per-arm x per-stratum tables
+```
+
+All four validation scripts ran with `PYTHONPATH` set to
+`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src` and CWD
+`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot`, with every
+`SHOWDOWN_*` variable cleared first. All are frozen verbatim in the artifacts document.
 
 ### 6.4 Arm-specific environment — full `SHOWDOWN_`-prefixed names
 
@@ -312,7 +334,8 @@ to **true**, which is why the accuracy-off arms set it explicitly to `0`.
 
 ### 6.5 Preflight command
 
-Run once before arm 1, after `npm ci` and before any battle:
+Run once before arm 1, after `npm ci` and before any battle. `preflight6.py` is frozen
+verbatim in the artifacts document:
 
 ```powershell
 npm ci --prefix "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\tools\calc"
@@ -321,7 +344,7 @@ npm ci --prefix "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdo
 $env:PYTHONPATH     = "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src"
 $env:PYTHONHASHSEED = "0"
 Set-Location "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot"
-python preflight6.py   # writes <output-root>\operator-preflight.json
+python "<scratchpad>\preflight6.py"   # writes <output-root>\operator-preflight.json
 ```
 
 Calc lockfile SHA-256
