@@ -2,9 +2,12 @@
 
 **Status:** DECIDED — written before the implementation it authorises.
 **Amended:** 2026-07-29, §8.0 — `completion.json` gains `schema_errors_total` and
-`recorder_errors_total`; *successful recording* is defined as all three error counters at zero,
-with the persistence limit and the narrowed exit-status rule stated there. Still before the
-implementation: no code exists yet, so nothing frozen is recalculated by this amendment.
+`recorder_errors_total`. Three zero counters define a **clean completion snapshot** at the moment
+of serialisation, *not* a successful run: exit `0` plus a clean snapshot establishes a successful
+run including recording; a non-zero exit means the run failed, and with a clean snapshot the file
+alone cannot say whether recording failed after the snapshot or an independent runner exception
+ended the run. Still before the implementation: no code exists yet, so nothing frozen is
+recalculated by this amendment.
 **Date:** 2026-07-28
 **Scope:** `showdown_bot/src/showdown_bot/client/runner.py` — `run_ladder_search`,
 `run_challenge`, `run_smoke_battle`. See §3 for what `run_smoke_battle` may and may not record.
@@ -205,15 +208,32 @@ one of them is covered by the absence rule:
 | A **later** completion write is refused (§8.1: exclusive create, never truncate) | the earlier file, unchanged and possibly reading clean | **the exit status** — the only contractually guaranteed machine-checkable signal outside that unchanged file. The existing file cannot report a failure that occurred after it was written, and it must not be rewritten to say so. `logger.error` also fires (§10.3 item 1), but a log line is neither guaranteed to be retained nor a defined machine contract |
 
 The second row is the reason the exit status is a required part of the guarantee and not a
-convenience: for that case it is the *only* signal. A consumer must therefore not treat a clean
-`completion.json` as proof on its own — see §10.3.
+convenience: for that case it is the only contractually guaranteed machine-checkable signal outside
+the unchanged file. A consumer must therefore never treat a clean `completion.json` as proof on its
+own — see the taxonomy immediately below, and §10.3.
 
-**Definition of a successfully recorded run — the only one.** It is *derived by the consumer* from
-the three persisted counters; it is not itself a stored field:
+**What three zeros mean — and what they do not.** The conjunction
 
 ```
 write_errors_total == 0 and schema_errors_total == 0 and recorder_errors_total == 0
 ```
+
+is derived by the consumer; it is not a stored field. And it defines exactly one thing: a **clean
+completion snapshot**, meaning the counters as they stood *at the moment the payload was
+serialised*. It is **not** a definition of a successful run.
+
+An earlier revision of this amendment did define a "successfully recorded run" that way, and it
+contradicted §10.3: the refused-second-write case of the persistence limit above satisfies "three
+zeros" and "the run failed" simultaneously. That phrasing is withdrawn. A verdict needs the exit
+status as well, and the combinations are these:
+
+| Exit status | `completion.json` | Verdict |
+|---|---|---|
+| `0` | present, three zeros | **Successful run, recording included.** The only combination that establishes it |
+| ≠ 0 | present, three zeros | **Run failed.** The file alone cannot distinguish *recording failed after its snapshot* (persistence limit above) from *an independent runner exception, cancellation or `KeyboardInterrupt` ended the run*. Both are failures; separating them needs the log or the surrounding context, not this file |
+| ≠ 0 | present, some counter non-zero | **Run failed, and recording is a known contributor** |
+| ≠ 0 | absent | **Run failed.** Consistent with an unwritable sink (§10.1, §10.3) and with a hard kill (§10.4) |
+| `0` | absent, or some counter non-zero | **A defect, not a state.** It contradicts the normal-return rule below and must be treated as an implementation bug rather than interpreted |
 
 **What the exit status means, stated narrowly.** The process exit status is *not* a function of
 these three counters alone: a propagated runner exception, a cancellation and a `KeyboardInterrupt`
@@ -222,10 +242,10 @@ the recorder mask any of them (§10.3). The rule added here is only the **additi
 status **on the normal-return path**:
 
 > When a run returns normally, the process exits non-zero if and only if the conjunction above is
-> false.
+> false at the moment `completion.json` is serialised.
 
 A non-zero exit therefore means "the run failed, possibly at recording"; it never means "recording
-failed" on its own. The distinguishing evidence is `completion.json` when it exists.
+failed" on its own, and a clean snapshot never upgrades it to success.
 
 **There is deliberately no `recording_ok` boolean field.** A stored boolean is a second
 representation of the same fact, and a second representation can disagree with the first. A
@@ -441,9 +461,12 @@ equivalent failure states, and must never infer success from the absence of a fa
 
 **And a third state, from §8.0's persistence limit:** a `completion.json` with three zero counters
 alongside a **non-zero exit status** is a failure too, not a contradiction to resolve in the file's
-favour. The correct reading is "the run failed, and the file predates or does not cover that
-failure". A consumer that checks only the file, or only the exit status, will be wrong on one of
-these cases; the verdict needs both.
+favour. Three zeros are a **clean completion snapshot** at serialisation time, never a verdict on
+the run — §8.0's taxonomy is authoritative and this paragraph restates it, it does not extend it.
+The correct reading is "the run failed, and this file predates or does not cover that failure";
+whether recording failed after the snapshot or an independent runner exception ended the run is
+something the file cannot decide. A consumer that checks only the file, or only the exit status,
+will be wrong on one of these cases; the verdict needs both.
 
 ### 10.4 Remaining evidence limit
 
