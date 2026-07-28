@@ -219,8 +219,11 @@ def test_every_raw_byte_hashed_provenance_input_is_lf_on_disk():
         ".gitattributes rules are correct and this is a STALE WORKING TREE: git does not "
         "rewrite files already on disk when an attribute is added later, and `git status` "
         "stays clean because the comparison normalises. Confirm with `git ls-files --eol` "
-        "(look for w/crlf), then re-materialise: delete the offending files and "
-        "`git checkout -- <files>`. If that other test FAILS instead, a provenance input "
+        "(look for w/crlf). BEFORE re-materialising, inspect and preserve any uncommitted "
+        "content changes: deleting a file and running `git checkout -- <file>` discards "
+        "them irrecoverably if they were never staged. Only delete and restore once you "
+        "have confirmed line endings are the sole difference; if unsure, do it in a fresh "
+        "clone or a separate worktree instead. If that other test FAILS instead, a provenance input "
         "is genuinely missing an `eol=lf` rule and a fresh clone would fork too -- fix "
         ".gitattributes."
     )
@@ -238,13 +241,21 @@ def _committed_eol_attributes(root: Path, paths: list[str]) -> dict[str, str]:
     not cover at all.
 
     That would defeat this check's whole purpose -- it would go green on a machine holding
-    a local override while a fresh clone forks. So evaluate hermetically: materialise the
-    committed .gitattributes into a throwaway repo with no info/attributes and the global
-    attributes file neutralised, and ask there. Paths need not exist; check-attr matches on
-    the name."""
+    a local override while a fresh clone forks. So evaluate hermetically and shut out all
+    four sources: a throwaway repo (no worktree rules, no info/attributes),
+    ``core.attributesFile`` pointed at an empty file (global), and ``GIT_ATTR_NOSYSTEM=1``
+    (system-wide ``$(prefix)/etc/gitattributes``). The last one is not theoretical --
+    measured on this host, a temp repo with an empty core.attributesFile still inherited
+    ``diff=astextplain`` from ``C:/Program Files/Git/etc/gitattributes``; setting
+    GIT_ATTR_NOSYSTEM=1 makes it ``unspecified``. A system file carrying an ``eol`` rule
+    would otherwise mask a missing committed rule.
+
+    Paths need not exist; check-attr matches on the name."""
+    import os
     import subprocess
     import tempfile
 
+    hermetic_env = {**os.environ, "GIT_ATTR_NOSYSTEM": "1"}
     blob = subprocess.run(
         ["git", "show", "HEAD:.gitattributes"],
         cwd=root, capture_output=True, text=True, check=True,
@@ -257,7 +268,7 @@ def _committed_eol_attributes(root: Path, paths: list[str]) -> dict[str, str]:
         subprocess.run(["git", "init", "-q", "."], cwd=tmp, check=True, capture_output=True)
         proc = subprocess.run(
             ["git", "-c", f"core.attributesFile={empty}", "check-attr", "eol", "--", *paths],
-            cwd=tmp, capture_output=True, text=True, check=True,
+            cwd=tmp, capture_output=True, text=True, check=True, env=hermetic_env,
         )
     attrs: dict[str, str] = {}
     for line in proc.stdout.splitlines():
