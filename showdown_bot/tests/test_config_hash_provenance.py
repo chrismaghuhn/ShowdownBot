@@ -214,7 +214,59 @@ def test_every_raw_byte_hashed_provenance_input_is_lf_on_disk():
     assert checked >= 20, f"glob set matched only {checked} files -- did paths move?"
     assert not offenders, (
         "raw-byte-hashed provenance inputs must be LF-only or config_hash forks "
-        f"per platform: {offenders}"
+        f"per platform: {offenders}. "
+        "If test_every_raw_byte_hashed_provenance_input_has_eol_lf_attribute PASSES, the "
+        ".gitattributes rules are correct and this is a STALE WORKING TREE: git does not "
+        "rewrite files already on disk when an attribute is added later, and `git status` "
+        "stays clean because the comparison normalises. Confirm with `git ls-files --eol` "
+        "(look for w/crlf), then re-materialise: delete the offending files and "
+        "`git checkout -- <files>`. If that other test FAILS instead, a provenance input "
+        "is genuinely missing an `eol=lf` rule and a fresh clone would fork too -- fix "
+        ".gitattributes."
+    )
+
+
+def _eol_attributes(root: Path, paths: list[str]) -> dict[str, str]:
+    """The `eol` attribute git would apply per path. Empty string when unset."""
+    import subprocess
+
+    proc = subprocess.run(
+        ["git", "check-attr", "eol", "--", *paths],
+        cwd=root, capture_output=True, text=True, check=True,
+    )
+    attrs: dict[str, str] = {}
+    for line in proc.stdout.splitlines():
+        # format: "<path>: eol: <value>"; repo paths carry no ": " so rsplit is safe.
+        path, _attr, value = line.rsplit(": ", 2)
+        attrs[path.replace("\\", "/")] = "" if value in ("unspecified", "unset") else value
+    return attrs
+
+
+def test_every_raw_byte_hashed_provenance_input_has_eol_lf_attribute():
+    """The repo-side half of the guarantee, independent of what is on this disk.
+
+    test_every_raw_byte_hashed_provenance_input_is_lf_on_disk proves the CURRENT
+    working tree is LF. It cannot distinguish "the .gitattributes rule is missing"
+    from "the rule exists but this checkout predates it" -- and those need opposite
+    fixes. This test isolates the first: every raw-byte-hashed input must carry
+    `eol=lf`, so a FRESH clone on any platform materialises LF regardless of
+    core.autocrlf. A new provenance input added without a rule fails here even when
+    the author's own disk happens to look fine."""
+    root = _repo_root()
+    paths = []
+    for pattern in _RAW_BYTE_HASHED_GLOBS:
+        paths += [
+            str(p.relative_to(root)).replace("\\", "/")
+            for p in sorted(root.glob(pattern))
+            if p.is_file()
+        ]
+    assert len(paths) >= 20, f"glob set matched only {len(paths)} files -- did paths move?"
+    attrs = _eol_attributes(root, paths)
+    missing = sorted(p for p in paths if attrs.get(p) != "lf")
+    assert not missing, (
+        "these raw-byte-hashed provenance inputs have no `eol=lf` .gitattributes rule, so "
+        "a fresh clone with core.autocrlf=true would check them out as CRLF and fork "
+        f"config_hash per platform: {missing}"
     )
 
 
