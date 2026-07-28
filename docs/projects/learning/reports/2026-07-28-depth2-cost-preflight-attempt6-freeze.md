@@ -11,10 +11,13 @@ Attempt 6 is the first valid execution of the Depth-2 Cost Preflight. Attempts 1
 invalidated; see Appendix A.1–A.5 of the amendment. **No data from any earlier attempt is
 reused, pooled, or cited here.**
 
-**Operator artifacts:** every script that executed this run is frozen verbatim, with its
-SHA-256, in the companion document
-`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. Where this report shows
-a command, it is the command as actually invoked; nothing in §6 is a reconstruction.
+**Operator artifacts:** the operator scripts are frozen — readable form plus authoritative
+Base64 of the raw bytes, with SHA-256 — in the companion document
+`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. Where this report shows a
+command, it is the command as actually invoked with every path resolved; nothing in §6 is a
+reconstruction. Note the provenance limit stated in that document: the script hashes are
+operator-attested and chronology-supported, but were **not** cryptographically pinned during
+the run.
 
 ---
 
@@ -257,18 +260,18 @@ PID 14744. That snapshot cannot retroactively prove the verifier child's parenta
 already exited — which is carried instead by the immutable `operator-server-<arm>.json` and
 the contiguous arm block.
 
-That single process is `run_arm.ps1`, frozen verbatim with its SHA-256 in
-`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. It is an operator
-script living outside the repository; the candidate tree is unmodified (`dirty = false` in
-all four manifests).
+That single process is `run_arm.ps1`, frozen with its raw bytes and SHA-256 in
+`2026-07-28-depth2-cost-preflight-attempt6-operator-artifacts.md`. It is an operator script
+living outside the repository; the candidate tree is unmodified (`dirty = false` in all four
+manifests).
 
-**The four literal invocations, exactly as executed, in order:**
+**The four invocations, exactly as executed, in order, with every path resolved:**
 
 ```powershell
-& "<scratchpad>\run_arm.ps1" -Arm d1_acc_off -Depth 1 -AccMode "0"                        -PrevPid 0
-& "<scratchpad>\run_arm.ps1" -Arm d1_acc_on  -Depth 1 -AccMode "1" -Cap "6"               -PrevPid 16808
-& "<scratchpad>\run_arm.ps1" -Arm d2_acc_off -Depth 2 -AccMode "0"          -TopN 3 -TopM 3 -PrevPid 8876
-& "<scratchpad>\run_arm.ps1" -Arm d2_acc_on  -Depth 2 -AccMode "1" -Cap "6" -TopN 3 -TopM 3 -PrevPid 19796
+& "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\run_arm.ps1" -Arm d1_acc_off -Depth 1 -AccMode "0"                        -PrevPid 0
+& "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\run_arm.ps1" -Arm d1_acc_on  -Depth 1 -AccMode "1" -Cap "6"               -PrevPid 16808
+& "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\run_arm.ps1" -Arm d2_acc_off -Depth 2 -AccMode "0"          -TopN 3 -TopM 3 -PrevPid 8876
+& "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\run_arm.ps1" -Arm d2_acc_on  -Depth 2 -AccMode "1" -Cap "6" -TopN 3 -TopM 3 -PrevPid 19796
 ```
 
 Each ran as a background process so it would survive beyond the 10-minute foreground tool
@@ -279,7 +282,7 @@ the block stops and confirms dead before starting its own.
 The two Python children that `run_arm.ps1` launches, with the placeholder resolved:
 
 ```powershell
-python "<scratchpad>\verify_arm6.py" d1_acc_off "<scratchpad>\life6_d1_acc_off.json"
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\verify_arm6.py" d1_acc_off "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\life6_d1_acc_off.json"
 
 python -m showdown_bot.cli gauntlet `
   --schedule "C:\Users\chris\Documents\SHowdown BOt\config\eval\schedules\cost_preflight_d2_30.yaml" `
@@ -296,29 +299,6 @@ no such command was typed — they are executed by `run_arm.ps1` from its parame
 gives the resolved per-arm values; the script body in the artifacts document is the
 authority for how they are set.
 
-### 6.4a Validation commands
-
-Run after each arm, before the next arm started:
-
-```powershell
-python "<scratchpad>\post_arm6.py" d1_acc_off
-python "<scratchpad>\post_arm6.py" d1_acc_on
-python "<scratchpad>\post_arm6.py" d2_acc_off
-python "<scratchpad>\post_arm6.py" d2_acc_on
-```
-
-Run once after all four arms:
-
-```powershell
-python "<scratchpad>\cross_arm6.py"     # §11.3, §11.4, §10 inventory, SHA-256 freeze
-python "<scratchpad>\evidence6.py"      # §12 per-arm x per-stratum tables
-```
-
-All four validation scripts ran with `PYTHONPATH` set to
-`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src` and CWD
-`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot`, with every
-`SHOWDOWN_*` variable cleared first. All are frozen verbatim in the artifacts document.
-
 ### 6.4 Arm-specific environment — full `SHOWDOWN_`-prefixed names
 
 | Arm | `SHOWDOWN_SEARCH_DEPTH` | `SHOWDOWN_ACCURACY_MODE` | `SHOWDOWN_ACCURACY_BRANCH_CAP` | `SHOWDOWN_SEARCH_TOPN` | `SHOWDOWN_SEARCH_TOPM` |
@@ -332,10 +312,33 @@ An unset `SHOWDOWN_ACCURACY_BRANCH_CAP` resolves to the code default `6`; unset
 `SHOWDOWN_SEARCH_TOPN`/`TOPM` resolve to `2`. Unset `SHOWDOWN_ACCURACY_MODE` would resolve
 to **true**, which is why the accuracy-off arms set it explicitly to `0`.
 
-### 6.5 Preflight command
+### 6.5 Validation commands
 
-Run once before arm 1, after `npm ci` and before any battle. `preflight6.py` is frozen
-verbatim in the artifacts document:
+Run after each arm, before the next arm started:
+
+```powershell
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\post_arm6.py" d1_acc_off
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\post_arm6.py" d1_acc_on
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\post_arm6.py" d2_acc_off
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\post_arm6.py" d2_acc_on
+```
+
+Run once after all four arms:
+
+```powershell
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\cross_arm6.py"     # §11.3, §11.4, §10 inventory, SHA-256 freeze
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\evidence6.py"      # §12 per-arm x per-stratum tables
+```
+
+All validation scripts ran with `PYTHONPATH` set to
+`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src` and CWD
+`C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot`, with every
+`SHOWDOWN_*` variable cleared first. All are frozen verbatim in the artifacts document.
+
+### 6.6 Preflight command
+
+Run once before arm 1, after `npm ci` and before any battle. `preflight6.py` is frozen in the
+artifacts document:
 
 ```powershell
 npm ci --prefix "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\tools\calc"
@@ -344,7 +347,7 @@ npm ci --prefix "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdo
 $env:PYTHONPATH     = "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src"
 $env:PYTHONHASHSEED = "0"
 Set-Location "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot"
-python "<scratchpad>\preflight6.py"   # writes <output-root>\operator-preflight.json
+python "C:\Users\chris\AppData\Local\Temp\claude\C--Users-chris-Documents-SHowdown-BOt\454f756a-a892-4cf8-b319-a66fe2d26fa6\scratchpad\preflight6.py"   # writes <output-root>\operator-preflight.json
 ```
 
 Calc lockfile SHA-256
