@@ -17,6 +17,15 @@ a **live-gauntlet** measurement path that natively produces v4 rows.
 
 This amendment adds no production code. The candidate remains `d64982a`.
 
+**Current state:** Attempts 1–4 are invalidated (Appendix A.1–A.4). Attempt 5 is
+pre-registered (Appendix A.5) and **not yet executed**. The Attempt-4 defect — the arm
+variables never reached the gauntlet process, so all four arms ran identical code
+defaults and no depth-2 search was executed — is closed by four independent checks added
+in this revision: full variable names (§6.3), same-process environment delivery (§6.4),
+an in-process pre-battle-1 resolver and `config_hash` gate (§7.3), and post-battle-1 plus
+per-arm treatment validation including a depth-2 frontier requirement (§11.0, §11.1a) and
+cross-arm `config_hash` uniqueness (§11.3).
+
 ---
 
 ## 1. Measurement path
@@ -190,7 +199,8 @@ Created before the first arm if it does not exist. All arm-specific paths below 
 - Attempt 1 (invalidated — see Appendix A.1): `cost-preflight-d2-d64982a/`
 - Attempt 2 (invalidated — see Appendix A.2): `cost-preflight-d2-d64982a-attempt2/`
 - Attempt 3 (invalidated — see Appendix A.3): `cost-preflight-d2-d64982a-attempt3/`
-- **Attempt 4:** `cost-preflight-d2-d64982a-attempt4/`
+- Attempt 4 (invalidated — see Appendix A.4): `cost-preflight-d2-d64982a-attempt4/`
+- **Attempt 5:** `cost-preflight-d2-d64982a-attempt5/`
 
 All arms share:
 - `PYTHONPATH=<candidate-worktree>/showdown_bot/src` (exclusive; no other entries — see §2.1)
@@ -203,12 +213,18 @@ All arms share:
 - `--result-out <output-root>/cost_preflight_<arm>_result.jsonl`
 
 where `<output-root>` is the absolute path to the current attempt's output directory
-(Attempt 4: `cost-preflight-d2-d64982a-attempt4/`) and `<arm>` is one of `d1_acc_off`,
+(Attempt 5: `cost-preflight-d2-d64982a-attempt5/`) and `<arm>` is one of `d1_acc_off`,
 `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
 
-| Arm ID | `SEARCH_DEPTH` | `ACCURACY_MODE` | `ACCURACY_BRANCH_CAP` | `SEARCH_TOPN` | `SEARCH_TOPM` |
+Variable names are given **in full**. Every name carries the `SHOWDOWN_` prefix, because
+that is what the candidate's resolvers in
+`showdown_bot/src/showdown_bot/battle/decision.py` actually read. A short name without
+the prefix is silently ignored and the arm falls through to the code default — this is
+exactly what invalidated Attempt 4 (Appendix A.4).
+
+| Arm ID | `SHOWDOWN_SEARCH_DEPTH` | `SHOWDOWN_ACCURACY_MODE` | `SHOWDOWN_ACCURACY_BRANCH_CAP` | `SHOWDOWN_SEARCH_TOPN` | `SHOWDOWN_SEARCH_TOPM` |
 |---|---|---|---|---|---|
 | `d1_acc_off` | `1` | `0` | (unset) | (unset) | (unset) |
 | `d1_acc_on` | `1` | `1` | `6` | (unset) | (unset) |
@@ -218,7 +234,72 @@ where `<output-root>` is the absolute path to the current attempt's output direc
 Every `SHOWDOWN_*` variable listed above must be explicitly set or removed before each
 arm. No arm inherits values from a previous arm.
 
-### 6.4 Timeout
+**Code defaults when a variable is absent** (`decision.py`, candidate `d64982a`):
+
+| Variable | Default when unset | Note |
+|---|---|---|
+| `SHOWDOWN_SEARCH_DEPTH` | `1` | `>= 2` resolves to depth 2, everything else to depth 1 |
+| `SHOWDOWN_ACCURACY_MODE` | **`True`** | off requires an explicit `0`, `false`, or empty string — an absent variable means accuracy **on**, not off |
+| `SHOWDOWN_ACCURACY_BRANCH_CAP` | `6` | |
+| `SHOWDOWN_SEARCH_TOPN` | `2` | |
+| `SHOWDOWN_SEARCH_TOPM` | `2` | |
+
+The accuracy default is inverted relative to the naive expectation. An arm that intends
+accuracy **off** must set `SHOWDOWN_ACCURACY_MODE=0`; removing the variable produces
+accuracy **on**.
+
+**Resolved treatment per arm** — the values the resolvers must return, and the values
+every profile row of that arm must carry:
+
+| Arm ID | `search_depth` | `accuracy_mode` | `accuracy_branch_cap` | `search_topn_requested` | `search_topm_requested` |
+|---|---|---|---|---|---|
+| `d1_acc_off` | `1` | `false` | `6` (default, unused) | `2` (default, unused) | `2` (default, unused) |
+| `d1_acc_on` | `1` | `true` | `6` | `2` (default, unused) | `2` (default, unused) |
+| `d2_acc_off` | `2` | `false` | `6` (default, unused) | `3` | `3` |
+| `d2_acc_on` | `2` | `true` | `6` | `3` | `3` |
+
+**Pre-registered expected `config_hash` per arm** (computed with the candidate code at
+`d64982a`, `agent="heuristic"`, `format_id="gen9championsvgc2026regma"`, CWD
+`<candidate>/showdown_bot`):
+
+| Arm ID | `behavior_env` contents | Expected `config_hash` |
+|---|---|---|
+| `d1_acc_off` | `SHOWDOWN_ACCURACY_MODE=0`, `SHOWDOWN_SEARCH_DEPTH=1` | `03d2d5ee27911fc4` |
+| `d1_acc_on` | `SHOWDOWN_ACCURACY_BRANCH_CAP=6`, `SHOWDOWN_ACCURACY_MODE=1`, `SHOWDOWN_SEARCH_DEPTH=1` | `50cf67d5b04a1b04` |
+| `d2_acc_off` | `SHOWDOWN_ACCURACY_MODE=0`, `SHOWDOWN_SEARCH_DEPTH=2` | `b4c98c07c32f3f9f` |
+| `d2_acc_on` | `SHOWDOWN_ACCURACY_BRANCH_CAP=6`, `SHOWDOWN_ACCURACY_MODE=1`, `SHOWDOWN_SEARCH_DEPTH=2` | `68e04be0173586b2` |
+
+All four are distinct, and none equals `594295543f13a55d` — the hash produced by an
+**empty** `behavior_env`, which is what all four Attempt-4 arms actually carried.
+
+**`config_hash` cannot verify `SHOWDOWN_SEARCH_TOPN` / `SHOWDOWN_SEARCH_TOPM`.** Both are
+in `EXCLUDED_BY_REASON` in `showdown_bot/src/showdown_bot/eval/config_env.py` and are
+therefore absent from `behavior_env` and from `config_hash`. A depth-2 arm run with the
+wrong frontier caps would still produce the pre-registered `config_hash`. The frontier
+caps are verifiable **only** from the profile rows' `search_topn_requested` /
+`search_topm_requested` fields — see §11.1a.
+
+### 6.4 Environment delivery
+
+Every gauntlet invocation sets its complete environment (§6.2 shared + §6.3 arm-specific)
+**inside the same shell process that then launches Python**. Environment set by one tool
+call does not survive into the next: each PowerShell invocation is a fresh process, so an
+assignment made in an earlier call reaches no later one.
+
+Practically: the `$env:*` assignments, any `Remove-Item Env:` deletions, the resolver
+verification (§7.3), and the `python -m showdown_bot.cli ...` call are a **single**
+PowerShell command. Nothing may rely on inherited environment across separate
+invocations. The same rule applies to the server start: `SHOWDOWN_EVAL_SEED_LOG` and
+`SHOWDOWN_BATTLE_SEED_BASE` must be set in the process that starts `node`, not in a
+different one.
+
+**Rationale (Attempt 4):** the arm variables were assigned, but under short names, and no
+check ran inside the gauntlet process to confirm what the process actually saw. Split
+environment delivery has the identical failure signature — variables that look set but
+never reach the interpreter — so §7.3's in-process verification is the binding check, not
+the assignment itself.
+
+### 6.5 Timeout
 
 `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S` is **explicitly unset** for every arm. The effective
 timeout is the code default of **180 seconds**.
@@ -325,6 +406,16 @@ battle 1:
 | `seed_log_path` | absolute path to this arm's `SHOWDOWN_EVAL_SEED_LOG` |
 | `seed_log_absent_or_empty_before_start` | `true` if the seed log file did not exist or was empty before the server started |
 | `utc_start_time` | ISO 8601 UTC timestamp of server start |
+| `arm_env_raw` | object: every arm-specific `SHOWDOWN_*` name from §6.3 mapped to its literal value as read back from the process environment, or `null` if unset. Full names only. |
+| `resolved_search_depth` | return value of `decision._search_depth()` in the gauntlet process |
+| `resolved_accuracy_mode` | return value of `decision._accuracy_mode()` |
+| `resolved_accuracy_branch_cap` | return value of `decision._accuracy_branch_cap()` |
+| `resolved_search_topn` | return value of `decision._search_topn()` |
+| `resolved_search_topm` | return value of `decision._search_topm()` |
+| `expected_config_hash` | the arm's pre-registered `config_hash` from §6.3 |
+| `computed_config_hash` | `make_config_hash(effective_config_manifest(agent="heuristic", format_id="gen9championsvgc2026regma"))` evaluated in the gauntlet process against the live environment |
+| `resolvers_match_arm` | `true` if all five resolved values equal §6.3's resolved-treatment row for this arm |
+| `config_hash_matches_expected` | `computed_config_hash == expected_config_hash` |
 
 These files are included in §10's output inventory and in the final hash freeze.
 Once written, they must not be deleted, emptied, or re-created.
@@ -339,9 +430,35 @@ The entire attempt is invalid if any of the following occur:
 - The `seed_log_path` does not match the arm's expected
   `<output-root>/cost_preflight_<arm>_seedlog.jsonl`.
 - After an arm completes, its seed log does not contain exactly **30 entries**.
+- `resolvers_match_arm` is `false`, or `config_hash_matches_expected` is `false`.
 
 A failed attempt must not be repaired or continued. A retry requires a new output root
 and a new attempt pre-registration.
+
+### 7.3 Pre-battle-1 treatment verification
+
+Files on disk and shell assignments are not evidence of what the interpreter loaded. The
+binding check runs **inside the gauntlet process**, against the live environment, before
+battle 1 of each arm:
+
+1. Import the candidate's `showdown_bot.battle.decision` and assert
+   `decision.__file__` is under `<candidate>/showdown_bot/src/` (§2.1's rule, applied to
+   the module that owns the resolvers).
+2. Call `_search_depth()`, `_accuracy_mode()`, `_accuracy_branch_cap()`,
+   `_search_topn()`, `_search_topm()` and compare all five against §6.3's
+   resolved-treatment row for this arm.
+3. Compute `config_hash` from the live environment and compare against §6.3's
+   pre-registered value for this arm.
+4. Read back each arm-specific variable from `os.environ` and record it verbatim in
+   `arm_env_raw`.
+5. Write `operator-server-<arm>.json` with all of the above.
+
+If any comparison in (1)–(3) fails, the arm must not start. No output file is written for
+that arm and the attempt is invalid (§7.2 fail-closed list, §11.5).
+
+The order matters: this check runs **after** the server is started (so `server_pid` is
+known) and **before** battle 1, and it runs in the same process that executes the
+gauntlet — not in a separate verification process whose environment could differ.
 
 ---
 
@@ -352,10 +469,14 @@ and a new attempt pre-registration.
 1. Stop the Showdown server process.
 2. Stop the persistent calc backend (Node process).
 3. Clear or unset every `SHOWDOWN_*` environment variable.
-4. Set exactly the new arm's variables (§6.2 + §6.3).
+4. Set exactly the new arm's variables (§6.2 + §6.3), using full `SHOWDOWN_`-prefixed
+   names, in the same process that will launch the server and Python (§6.4).
 5. Verify `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S` is unset.
 6. Restart the server with the new seed base + seed log.
-7. Run the arm.
+7. Run the in-process treatment verification and write `operator-server-<arm>.json`
+   (§7.3). Do not proceed if any comparison fails.
+8. Run the arm.
+9. After battle 1, run the post-battle-1 treatment check (§11.0).
 
 ### 8.2 Cross-arm contamination
 
@@ -423,11 +544,48 @@ a retry requires a new output root and a new attempt pre-registration.
 
 ## 11. Validation
 
+### 11.0 Post-battle-1 treatment check (during each arm)
+
+Immediately after battle 1 of each arm — before the arm is allowed to continue — read the
+profile rows written so far and assert every row carries this arm's expected treatment
+(§11.1a). §7.3 proves the resolvers saw the right environment; this proves the rows the
+search actually emitted carry it too. A mismatch aborts the arm and invalidates the
+attempt.
+
+This is deliberately redundant with §7.3. Attempt 4 produced 120 battles of output before
+anyone noticed the treatment was wrong; a check that fires after one battle costs one
+battle.
+
 ### 11.1 Per-row validation (after each arm)
 
 1. `validate_decision_profile_row` on every line of the profile JSONL.
 2. Verify `git_sha` == `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` in every row.
-3. Verify `config_hash` is consistent within the arm.
+3. Verify `config_hash` is consistent within the arm **and** equals the arm's
+   pre-registered value from §6.3.
+
+### 11.1a Treatment validation (after each arm)
+
+Every profile row of the arm must carry the arm's resolved treatment:
+
+| Arm ID | `search_depth` | `accuracy_mode` | `accuracy_branch_cap` | `search_topn_requested` | `search_topm_requested` |
+|---|---|---|---|---|---|
+| `d1_acc_off` | `1` | `false` | `6` | `2` | `2` |
+| `d1_acc_on` | `1` | `true` | `6` | `2` | `2` |
+| `d2_acc_off` | `2` | `false` | `6` | `3` | `3` |
+| `d2_acc_on` | `2` | `true` | `6` | `3` | `3` |
+
+A single row deviating on any of the five fields invalidates the attempt. No row is
+filtered and no majority rule applies.
+
+**Depth-2 frontier evidence.** For `d2_acc_off` and `d2_acc_on`, at least one profile row
+must have `depth2_frontier > 0`. Depth-2 rows with a uniformly zero frontier mean no
+depth-2 search was executed and therefore no depth-2 cost was measured — the arm produced
+no evidence for the question the preflight exists to answer, regardless of how many
+battles completed. This check is separate from the `search_depth == 2` check: `search_depth`
+records the requested depth, `depth2_frontier` records that a frontier was actually
+expanded.
+
+For `d1_acc_off` and `d1_acc_on`, every row must have `depth2_frontier == 0`.
 
 ### 11.2 Dataset-level validation (after each arm)
 
@@ -454,12 +612,20 @@ a retry requires a new output root and a new attempt pre-registration.
 12. Every arm has a complete run manifest with all fields populated (including
     `showdown_commit`, `server_patch_hash`, `pythonhashseed`, `git_sha`, `dirty`).
 13. Content hashes (SHA-256) of every output file are recorded for freeze evidence.
+14. **`config_hash` uniqueness across arms.** The four run manifests' `config_hash`
+    values must be **four distinct values**, and each must equal its arm's pre-registered
+    value from §6.3. Four identical hashes mean the arms were not differentiated and the
+    attempt is invalid — this is the check that would have caught Attempt 4 without
+    reading a single profile row.
+15. The four `config_hash` values must all differ from `594295543f13a55d`, the hash of an
+    **empty** `behavior_env`. That value means no arm-specific `SHOWDOWN_*` variable
+    reached the process.
 
 ### 11.4 Cache-class validation (after all four arms)
 
-14. No `contaminated` row exists in any arm. If any exists, the entire preflight is
+16. No `contaminated` row exists in any arm. If any exists, the entire preflight is
     invalid.
-15. `backend_class` values are exclusively `clean_cold` or `clean_warm`.
+17. `backend_class` values are exclusively `clean_cold` or `clean_warm`.
 
 ### 11.5 Invalidation
 
@@ -474,7 +640,14 @@ The preflight is **invalid** if any of the following occur in any arm:
 - Schema violation
 - Wrong `git_sha`
 - `dirty == true` in the run manifest
-- Inconsistent `config_hash`
+- Inconsistent `config_hash`, or a `config_hash` ≠ the arm's pre-registered value (§6.3)
+- Fewer than four distinct `config_hash` values across the four arms
+- Any profile row whose `search_depth`, `accuracy_mode`, `accuracy_branch_cap`,
+  `search_topn_requested`, or `search_topm_requested` deviates from §11.1a
+- No profile row with `depth2_frontier > 0` in either depth-2 arm
+- Any `depth2_frontier > 0` in either depth-1 arm
+- `resolvers_match_arm` or `config_hash_matches_expected` `false` in any
+  `operator-server-<arm>.json` (§7.2, §7.3)
 - Seed-log mismatch
 - Result row count ≠ 30
 - Result crash or invalid choice
@@ -543,8 +716,9 @@ The preflight run is identified by:
 | Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
 | Server patch hash | `86e31891547e87da` |
 | Battle timeout | 180 s (unset) |
-| Attempt | `4` |
-| Output root | `cost-preflight-d2-d64982a-attempt4/` |
+| Attempt | `5` |
+| Output root | `cost-preflight-d2-d64982a-attempt5/` |
+| Expected `config_hash` per arm | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` |
 | Node | `v24.16.0` |
 | npm | `11.13.0` |
 | Calc lockfile SHA-256 | `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
@@ -711,25 +885,108 @@ hashes:
 No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
 later attempt.
 
-### A.4 Attempt 4 — pre-registration
+### A.4 Attempt 4 — invalidated (arm-specific environment never reached the process)
+
+Attempt 4 fixed every defect from Attempts 1–3. All four arms completed **30/30 battles**
+with zero crashes and zero invalid choices. The server was stopped and restarted before
+each arm, port 8000 was confirmed free each time, each arm wrote its own
+`operator-server-<arm>.json`, and each arm's seed log contains exactly 30 entries. All 21
+expected output files exist.
+
+The attempt is nevertheless invalid, and the reason is more serious than a partial
+failure: **no arm ran the treatment it was supposed to run.**
+
+**Failure:** §6.3 listed the arm-specific variables under short names — `SEARCH_DEPTH`,
+`ACCURACY_MODE`, `ACCURACY_BRANCH_CAP`, `SEARCH_TOPN`, `SEARCH_TOPM`. The resolvers in
+`showdown_bot/src/showdown_bot/battle/decision.py` read the `SHOWDOWN_`-prefixed names
+(`SHOWDOWN_SEARCH_DEPTH`, etc.). The short-named variables were set, seen by no one, and
+every arm fell through to the code defaults.
+
+**Evidence:**
+
+1. All four arms have **identical** `config_hash` `594295543f13a55d` in both the run
+   manifest and every profile row. That value reproduces exactly from an **empty**
+   `behavior_env` under the candidate code — no arm-specific `SHOWDOWN_*` variable was
+   present in the process.
+2. Every profile row of every arm carries the same treatment:
+   `search_depth=1`, `accuracy_mode=true`, `accuracy_branch_cap=6`,
+   `search_topn_requested=2`, `search_topm_requested=2`, `depth2_frontier=0`.
+   Each arm emitted exactly **293** profile rows — the four arms are the same experiment
+   run four times.
+3. `depth2_frontier == 0` in all 1172 profile rows. **No depth-2 search was executed in
+   any arm.** The preflight exists to measure depth-2 cost; it measured none.
+4. The intended `accuracy_mode=false` arms ran with accuracy **on**, because
+   `SHOWDOWN_ACCURACY_MODE` defaults to `True` when absent (§6.3). An unset accuracy
+   variable does not mean accuracy off.
+
+**Invalidation reasons:** §11.5 — no distinct `config_hash` across arms; every profile row
+deviates from the arm's intended treatment; no depth-2 frontier evidence in either
+depth-2 arm.
+
+The 21 output files are preserved at
+`C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt4\` with these SHA-256 hashes:
+
+| File | SHA-256 |
+|---|---|
+| `cost_preflight_d1_acc_off_profile.jsonl` | `c4c55759b2ea129be45da4556c5a98c2ebfb244b0c01360de715f172d26d0508` |
+| `cost_preflight_d1_acc_off_result.jsonl` | `c0a74d7c2f68740b654cc46b71a1fa35f11f51a436607ebd68593b9f2d87334a` |
+| `cost_preflight_d1_acc_off_result.jsonl.manifest.json` | `160efebac1340965b30af0e79522e1d128c2a5e1b808b27e4d7ae404ad071fa8` |
+| `cost_preflight_d1_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d1_acc_on_profile.jsonl` | `13da96cbd5e1f4b0c94e2d4c4b3233f08ea9f834fcd32d429b92bae40135243d` |
+| `cost_preflight_d1_acc_on_result.jsonl` | `58235e07fa43633414d66b4c23ac7d74e1006510f50878806b1186497864fd5e` |
+| `cost_preflight_d1_acc_on_result.jsonl.manifest.json` | `1664f8b44d425956015f39f226ba6292f676c8c78253cf0a88bc705d8db79667` |
+| `cost_preflight_d1_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_off_profile.jsonl` | `f5b18ca8faba30dfb7ade2a4a7a30af5726a8e404c0dfaf5a76625f2c67c2260` |
+| `cost_preflight_d2_acc_off_result.jsonl` | `334108512b10a9d20b142252784c6fd01ba3acd1cb44f648498d585a14d733f9` |
+| `cost_preflight_d2_acc_off_result.jsonl.manifest.json` | `d994d0473df52910155ac75a0829df1025da9b70b1f3cc57c860ce267bb981ef` |
+| `cost_preflight_d2_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_on_profile.jsonl` | `9574c51f4933325ca8b0f9c9057651952b7452091a807588c5e5ae5404e1f707` |
+| `cost_preflight_d2_acc_on_result.jsonl` | `47c357ce13ae6f70dbfd2f3cbb7c6accb81437f3bdeb16d57d7aee57114e6328` |
+| `cost_preflight_d2_acc_on_result.jsonl.manifest.json` | `cd74d23ee36a3ea87eec5d7126f8220023a300b62a3d0ba141ccccde098c93ad` |
+| `cost_preflight_d2_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `operator-preflight.json` | `2487dd3d6bf5619859da5caca58fa0b0ad439fac4d66a47bb10f47f7b767d7cd` |
+| `operator-server-d1_acc_off.json` | `a7d8cdde46b070614c466e137f320b18dda551c669cc1fea06355203daa7b059` |
+| `operator-server-d1_acc_on.json` | `1668653ecd0bb4a84e5617b46d90078f991e6b66ae6ec113fe56b32a31fade0f` |
+| `operator-server-d2_acc_off.json` | `4082dd46fc5887997ec8d2080aefaaca2888bef036302ff8ce35929bc6a28d4c` |
+| `operator-server-d2_acc_on.json` | `150d0a6ac002ce50c934eef82c918a5bc9aeb09b61a4b86ac070000d373d79f2` |
+
+The four seed logs share one hash: same seed base, same schedule, same 30 seeds. That is
+expected and independently confirms the server *was* correctly restarted per arm — the
+lifecycle fix from Attempt 3 worked. Only the treatment did not.
+
+**What this attempt cost and what it bought.** Four arms × 30 battles produced zero usable
+cost evidence. It did produce the diagnosis, and the checks added in §6.3, §6.4, §7.3,
+§11.0, §11.1a, and §11.3 items 14–15 would each independently have caught it — three of
+them before battle 1.
+
+No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
+later attempt.
+
+### A.5 Attempt 5 — pre-registration
 
 | Property | Value |
 |---|---|
-| Reason for repeat | Server lifecycle violation (§A.3): server not restarted between arms, seedlog contamination |
+| Reason for repeat | Arm-specific environment never reached the gauntlet process (§A.4): short variable names, all four arms ran code defaults, no depth-2 search executed |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
-| Candidate worktree | same detached worktree as Attempts 1–3 |
-| Output root | `cost-preflight-d2-d64982a-attempt4/` (sibling of candidate worktree, outside git tree) |
+| Candidate worktree | same detached worktree as Attempts 1–4 |
+| Output root | `cost-preflight-d2-d64982a-attempt5/` (sibling of candidate worktree, outside git tree) |
 | `PYTHONPATH` | exclusively `<candidate-worktree>/showdown_bot/src` |
-| Import-root verification | `showdown_bot.__file__` and `showdown_bot.cli.__file__` both under `<candidate>/showdown_bot/src/`, recorded in `operator-preflight.json` |
+| Import-root verification | `showdown_bot.__file__`, `showdown_bot.cli.__file__`, and `showdown_bot.battle.decision.__file__` all under `<candidate>/showdown_bot/src/` |
 | Calc dependencies | `npm ci --prefix <candidate>/showdown_bot/tools/calc` **before** writing `operator-preflight.json`; lockfile SHA-256 `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
 | Node version | `v24.16.0` |
 | npm version | `11.13.0` |
+| Arm variable names | full `SHOWDOWN_`-prefixed names only (§6.3) |
+| Environment delivery | complete environment set in the **same** shell process that launches Python (§6.4) |
+| Pre-battle-1 treatment gate | in-process resolver + `config_hash` verification against §6.3, recorded in `operator-server-<arm>.json` (§7.3) |
+| Expected `config_hash` | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` — four distinct values, none equal to `594295543f13a55d` |
+| Post-battle-1 check | profile rows verified against §11.1a after battle 1 of each arm (§11.0) |
+| Depth-2 evidence gate | ≥1 profile row with `depth2_frontier > 0` in each depth-2 arm; `depth2_frontier == 0` in every depth-1 row (§11.1a) |
 | Server lifecycle | server stopped and restarted before each arm per §7.2; `operator-server-<arm>.json` written before battle 1 of each arm |
 | Operator-preflight timing | written **after** calc dependency installation and import-root verification, **before** battle 1 |
 | Arms | same 4-arm matrix, same fixed order, same schedule, same seeds |
 | Expected output files | 21 (5 per arm × 4 arms + 1 shared `operator-preflight.json`) |
 | Output immutability | no output file may be deleted, emptied, or re-created after `operator-preflight.json` is written; any arm failure invalidates the entire attempt |
-| Data isolation | no data from Attempts 1, 2, or 3 reused or pooled |
+| Data isolation | no data from Attempts 1–4 reused or pooled |
 
 All other parameters (schedule, panel, seeds, server provenance, environment discipline,
 validation rules) are unchanged from the body of this amendment.
