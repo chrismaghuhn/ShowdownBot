@@ -189,7 +189,8 @@ Created before the first arm if it does not exist. All arm-specific paths below 
 
 - Attempt 1 (invalidated — see Appendix A.1): `cost-preflight-d2-d64982a/`
 - Attempt 2 (invalidated — see Appendix A.2): `cost-preflight-d2-d64982a-attempt2/`
-- **Attempt 3:** `cost-preflight-d2-d64982a-attempt3/`
+- Attempt 3 (invalidated — see Appendix A.3): `cost-preflight-d2-d64982a-attempt3/`
+- **Attempt 4:** `cost-preflight-d2-d64982a-attempt4/`
 
 All arms share:
 - `PYTHONPATH=<candidate-worktree>/showdown_bot/src` (exclusive; no other entries — see §2.1)
@@ -202,7 +203,7 @@ All arms share:
 - `--result-out <output-root>/cost_preflight_<arm>_result.jsonl`
 
 where `<output-root>` is the absolute path to the current attempt's output directory
-(Attempt 3: `cost-preflight-d2-d64982a-attempt3/`) and `<arm>` is one of `d1_acc_off`,
+(Attempt 4: `cost-preflight-d2-d64982a-attempt4/`) and `<arm>` is one of `d1_acc_off`,
 `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
@@ -283,6 +284,65 @@ Written once before battle 1 of the first arm. Contains:
 The SHA-256 of `operator-preflight.json` is included in the freeze evidence alongside
 the run manifests and output-file hashes.
 
+### 7.2 Server lifecycle provenance
+
+§8.1 already requires stopping the Showdown server before each arm and restarting it
+with the new arm's environment. This section makes the **reason** and the **evidence**
+explicit.
+
+`SHOWDOWN_EVAL_SEED_LOG` is a **server-side** environment variable: the Showdown server
+reads it at process startup and writes one seed-log entry per battle for the lifetime of
+that process. Changing the variable in the Python gauntlet process has no effect on the
+already-running server. Consequently:
+
+1. Before each arm, the previous server process must be **stopped** (not just
+   disconnected) and port 8000 must be confirmed free.
+2. The arm-specific `SHOWDOWN_EVAL_SEED_LOG` path must be set in the environment
+   **before** the new server process is started.
+3. The new server process must be started fresh. No server may serve battles for more
+   than one arm.
+
+**Rationale (Attempt 3):** The server started for arm 1 (`d1_acc_off`) was kept running
+for arm 2 (`d1_acc_on`). The server still held arm 1's seed-log path, so the battle
+from arm 2 was appended to arm 1's seed log (31 entries instead of 30). Arm 2's own
+seed log was never created. The gauntlet's post-battle-1 seed-log wiring check detected
+the mismatch and aborted after 1/30 battles, but by then the partial output files were
+already written and arm 1's seed log was contaminated.
+
+To make the server restart verifiable, each arm writes an **immutable** record before
+battle 1:
+
+`<output-root>/operator-server-<arm>.json`
+
+| Field | Value |
+|---|---|
+| `arm_id` | one of `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on` |
+| `server_pid` | PID of the newly started server process |
+| `previous_server_pid` | PID of the previous arm's server (or `null` for the first arm) |
+| `previous_server_stopped` | `true` if the previous server process is confirmed stopped (or `null` for the first arm) |
+| `port_free_before_start` | `true` if port 8000 was confirmed free before the new server started |
+| `server_start_command` | `node pokemon-showdown start --no-security` |
+| `seed_log_path` | absolute path to this arm's `SHOWDOWN_EVAL_SEED_LOG` |
+| `seed_log_absent_or_empty_before_start` | `true` if the seed log file did not exist or was empty before the server started |
+| `utc_start_time` | ISO 8601 UTC timestamp of server start |
+
+These files are included in §10's output inventory and in the final hash freeze.
+Once written, they must not be deleted, emptied, or re-created.
+
+**Fail-closed conditions (server lifecycle):**
+
+The entire attempt is invalid if any of the following occur:
+
+- Any `operator-server-<arm>.json` field is missing or `false` where `true` is required.
+- The previous server process is still running when the new arm begins.
+- Port 8000 is occupied before the new server starts.
+- The `seed_log_path` does not match the arm's expected
+  `<output-root>/cost_preflight_<arm>_seedlog.jsonl`.
+- After an arm completes, its seed log does not contain exactly **30 entries**.
+
+A failed attempt must not be repaired or continued. A retry requires a new output root
+and a new attempt pre-registration.
+
 ---
 
 ## 8. Environment discipline
@@ -344,12 +404,15 @@ Per arm:
 | `cost_preflight_<arm>_profile.jsonl` | Decision-profile v4 rows |
 | `cost_preflight_<arm>_seedlog.jsonl` | Server Channel-A seed log |
 | `cost_preflight_<arm>_result.jsonl.manifest.json` | Run manifest |
+| `operator-server-<arm>.json` | Server lifecycle provenance (§7.2) |
 
 Plus one shared file (written once before the first arm):
 
 | File | Content |
 |---|---|
 | `operator-preflight.json` | Server provenance, live-checkout verification, output root (§7.1) |
+
+Expected total: **21 files** per complete attempt (5 per arm × 4 arms + 1 shared).
 
 Nothing is overwritten. Each arm writes to its own files. Once an attempt begins
 (operator-preflight.json is written), no output file under that attempt's output root
@@ -480,8 +543,8 @@ The preflight run is identified by:
 | Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
 | Server patch hash | `86e31891547e87da` |
 | Battle timeout | 180 s (unset) |
-| Attempt | `3` |
-| Output root | `cost-preflight-d2-d64982a-attempt3/` |
+| Attempt | `4` |
+| Output root | `cost-preflight-d2-d64982a-attempt4/` |
 | Node | `v24.16.0` |
 | npm | `11.13.0` |
 | Calc lockfile SHA-256 | `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
@@ -595,23 +658,78 @@ mid-attempt and cannot be frozen. This is itself an invalidation reason (point 2
 
 No data from Attempt 1 or Attempt 2 may be reused, pooled, or cited as evidence.
 
-### A.3 Attempt 3 — pre-registration
+### A.3 Attempt 3 — invalidated (server lifecycle violation, seedlog contamination)
+
+Attempt 3 fixed the import-root provenance (§2.1) and calc dependency (§2.2) issues
+from Attempts 1 and 2. Arm 1 (`d1_acc_off`) completed 30/30 battles and passed all
+per-arm validation checks. However, the Showdown server was **not restarted** between
+arms 1 and 2, violating §8.1 and §7.2.
+
+**Failure sequence:**
+
+1. Arm 1 (`d1_acc_off`) completed normally (30/30 battles, 0 crashes, 0 invalid, all
+   profile rows `clean_cold`/`clean_warm`, correct `cli_invocation`).
+2. The server (PID 11104) was kept running for arm 2. The server still held arm 1's
+   `SHOWDOWN_EVAL_SEED_LOG` path.
+3. Arm 2 (`d1_acc_on`) started. Battle 1 completed (winner=BaselineBot7845). The
+   server wrote the battle's seed entry to **arm 1's** seed log (because the server's
+   `SHOWDOWN_EVAL_SEED_LOG` was never updated).
+4. After battle 1, the gauntlet's seed-log wiring check found arm 2's seed log absent
+   and aborted with: "seed-log wiring incomplete: after battle 1 the log is still
+   empty or absent."
+5. Arm 2 wrote three partial output files (profile, result, manifest) for its single
+   completed battle. Arm 2's seed log was never created.
+
+**Invalidation reasons:**
+
+1. **Arm 2 partial failure (§11.5):** `d1_acc_on` completed 1/30 battles and aborted.
+   Three partial output files were written to the output root.
+2. **Arm 1 seedlog contamination:** Arm 1's seed log contains **31 entries** instead
+   of 30 — the server appended arm 2's battle seed because it was still using arm 1's
+   seed-log path. The seed-log hash changed from its post-arm-1 value.
+3. **Arm 2 missing seedlog:** No seed log exists for arm 2 (`d1_acc_on`) because the
+   server never wrote to the arm 2 path.
+
+The 8 surviving output files are preserved at
+`C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt3\` with these SHA-256
+hashes:
+
+| File | SHA-256 |
+|---|---|
+| `cost_preflight_d1_acc_off_profile.jsonl` | `77cec14ea7c86e16fbf7d7e62e18a5874df311bdd38f78bde51f2eb8b80bb014` |
+| `cost_preflight_d1_acc_off_result.jsonl` | `65a6ddba5a0bc75cdbecbb21525677aaf5ea4fe768f0c784d3c1f6c5fa615734` |
+| `cost_preflight_d1_acc_off_result.jsonl.manifest.json` | `ee556fcf6737091417cfad4a1db82b5002e7d25cd1c5024206c8b2e78c2561bc` |
+| `cost_preflight_d1_acc_off_seedlog.jsonl` | `fdeb47c8cb922687136fffb1fa93fa616dd7a2a87b15936e76f9a7c452c2bcda` |
+| `cost_preflight_d1_acc_on_profile.jsonl` | `7e6821ef105159c6f58dfd420f7f65d7bf797e7a634045c8d8f5c928039e7338` |
+| `cost_preflight_d1_acc_on_result.jsonl` | `1046743417be61be90d304e6c0df0a1c561a5bd6635ff6438e08c78d9d2cc21b` |
+| `cost_preflight_d1_acc_on_result.jsonl.manifest.json` | `6d6fa99dd747513e058b2bcb93f42e2ecaa4381e4a76a10a4da5ecd99326f5c5` |
+| `operator-preflight.json` | `baa34b101b11eb5732dc5ad9f772428fe3bf04e7a9b1b4fd649de63179986b5a` |
+
+**Note:** The `d1_acc_off_seedlog.jsonl` hash above reflects the **contaminated** state
+(31 entries). The pre-contamination 30-entry hash was not captured before arm 2 ran.
+
+No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
+later attempt.
+
+### A.4 Attempt 4 — pre-registration
 
 | Property | Value |
 |---|---|
-| Reason for repeat | Three invalidation reasons (§A.2): contaminated arm, overwritten output, stale preflight |
+| Reason for repeat | Server lifecycle violation (§A.3): server not restarted between arms, seedlog contamination |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
-| Candidate worktree | same detached worktree as Attempts 1 and 2 |
-| Output root | `cost-preflight-d2-d64982a-attempt3/` (sibling of candidate worktree, outside git tree) |
+| Candidate worktree | same detached worktree as Attempts 1–3 |
+| Output root | `cost-preflight-d2-d64982a-attempt4/` (sibling of candidate worktree, outside git tree) |
 | `PYTHONPATH` | exclusively `<candidate-worktree>/showdown_bot/src` |
 | Import-root verification | `showdown_bot.__file__` and `showdown_bot.cli.__file__` both under `<candidate>/showdown_bot/src/`, recorded in `operator-preflight.json` |
 | Calc dependencies | `npm ci --prefix <candidate>/showdown_bot/tools/calc` **before** writing `operator-preflight.json`; lockfile SHA-256 `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
 | Node version | `v24.16.0` |
 | npm version | `11.13.0` |
+| Server lifecycle | server stopped and restarted before each arm per §7.2; `operator-server-<arm>.json` written before battle 1 of each arm |
 | Operator-preflight timing | written **after** calc dependency installation and import-root verification, **before** battle 1 |
 | Arms | same 4-arm matrix, same fixed order, same schedule, same seeds |
+| Expected output files | 21 (5 per arm × 4 arms + 1 shared `operator-preflight.json`) |
 | Output immutability | no output file may be deleted, emptied, or re-created after `operator-preflight.json` is written; any arm failure invalidates the entire attempt |
-| Data isolation | no Attempt 1 or Attempt 2 data reused or pooled |
+| Data isolation | no data from Attempts 1, 2, or 3 reused or pooled |
 
 All other parameters (schedule, panel, seeds, server provenance, environment discipline,
 validation rules) are unchanged from the body of this amendment.
