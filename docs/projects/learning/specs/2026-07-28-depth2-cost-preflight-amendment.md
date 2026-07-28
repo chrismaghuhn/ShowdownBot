@@ -113,22 +113,31 @@ Distinct from existing namespaces (`champions-panel-v0-i8d-latency`,
 
 ## 6. Arms
 
-### 6.1 Fixed arm order
+### 6.1 Pre-registered arm order
 
 Arms are executed in this exact order: `d1_acc_off`, `d1_acc_on`, `d2_acc_off`,
-`d2_acc_on`. The order is fixed so that any environmental drift across the run is not
-confounded with the Depth/Accuracy manipulation.
+`d2_acc_on`. The order is **pre-registered**, not randomised. Because arm and wall-clock
+time are therefore inseparable, any host drift during the run is a confound that cannot
+be distinguished from the Depth/Accuracy manipulation. Cross-arm comparisons are
+consequently **descriptive only** — this is not a limitation introduced by the analysis
+but a property of the single-pass fixed-order design.
 
 ### 6.2 Shared environment
 
+Output root: `data/eval/cost-preflight-d2/` (relative to CWD, i.e.
+`<candidate-worktree>/showdown_bot/data/eval/cost-preflight-d2/`). Created before the
+first arm if it does not exist. All arm-specific paths below are under this root.
+
 All arms share:
 - `SHOWDOWN_CALC_BACKEND=persistent`
-- `SHOWDOWN_DECISION_PROFILE_OUT=<arm-specific path>`
+- `SHOWDOWN_DECISION_PROFILE_OUT=data/eval/cost-preflight-d2/cost_preflight_<arm>_profile.jsonl`
 - `SHOWDOWN_BATTLE_SEED_BASE=champions-panel-v0-d2-cost-preflight`
-- `SHOWDOWN_EVAL_SEED_LOG=<arm-specific path>`
+- `SHOWDOWN_EVAL_SEED_LOG=data/eval/cost-preflight-d2/cost_preflight_<arm>_seedlog.jsonl`
 - `PYTHONHASHSEED=0`
 - `--schedule` loaded via absolute path to the frozen YAML
-- `--result-out <arm-specific path>`
+- `--result-out data/eval/cost-preflight-d2/cost_preflight_<arm>_result.jsonl`
+
+where `<arm>` is one of `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
 
@@ -158,11 +167,16 @@ makes the preflight invalid.
 | Property | Pre-registered value | Verification |
 |---|---|---|
 | `PYTHONHASHSEED` | `0` | `os.environ["PYTHONHASHSEED"] == "0"` |
-| Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` | `load_showdown_commit()` from `config/eval/provenance.yaml` |
-| Server patch hash | `86e31891547e87da` | `server_patch_hash()` from `tools/eval/patches/pokemon-showdown-seeded-battle.patch` |
-| Server start command | `node pokemon-showdown --no-security --port <PORT>` | recorded in the run manifest's `cli_invocation` or equivalent |
-| Server port | pinned at execution time (recorded in manifest) | server accessible on the recorded port before battle 1 |
+| Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` | `load_showdown_commit()` from `config/eval/provenance.yaml` — **and** `git -C <server-dir> rev-parse HEAD` equals the same SHA |
+| Server patch hash | `86e31891547e87da` | `server_patch_hash()` from `tools/eval/patches/pokemon-showdown-seeded-battle.patch` — **and** `git -C <server-dir> diff HEAD` output hashes to the same value (the patch is actually applied) |
+| Server start command | `node pokemon-showdown start --no-security` | recorded in the run manifest |
+| Server port | `8000` | server WebSocket endpoint `ws://localhost:8000/showdown/websocket` reachable before battle 1 |
 | Timeout | 180 s (unset `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`) | `os.environ.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S") is None` |
+
+`load_showdown_commit()` reads a YAML config value, not the live server checkout. It is
+therefore necessary but **not sufficient**: the actual server directory's HEAD commit and
+applied patch diff must be checked independently before battle 1. Both checks (YAML
+config and live checkout) must agree.
 
 The run manifest (§12) records `showdown_commit`, `server_patch_hash`, and
 `pythonhashseed` in their standard fields. These are checked both pre-registered (before
@@ -220,7 +234,7 @@ subsequent decisions in the same battle are warm).
 
 ## 10. Output files
 
-Per arm, in a single output directory:
+All output under `data/eval/cost-preflight-d2/` (see §6.2). Per arm:
 
 | File | Content |
 |---|---|
@@ -244,32 +258,34 @@ Nothing is overwritten. Each arm writes to its own files.
 ### 11.2 Dataset-level validation (after each arm)
 
 4. `validate_live_profile_dataset(profile_path)` — this enforces:
-   - exclusively `decision-profile-v4` (single schema version);
-   - unique `(battle_id, decision_index)` across all rows;
-   - all rows have `source == "live"`.
-5. Profile JSONL is **non-empty** (at least one scored decision occurred).
-6. Every `battle_id` present in the 30 result rows has **at least one** corresponding
+   - single schema version (unique `(battle_id, decision_index)`, `source == "live"`).
+5. **Explicit v4 check**: every row's `schema_version` field equals the string
+   `"decision-profile-v4"` (`SCHEMA_VERSION_V4`). `validate_live_profile_dataset`
+   enforces a *single* schema version but does not require a *specific* one — a pure v3
+   dataset would pass its check. This additional assertion closes that gap.
+6. Profile JSONL is **non-empty** (at least one scored decision occurred).
+7. Every `battle_id` present in the 30 result rows has **at least one** corresponding
    profile row.
-7. Result JSONL has exactly **30 rows**, with **zero crashes** and **zero invalid
+8. Result JSONL has exactly **30 rows**, with **zero crashes** and **zero invalid
    choices**.
-8. Every profile row has `outcome == "ok"`, `selection_stage == "heuristic"`, and
+9. Every profile row has `outcome == "ok"`, `selection_stage == "heuristic"`, and
    `fallback_reason` is `null`.
 
 ### 11.3 Cross-arm validation (after all four arms)
 
-9. The sets of `battle_id` keys (derived from `seed_base + seed_index`) are **identical**
-   across all four arms.
-10. `schedule_hash`, `panel_hash`, and `seed_base` in every run manifest are identical
+10. The sets of `battle_id` keys (derived from `seed_base + seed_index`) are **identical**
+    across all four arms.
+11. `schedule_hash`, `panel_hash`, and `seed_base` in every run manifest are identical
     across arms.
-11. Every arm has a complete run manifest with all fields populated (including
+12. Every arm has a complete run manifest with all fields populated (including
     `showdown_commit`, `server_patch_hash`, `pythonhashseed`, `git_sha`, `dirty`).
-12. Content hashes (SHA-256) of every output file are recorded for freeze evidence.
+13. Content hashes (SHA-256) of every output file are recorded for freeze evidence.
 
 ### 11.4 Cache-class validation (after all four arms)
 
-13. No `contaminated` row exists in any arm. If any exists, the entire preflight is
+14. No `contaminated` row exists in any arm. If any exists, the entire preflight is
     invalid.
-14. `backend_class` values are exclusively `clean_cold` or `clean_warm`.
+15. `backend_class` values are exclusively `clean_cold` or `clean_warm`.
 
 ### 11.5 Invalidation
 
