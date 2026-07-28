@@ -41,8 +41,32 @@ Before battle 1 in any arm, the following must hold:
   production-file diff against the candidate).
 - The run manifest's `dirty` field is `false`.
 - The run manifest's `git_sha` field equals the full 40-character SHA of `d64982a`.
+- The run manifest's `cli_invocation` path contains the candidate worktree root, not any
+  other checkout (see §2.1).
 
 If any of these fail, the arm is invalid and the preflight is invalid.
+
+### 2.1 Import-root provenance
+
+The Python interpreter must load `showdown_bot` exclusively from the candidate worktree.
+Before battle 1 of the first arm, record and verify:
+
+- `showdown_bot.__file__` is under `<candidate-worktree>/showdown_bot/src/`.
+- `showdown_bot.cli.__file__` is under `<candidate-worktree>/showdown_bot/src/`.
+
+The interpreter must be invoked with `PYTHONPATH` set exclusively to
+`<candidate-worktree>/showdown_bot/src` (no other entries), ensuring no installed or
+editable package from another checkout is picked up. The two `__file__` values are
+recorded in `operator-preflight.json` (§7.1).
+
+**Rationale (Attempt 1):** Attempt 1 ran with the process CWD inside the candidate
+worktree but without pinning `PYTHONPATH`. Python resolved the installed editable package
+from the main repo (`SHowdown BOt/showdown_bot/src`), so `cli_invocation` and
+`showdown_bot.__file__` pointed to a different checkout. The production bytes were
+identical (only the amendment/schedule YAML differ between `d64982a` and `25d3dae`), but
+the approved candidate-provenance contract was not met. The 17 output files are preserved
+as `attempt-1-invalid-import-root/` with frozen SHA-256 hashes (Appendix A). No data
+from Attempt 1 may be reused or pooled with Attempt 2.
 
 ---
 
@@ -124,13 +148,17 @@ but a property of the single-pass fixed-order design.
 
 ### 6.2 Shared environment
 
-Output root: `cost-preflight-d2-d64982a/` — a sibling directory of the candidate
-worktree, **outside** the git tree. Writing output inside the worktree would make
-`git status` non-empty and set the run manifest's `dirty` flag to `true`, invalidating
-the run by §2's own clean-candidate rule. Created before the first arm if it does not
-exist. All arm-specific paths below use **absolute paths** under this root.
+Output root: a sibling directory of the candidate worktree, **outside** the git tree.
+Writing output inside the worktree would make `git status` non-empty and set the run
+manifest's `dirty` flag to `true`, invalidating the run by §2's own clean-candidate rule.
+Created before the first arm if it does not exist. All arm-specific paths below use
+**absolute paths** under this root.
+
+- Attempt 1 (invalidated — see Appendix A): `cost-preflight-d2-d64982a/`
+- **Attempt 2:** `cost-preflight-d2-d64982a-attempt2/`
 
 All arms share:
+- `PYTHONPATH=<candidate-worktree>/showdown_bot/src` (exclusive; no other entries — see §2.1)
 - `SHOWDOWN_CALC_BACKEND=persistent`
 - `SHOWDOWN_DECISION_PROFILE_OUT=<output-root>/cost_preflight_<arm>_profile.jsonl`
 - `SHOWDOWN_BATTLE_SEED_BASE=champions-panel-v0-d2-cost-preflight`
@@ -207,7 +235,11 @@ Written once before battle 1 of the first arm. Contains:
 | `diff_matches_patch` | `server_dir_diff_hash == patch_file_hash` |
 | `candidate_sha` | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` |
 | `candidate_dirty` | `false` |
-| `output_root` | absolute path to `cost-preflight-d2-d64982a/` |
+| `output_root` | absolute path to output directory |
+| `pythonpath` | value of `PYTHONPATH` (must equal `<candidate>/showdown_bot/src` exclusively) |
+| `showdown_bot_file` | `showdown_bot.__file__` (must be under `<candidate>/showdown_bot/src/`) |
+| `showdown_bot_cli_file` | `showdown_bot.cli.__file__` (must be under `<candidate>/showdown_bot/src/`) |
+| `import_root_verified` | `true` if both `__file__` paths are under the candidate worktree |
 
 The SHA-256 of `operator-preflight.json` is included in the freeze evidence alongside
 the run manifests and output-file hashes.
@@ -264,7 +296,7 @@ subsequent decisions in the same battle are warm).
 
 ## 10. Output files
 
-All output under `cost-preflight-d2-d64982a/` (outside the candidate worktree; see §6.2).
+All output under the attempt's output root (outside the candidate worktree; see §6.2).
 Per arm:
 
 | File | Content |
@@ -415,3 +447,67 @@ On a fully valid matrix: the parent spec's §12 step 11 ("Run and freeze the cos
 preflight") is satisfied. The closeout statement moves from DRAFT to final.
 
 On an invalid matrix: issue #123 stays open with the exact failure reason documented.
+
+---
+
+## Appendix A: Attempt 1 invalidation and Attempt 2 pre-registration
+
+### A.1 Attempt 1 — invalidated (import-root provenance violation)
+
+Attempt 1 completed all four arms (30/30 battles each, 0 crashes, 0 invalid choices, all
+validation checks passed). However, the Python interpreter resolved `showdown_bot` from
+the main repo's editable install (`C:\Users\chris\Documents\SHowdown BOt\showdown_bot\src`)
+instead of the candidate worktree (`cost-preflight-worktree-d64982a/showdown_bot/src`).
+
+**Evidence:** All four run manifests record `cli_invocation` with
+`C:\Users\chris\Documents\SHowdown BOt\showdown_bot\src\showdown_bot\cli.py` — the main
+worktree, not the detached candidate.
+
+**Root cause:** The gauntlet was launched with CWD inside the candidate worktree but without
+pinning `PYTHONPATH`. Python's module resolution picked up the editable install from the
+main repo rather than the local `src/` directory.
+
+**Note:** The production bytes at `d64982a` and `main` (`25d3dae`) are identical — only the
+amendment and schedule YAML (which do not affect execution) differ. The data is technically
+valid but the approved candidate-provenance contract (§2) was not met.
+
+The 17 output files are preserved at `C:\Users\chris\Documents\attempt-1-invalid-import-root\`
+with these SHA-256 hashes:
+
+| File | SHA-256 |
+|---|---|
+| `cost_preflight_d1_acc_off_profile.jsonl` | `eab067701e95ecbeff37321976892dae03eb8dd7f22e96758d51d7b6853934ca` |
+| `cost_preflight_d1_acc_off_result.jsonl` | `03f60a926d357bbc39c47b6f8c1041b5496d539f123a8e9b597038cd3781ef6d` |
+| `cost_preflight_d1_acc_off_result.jsonl.manifest.json` | `e83ab72c22f27bc285ab5070b391f8b5d44a4638bd40381884a01c186ae3784e` |
+| `cost_preflight_d1_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d1_acc_on_profile.jsonl` | `da37ef8a8faf84e5e64c6a74590a5e4c37b52b5551e0eb8272e9a209ba8aed55` |
+| `cost_preflight_d1_acc_on_result.jsonl` | `91ab56a9bfe023427e0c6f4a1a2a91500a5198c879e3f34a4be6048625fc25c3` |
+| `cost_preflight_d1_acc_on_result.jsonl.manifest.json` | `37fb73537b9369838e9563dd78bad42fc4805aab71fe69cb5261f0d690d1f762` |
+| `cost_preflight_d1_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_off_profile.jsonl` | `8a2e46724267d665394ea5e73e15e6bf2643f89b17280ad929501e23e00c78d6` |
+| `cost_preflight_d2_acc_off_result.jsonl` | `0929f4e92224a4896b15d5f1d6b7e7d2c4146ec3c188c28ff5050d3f7a484808` |
+| `cost_preflight_d2_acc_off_result.jsonl.manifest.json` | `10d623f5b5e1096c0d318c52091522abd38e3247996de66042aa6ee652530e8d` |
+| `cost_preflight_d2_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_on_profile.jsonl` | `f7ee981b95cc10b7c0ef4b840b01e9879021269e38b68dea8ede6271e9cc7baa` |
+| `cost_preflight_d2_acc_on_result.jsonl` | `7b67fca260caece82b1e7b1dda596b8b6c163a651a3ac967f4d051e121439f66` |
+| `cost_preflight_d2_acc_on_result.jsonl.manifest.json` | `cf9017d1184dcb4f5ab8b5459e16e3021b0440523f2683b9659825af2d288668` |
+| `cost_preflight_d2_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `operator-preflight.json` | `d4e1c1b8cc5e8678e065599deb8716a981db7d492048c3f891b48ce710b7b123` |
+
+No data from Attempt 1 may be reused, pooled, or cited as evidence for Attempt 2.
+
+### A.2 Attempt 2 — pre-registration
+
+| Property | Value |
+|---|---|
+| Reason for repeat | Import-root provenance violation (§2.1, Attempt 1) |
+| Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
+| Candidate worktree | same detached worktree as Attempt 1 |
+| Output root | `cost-preflight-d2-d64982a-attempt2/` (sibling of candidate worktree, outside git tree) |
+| `PYTHONPATH` | exclusively `<candidate-worktree>/showdown_bot/src` |
+| Import-root verification | `showdown_bot.__file__` and `showdown_bot.cli.__file__` both under `<candidate>/showdown_bot/src/`, recorded in `operator-preflight.json` |
+| Arms | same 4-arm matrix, same fixed order, same schedule, same seeds |
+| Data isolation | no Attempt 1 data reused or pooled |
+
+All other parameters (schedule, panel, seeds, server provenance, environment discipline,
+validation rules) are unchanged from the body of this amendment.
