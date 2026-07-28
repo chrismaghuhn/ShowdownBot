@@ -1,6 +1,15 @@
 # Live-path degradation recording: always-on, own-seat only, off the turn path
 
 **Status:** DECIDED — written before the implementation it authorises.
+**Amended:** 2026-07-29, §8.0 — `completion.json` gains `schema_errors_total` and
+`recorder_errors_total`. Three zero counters define a **clean completion snapshot** at the moment
+of serialisation, *not* a successful run. A successful run requires exit `0` **plus** a
+`completion.json` that is present, parses, validates, and carries three zeros; a non-zero exit
+means the run failed, and with a clean snapshot the file alone cannot say whether recording failed
+after the snapshot or an independent runner exception ended the run. The write is exclusive but
+**not atomic**, so *absent*, *unparseable* and *schema-invalid* are equivalent failure states.
+Still before the implementation: no code exists yet, so nothing frozen is recalculated by this
+amendment.
 **Date:** 2026-07-28
 **Scope:** `showdown_bot/src/showdown_bot/client/runner.py` — `run_ladder_search`,
 `run_challenge`, `run_smoke_battle`. See §3 for what `run_smoke_battle` may and may not record.
@@ -164,7 +173,182 @@ decision they do not belong to.
 | `decisions.jsonl` | one decision | `schema_version`, `run_id`, `room_id`, `decision_seq`, `rqid`, `book_absent`, `team_preview`, `state_build_failed`, `selection_stage`, `fallback_reason`, `agent_crash_type`, `derivation_applicable`, **`is_degraded`**, `outcome` |
 | `events.jsonl` | one async event | `schema_version`, `run_id`, `event_type` (`server_error` \| `invalid_choice_pm`), `attribution` (`room` \| `inferred` \| `unattributed`), `room_id`, `payload`, `active_battle_count` |
 | `battles.jsonl` | one battle | `schema_version`, `run_id`, `room_id`, `decisions_total`, `decisions_not_applicable`, **`degraded_decisions`**, `state_build_failures`, `agent_crashes`, `fallback_decisions`, `own_invalid_choices`, `server_errors`, `end_reason` (`win` \| `tie` \| `unterminated`), `write_errors` |
-| `completion.json` | one run, best-effort | `schema_version`, `run_id`, `battles_finished`, `unterminated_rooms`, `write_errors_total`, `preflight_ok` |
+| `completion.json` | one run, best-effort | `schema_version`, `run_id`, `battles_finished`, `unterminated_rooms`, **`write_errors_total`**, **`schema_errors_total`**, **`recorder_errors_total`**, `preflight_ok` |
+
+### 8.0 Amendment 2026-07-29 — the three error counters, and why two were added
+
+The original six-field `completion.json` carried only `write_errors_total`. That left a hole the
+implementation plan discovered and could not close on its own: a run whose recording failed for a
+**non-write** reason would write a `completion.json` that reads permanently clean —
+`write_errors_total: 0`, `preflight_ok: true` — while the process exited non-zero. Two such
+reasons exist and both are real:
+
+- a **validator rejection**, when a row this module built does not satisfy the schema it declares;
+- a **recorder failure** at a call site, when something escapes a `record_*`/`flush_*` call and the
+  guard that exists to keep it out of the battle loop swallows it (§10.2, and the rule that a
+  recorder failure must never prevent an already-chosen action being sent).
+
+**An exit code and a log line are not a substitute for the persisted evidence artifact.** This
+slice exists precisely because evidence that is not written down is evidence that is lost; leaving
+two of three failure modes out of the only per-run artifact would reproduce that error inside the
+fix for it. The three counters are therefore persisted:
+
+| Field | Counts |
+|---|---|
+| `write_errors_total` | failed appends and writes across the run, including a failed or refused completion write — subject to the persistence limit below |
+| `schema_errors_total` | rows rejected by `validate_decision_row` / `validate_event_row` / `validate_battle_row` / `validate_completion_row` |
+| `recorder_errors_total` | anything that escaped a `record_*`/`flush_*` call and was caught by the call-site guard |
+
+**Persistence limit — `completion.json` cannot contain a failure that happens at or after its own
+write, and it is not written atomically.** The counters are snapshotted when the payload is built,
+so a completion write that *itself* fails is never reflected in a `completion.json`. Three cases,
+and only one of them leaves nothing behind:
+
+| Case | What is on disk | What carries the failure |
+|---|---|---|
+| The **first** completion write fails **before** the file is created | no file at all | the absence (§10.3) plus the exit status |
+| The **first** completion write fails **after** `open(..., "x")` succeeded | a file that may be **empty, truncated mid-JSON, complete but unsynced, or otherwise invalid** | the exit status, plus the fact that the file does not parse or does not validate |
+| A **later** completion write is refused (§8.1: exclusive create, never truncate) | the earlier successful write's file, byte-for-byte unchanged and possibly reading clean | **the exit status** — the only contractually guaranteed machine-checkable signal outside that unchanged file. The existing file cannot report a failure that occurred after it was written, and it must not be rewritten to say so. `logger.error` also fires (§10.3 item 1), but a log line is neither guaranteed to be retained nor a defined machine contract |
+
+**Why the middle row exists.** The writer opens the final path directly with mode `"x"` and then
+serialises, flushes and `fsync`s into it. `"x"` buys **exclusivity, not atomicity**: once the open
+has succeeded the file exists, and anything failing afterwards — a full disk, an interrupted
+process, a failing `fsync` — leaves a partial or unusable `completion.json` behind. "No file at
+all" was therefore never guaranteed, and claiming it would have made a consumer trust the absence
+check more than it deserves.
+
+> **Alternative considered and deliberately not taken here: an atomic temp-file commit** (write
+> `completion.json.tmp`, `fsync`, then `os.replace`). That would collapse the middle row — a reader
+> would see either no file or a complete one. It is rejected *for this amendment*, not on merit: the
+> final step of that pattern **overwrites**, which is exactly what §8.1's never-truncate,
+> never-overwrite rule forbids, so adopting it means reopening §8.1 rather than extending §8.0. If
+> it is wanted, it is its own decision. Until then the honest best-effort taxonomy below is the
+> contract, because a stated limit beats an unstated assumption.
+
+The last two rows are why the exit status is a required part of the guarantee and not a
+convenience. A consumer must never treat a `completion.json` as proof on its own, and must never
+treat one as valid without parsing and validating it — see the taxonomy immediately below,
+and §10.3.
+
+**What three zeros mean — and what they do not.** The conjunction
+
+```
+write_errors_total == 0 and schema_errors_total == 0 and recorder_errors_total == 0
+```
+
+is derived by the consumer; it is not a stored field. And it defines exactly one thing: a **clean
+completion snapshot**, meaning the counters as they stood *at the moment the payload was
+serialised*. It is **not** a definition of a successful run.
+
+An earlier revision of this amendment did define a "successfully recorded run" that way, and it
+contradicted §10.3: the refused-second-write case of the persistence limit above satisfies "three
+zeros" and "the run failed" simultaneously. That phrasing is withdrawn. A verdict needs the exit
+status as well, and the combinations are these:
+
+**Three file states, not two.** Because the write is not atomic, "the file is there" is not a
+usable condition. A consumer must read it, parse it and run `validate_completion_row()` on it.
+**Absent, unparseable and schema-invalid are equivalent failure states** — they differ in
+diagnostics, never in verdict.
+
+| Exit status | `completion.json` | Verdict |
+|---|---|---|
+| `0` | present, parses, validates, three zeros | **Successful run, recording included.** The only combination that establishes it |
+| ≠ 0 | present, parses, validates, three zeros | **Run failed.** The file alone cannot distinguish *recording failed after its snapshot* (persistence limit above) from *an independent runner exception, cancellation or `KeyboardInterrupt` ended the run*. Both are failures; separating them needs the log or the surrounding context, not this file |
+| ≠ 0 | present, valid, some counter non-zero | **Run failed, and recording is a known contributor** |
+| ≠ 0 | absent, **or unparseable, or schema-invalid** | **Run failed.** Consistent with an unwritable sink (§10.1, §10.3), a write that died after `open` succeeded (persistence limit, middle row), or a hard kill (§10.4) |
+| `0` | anything other than a present, valid, three-zero file | **A defect, not a state.** It contradicts the normal-return rule below and must be treated as an implementation bug rather than interpreted |
+
+**What the exit status means, stated narrowly.** The process exit status is *not* a function of
+these three counters alone: a propagated runner exception, a cancellation and a `KeyboardInterrupt`
+all end the process non-zero for their own reasons, and this record does not change that — nor may
+the recorder mask any of them (§10.3). The rule added here is only the **additional** recorder-based
+status **on the normal-return path**:
+
+> On the normal-return path, **after all finalisation attempts — including the completion write —
+> and immediately before the recorder-derived status is evaluated**, the process exits non-zero if
+> and only if any in-memory error counter is non-zero.
+
+**The two moments are deliberately different, and that difference is the whole taxonomy.** An
+earlier revision of this amendment pinned the rule to the moment `completion.json` is serialised,
+which made it contradict the persistence limit it sits next to. Walk the refused-second-write case
+mechanically, because the details decide it:
+
+1. the payload is **constructed** in memory with three zeros;
+2. `open(path, "x")` raises `FileExistsError` — so the payload is **never serialised and never
+   reaches the disk at all**. What remains on disk is the snapshot the *earlier successful* write
+   left there;
+3. `write_errors_total` is incremented **in memory**;
+4. the status check runs afterwards and yields non-zero.
+
+An earlier wording of step 1 said the payload "is serialised … and that is what reaches the file".
+That is false for this case: nothing from this attempt reaches the file, and the on-disk snapshot
+belongs to a *different, earlier* write. The correction matters because it is what makes row 2 of
+the taxonomy an honest reading rather than a coincidence — the file is old, not stale-by-a-moment.
+
+The failed-**first**-write case walks differently again: step 2 may fail *before* the create, or
+*after* it, and only the first of those leaves nothing behind (persistence limit, middle row).
+
+A rule tied to step 1 would demand exit `0` for a run that had just lost its completion write. The
+status is therefore evaluated **last**, over the in-memory counters, while what is on disk is
+whatever the last *successful* write put there — or a partial file, or nothing. That gap between
+"what the file says" and "what the status says" is exactly why rows 2 and 4 of the taxonomy exist.
+
+A non-zero exit therefore means "the run failed, possibly at recording"; it never means "recording
+failed" on its own, and a clean snapshot never upgrades it to success.
+
+**There is deliberately no `recording_ok` boolean field.** A stored boolean is a second
+representation of the same fact, and a second representation can disagree with the first. A
+consumer computes the conjunction above from the three counters; that cannot drift, because there
+is nothing to drift from.
+
+**`completion.json` is validated like the three JSONL grains, not exempt from them.** The closed
+contract of §8 covers it: `validate_completion_row(row, *, expected_run_id=None)` checks field set
+**and order**, types (`bool` is not an integer counter), non-negativity, and the invariants below.
+Mutation tests prove each rule can fail, exactly as for the other three grains.
+
+| Field | Rule |
+|---|---|
+| `schema_version` | the literal `"live-degradation-v1"` |
+| `run_id` | non-empty string; **and**, when `expected_run_id` is supplied, equal to it |
+| `battles_finished` | non-negative int; `bool` rejected |
+| `unterminated_rooms` | list of non-empty strings, no duplicates |
+| `write_errors_total`, `schema_errors_total`, `recorder_errors_total` | non-negative ints; `bool` rejected |
+| `preflight_ok` | must be `true`. The file can only be written after preflight succeeded (§10.1), so `false` here is a defect, not a state |
+
+**What the row validator can and cannot prove about `run_id`.** §8 makes `run_id` the join key
+across all four files, but a validator handed one completion object cannot see the other three —
+and passing the recorder's own `self.run_id` as `expected_run_id` proves only that the recorder is
+self-consistent, since both values come from the same source. The cross-file identity is therefore
+a **directory-level invariant with its own check**, not something the row validator establishes:
+
+> **Artifact invariant.** In a completed run directory, **every JSONL line that is present**
+> carries the same `run_id` as `completion.json`, and that `run_id` equals the directory name
+> (§8.1). A **missing** JSONL file means zero persisted rows of that grain — unless the error
+> counters mark that state as a write failure, in which case the absence is a failure, not an
+> emptiness.
+
+**Why "present", not "all four".** An earlier wording of this invariant demanded all four files
+and would have been false on a normal run. Nothing creates empty files: preflight removes its probe
+and leaves an empty directory (§10.1), and the append helper returns without touching the disk when
+it is handed zero rows. A clean run with no `|error|` and no invalid-choice PM therefore has **no
+`events.jsonl` at all** — the commonest case there is — and a run whose writes failed can be
+missing more. An invariant that a correct run violates is not a check; it is a false alarm waiting
+to happen.
+
+This is proven by an integration test that writes a real run and reads back whatever files exist —
+separately from the pure row validators, which perform no IO and must keep performing none (they
+run at record time). It covers **two** shapes, not one:
+
+1. a run that produces **every** grain (decisions, at least one event, a battle row, completion);
+2. a run with **no events at all**, asserting that `events.jsonl` is absent, that the error
+   counters are zero, and that its absence is therefore read as emptiness rather than as loss.
+
+Keeping the invariant and the row validators apart also keeps each able to fail on its own: a row
+validator that silently could not check something would be worse than one that does not claim to.
+
+**The absence rule of §10.3 is extended, not weakened:** a missing, unparseable or schema-invalid `completion.json` and a
+`completion.json` reporting non-zero counters are equivalent failure states, and success is never
+inferred from the absence of a failure record.
 
 **`is_degraded` — the canonical result, and it must be persisted.** `is_degraded_decision()`
 is the one function that answers this slice's actual question. Gating its *invocation* (§5.1)
@@ -301,14 +485,40 @@ The precise contract:
 An earlier revision said a flush failure "is itself recorded", which is circular — if the sink
 is unwritable, the record of that fact is unwritable too. The guarantee is split:
 
-1. **In-memory counter + `logger.error`** — always available, independent of the sink.
-2. **`completion.json`** — best-effort. It may itself fail to write, and its absence is
-   meaningful, not neutral.
-3. **Process exit status** — the machine-checkable signal. If any flush failed, the run exits
-   non-zero. This depends on no file being writable and is what an automated caller keys on.
+1. **In-memory counters + `logger.error`** — always available, independent of the sink. All three
+   counters of §8.0 (`write_errors_total`, `schema_errors_total`, `recorder_errors_total`), not
+   the write counter alone.
+2. **`completion.json`** — best-effort, and it **persists all three counters** (§8.0). It may
+   itself fail to write, and its absence is meaningful, not neutral. It must never read clean
+   while a counter was already non-zero when its payload was built — that was the hole §8.0
+   closes. It **can** read clean about failures that happen at or after its own write; that
+   residual case is bounded and tabulated in §8.0's persistence limit, not waved away.
+3. **Process exit status** — the machine-checkable signal, and for §8.0's refused-second-write
+   case the only contractually guaranteed machine-checkable one outside the unchanged file.
+   Item 1's `logger.error` still fires there; it is simply not a machine contract — nothing in
+   this record guarantees the log is retained, parseable or even enabled. On the normal-return
+   path, **after all finalisation attempts including the completion write, and immediately before
+   the recorder-derived status is evaluated**, the run exits non-zero if and only if any in-memory
+   counter is non-zero — §8.0 states this rule authoritatively and explains why it is evaluated
+   last rather than at serialisation time. This is an **additional** condition, not a definition
+   of the
+   exit status: a propagated runner exception, a cancellation and a `KeyboardInterrupt` produce
+   their own non-zero exits, and the recorder must not mask, replace or suppress any of them —
+   whatever ended the run keeps its own status. Exit status depends on no file being writable,
+   which is why it is the last line of defence; it is also not persisted evidence and does not
+   survive the process, which is why it is not the first.
 
-A consumer must treat *"no `completion.json`"* and *"`completion.json` reporting failures"* as
+A consumer must treat *"no `completion.json`"*, *"a `completion.json` that does not parse or does not validate"* and *"a `completion.json` reporting failures"* as
 equivalent failure states, and must never infer success from the absence of a failure record.
+
+**And a third state, from §8.0's persistence limit:** a `completion.json` with three zero counters
+alongside a **non-zero exit status** is a failure too, not a contradiction to resolve in the file's
+favour. Three zeros are a **clean completion snapshot** at serialisation time, never a verdict on
+the run — §8.0's taxonomy is authoritative and this paragraph restates it, it does not extend it.
+The correct reading is "the run failed, and this file predates or does not cover that failure";
+whether recording failed after the snapshot or an independent runner exception ended the run is
+something the file cannot decide. A consumer that checks only the file, or only the exit status,
+will be wrong on one of these cases; the verdict needs both.
 
 ### 10.4 Remaining evidence limit
 
