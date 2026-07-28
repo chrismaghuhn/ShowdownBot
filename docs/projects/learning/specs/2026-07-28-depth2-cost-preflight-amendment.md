@@ -18,13 +18,20 @@ a **live-gauntlet** measurement path that natively produces v4 rows.
 This amendment adds no production code. The candidate remains `d64982a`.
 
 **Current state:** Attempts 1–4 are invalidated (Appendix A.1–A.4). Attempt 5 is
-pre-registered (Appendix A.5) and **not yet executed**. The Attempt-4 defect — the arm
-variables never reached the gauntlet process, so all four arms ran identical code
-defaults and no depth-2 search was executed — is closed by four independent checks added
-in this revision: full variable names (§6.3), same-process environment delivery (§6.4),
-a pre-arm resolver and `config_hash` gate (§7.3), and per-arm treatment validation —
-enforced between arms — including a depth-2 frontier requirement (§11.0, §11.1a) and
-cross-arm `config_hash` uniqueness (§11.3).
+pre-registered (Appendix A.5) and **not yet executed**.
+
+The Attempt-4 defect: the arm variables were set under short names, not the
+`SHOWDOWN_`-prefixed names the resolvers read, so all four arms ran identical code
+defaults and no depth-2 search was executed. That claim rests on two separate pieces of
+evidence, because no single one covers all five arm variables — the empty-`behavior_env`
+`config_hash` settles the three hashed variables, and the profile rows' `2`/`2` frontier
+caps settle the two that are excluded from the hash by construction (§6.3, A.4).
+
+The defect is closed by four independent checks added in this revision: full variable
+names (§6.3), same-process environment delivery (§6.4), a pre-arm resolver and
+`config_hash` gate (§7.3), and per-arm treatment validation — enforced between arms —
+including a depth-2 frontier requirement (§11.0, §11.1a) and cross-arm `config_hash`
+uniqueness (§11.3).
 
 ---
 
@@ -671,8 +678,13 @@ For `d1_acc_off` and `d1_acc_on`, every row must have `depth2_frontier == 0`.
     attempt is invalid — this is the check that would have caught Attempt 4 without
     reading a single profile row.
 15. The four `config_hash` values must all differ from `594295543f13a55d`, the hash of an
-    **empty** `behavior_env`. That value means no arm-specific `SHOWDOWN_*` variable
-    reached the process.
+    **empty** `behavior_env`. That value means no `behavior_env`-included treatment
+    variable (`SHOWDOWN_SEARCH_DEPTH`, `SHOWDOWN_ACCURACY_MODE`,
+    `SHOWDOWN_ACCURACY_BRANCH_CAP`) reached the process. It says nothing about
+    `SHOWDOWN_SEARCH_TOPN` / `SHOWDOWN_SEARCH_TOPM`, which are excluded from the hash by
+    construction (§6.3) — those are covered only by §11.1a's per-row
+    `search_topn_requested` / `search_topm_requested` check. Neither check subsumes the
+    other; both are required.
 
 ### 11.4 Cache-class validation (after all four arms)
 
@@ -938,7 +950,7 @@ hashes:
 No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
 later attempt.
 
-### A.4 Attempt 4 — invalidated (arm-specific environment never reached the process)
+### A.4 Attempt 4 — invalidated (no arm ran its intended treatment)
 
 Attempt 4 fixed every defect from Attempts 1–3. All four arms completed **30/30 battles**
 with zero crashes and zero invalid choices. The server was stopped and restarted before
@@ -959,16 +971,29 @@ every arm fell through to the code defaults.
 
 1. All four arms have **identical** `config_hash` `594295543f13a55d` in both the run
    manifest and every profile row. That value reproduces exactly from an **empty**
-   `behavior_env` under the candidate code — no arm-specific `SHOWDOWN_*` variable was
-   present in the process.
-2. Every profile row of every arm carries the same treatment:
+   `behavior_env` under the candidate code.
+
+   This proves precisely one thing: **no treatment variable that `behavior_env` includes
+   reached the process** — i.e. none of `SHOWDOWN_SEARCH_DEPTH`,
+   `SHOWDOWN_ACCURACY_MODE`, `SHOWDOWN_ACCURACY_BRANCH_CAP`. It is **silent about
+   `SHOWDOWN_SEARCH_TOPN` / `SHOWDOWN_SEARCH_TOPM`**, which are in `EXCLUDED_BY_REASON`
+   and never enter the hash (§6.3). The hash alone cannot show whether the frontier caps
+   were set.
+2. The frontier caps are settled separately, by the profile rows: every row carries
+   `search_topn_requested=2` and `search_topm_requested=2` — the code defaults — where the
+   depth-2 arms intended `3`/`3`. So the two excluded variables did not reach the process
+   either.
+
+   Together, (1) and (2) cover all five arm variables and establish the full claim: **no
+   arm ran its intended treatment.** Neither line of evidence carries it alone.
+3. Every profile row of every arm carries the same treatment:
    `search_depth=1`, `accuracy_mode=true`, `accuracy_branch_cap=6`,
    `search_topn_requested=2`, `search_topm_requested=2`, `depth2_frontier=0`.
    Each arm emitted exactly **293** profile rows — the four arms are the same experiment
    run four times.
-3. `depth2_frontier == 0` in all 1172 profile rows. **No depth-2 search was executed in
+4. `depth2_frontier == 0` in all 1172 profile rows. **No depth-2 search was executed in
    any arm.** The preflight exists to measure depth-2 cost; it measured none.
-4. The intended `accuracy_mode=false` arms ran with accuracy **on**, because
+5. The intended `accuracy_mode=false` arms ran with accuracy **on**, because
    `SHOWDOWN_ACCURACY_MODE` defaults to `True` when absent (§6.3). An unset accuracy
    variable does not mean accuracy off.
 
@@ -1020,7 +1045,7 @@ later attempt.
 
 | Property | Value |
 |---|---|
-| Reason for repeat | Arm-specific environment never reached the gauntlet process (§A.4): short variable names, all four arms ran code defaults, no depth-2 search executed |
+| Reason for repeat | No arm ran its intended treatment (§A.4): short variable names, so all four arms resolved to code defaults — shown for the three hashed variables by the empty-`behavior_env` `config_hash` and for the two excluded frontier caps by the profile rows' `2`/`2`. No depth-2 search executed |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
 | Candidate worktree | same detached worktree as Attempts 1–4 |
 | Output root | `cost-preflight-d2-d64982a-attempt5/` (sibling of candidate worktree, outside git tree) |
