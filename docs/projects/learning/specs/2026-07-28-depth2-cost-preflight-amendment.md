@@ -17,8 +17,14 @@ a **live-gauntlet** measurement path that natively produces v4 rows.
 
 This amendment adds no production code. The candidate remains `d64982a`.
 
-**Current state:** Attempts 1–4 are invalidated (Appendix A.1–A.4). Attempt 5 is
-pre-registered (Appendix A.5) and **not yet executed**.
+**Current state:** Attempts 1–5 are invalidated (Appendix A.1–A.5). Attempt 6 is
+pre-registered (Appendix A.6) and **not yet executed**.
+
+Attempt 5 aborted before its first battle: the pre-arm gate passed on every check, but the
+operator ran the verification child and the gauntlet child in two different shell
+processes, which is what §6.4 forbids. Zero battles were executed. §6.4's technical rule
+was already correct and is unchanged; it gained only an operator note that the whole arm
+block must occupy a single tool call.
 
 The Attempt-4 defect: the arm variables were set under short names, not the
 `SHOWDOWN_`-prefixed names the resolvers read, so all four arms ran identical code
@@ -27,11 +33,18 @@ evidence, because no single one covers all five arm variables — the empty-`beh
 `config_hash` settles the three hashed variables, and the profile rows' `2`/`2` frontier
 caps settle the two that are excluded from the hash by construction (§6.3, A.4).
 
-The defect is closed by four independent checks added in this revision: full variable
-names (§6.3), same-process environment delivery (§6.4), a pre-arm resolver and
+The defect is now **guarded** by four independent checks added in this revision: full
+variable names (§6.3), same-process environment delivery (§6.4), a pre-arm resolver and
 `config_hash` gate (§7.3), and per-arm treatment validation — enforced between arms —
 including a depth-2 frontier requirement (§11.0, §11.1a) and cross-arm `config_hash`
 uniqueness (§11.3).
+
+Guarded is not the same as demonstrated. Attempt 5 exercised the pre-arm gate only
+(§A.5): it confirmed the corrected variable names, the resolver outputs, and the expected
+`config_hash` **in the verifier child**. Shared-parent delivery to the gauntlet child, that
+child's manifest `config_hash`, the profile rows it emits, and an actually executed depth-2
+frontier are all still unverified. **End-to-end execution remains unverified until a valid
+attempt completes.**
 
 ---
 
@@ -207,7 +220,8 @@ Created before the first arm if it does not exist. All arm-specific paths below 
 - Attempt 2 (invalidated — see Appendix A.2): `cost-preflight-d2-d64982a-attempt2/`
 - Attempt 3 (invalidated — see Appendix A.3): `cost-preflight-d2-d64982a-attempt3/`
 - Attempt 4 (invalidated — see Appendix A.4): `cost-preflight-d2-d64982a-attempt4/`
-- **Attempt 5:** `cost-preflight-d2-d64982a-attempt5/`
+- Attempt 5 (invalidated — see Appendix A.5): `cost-preflight-d2-d64982a-attempt5/`
+- **Attempt 6:** `cost-preflight-d2-d64982a-attempt6/`
 
 All arms share:
 - `PYTHONPATH=<candidate-worktree>/showdown_bot/src` (exclusive; no other entries — see §2.1)
@@ -220,7 +234,7 @@ All arms share:
 - `--result-out <output-root>/cost_preflight_<arm>_result.jsonl`
 
 where `<output-root>` is the absolute path to the current attempt's output directory
-(Attempt 5: `cost-preflight-d2-d64982a-attempt5/`) and `<arm>` is one of `d1_acc_off`,
+(Attempt 6: `cost-preflight-d2-d64982a-attempt6/`) and `<arm>` is one of `d1_acc_off`,
 `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
@@ -303,6 +317,13 @@ Per arm, in a **single** PowerShell command, in this order:
 4. **First Python child:** the verification script (§7.3).
 5. **No environment mutation of any kind between steps 4 and 6.**
 6. **Second Python child:** `python -m showdown_bot.cli gauntlet ...`.
+
+**Operator note.** Steps 1–6 are one PowerShell process, therefore one **tool call**. Each
+tool call spawns a fresh shell, so splitting the block across two calls — gate in one,
+gauntlet in the next — destroys the inheritance this section depends on, even though every
+individual step looks correct. The technical rule above is unchanged; this note exists
+because that is exactly how Attempt 5 was lost (A.5). The observable symptom is immediate:
+a shell opened after the gate has **no** `SHOWDOWN_*` variables at all.
 
 Steps 4 and 6 are two distinct Python processes — `python -m showdown_bot.cli gauntlet`
 dispatches straight to `run_gauntlet(args)` and offers no pre-run hook, so a verification
@@ -781,8 +802,8 @@ The preflight run is identified by:
 | Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
 | Server patch hash | `86e31891547e87da` |
 | Battle timeout | 180 s (unset) |
-| Attempt | `5` |
-| Output root | `cost-preflight-d2-d64982a-attempt5/` |
+| Attempt | `6` |
+| Output root | `cost-preflight-d2-d64982a-attempt6/` |
 | Expected `config_hash` per arm | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` |
 | Node | `v24.16.0` |
 | npm | `11.13.0` |
@@ -1041,21 +1062,86 @@ stopped the run after arm 1 rather than arm 4.
 No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
 later attempt.
 
-### A.5 Attempt 5 — pre-registration
+### A.5 Attempt 5 — invalidated (operator split the arm block across two shell processes)
+
+Attempt 5 was aborted **before battle 1 of arm 1**. No battle was executed, no result,
+profile, seedlog, or manifest file was produced. It is the cheapest failure in the series:
+Attempt 4 cost 120 battles, Attempt 5 cost none.
+
+**What passed.** Calc dependencies installed clean (`npm ci`, exit 0). The operator
+preflight verified and recorded candidate SHA `d64982a`, clean worktree, exclusive
+`PYTHONPATH`, import roots inside the candidate, `PYTHONHASHSEED=0`, server HEAD and patch
+diff both matching `config/eval/provenance.yaml`, node `v24.16.0`, npm `11.13.0`, and the
+frozen calc lockfile hash. The arm-1 pre-arm gate (§7.3) then **passed on every check**:
+resolvers returned `depth=1, accuracy=False, cap=6, topn=2, topm=2`, the computed
+`config_hash` was `03d2d5ee27911fc4` — exactly the pre-registered value — and §4.2's
+schedule rebuild, panel-content binding, and non-empty team check all succeeded.
+
+**Scope of that evidence.** All of it was produced **inside the verifier child**. It shows
+the corrected variable names reach a Python process and resolve to the intended treatment.
+It shows nothing about the gauntlet child — not shared-parent delivery, not its manifest
+`config_hash`, not the profile rows it would emit, and not whether a depth-2 frontier is
+ever expanded. Those remain unverified.
+
+**Failure.** §6.4 requires one PowerShell process per arm to launch **both** Python
+children. The operator ran the verification child in one shell invocation, which then
+exited; the gauntlet would have run in a new shell. Every step was individually correct
+and the gate genuinely passed, but the shared-parent inheritance that §6.4's whole argument
+rests on no longer existed. The symptom was immediate and unambiguous: a shell opened after
+the gate contained **no** `SHOWDOWN_*` variables.
+
+This is an operator procedure error, not a code or environment defect. The spec text was
+already correct; §6.4 now carries an explicit operator note that the whole arm block must
+occupy a single tool call, because a fresh tool call is a fresh shell.
+
+**Why it could not be repaired.** `operator-preflight.json` was already written, so §10
+had frozen the output root: no file may be deleted, emptied, or re-created. Re-running the
+arm-1 gate inside a correct parent process would have had to re-create
+`operator-server-d1_acc_off.json` — the verification script refuses this by design. Running
+the gauntlet from a new shell with a manually re-created environment was rejected: §11.1's
+manifest `config_hash` check would have confirmed the gauntlet's environment after the
+fact, but the `operator-server` record would then assert a provenance chain that did not
+hold. A correct-looking record backed by a broken chain is the failure mode this appendix
+exists to prevent.
+
+The 2 output files are preserved at
+`C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt5\` with these SHA-256 hashes:
+
+| File | SHA-256 |
+|---|---|
+| `operator-preflight.json` | `5432f4290177f040661041ff5351f0768013542ecd6d581097edb7aeffe40e2d` |
+| `operator-server-d1_acc_off.json` | `009fbcee8650af8b8bc24556d2587adac41e1b6340b9454300adefa7ed62218d` |
+
+The arm-1 server (PID 27572) was stopped after the abort and port 8000 confirmed free. The
+`operator-server-d1_acc_off.json` record documents that the process was **started**; it
+makes no claim that it keeps running, so stopping it does not falsify the record.
+
+**Not an invalidation reason:** a parser bug in the operator's preflight script initially
+misread `config/eval/provenance.yaml` by matching a comment line, which failed the
+`head_matches_provenance` check and aborted before any file was written. Attempt 5 had not
+begun at that point — `operator-preflight.json` did not exist — so the fix and re-run are
+outside the attempt's lifetime. The check behaved correctly: it failed closed rather than
+writing a record with a wrong provenance field.
+
+No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
+later attempt.
+
+### A.6 Attempt 6 — pre-registration
 
 | Property | Value |
 |---|---|
-| Reason for repeat | No arm ran its intended treatment (§A.4): short variable names, so all four arms resolved to code defaults — shown for the three hashed variables by the empty-`behavior_env` `config_hash` and for the two excluded frontier caps by the profile rows' `2`/`2`. No depth-2 search executed |
+| Reason for repeat | Operator split the arm block across two shell processes (§A.5), breaking §6.4's shared-parent inheritance before battle 1. No battles executed |
+| Prior defect status | **Partial counterproof.** Attempt 5 verified the corrected variable names, resolver outputs, and expected `config_hash` in the **verifier child**. Shared-parent delivery to the gauntlet child and the emitted treatment rows remain unverified until Attempt 6 runs validly |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
-| Candidate worktree | same detached worktree as Attempts 1–4 |
-| Output root | `cost-preflight-d2-d64982a-attempt5/` (sibling of candidate worktree, outside git tree) |
+| Candidate worktree | same detached worktree as Attempts 1–5 |
+| Output root | `cost-preflight-d2-d64982a-attempt6/` (sibling of candidate worktree, outside git tree) |
 | `PYTHONPATH` | exclusively `<candidate-worktree>/showdown_bot/src` |
 | Import-root verification | `showdown_bot.__file__`, `showdown_bot.cli.__file__`, and `showdown_bot.battle.decision.__file__` all under `<candidate>/showdown_bot/src/` |
 | Calc dependencies | `npm ci --prefix <candidate>/showdown_bot/tools/calc` **before** writing `operator-preflight.json`; lockfile SHA-256 `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
 | Node version | `v24.16.0` |
 | npm version | `11.13.0` |
 | Arm variable names | full `SHOWDOWN_`-prefixed names only (§6.3) |
-| Environment delivery | one PowerShell process per arm sets the environment and launches both Python children (verification, then gauntlet) with no assignment between them (§6.4) |
+| Environment delivery | one PowerShell process per arm sets the environment and launches both Python children (verification, then gauntlet) with no assignment between them; the entire arm block occupies a **single tool call** (§6.4 operator note) |
 | Pre-arm treatment gate | resolver + `config_hash` verification in the first Python child of the arm's shell process, before the gauntlet child is launched; recorded in `operator-server-<arm>.json` (§7.3) |
 | Expected `config_hash` | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` — four distinct values, none equal to `594295543f13a55d` |
 | Post-arm gate | profile rows verified against §11.1a after each arm completes and before the next arm starts (§11.0) |
@@ -1065,7 +1151,7 @@ later attempt.
 | Arms | same 4-arm matrix, same fixed order, same schedule, same seeds |
 | Expected output files | 21 (5 per arm × 4 arms + 1 shared `operator-preflight.json`) |
 | Output immutability | no output file may be deleted, emptied, or re-created after `operator-preflight.json` is written; any arm failure invalidates the entire attempt |
-| Data isolation | no data from Attempts 1–4 reused or pooled |
+| Data isolation | no data from Attempts 1–5 reused or pooled |
 
 All other parameters (schedule, panel, seeds, server provenance, environment discipline,
 validation rules) are unchanged from the body of this amendment.
