@@ -68,10 +68,10 @@ Strata are the actual `backend_class` values on each profile row — `clean_cold
 | `clean_cold` | 30 | 30 | 215.9 | 240.3 | 254.2 |
 | `clean_warm` | 241 | 30 | 31.3 | 54.6 | 79.1 |
 
-| Stratum | chooser fallback | degradation | cap_fallback | topn | topm | frontier > 0 | max frontier |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `clean_cold` | 0 | 0 | 0 | 2 | 2 | 0 | 0 |
-| `clean_warm` | 0 | 0 | 0 | 2 | 2 | 0 | 0 |
+| Stratum | chooser fallback | degradation | cap_fallback t1 | cap_fallback t2 | topn | topm | frontier > 0 | max frontier |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `clean_cold` | 0 | 0 | 0 | 0 | 2 | 2 | 0 | 0 |
+| `clean_warm` | 0 | 0 | 0 | 0 | 2 | 2 | 0 | 0 |
 
 | Stratum | acc_leaf t1 | acc_leaf t2 | cap_hits t1 | cap_hits t2 | d2_cand | d2_slots |
 |---|---:|---:|---:|---:|---:|---:|
@@ -92,10 +92,10 @@ Strata are the actual `backend_class` values on each profile row — `clean_cold
 | `clean_cold` | 30 | 30 | 437.0 | 553.8 | 558.9 |
 | `clean_warm` | 263 | 30 | 56.7 | 162.4 | 203.9 |
 
-| Stratum | chooser fallback | degradation | cap_fallback | topn | topm | frontier > 0 | max frontier |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `clean_cold` | 0 | 0 | 20 | 2 | 2 | 0 | 0 |
-| `clean_warm` | 0 | 0 | 91 | 2 | 2 | 0 | 0 |
+| Stratum | chooser fallback | degradation | cap_fallback t1 | cap_fallback t2 | topn | topm | frontier > 0 | max frontier |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `clean_cold` | 0 | 0 | 20 | 0 | 2 | 2 | 0 | 0 |
+| `clean_warm` | 0 | 0 | 91 | 0 | 2 | 2 | 0 | 0 |
 
 | Stratum | acc_leaf t1 | acc_leaf t2 | cap_hits t1 | cap_hits t2 | d2_cand | d2_slots |
 |---|---:|---:|---:|---:|---:|---:|
@@ -116,10 +116,10 @@ Strata are the actual `backend_class` values on each profile row — `clean_cold
 | `clean_cold` | 30 | 30 | 239.6 | 297.8 | 320.7 |
 | `clean_warm` | 269 | 30 | 50.6 | 80.2 | 111.3 |
 
-| Stratum | chooser fallback | degradation | cap_fallback | topn | topm | frontier > 0 | max frontier |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `clean_cold` | 0 | 0 | 0 | 3 | 3 | 30 | 9 |
-| `clean_warm` | 0 | 0 | 0 | 3 | 3 | 269 | 9 |
+| Stratum | chooser fallback | degradation | cap_fallback t1 | cap_fallback t2 | topn | topm | frontier > 0 | max frontier |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `clean_cold` | 0 | 0 | 0 | 0 | 3 | 3 | 30 | 9 |
+| `clean_warm` | 0 | 0 | 0 | 0 | 3 | 3 | 269 | 9 |
 
 | Stratum | acc_leaf t1 | acc_leaf t2 | cap_hits t1 | cap_hits t2 | d2_cand | d2_slots |
 |---|---:|---:|---:|---:|---:|---:|
@@ -140,10 +140,10 @@ Strata are the actual `backend_class` values on each profile row — `clean_cold
 | `clean_cold` | 30 | 30 | 470.8 | 657.1 | 764.6 |
 | `clean_warm` | 246 | 30 | 85.5 | 205.0 | 261.0 |
 
-| Stratum | chooser fallback | degradation | cap_fallback | topn | topm | frontier > 0 | max frontier |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| `clean_cold` | 0 | 0 | 20 | 3 | 3 | 30 | 9 |
-| `clean_warm` | 0 | 0 | 113 | 3 | 3 | 246 | 9 |
+| Stratum | chooser fallback | degradation | cap_fallback t1 | cap_fallback t2 | topn | topm | frontier > 0 | max frontier |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| `clean_cold` | 0 | 0 | 20 | 10 | 3 | 3 | 30 | 9 |
+| `clean_warm` | 0 | 0 | 113 | 45 | 3 | 3 | 246 | 9 |
 
 | Stratum | acc_leaf t1 | acc_leaf t2 | cap_hits t1 | cap_hits t2 | d2_cand | d2_slots |
 |---|---:|---:|---:|---:|---:|---:|
@@ -160,28 +160,19 @@ and accuracy are both on. This is an internal consistency check, not a separate 
 
 ---
 
-## 4. Pooled values — reported, not interpreted
+## 4. Why cold and warm are never pooled
 
-| Arm | pooled obs | pooled p50 | pooled p95 | pooled max |
-|---|---:|---:|---:|---:|
-| `d1_acc_off` | 271 | 33.0 | 217.0 | 254.2 |
-| `d1_acc_on` | 293 | 71.1 | 446.2 | 558.9 |
-| `d2_acc_off` | 299 | 52.6 | 240.5 | 320.7 |
-| `d2_acc_on` | 276 | 95.0 | 481.5 | 764.6 |
+Parent spec §11.3 is unconditional: **"Cold and warm rows are never pooled."** No pooled
+percentile is reported in this document, not even with a caveat attached. An earlier draft
+of this freeze carried a pooled table behind a warning; that violated the rule regardless of
+the warning, and it has been removed rather than annotated.
 
-> The pooled p95 describes the cold/warm mixture distribution and is dominated by the
-> share of cold rows. It must not be interpreted as warm tail latency or as an isolated
-> treatment effect.
-
-There is exactly one `clean_cold` row per battle, so cold is 10–11 % of rows in every arm.
-The strata do **not overlap** in any arm (smallest margin: `d2_acc_on`, cold min 346.0 vs.
-warm max 261.0), so all cold values sort to the top and the pooled p95 rank falls inside
-the cold block — near its median. Non-overlap is an observed property of these four arms,
-not a property of the metric.
-
-No pooled value is interpreted anywhere in this document.
-
----
+The mechanism makes the rule concrete. There is exactly one `clean_cold` row per battle, so
+cold is 10–11 % of rows in every arm, and the strata do **not overlap** in any arm (tightest
+margin: `d2_acc_on`, cold min 346.0 ms vs. warm max 261.0 ms). All cold values therefore sort
+to the top of a pooled series, and a pooled p95 rank lands inside the cold block near its
+median — it would measure the cold share, not a warm tail. Non-overlap is an observed
+property of these four arms, not a property of the metric.
 
 ## 5. Cross-arm validation (§11.3)
 
@@ -217,29 +208,96 @@ per arm: 30 entries, `seed_i == derive_battle_seed(base, seed_index)`.
 
 ---
 
-## 6. Commands and environment
+## 6. Host identity, commands and environment
 
-Per arm, **one PowerShell process** sets the complete environment and launches both Python
-children — verification first, gauntlet second, with no assignment between them (§6.4).
-Process-tree observation during `d1_acc_on` confirmed the server (node) and the gauntlet
-(python) as simultaneous direct children of PowerShell PID 14744. That snapshot cannot
-retroactively prove the verifier child's parentage — it had already exited — which is
-carried instead by the immutable `operator-server-<arm>.json` and the contiguous arm block.
+### 6.1 Host identity
 
-Shared environment (all arms):
+| Property | Value |
+|---|---|
+| Hostname | `DESKTOP-1V4BPFQ` |
+| OS | Microsoft Windows 11 Home |
+| OS build | `10.0.26200` |
+| CPU | AMD Ryzen 7 5800X 8-Core Processor |
+| Cores | 8 physical / 16 logical, max clock 3801 MHz |
+| RAM | 31.9 GB |
+| Python | 3.14.5 |
+| PowerShell | 5.1.26100.8875 |
+| node / npm | `v24.16.0` / `11.13.0` |
 
-```text
-PYTHONPATH                    = <candidate>\showdown_bot\src   (exclusive)
-PYTHONHASHSEED                = 0
-SHOWDOWN_CALC_BACKEND         = persistent
-SHOWDOWN_BATTLE_SEED_BASE     = champions-panel-v0-d2-cost-preflight
-SHOWDOWN_DECISION_PROFILE_OUT = <output-root>\cost_preflight_<arm>_profile.jsonl
-SHOWDOWN_EVAL_SEED_LOG        = <output-root>\cost_preflight_<arm>_seedlog.jsonl
-SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S = unset (effective 180 s)
-CWD                           = <candidate>\showdown_bot
+**Provenance of this table:** these host values were captured **at freeze-authoring time**,
+after all four arms had completed — they were not recorded during the run itself, and
+nothing in the run pinned them. They are reported because §12 requires host identity, and
+they are accurate for the machine that executed the arms, but they are not part of the
+immutable per-arm records and a later reader must not treat them as run-time-verified. The
+values that *were* pinned during the run live in `operator-preflight.json` and the four
+`operator-server-<arm>.json` records (§7).
+
+### 6.2 Path bindings
+
+| Symbol | Absolute path |
+|---|---|
+| `<repo>` | `C:\Users\chris\Documents\SHowdown BOt` |
+| `<candidate>` | `C:\Users\chris\Documents\cost-preflight-worktree-d64982a` |
+| `<output-root>` | `C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6` |
+| `<server-dir>` | `C:\Users\chris\.cache\showdownbot\pokemon-showdown` |
+
+### 6.3 Arm block — one PowerShell process per arm
+
+Per arm, **one PowerShell process** clears and sets the complete environment, starts the
+server, and launches both Python children — verification first, gauntlet second, with no
+assignment between them (§6.4). Process-tree observation during `d1_acc_on` confirmed the
+server (node) and the gauntlet (python) as simultaneous direct children of PowerShell
+PID 14744. That snapshot cannot retroactively prove the verifier child's parentage — it had
+already exited — which is carried instead by the immutable `operator-server-<arm>.json` and
+the contiguous arm block.
+
+The literal command executed for arm 1, with every placeholder resolved. The other three
+arms are byte-identical except for the five arm-specific assignments in §6.4 and the arm
+name in the three output paths:
+
+```powershell
+Get-ChildItem Env: | Where-Object { $_.Name -like 'SHOWDOWN_*' } |
+  ForEach-Object { Remove-Item "Env:$($_.Name)" }
+
+$env:PYTHONPATH                    = "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src"
+$env:PYTHONHASHSEED                = "0"
+$env:SHOWDOWN_CALC_BACKEND         = "persistent"
+$env:SHOWDOWN_DECISION_PROFILE_OUT = "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_profile.jsonl"
+$env:SHOWDOWN_BATTLE_SEED_BASE     = "champions-panel-v0-d2-cost-preflight"
+$env:SHOWDOWN_EVAL_SEED_LOG        = "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_seedlog.jsonl"
+$env:SHOWDOWN_SEARCH_DEPTH         = "1"
+$env:SHOWDOWN_ACCURACY_MODE        = "0"
+# SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S deliberately unset -> effective 180 s
+
+Start-Process -FilePath "node" `
+  -ArgumentList "pokemon-showdown","start","--no-security" `
+  -WorkingDirectory "C:\Users\chris\.cache\showdownbot\pokemon-showdown" `
+  -PassThru -WindowStyle Hidden
+
+Set-Location "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot"
+
+# first Python child: pre-arm gate (§7.3)
+python verify_arm6.py d1_acc_off <lifecycle-json>
+
+# no environment mutation between the two children
+
+# second Python child: the gauntlet
+python -m showdown_bot.cli gauntlet `
+  --schedule "C:\Users\chris\Documents\SHowdown BOt\config\eval\schedules\cost_preflight_d2_30.yaml" `
+  --result-out "C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt6\cost_preflight_d1_acc_off_result.jsonl"
 ```
 
-Arm-specific environment — full `SHOWDOWN_`-prefixed names:
+`verify_arm6.py` is the operator-side pre-arm gate: it asserts
+`showdown_bot.battle.decision.__file__` lies under the candidate, calls the five resolvers,
+recomputes `config_hash` against the pre-registered value, runs the §4.2 schedule/panel/team
+checks, and writes `operator-server-<arm>.json`. It is an operator script, not production
+code; the candidate tree is unmodified (`dirty = false` in all four manifests).
+
+Server PIDs, in arm order: **16808, 8876, 19796, 3280.** Each was stopped before the next
+arm began and port 8000 was confirmed free each time. Endpoint
+`ws://localhost:8000/showdown/websocket`.
+
+### 6.4 Arm-specific environment — full `SHOWDOWN_`-prefixed names
 
 | Arm | `SHOWDOWN_SEARCH_DEPTH` | `SHOWDOWN_ACCURACY_MODE` | `SHOWDOWN_ACCURACY_BRANCH_CAP` | `SHOWDOWN_SEARCH_TOPN` | `SHOWDOWN_SEARCH_TOPM` |
 |---|---|---|---|---|---|
@@ -248,27 +306,26 @@ Arm-specific environment — full `SHOWDOWN_`-prefixed names:
 | `d2_acc_off` | `2` | `0` | (unset) | `3` | `3` |
 | `d2_acc_on` | `2` | `1` | `6` | `3` | `3` |
 
-Server, started fresh per arm and stopped after it:
+An unset `SHOWDOWN_ACCURACY_BRANCH_CAP` resolves to the code default `6`; unset
+`SHOWDOWN_SEARCH_TOPN`/`TOPM` resolve to `2`. Unset `SHOWDOWN_ACCURACY_MODE` would resolve
+to **true**, which is why the accuracy-off arms set it explicitly to `0`.
 
-```text
-node pokemon-showdown start --no-security
+### 6.5 Preflight command
+
+Run once before arm 1, after `npm ci` and before any battle:
+
+```powershell
+npm ci --prefix "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\tools\calc"
+# exit 0
+
+$env:PYTHONPATH     = "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot\src"
+$env:PYTHONHASHSEED = "0"
+Set-Location "C:\Users\chris\Documents\cost-preflight-worktree-d64982a\showdown_bot"
+python preflight6.py   # writes <output-root>\operator-preflight.json
 ```
 
-in `~/.cache/showdownbot/pokemon-showdown`, port 8000, endpoint
-`ws://localhost:8000/showdown/websocket`. Server PIDs: 16808, 8876, 19796, 3280 — each
-stopped before the next arm, port 8000 confirmed free each time.
-
-Gauntlet:
-
-```text
-python -m showdown_bot.cli gauntlet
-  --schedule <repo>\config\eval\schedules\cost_preflight_d2_30.yaml
-  --result-out <output-root>\cost_preflight_<arm>_result.jsonl
-```
-
-Toolchain: node `v24.16.0`, npm `11.13.0`, calc lockfile SHA-256
-`c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe`, `npm ci` exit 0
-before `operator-preflight.json` was written.
+Calc lockfile SHA-256
+`c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe`.
 
 ---
 
