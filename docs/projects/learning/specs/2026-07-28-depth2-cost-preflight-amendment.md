@@ -17,8 +17,9 @@ a **live-gauntlet** measurement path that natively produces v4 rows.
 
 This amendment adds no production code. The candidate remains `d64982a`.
 
-**Current state:** Attempts 1–5 are invalidated (Appendix A.1–A.5). Attempt 6 is
-pre-registered (Appendix A.6) and **not yet executed**.
+**Current state:** Attempts 1–5 are invalidated (Appendix A.1–A.5). **Attempt 6 ran
+validly** (Appendix A.6) and is frozen in
+`docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`.
 
 Attempt 5 aborted before its first battle: the pre-arm gate passed on every check, but the
 operator ran the verification child and the gauntlet child in two different shell
@@ -41,10 +42,13 @@ uniqueness (§11.3).
 
 Guarded is not the same as demonstrated. Attempt 5 exercised the pre-arm gate only
 (§A.5): it confirmed the corrected variable names, the resolver outputs, and the expected
-`config_hash` **in the verifier child**. Shared-parent delivery to the gauntlet child, that
-child's manifest `config_hash`, the profile rows it emits, and an actually executed depth-2
-frontier are all still unverified. **End-to-end execution remains unverified until a valid
-attempt completes.**
+`config_hash` **in the verifier child**, and could say nothing about the gauntlet child.
+
+**Attempt 6 closed that gap end-to-end** (§A.6). In all four arms the gauntlet child's own
+run manifest and every profile row carry the arm's pre-registered `config_hash`, the rows
+carry the intended treatment, and both depth-2 arms expanded a real frontier. The claim is
+no longer "guarded" but demonstrated — for the candidate, panel, seeds and host of that
+run.
 
 ---
 
@@ -816,6 +820,9 @@ The preflight run is identified by:
 On a fully valid matrix: the parent spec's §12 step 11 ("Run and freeze the cost
 preflight") is satisfied. The closeout statement moves from DRAFT to final.
 
+**Status: met by Attempt 6** (Appendix A.6). Evidence frozen in
+`docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`.
+
 On an invalid matrix: issue #123 stays open with the exact failure reason documented.
 
 ---
@@ -1126,11 +1133,26 @@ writing a record with a wrong provenance field.
 No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
 later attempt.
 
-### A.6 Attempt 6 — pre-registration
+### A.6 Attempt 6 — **VALID MATRIX** (completed 2026-07-28)
+
+Attempt 6 executed all four arms validly. Every post-arm gate (§11.0, §11.1, §11.1a,
+§11.2) and the cross-arm validation (§11.3, §11.4) passed; the output inventory is
+complete at 21 files with no unexpected extras. A depth-2 search was **actually executed**
+for the first time in the series: `depth2_frontier > 0` on every profile row of both
+depth-2 arms, `max_frontier = 9`.
+
+Full evidence, all 21 SHA-256 hashes, the §12 per-arm × per-stratum tables, the quantile
+convention, and the complete commands and environment are frozen in
+`docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`.
+The §13 non-claims are unchanged and restated there.
+
+Pre-registration as approved before the run:
 
 | Property | Value |
 |---|---|
 | Reason for repeat | Operator split the arm block across two shell processes (§A.5), breaking §6.4's shared-parent inheritance before battle 1. No battles executed |
+| Outcome | **Valid matrix.** 4 arms × 30 battles, 0 timeouts, 0 crashes, 0 invalid choices, 0 degradation, 0 chooser fallback, no contaminated rows |
+| Result `config_hash` | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` — each matching its pre-registered value, 4/4 distinct |
 | Prior defect status | **Partial counterproof.** Attempt 5 verified the corrected variable names, resolver outputs, and expected `config_hash` in the **verifier child**. Shared-parent delivery to the gauntlet child and the emitted treatment rows remain unverified until Attempt 6 runs validly |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
 | Candidate worktree | same detached worktree as Attempts 1–5 |
