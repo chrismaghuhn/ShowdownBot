@@ -124,20 +124,23 @@ but a property of the single-pass fixed-order design.
 
 ### 6.2 Shared environment
 
-Output root: `data/eval/cost-preflight-d2/` (relative to CWD, i.e.
-`<candidate-worktree>/showdown_bot/data/eval/cost-preflight-d2/`). Created before the
-first arm if it does not exist. All arm-specific paths below are under this root.
+Output root: `cost-preflight-d2-d64982a/` — a sibling directory of the candidate
+worktree, **outside** the git tree. Writing output inside the worktree would make
+`git status` non-empty and set the run manifest's `dirty` flag to `true`, invalidating
+the run by §2's own clean-candidate rule. Created before the first arm if it does not
+exist. All arm-specific paths below use **absolute paths** under this root.
 
 All arms share:
 - `SHOWDOWN_CALC_BACKEND=persistent`
-- `SHOWDOWN_DECISION_PROFILE_OUT=data/eval/cost-preflight-d2/cost_preflight_<arm>_profile.jsonl`
+- `SHOWDOWN_DECISION_PROFILE_OUT=<output-root>/cost_preflight_<arm>_profile.jsonl`
 - `SHOWDOWN_BATTLE_SEED_BASE=champions-panel-v0-d2-cost-preflight`
-- `SHOWDOWN_EVAL_SEED_LOG=data/eval/cost-preflight-d2/cost_preflight_<arm>_seedlog.jsonl`
+- `SHOWDOWN_EVAL_SEED_LOG=<output-root>/cost_preflight_<arm>_seedlog.jsonl`
 - `PYTHONHASHSEED=0`
 - `--schedule` loaded via absolute path to the frozen YAML
-- `--result-out data/eval/cost-preflight-d2/cost_preflight_<arm>_result.jsonl`
+- `--result-out <output-root>/cost_preflight_<arm>_result.jsonl`
 
-where `<arm>` is one of `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
+where `<output-root>` is the absolute path to `cost-preflight-d2-d64982a/` and `<arm>`
+is one of `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
 
@@ -169,8 +172,8 @@ makes the preflight invalid.
 | `PYTHONHASHSEED` | `0` | `os.environ["PYTHONHASHSEED"] == "0"` |
 | Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` | `load_showdown_commit()` from `config/eval/provenance.yaml` — **and** `git -C <server-dir> rev-parse HEAD` equals the same SHA |
 | Server patch hash | `86e31891547e87da` | `server_patch_hash()` from `tools/eval/patches/pokemon-showdown-seeded-battle.patch` — **and** `git -C <server-dir> diff HEAD` output hashes to the same value (the patch is actually applied) |
-| Server start command | `node pokemon-showdown start --no-security` | recorded in the run manifest |
-| Server port | `8000` | server WebSocket endpoint `ws://localhost:8000/showdown/websocket` reachable before battle 1 |
+| Server start command | `node pokemon-showdown start --no-security` | recorded in `operator-preflight.json` (§7.1) |
+| Server port | `8000` | server WebSocket endpoint `ws://localhost:8000/showdown/websocket` reachable before battle 1; recorded in `operator-preflight.json` |
 | Timeout | 180 s (unset `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`) | `os.environ.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S") is None` |
 
 `load_showdown_commit()` reads a YAML config value, not the live server checkout. It is
@@ -178,9 +181,36 @@ therefore necessary but **not sufficient**: the actual server directory's HEAD c
 applied patch diff must be checked independently before battle 1. Both checks (YAML
 config and live checkout) must agree.
 
-The run manifest (§12) records `showdown_commit`, `server_patch_hash`, and
-`pythonhashseed` in their standard fields. These are checked both pre-registered (before
-battle 1) and post-hoc (in the frozen manifest).
+The run manifest records `showdown_commit`, `server_patch_hash`, and `pythonhashseed` in
+their standard fields. These are checked both pre-registered (before battle 1) and
+post-hoc (in the frozen manifest).
+
+### 7.1 Operator preflight record
+
+The existing run manifest schema has no field for the server start command, server port,
+or live-checkout verification results. These are recorded in a **separate** file:
+
+`<output-root>/operator-preflight.json`
+
+Written once before battle 1 of the first arm. Contains:
+
+| Field | Value |
+|---|---|
+| `server_start_command` | `node pokemon-showdown start --no-security` |
+| `server_port` | `8000` |
+| `server_ws_endpoint` | `ws://localhost:8000/showdown/websocket` |
+| `server_dir_head` | output of `git -C <server-dir> rev-parse HEAD` |
+| `server_dir_diff_hash` | SHA-1 prefix of `git -C <server-dir> diff HEAD` output |
+| `provenance_yaml_commit` | output of `load_showdown_commit()` |
+| `patch_file_hash` | output of `server_patch_hash()` |
+| `head_matches_provenance` | `server_dir_head == provenance_yaml_commit` |
+| `diff_matches_patch` | `server_dir_diff_hash == patch_file_hash` |
+| `candidate_sha` | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` |
+| `candidate_dirty` | `false` |
+| `output_root` | absolute path to `cost-preflight-d2-d64982a/` |
+
+The SHA-256 of `operator-preflight.json` is included in the freeze evidence alongside
+the run manifests and output-file hashes.
 
 ---
 
@@ -234,7 +264,8 @@ subsequent decisions in the same battle are warm).
 
 ## 10. Output files
 
-All output under `data/eval/cost-preflight-d2/` (see §6.2). Per arm:
+All output under `cost-preflight-d2-d64982a/` (outside the candidate worktree; see §6.2).
+Per arm:
 
 | File | Content |
 |---|---|
@@ -242,6 +273,12 @@ All output under `data/eval/cost-preflight-d2/` (see §6.2). Per arm:
 | `cost_preflight_<arm>_profile.jsonl` | Decision-profile v4 rows |
 | `cost_preflight_<arm>_seedlog.jsonl` | Server Channel-A seed log |
 | `cost_preflight_<arm>_result.jsonl.manifest.json` | Run manifest |
+
+Plus one shared file (written once before the first arm):
+
+| File | Content |
+|---|---|
+| `operator-preflight.json` | Server provenance, live-checkout verification, output root (§7.1) |
 
 Nothing is overwritten. Each arm writes to its own files.
 
