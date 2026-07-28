@@ -22,8 +22,8 @@ pre-registered (Appendix A.5) and **not yet executed**. The Attempt-4 defect —
 variables never reached the gauntlet process, so all four arms ran identical code
 defaults and no depth-2 search was executed — is closed by four independent checks added
 in this revision: full variable names (§6.3), same-process environment delivery (§6.4),
-an in-process pre-battle-1 resolver and `config_hash` gate (§7.3), and post-battle-1 plus
-per-arm treatment validation including a depth-2 frontier requirement (§11.0, §11.1a) and
+a pre-arm resolver and `config_hash` gate (§7.3), and per-arm treatment validation —
+enforced between arms — including a depth-2 frontier requirement (§11.0, §11.1a) and
 cross-arm `config_hash` uniqueness (§11.3).
 
 ---
@@ -281,23 +281,41 @@ caps are verifiable **only** from the profile rows' `search_topn_requested` /
 
 ### 6.4 Environment delivery
 
-Every gauntlet invocation sets its complete environment (§6.2 shared + §6.3 arm-specific)
-**inside the same shell process that then launches Python**. Environment set by one tool
-call does not survive into the next: each PowerShell invocation is a fresh process, so an
-assignment made in an earlier call reaches no later one.
+Every arm sets its complete environment (§6.2 shared + §6.3 arm-specific) **inside one
+PowerShell process**, which then launches **both** Python invocations for that arm as
+children of itself. Environment set by one tool call does not survive into the next: each
+PowerShell invocation is a fresh process, so an assignment made in an earlier call reaches
+no later one.
 
-Practically: the `$env:*` assignments, any `Remove-Item Env:` deletions, the resolver
-verification (§7.3), and the `python -m showdown_bot.cli ...` call are a **single**
-PowerShell command. Nothing may rely on inherited environment across separate
-invocations. The same rule applies to the server start: `SHOWDOWN_EVAL_SEED_LOG` and
-`SHOWDOWN_BATTLE_SEED_BASE` must be set in the process that starts `node`, not in a
-different one.
+Per arm, in a **single** PowerShell command, in this order:
 
-**Rationale (Attempt 4):** the arm variables were assigned, but under short names, and no
-check ran inside the gauntlet process to confirm what the process actually saw. Split
-environment delivery has the identical failure signature — variables that look set but
-never reach the interpreter — so §7.3's in-process verification is the binding check, not
-the assignment itself.
+1. `Remove-Item Env:SHOWDOWN_*` — clear every inherited `SHOWDOWN_*` variable.
+2. `$env:*` assignments for §6.2 + §6.3, full `SHOWDOWN_`-prefixed names only.
+3. Start the Showdown server (`node`) as a child of this process, so it inherits
+   `SHOWDOWN_EVAL_SEED_LOG` and `SHOWDOWN_BATTLE_SEED_BASE` (§7.2).
+4. **First Python child:** the verification script (§7.3).
+5. **No environment mutation of any kind between steps 4 and 6.**
+6. **Second Python child:** `python -m showdown_bot.cli gauntlet ...`.
+
+Steps 4 and 6 are two distinct Python processes — `python -m showdown_bot.cli gauntlet`
+dispatches straight to `run_gauntlet(args)` and offers no pre-run hook, so a verification
+step cannot execute inside the gauntlet interpreter without a production code change,
+which this amendment does not make. What binds them is the **shared parent environment**:
+both inherit the identical environment block from the same PowerShell process, and no
+assignment occurs between them. The verification child therefore observes exactly what the
+gauntlet child will observe.
+
+That inheritance argument is an argument, not evidence. The evidence is produced
+afterwards: the gauntlet's own run manifest and every profile row carry a `config_hash`
+computed from the gauntlet process's live environment. §11.1 and §11.3 check those against
+the same pre-registered value the verification child checked. If the two children had
+somehow differed, the manifest hash would not match, and the arm fails closed.
+
+**Rationale (Attempt 4):** the arm variables were assigned, but under short names, and
+nothing ever compared what a Python process actually resolved against what the arm
+intended. Split environment delivery has the identical failure signature — variables that
+look set but never reach the interpreter — so §7.3's verification plus §11's manifest and
+row checks are the binding evidence, not the assignment itself.
 
 ### 6.5 Timeout
 
@@ -407,13 +425,13 @@ battle 1:
 | `seed_log_absent_or_empty_before_start` | `true` if the seed log file did not exist or was empty before the server started |
 | `utc_start_time` | ISO 8601 UTC timestamp of server start |
 | `arm_env_raw` | object: every arm-specific `SHOWDOWN_*` name from §6.3 mapped to its literal value as read back from the process environment, or `null` if unset. Full names only. |
-| `resolved_search_depth` | return value of `decision._search_depth()` in the gauntlet process |
+| `resolved_search_depth` | return value of `decision._search_depth()` in the verification child (§6.4 step 4) |
 | `resolved_accuracy_mode` | return value of `decision._accuracy_mode()` |
 | `resolved_accuracy_branch_cap` | return value of `decision._accuracy_branch_cap()` |
 | `resolved_search_topn` | return value of `decision._search_topn()` |
 | `resolved_search_topm` | return value of `decision._search_topm()` |
 | `expected_config_hash` | the arm's pre-registered `config_hash` from §6.3 |
-| `computed_config_hash` | `make_config_hash(effective_config_manifest(agent="heuristic", format_id="gen9championsvgc2026regma"))` evaluated in the gauntlet process against the live environment |
+| `computed_config_hash` | `make_config_hash(effective_config_manifest(agent="heuristic", format_id="gen9championsvgc2026regma"))` evaluated in the verification child against the live environment |
 | `resolvers_match_arm` | `true` if all five resolved values equal §6.3's resolved-treatment row for this arm |
 | `config_hash_matches_expected` | `computed_config_hash == expected_config_hash` |
 
@@ -435,11 +453,12 @@ The entire attempt is invalid if any of the following occur:
 A failed attempt must not be repaired or continued. A retry requires a new output root
 and a new attempt pre-registration.
 
-### 7.3 Pre-battle-1 treatment verification
+### 7.3 Pre-arm treatment verification
 
-Files on disk and shell assignments are not evidence of what the interpreter loaded. The
-binding check runs **inside the gauntlet process**, against the live environment, before
-battle 1 of each arm:
+Files on disk and shell assignments are not evidence of what an interpreter loaded. The
+check runs in the **first Python child** of the arm's PowerShell process (§6.4 step 4),
+after the server is started (so `server_pid` is known) and before the gauntlet child is
+launched:
 
 1. Import the candidate's `showdown_bot.battle.decision` and assert
    `decision.__file__` is under `<candidate>/showdown_bot/src/` (§2.1's rule, applied to
@@ -451,14 +470,27 @@ battle 1 of each arm:
    pre-registered value for this arm.
 4. Read back each arm-specific variable from `os.environ` and record it verbatim in
    `arm_env_raw`.
-5. Write `operator-server-<arm>.json` with all of the above.
+5. Write `operator-server-<arm>.json` with all of the above, including the two match
+   flags.
 
-If any comparison in (1)–(3) fails, the arm must not start. No output file is written for
-that arm and the attempt is invalid (§7.2 fail-closed list, §11.5).
+**On failure of any comparison in (1)–(3):**
 
-The order matters: this check runs **after** the server is started (so `server_pid` is
-known) and **before** battle 1, and it runs in the same process that executes the
-gauntlet — not in a separate verification process whose environment could differ.
+- `operator-server-<arm>.json` **is** written, with `resolvers_match_arm` and/or
+  `config_hash_matches_expected` set to `false` and the observed values recorded. It is
+  the immutable failure record and must not be deleted or edited afterwards.
+- The Showdown server for this arm is stopped.
+- The gauntlet child is **not** launched. No result, profile, or manifest file is created
+  for this arm.
+- The entire attempt is invalid (§7.2 fail-closed list, §11.5). It must not be repaired or
+  continued; a retry needs a new output root and a new pre-registration.
+
+This is the only case in which an attempt's output root legitimately contains fewer than
+21 files (§10). A failure record without its arm's four data files is the expected shape
+of a pre-arm abort, not a violation of output completeness.
+
+This verification alone does not prove the *gauntlet* process saw the same environment —
+it is a different process. §6.4 explains why the inheritance holds, and §11.1 / §11.3
+supply the post-hoc evidence from the gauntlet's own manifest and profile rows.
 
 ---
 
@@ -473,10 +505,12 @@ gauntlet — not in a separate verification process whose environment could diff
    names, in the same process that will launch the server and Python (§6.4).
 5. Verify `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S` is unset.
 6. Restart the server with the new seed base + seed log.
-7. Run the in-process treatment verification and write `operator-server-<arm>.json`
-   (§7.3). Do not proceed if any comparison fails.
+7. Run the pre-arm treatment verification as the first Python child and write
+   `operator-server-<arm>.json` (§7.3). Do not launch the gauntlet if any comparison
+   fails.
 8. Run the arm.
-9. After battle 1, run the post-battle-1 treatment check (§11.0).
+9. After the arm's gauntlet child exits, run the post-arm treatment gate (§11.0) before
+   returning to step 1 for the next arm.
 
 ### 8.2 Cross-arm contamination
 
@@ -533,7 +567,10 @@ Plus one shared file (written once before the first arm):
 |---|---|
 | `operator-preflight.json` | Server provenance, live-checkout verification, output root (§7.1) |
 
-Expected total: **21 files** per complete attempt (5 per arm × 4 arms + 1 shared).
+Expected total: **21 files** per complete attempt (5 per arm × 4 arms + 1 shared). An
+attempt aborted by §7.3's pre-arm gate ends with fewer files: the failed arm contributes
+only its `operator-server-<arm>.json` failure record and no data files. That shape is
+defined in §7.3 and is still an invalid attempt.
 
 Nothing is overwritten. Each arm writes to its own files. Once an attempt begins
 (operator-preflight.json is written), no output file under that attempt's output root
@@ -544,17 +581,33 @@ a retry requires a new output root and a new attempt pre-registration.
 
 ## 11. Validation
 
-### 11.0 Post-battle-1 treatment check (during each arm)
+### 11.0 Post-arm treatment gate (between arms)
 
-Immediately after battle 1 of each arm — before the arm is allowed to continue — read the
-profile rows written so far and assert every row carries this arm's expected treatment
-(§11.1a). §7.3 proves the resolvers saw the right environment; this proves the rows the
-search actually emitted carry it too. A mismatch aborts the arm and invalidates the
-attempt.
+**No arm may start until the preceding arm's treatment has been verified.**
 
-This is deliberately redundant with §7.3. Attempt 4 produced 120 battles of output before
-anyone noticed the treatment was wrong; a check that fires after one battle costs one
-battle.
+After each arm's gauntlet child exits, and **before** the next arm's environment is set or
+its server is started, run §11.1a against that arm's completed profile JSONL. If any row
+deviates, the attempt is invalid and no further arm is started.
+
+The check is post-arm rather than post-battle-1 by necessity, not preference.
+`python -m showdown_bot.cli gauntlet` dispatches to `run_gauntlet(args)` and executes all
+30 battles synchronously; there is no pause point, no per-battle callback, and no
+supported way for an external observer to halt it after battle 1. Specifying "abort after
+battle 1" would describe a mechanism that does not exist.
+
+The gauntlet does contain one post-battle-1 abort — the seed-log wiring check that
+terminated Attempt 3's arm 2 — but that check is **inside** `run_gauntlet`, written into
+production code. It is evidence that such a gate is implementable, not that an external
+observer can impose one. Adding a treatment gate at the same point would be a production
+change to the gauntlet loop; the alternative is a fully specified background monitor with a
+defined kill path. Neither is in scope for this amendment, and neither is needed to close
+the Attempt-4 defect.
+
+The exposure this leaves is bounded and acceptable: §7.3's pre-arm gate already blocks the
+known failure mode before battle 1 of every arm, so a treatment error would have to survive
+a resolver comparison *and* a `config_hash` comparison to reach the gauntlet at all. §11.0
+bounds the residual worst case at **one arm** of wasted output (30 battles) instead of
+Attempt 4's four (120 battles).
 
 ### 11.1 Per-row validation (after each arm)
 
@@ -956,8 +1009,9 @@ lifecycle fix from Attempt 3 worked. Only the treatment did not.
 
 **What this attempt cost and what it bought.** Four arms × 30 battles produced zero usable
 cost evidence. It did produce the diagnosis, and the checks added in §6.3, §6.4, §7.3,
-§11.0, §11.1a, and §11.3 items 14–15 would each independently have caught it — three of
-them before battle 1.
+§11.0, §11.1a, and §11.3 items 14–15 would each independently have caught it. §7.3's
+pre-arm gate would have caught it before arm 1's first battle, and §11.0 would have
+stopped the run after arm 1 rather than arm 4.
 
 No data from any invalidated attempt may be reused, pooled, or cited as evidence for a
 later attempt.
@@ -976,10 +1030,10 @@ later attempt.
 | Node version | `v24.16.0` |
 | npm version | `11.13.0` |
 | Arm variable names | full `SHOWDOWN_`-prefixed names only (§6.3) |
-| Environment delivery | complete environment set in the **same** shell process that launches Python (§6.4) |
-| Pre-battle-1 treatment gate | in-process resolver + `config_hash` verification against §6.3, recorded in `operator-server-<arm>.json` (§7.3) |
+| Environment delivery | one PowerShell process per arm sets the environment and launches both Python children (verification, then gauntlet) with no assignment between them (§6.4) |
+| Pre-arm treatment gate | resolver + `config_hash` verification in the first Python child of the arm's shell process, before the gauntlet child is launched; recorded in `operator-server-<arm>.json` (§7.3) |
 | Expected `config_hash` | `d1_acc_off` `03d2d5ee27911fc4`, `d1_acc_on` `50cf67d5b04a1b04`, `d2_acc_off` `b4c98c07c32f3f9f`, `d2_acc_on` `68e04be0173586b2` — four distinct values, none equal to `594295543f13a55d` |
-| Post-battle-1 check | profile rows verified against §11.1a after battle 1 of each arm (§11.0) |
+| Post-arm gate | profile rows verified against §11.1a after each arm completes and before the next arm starts (§11.0) |
 | Depth-2 evidence gate | ≥1 profile row with `depth2_frontier > 0` in each depth-2 arm; `depth2_frontier == 0` in every depth-1 row (§11.1a) |
 | Server lifecycle | server stopped and restarted before each arm per §7.2; `operator-server-<arm>.json` written before battle 1 of each arm |
 | Operator-preflight timing | written **after** calc dependency installation and import-root verification, **before** battle 1 |
