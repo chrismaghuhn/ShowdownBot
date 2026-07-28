@@ -331,6 +331,61 @@ def test_the_four_valid_rows_pass():
     validate_completion_row(dict(VALID_COMPLETION))
 
 
+# --- the generic _require_shape rules, on EVERY grain --------------------------
+#
+# The per-grain lists below test each grain's own semantics. The four rules _require_shape
+# enforces -- field set, field ORDER, schema_version, run_id -- belong to every grain equally,
+# and testing them on decisions alone would leave three quarters of that claim unproven. This
+# is what "closed contract" has to mean: the same rule, checked on the same number of grains it
+# is asserted for.
+
+
+def _grains():
+    """(label, validator, valid_row) for all four grains. A function, not a module constant,
+    so VALID_COMPLETION's later definition is resolved at call time."""
+    return [
+        ("decision", validate_decision_row, VALID_DECISION),
+        ("event", validate_event_row, VALID_EVENT),
+        ("battle", validate_battle_row, VALID_BATTLE),
+        ("completion", validate_completion_row, VALID_COMPLETION),
+    ]
+
+
+def _reordered(row: dict) -> dict:
+    """Same keys and values, first two swapped -- a different artifact that still parses."""
+    keys = list(row)
+    keys[0], keys[1] = keys[1], keys[0]
+    return {k: row[k] for k in keys}
+
+
+@pytest.mark.parametrize("grain", ["decision", "event", "battle", "completion"])
+@pytest.mark.parametrize(
+    "rule",
+    ["missing_field", "extra_field", "wrong_order", "wrong_schema_version", "empty_run_id"])
+def test_every_grain_enforces_the_generic_shape_rules(grain, rule):
+    validator, valid = next((v, r) for label, v, r in _grains() if label == grain)
+    row = dict(valid)
+    if rule == "missing_field":
+        del row[list(row)[-1]]
+    elif rule == "extra_field":
+        row["hero_smuggled_field"] = 1
+    elif rule == "wrong_order":
+        row = _reordered(row)
+    elif rule == "wrong_schema_version":
+        row["schema_version"] = "live-degradation-v2"
+    elif rule == "empty_run_id":
+        row["run_id"] = ""
+    with pytest.raises(SchemaError):
+        validator(row)
+
+
+def test_every_grain_accepts_its_own_valid_row_under_the_same_harness():
+    """The negative test above is only meaningful if the harness passes the unmutated row --
+    otherwise it would 'pass' for the wrong reason on all twenty cases."""
+    for _label, validator, valid in _grains():
+        validator(dict(valid))
+
+
 # --- decision-row mutations -------------------------------------------------
 
 def _decision_without(key: str) -> dict:
@@ -785,7 +840,12 @@ def validate_battle_row(row: dict) -> None:
         )
 ```
 
-- [ ] **Step 4: Run, expect 8 + 1 + 25 + 13 + 10 + 15 + 1 = 73 passed**
+- [ ] **Step 4: Run, expect 8 + 1 + 25 + 13 + 10 + 15 + 1 + 20 + 1 = 94 passed**
+
+The generic grid (5 rules × 4 grains = 20) deliberately overlaps three entries in
+`DECISION_MUTATIONS` and two in `COMPLETION_MUTATIONS`. The per-grain lists stay complete and
+self-contained; duplicated coverage in tests costs a few milliseconds and removing it would
+make each list depend on the grid to be honest.
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1091,7 +1151,7 @@ class LiveDegradationRecorder:
         return cls(run_dir, run_id)
 ```
 
-- [ ] **Step 4: Run, expect 10 more passing (85 total in this file: 73 from Task 2, 2 from Task 3)**
+- [ ] **Step 4: Run, expect 10 more passing (106 total in this file: 94 from Task 2, 2 from Task 3)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1319,7 +1379,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return row
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (97 total in this file)**
+- [ ] **Step 4: Run, expect 12 more passing (118 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1441,7 +1501,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return ev
 ```
 
-- [ ] **Step 4: Run, expect 7 more passing (104 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 7 more passing (125 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1566,7 +1626,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         }
 ```
 
-- [ ] **Step 4: Run, expect 5 more passing (109 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 5 more passing (130 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1916,11 +1976,25 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
         The write is exclusive but NOT atomic. open(..., "x") can succeed and the serialisation
         then fail, leaving an empty, truncated or unsynced completion.json behind. A reader must
         parse and validate it, never merely stat it (section 8.0).
+
+        ONE class of schema error is structurally unpersistable: a rejection of THIS payload.
+        The counter that would record it can only reach a reader through the file the rejection
+        prevents -- the same circularity as the persistence limit, one grain further in. It is
+        therefore handled two ways rather than pretended away: the only realistic cause
+        (duplicate unterminated_rooms) is removed by construction below, and if the validator
+        fires anyway that is a defect, signalled by logger.error, a non-zero exit status, and
+        the ABSENCE of completion.json -- which section 8.0 already defines as a failure state
+        equivalent to non-zero counters. Nothing is silently clean.
         """
         payload = {
             "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
             "battles_finished": self.battles_finished,
-            "unterminated_rooms": list(self.unterminated_rooms),
+            # dict.fromkeys dedupes while preserving order. The validator forbids duplicates,
+            # and this is the ONLY field of the eight that a caller could make invalid --
+            # flush_unterminated appends, so flushing a room twice would duplicate it. Removing
+            # the failure mode here is worth more than detecting it below, because a completion
+            # row that fails validation CANNOT report its own failure (see the docstring).
+            "unterminated_rooms": list(dict.fromkeys(self.unterminated_rooms)),
             "write_errors_total": self.write_errors_total,
             "schema_errors_total": self.schema_errors_total,
             "recorder_errors_total": self.recorder_errors_total,
@@ -1929,9 +2003,16 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
         try:
             validate_completion_row(payload, expected_run_id=self.run_id)
         except SchemaError as exc:
+            # Structurally unpersistable, and deliberately not pretended otherwise. Incrementing
+            # the counter here changes nothing a reader will ever see: the file that would have
+            # carried it is exactly the file this failure prevents. It is still counted, because
+            # exit_status() reads the counter and section 8.0 makes "absent completion.json" and
+            # "invalid completion.json" the same failure state as "counters non-zero".
             self.schema_errors_total += 1
-            logger.error("live-degradation rejected the completion row: %s | row=%r",
-                         exc, payload)
+            logger.error(
+                "live-degradation rejected its OWN completion row -- this counter cannot be "
+                "persisted, the absence of completion.json plus a non-zero exit is the signal: "
+                "%s | row=%r", exc, payload)
             return
         try:
             _write_json_exclusive(self.run_dir / "completion.json", payload)
@@ -1955,7 +2036,7 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
                      or self.recorder_errors_total) else 0
 ```
 
-- [ ] **Step 4: Run, expect 15 more passing (124 total in this file)**
+- [ ] **Step 4: Run, expect 15 more passing (145 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -3083,7 +3164,7 @@ Preconditions, all of them:
 |---|---|
 | Working directory | the repo root (`logs/live-degradation/` resolves relative to the CWD) |
 | Tree state | clean apart from the seven known local artifacts (Step 7) |
-| `SHOWDOWN_USERNAME` | **generated by the command below**, not chosen by hand: `sbsmoke` plus six random alphanumerics, 13 characters, comfortably inside Showdown's 18-character limit. It is unregistered by construction, which is what makes `fetch_assertion` take the guest path when the password is empty (`client/auth.py:106-110`) |
+| `SHOWDOWN_USERNAME` | **generated by the command below**, not chosen by hand: `sbsmoke` plus six random alphanumerics, 13 characters, comfortably inside Showdown's 18-character limit. It is *probably* free, **not guaranteed free** — see the paragraph after the command |
 | `SHOWDOWN_PASSWORD` | **unset or empty.** A registered password must never be typed into a command that is pasted into a report |
 | `SHOWDOWN_SERVER` | unset — the default `wss://sim3.psim.us/showdown/websocket` |
 | `SHOWDOWN_LIVE_DEGRADATION_DIR` | unset — this run must prove the default path |
@@ -3098,6 +3179,22 @@ The name is generated, printed and used in one process — nothing is left for a
 invent, and the printed `username=` line is what the scrub rule below keys on. `Get-Random`
 without `-SetSeed` is deliberate: this run must not reuse a name a previous run may have claimed.
 
+**The name is not guaranteed unregistered, and the plan must not claim it is.** An earlier
+revision said "unregistered by construction", which is false: 36⁶ ≈ 2.2 × 10⁹ combinations make a
+collision unlikely, not impossible, and `sbsmoke`-prefixed accounts could exist. What makes this
+safe is not the odds but the **failure mode**, which is fail-closed and verified in the source:
+
+- If the name is registered, the guest assertion is rejected and the server replies `|nametaken|`.
+  `authenticate` raises `AuthError(f"username taken: {username}")` (`client/connection.py`) —
+  **before** `/utm`, before `/search`, before any battle exists.
+- Preflight has already run by then (§10.1), so a run directory exists with no rows in it. That is
+  the *first-write-never-happened* shape, not a corrupt one: no `completion.json`, non-zero exit.
+- The correct operator response is to **re-run the same command**, which generates a fresh name.
+  Do not hand-pick a replacement, and do not reuse the run directory — §8.1 forbids it anyway.
+
+So the guarantee is: a collision costs one aborted attempt and zero corrupted evidence. State the
+retry in the closeout report if it happens; a silent second attempt is the thing to avoid.
+
 Then locate the run directory and read all four artifacts:
 
 ```powershell
@@ -3110,8 +3207,8 @@ Output rules for the closeout report:
    `completion.json` **verbatim**. A hand-written sample does not satisfy this step; if the run
    did not happen, the report says so and the step stays open.
 2. Record `exit=` verbatim. `exit=0` is the expected result; any other value means
-   `write_errors_total`, `schema_errors` or `recorder_errors` was non-zero and the closeout
-   reports the cause.
+   `write_errors_total`, `schema_errors_total` or `recorder_errors_total` was non-zero and the
+   closeout reports which one, from `completion.json` when it exists (§8.0 persists all three).
 3. **Credential scrub before pasting.** The generated name — the value printed as `username=` by
    the command above — can appear inside a `payload` field and in log lines. Search the three
    pasted blocks for that exact string; if it occurs, replace it with the literal token
