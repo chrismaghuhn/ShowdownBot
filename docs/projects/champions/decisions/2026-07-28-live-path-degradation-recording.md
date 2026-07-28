@@ -1,4 +1,4 @@
-# Live-path degradation recording: always-on, own-seat only, non-blocking
+# Live-path degradation recording: always-on, own-seat only, off the turn path
 
 **Status:** DECIDED — written before the implementation it authorises.
 **Date:** 2026-07-28
@@ -52,6 +52,7 @@ instead of "not observable from this path".
 | Layer | Content | Note |
 |---|---|---|
 | **Raw facts** | `state_build_failed` (§5); agent crash (§6); selection stage / fallback reason; own invalid choice (§7); room-scoped server error (§7) | Own seat only |
+| **Context** | `book_absent`, `team_preview` | **Not** degradation facts. They are why a decision took the no-state path, recorded so a reader can tell "not applicable" from "clean" (§5). Carrying them does not widen the raw-fact set (§11) |
 | **Derivation** | `is_degraded_decision()` / `classify_live_outcome()` | Existing functions, unchanged — this slice adds no new definition |
 | **Aggregation** | Own per-battle counters | **Never mixed with another seat.** No `hero_`/`villain_` field names on this path |
 | **Transport** | `SelectionStageSink` | Already an explicit optional sink parameter |
@@ -82,12 +83,20 @@ degraded. A naive rule would report smoke as 100 % degraded. Smoke runs record t
 `book_absent` condition and take the no-state path; they do **not** emit `state_build_failed`,
 and a smoke record must never be read as a degradation measurement of the heuristic path.
 
-## 6. Agent crash
+## 6. Agent crash — record, then re-raise
 
-"Agent crash" means an exception escaping the chooser call for **this** decision, caught at the
-recording boundary, after which the runner still returns a legal action. It is recorded with
-the exception type; it is not a process crash and not a connection error. A process crash is
-covered by §9, not here.
+"Agent crash" means an exception escaping the chooser call for **this** decision. It is
+recorded with its exception type and then **re-raised unchanged**.
+
+An earlier revision said the runner "still returns a legal action" afterwards. That would have
+been a behaviour change, and it contradicts this slice's own non-goal. Verified: today the
+chooser call in `handle_battle_message` has no guard at all — the single `except` in that
+function wraps the state build, nothing else — so a chooser exception propagates out of the
+battle loop. Introducing a default-choose fallback here would change what the bot does, not
+just what it records.
+
+The recording boundary therefore observes and re-raises. A process crash is covered by §10,
+not here.
 
 ## 7. `|error|` and the invalid-choice PM
 
@@ -112,18 +121,28 @@ wrong: per-room attribution is not available for the PM path.
 
 The decision-profile schema is **closed** and produced by the gauntlet's own machinery, which
 supplies fields the ladder runner has no way to produce. Writing partial or improvised rows into
-it would corrupt a schema that frozen evidence and its validators depend on.
+it would corrupt a schema that frozen evidence and its validators depend on. This slice defines
+its own artifact under a run directory in `logs/`, versioned independently.
 
-This slice therefore defines its own artifact, under a run directory in `logs/`:
+`decisions.jsonl` alone is not enough: the invalid-choice PM is run-scoped, and `|error|` can
+arrive outside any decision. Those need their own sink, or they would have to be forced onto a
+decision they do not belong to.
 
-| File | Content |
-|---|---|
-| `decisions.jsonl` | one row per decision — the raw facts of §4 for the runner's own seat |
-| `battles.jsonl` | one row per battle — own per-battle counters, plus how the battle ended (`win` / `tie` / `unterminated`) |
-| `completion.json` | run-level summary, **best-effort** — see §10 |
+| File | Grain | Required fields |
+|---|---|---|
+| `decisions.jsonl` | one row per decision | `schema_version`, `run_id`, `room_id`, `decision_seq` (per room, monotonic), `rqid`, `state_build_failed`, `book_absent`, `team_preview`, `selection_stage`, `fallback_reason`, `agent_crash_type` (or `null`) |
+| `events.jsonl` | one row per asynchronous event | `schema_version`, `run_id`, `event_type` (`server_error` \| `invalid_choice_pm`), `attribution` (`room` \| `inferred` \| `unattributed`), `room_id` (`null` when unattributed), `payload`, `active_battle_count` at the time |
+| `battles.jsonl` | one row per battle | `schema_version`, `run_id`, `room_id`, `decision_count`, own per-battle counters, `end_reason` (`win` \| `tie` \| `unterminated`), `write_errors` |
+| `completion.json` | one per run, **best-effort** | `schema_version`, `run_id`, `battles_finished`, `write_errors_total`, `unterminated_rooms` |
 
-Schema name `live-degradation-v1`, versioned independently of `decision-profile-v*`. Nothing in
-this slice writes to the decision-profile schema.
+**Join keys:** `run_id` across all four; `(run_id, room_id)` joins `decisions` and `events` to
+`battles`; `(run_id, room_id, decision_seq)` identifies a decision. `rqid` is recorded as
+server-side provenance, not as the join key — it is not guaranteed unique across rooms.
+
+**Attribution rule, load-bearing:** an event with `attribution = "unattributed"` **must not
+increment any battle counter**. It has no room, and charging it to one — or to all — would
+manufacture degradation that was never observed on that battle. `inferred` is permitted only in
+the degenerate case `active_battle_count == 1` and is recorded as `inferred`, never as `room`.
 
 ## 9. Battle boundaries and exit paths
 
@@ -148,37 +167,65 @@ post-loop statement: a post-loop flush is skipped on exactly the exception and c
 paths where the evidence matters most. A design that flushes only on `|win|`/`|tie|` silently
 loses precisely the battles most likely to have degraded.
 
-## 10. Write failures, and what cannot be guaranteed
+## 10. Initialisation, write failures, and what cannot be guaranteed
 
-**A write failure must never block a turn or a battle.** The runner plays real ladder games
-against a live server; a blocking write costs the game. Recording is buffered in memory during
-the battle and flushed at the boundaries in §9, inside a handler that cannot propagate into the
-battle loop.
+### 10.1 Preflight — fail closed BEFORE the first live battle
 
-**But the failure record cannot be guaranteed by the writer that just failed.** An earlier
-revision said a flush failure "is itself recorded", which is circular — if the sink is
-unwritable, the record of that fact is unwritable too. The guarantee is therefore split:
+"Always on" is only true if the sink is known to work before anything is at stake. Before
+`_connect_and_login` and before any `/search` or challenge is sent, the runner creates the run
+directory and proves the writer works (open, write a probe, fsync, close).
+
+**If preflight fails, the run aborts before the first live battle.** That is the one place a
+recording failure is allowed to stop the run, precisely because nothing has been played yet:
+aborting costs nothing, whereas discovering an unwritable sink after 50 ladder games costs all
+50 games' evidence. Once battles are in flight the policy inverts — see 10.2.
+
+### 10.2 During play — no write on the decision path, no propagation into a battle
+
+The absolute claim "a write failure never blocks a turn or a battle" was too strong, because a
+synchronous flush at a battle boundary sits inside the shared `async for` loop and can delay
+message processing for *other* active battles.
+
+The precise contract:
+
+- **No filesystem write occurs on the decision/turn path.** Decisions are buffered in memory.
+- **Flushes happen at battle boundaries only**, and their errors **never propagate into a
+  battle** — they are caught, counted, and logged.
+- A boundary flush is **synchronous and bounded**. This slice does **not** introduce a
+  background writer: concurrency would add its own failure modes and ordering questions to a
+  slice whose entire purpose is evidence integrity.
+- **Accepted consequence, stated rather than hidden:** a slow or stalled disk at a boundary can
+  delay message processing for other active battles for the duration of that flush. That is a
+  real cost of the synchronous choice. If it ever bites, a background writer is the remedy, and
+  it is a separate decision.
+
+### 10.3 The failure record cannot be guaranteed by the writer that failed
+
+An earlier revision said a flush failure "is itself recorded", which is circular — if the sink
+is unwritable, the record of that fact is unwritable too. The guarantee is split:
 
 1. **In-memory counter + `logger.error`** — always available, independent of the sink.
 2. **`completion.json`** — best-effort. It may itself fail to write, and its absence is
    meaningful, not neutral.
 3. **Process exit status** — the machine-checkable signal. If any flush failed, the run exits
-   non-zero. This does not depend on any file being writable and is what an automated caller
-   must key on.
+   non-zero. This depends on no file being writable and is what an automated caller keys on.
 
 A consumer must treat *"no `completion.json`"* and *"`completion.json` reporting failures"* as
-equivalent failure states, and must not infer success from the absence of a failure record.
+equivalent failure states, and must never infer success from the absence of a failure record.
 
-**Remaining evidence limit, stated rather than papered over:** because a battle is buffered in
-memory until its boundary, a hard process termination — `SIGKILL`, power loss, an OOM kill —
-loses that battle's unflushed decisions entirely. No `finally` runs. This is the accepted
-residual gap of the buffered design; the alternative, appending per decision, was not chosen
-because it puts a filesystem write on the turn path. A future slice may revisit that trade;
-this record does not.
+### 10.4 Remaining evidence limit
+
+Because a battle is buffered in memory until its boundary, a hard process termination —
+`SIGKILL`, power loss, an OOM kill — loses that battle's unflushed decisions entirely. No
+`finally` runs. This is the accepted residual gap of the buffered design; per-decision appending
+was rejected because it puts a filesystem write on the turn path (10.2). A future slice may
+revisit that trade; this record does not.
 
 ## 11. Non-goals
 
-- No new degradation signals beyond the raw facts in §4.
+- No new degradation signals beyond the raw facts in §4. The **context** fields
+  (`book_absent`, `team_preview`) are not degradation facts and do not widen that set;
+  they exist so a reader can distinguish "not applicable" from "clean" (§5).
 - No threshold changes.
 - No automatic abort on degradation. `_abort_on_degradation` checks four counters and stays
   narrower than what is recorded. **Recording and aborting are allowed to differ in breadth** —
