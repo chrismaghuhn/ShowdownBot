@@ -4,13 +4,26 @@
 **Plan:** `docs/projects/learning/plans/2026-07-27-depth2-accuracy-stage3-readiness.md`
 **Branch:** `codex/depth2-accuracy-stage3-readiness-design`
 
-## Completion statement (spec §15) — DRAFT, pending cost preflight
+## Completion statement (spec §15) — FINAL
 
 > When the existing coarse Depth-2 path is used, its Turn-1 and Turn-2 evaluations now use one
 > resolved accuracy configuration, and the executed work is observable.
 
-**Note:** This statement is a draft. It cannot be asserted as final until the cost preflight
-(§11 below) has been executed and its results satisfy the gate criteria.
+**Status: final as of 2026-07-28.** The cost preflight (§11 below) has been executed on a
+fully valid matrix and its evidence is frozen. See
+`docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`
+and its companion operator-artifacts document, plus Appendix A.6 of
+`docs/projects/learning/specs/2026-07-28-depth2-cost-preflight-amendment.md`.
+
+Attempt 6 ran four arms × 30 battles with 0 timeouts, 0 crashes, 0 invalid choices, 0
+degradation, 0 chooser fallback and no contaminated rows; all post-arm gates and the
+cross-arm validation passed. Depth-2 search was actually executed (`depth2_frontier > 0`
+on every profile row of both depth-2 arms). Attempts 1–5 are invalidated and none of their
+data is reused (Appendix A.1–A.5).
+
+**This finalisation asserts observability and measured cost only.** It does not upgrade any
+non-claim below: no strength claim, no production-readiness claim, no live-gate claim, no
+default change.
 
 ## What changed
 
@@ -79,7 +92,10 @@ No new skip or xfail was introduced.
 
 ## What remains unrun
 
-- **Cost preflight** (spec §11): documented below, operator-directed.
+- ~~**Cost preflight** (spec §11)~~ — **run and frozen 2026-07-28** (Attempt 6, valid matrix).
+  The operator-directed procedure documented below is retained as the historical record of
+  what was specified; the executed parameters, results and all 21 output hashes live in the
+  Attempt-6 freeze report.
 - **Diverse development panel** (spec §15 non-claim): not designed or run.
 - **I8-D live latency gate**: not re-run on this candidate (no behavior change — accuracy
   config was already resolved; this slice only corrects its forwarding to Turn-2).
@@ -87,6 +103,9 @@ No new skip or xfail was introduced.
 - **Independent holdout**: not authorized. Requires a materially different candidate first.
 
 ## Explicit non-claims (spec §15)
+
+These non-claims are **unchanged** by the completed cost preflight. The preflight produced
+cost and readiness evidence only; it upgrades none of them.
 
 This slice does **not** claim:
 - Depth-2 is stronger.
@@ -99,7 +118,25 @@ This slice does **not** claim:
 
 ---
 
-## Cost preflight (spec §11, operator-directed)
+## Cost preflight (spec §11, operator-directed) — EXECUTED
+
+**This section is the original specification, retained unchanged as the historical record of
+what was pre-registered.** It is not the result. The executed run, its parameters, its §12
+evidence per arm × stratum, the 21 frozen output hashes and the operator scripts are in
+`docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`.
+
+The template below was **incomplete as an executable procedure**: it fixed the environment
+variables and the invocation shape, but left the schedule, the seeds, the import root, the
+server lifecycle and the validation gates unspecified. The amendment
+(`2026-07-28-depth2-cost-preflight-amendment.md`) supplied exactly those.
+
+The template is **not** the source of the Attempt-4 defect. It uses the correct, fully
+`SHOWDOWN_`-prefixed variable names throughout. The short-name defect that made all four
+Attempt-4 arms run code defaults was introduced by an early revision of the amendment's
+§6.3 table and corrected there; see Appendix A.4.
+
+Five attempts were invalidated before a valid matrix was obtained (Appendix A.1–A.5).
+
 
 ### Matrix (§11.1)
 
