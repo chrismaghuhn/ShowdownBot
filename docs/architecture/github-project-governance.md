@@ -35,21 +35,22 @@ work progresses.
 
 | Field | Type | Options | Semantics |
 |---|---|---|---|
-| Status | Single select | Inbox, Needs Decision, In Progress, Blocked, In Review, Resolved | Workflow state |
-| Priority | Single select | P0, P1, P2 | Urgency; P0 = current sprint |
-| Track | Single select | Bot Strength, Evaluation / Provenance, Depth-2 / Search, Champions, Studio | Domain grouping |
-| Work Type | Single select | Bug, Improvement, Experiment, Gate, Decision | Nature of the work |
-| Evidence | Single select | None, Spec Approved, Preflight Done, Gate Evidence Frozen | Evidence maturity ladder |
-| Verdict | Single select | Not Applicable, Not Run, PASS, FAIL, NO-GO | Gate outcome |
+| Status | Single select | Inbox, Needs Decision, Ready, In Progress, In Review, Blocked, Resolved | Workflow state (7 options) |
+| Priority | Single select | P0, P1, P2, P3 | Urgency; P0 = current sprint |
+| Track | Single select | Bot Strength, Evaluation / Provenance, Depth-2 / Search, Champions, Studio, Infrastructure | Domain grouping |
+| Work Type | Single select | Bug, Improvement, Experiment, Gate, Decision, Documentation | Nature of the work |
+| Evidence | Single select | None, Spec Approved, Implemented, Verified, Frozen | Evidence maturity ladder |
+| Verdict | Single select | Not Applicable, Not Run, PASS, FAIL, NO-GO, Inconclusive | Gate outcome |
 | Target | Single select | Now, Next, Later, Parked | Planning horizon |
+| Start Date | Date | — | When work began |
 
 ### Evidence ladder
 
-Evidence progresses monotonically: None → Spec Approved → Preflight Done → Gate Evidence
+Evidence progresses monotonically: None → Spec Approved → Implemented → Verified →
 Frozen. It never moves backward. "Spec Approved" means a spec exists and was approved —
-the code may or may not be implemented yet. "Preflight Done" means a dry-run or cost
-check passed. "Gate Evidence Frozen" means evidence is committed to `main` under
-`data/eval/`.
+the code may or may not be implemented yet. "Implemented" means the code is written and
+tested. "Verified" means a preflight or dry-run passed. "Frozen" means evidence is
+committed to `main` under `data/eval/`.
 
 ### Verdict semantics
 
@@ -57,6 +58,7 @@ check passed. "Gate Evidence Frozen" means evidence is committed to `main` under
 - **Not Run** — a gate exists but has not been executed yet.
 - **PASS / FAIL / NO-GO** — the gate ran and produced this result. FAIL is a technical
   failure (e.g. safety violation); NO-GO is a strength verdict that did not meet the bar.
+- **Inconclusive** — the gate ran but the result is ambiguous (e.g. underpowered test).
 
 ---
 
@@ -115,7 +117,7 @@ The project should have these views:
 
 | View | Type | Purpose |
 |---|---|---|
-| North Star | Board (by Status) | Default board — all issues grouped by Status |
+| North Star | Table (by Status) | Default view — all issues; convert to Board layout when issue count warrants it |
 | Now | Table filtered to Target = Now | Current sprint focus |
 | Gates & Evidence | Table filtered to Work Type = Gate | Gate status at a glance |
 | Blocked | Table filtered to Status = Blocked | What's waiting on what |
@@ -131,21 +133,16 @@ Additional labels by track: `champions`, `evaluation`, `depth-2`, `studio`.
 
 ---
 
-## AGENTS.md Conflict
+## Authority Handoff
 
-`AGENTS.md` (untracked, repo root) currently declares `docs/ROADMAP.md` as the
-authoritative status source. This governance document introduces the GitHub Project as
-the authoritative source for "what is open / blocked / next."
+Both `AGENTS.md` and `docs/PROJECT_INDEX.md` previously declared `docs/ROADMAP.md` as
+the sole authoritative source for status and sequencing. This governance document
+introduces a split: the GitHub Project is authoritative for "what is open / blocked /
+next" (operational status), while `docs/ROADMAP.md` remains authoritative for technical
+detail, evidence chains, and provenance.
 
-**Resolution required before declaring the authority switch complete:**
-
-1. Update `AGENTS.md` to reference both sources with their respective roles (operational
-   status → Project, technical detail → ROADMAP).
-2. Because `AGENTS.md` is untracked, this update cannot be part of a PR — it must be
-   applied manually or committed as a separate tracked file.
-
-**Current state:** The conflict is FLAGGED, not resolved. Until `AGENTS.md` is updated,
-`docs/ROADMAP.md` remains the sole declared authority.
+**Resolved in this PR:** `AGENTS.md` is tracked and updated to reference both sources
+with their respective roles. `docs/PROJECT_INDEX.md` is updated likewise.
 
 ---
 
