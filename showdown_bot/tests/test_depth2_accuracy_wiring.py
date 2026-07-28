@@ -207,8 +207,7 @@ def test_depth2_accuracy_forwarded_mega(mega_decision_fixture, monkeypatch):
     cb_kw = {k: v for k, v in kw.items() if k in _CB_KEYS}
     _choose_best(req, **cb_kw)
 
-    if not d2_calls:
-        pytest.skip("no depth-2 calls in mega path (board may not trigger depth-2)")
+    assert d2_calls, "mega path must invoke depth-2 at least once for this board"
 
     for c in d2_calls:
         assert c["accuracy_mode"] is True, f"d2 mega call missing accuracy_mode: {c}"
@@ -498,3 +497,148 @@ def test_trace_recomputation_does_not_alter_counts(monkeypatch):
     assert sink_no_trace.turn1_accuracy_cap_hits == sink_with_trace.turn1_accuracy_cap_hits
     assert sink_no_trace.turn2_accuracy_leaf_count == sink_with_trace.turn2_accuracy_leaf_count
     assert sink_no_trace.turn2_accuracy_cap_hits == sink_with_trace.turn2_accuracy_cap_hits
+
+
+# ---- Origin counterproof: search resolvers once per decision ----
+
+def test_search_resolvers_called_once_per_decision(monkeypatch):
+    """_search_depth, _search_topn, _search_topm each called exactly once per
+    scored decision (mirrors the accuracy resolver test)."""
+    from showdown_bot.battle import decision as decision_module
+
+    depth_calls, topn_calls, topm_calls = [], [], []
+    real_depth = decision_module._search_depth
+    real_topn = decision_module._search_topn
+    real_topm = decision_module._search_topm
+
+    def _spy_depth():
+        r = real_depth(); depth_calls.append(r); return r
+
+    def _spy_topn():
+        r = real_topn(); topn_calls.append(r); return r
+
+    def _spy_topm():
+        r = real_topm(); topm_calls.append(r); return r
+
+    monkeypatch.setattr(decision_module, "_search_depth", _spy_depth)
+    monkeypatch.setattr(decision_module, "_search_topn", _spy_topn)
+    monkeypatch.setattr(decision_module, "_search_topm", _spy_topm)
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_SEARCH_TOPN", "3")
+    monkeypatch.setenv("SHOWDOWN_SEARCH_TOPM", "2")
+
+    _choose_best(_d2_req(), **_d2_kwargs())
+
+    assert len(depth_calls) == 1, f"_search_depth called {len(depth_calls)} times"
+    assert len(topn_calls) == 1, f"_search_topn called {len(topn_calls)} times"
+    assert len(topm_calls) == 1, f"_search_topm called {len(topm_calls)} times"
+
+
+# ---- Origin counterproof: K-world → n_worlds > 1, zero depth-2 ----
+
+def test_kworld_nonmega_n_worlds_and_no_depth2(monkeypatch):
+    """With real K-world sampling active (opp_sets diverge from book, triggering
+    build_world_dist's 2-point distribution), shape_sink.n_worlds > 1 and all
+    depth-2 counters are zero (K-world suppresses depth-2)."""
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+    from showdown_bot.battle.opponent import SpeciesDex
+    from showdown_bot.battle.oracle import DamageOracle
+    from showdown_bot.engine.belief.hypotheses import SpeciesSpreads, SpreadPreset
+    from showdown_bot.engine.calc.client import CalcClient
+    from showdown_bot.engine.calc_profile import build_speed_oracle, calc_profile_from_config
+    from showdown_bot.engine.format_config import load_format_config
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.setenv("SHOWDOWN_WORLD_SAMPLES", "3")
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+
+    calc = CalcClient()
+    oracle = DamageOracle(calc)
+    cfg = load_format_config("gen9vgc2025regi")
+    profile = calc_profile_from_config(cfg)
+    speed = build_speed_oracle(calc.backend, profile)
+    dex = SpeciesDex(calc.backend)
+    book = _d2_book()
+
+    custom_spread = SpeciesSpreads(
+        offense=SpreadPreset(nature="Adamant", evs={"atk": 64}),
+        defense=SpreadPreset(nature="Relaxed", evs={"def": 64}),
+    )
+    opp_sets = {"fluttermane": custom_spread}
+
+    shape = MegaShapeCounts()
+    readiness = Depth2ReadinessCounts()
+    _choose_best(
+        _d2_req(), state=_d2_state(), book=book, our_side="p1",
+        calc=calc, oracle=oracle, speed_oracle=speed, dex=dex,
+        opp_sets=opp_sets, shape_sink=shape, readiness_sink=readiness,
+    )
+
+    assert shape.n_worlds > 1, f"expected n_worlds > 1, got {shape.n_worlds}"
+    assert shape.depth2_frontier == 0, "K-world must suppress depth-2"
+    assert readiness.depth2_candidates_selected == 0
+    assert readiness.depth2_response_slots_eligible == 0
+
+
+# ---- Origin counterproof: eligible slots pre-cap, non-Mega ----
+
+def test_eligible_slots_precap_nonmega(monkeypatch):
+    """With SHOWDOWN_SEARCH_TOPM=1 and depth 2, depth2_response_slots_eligible
+    counts ALL response slots (pre-cap), not just the top-M refined ones.
+    eligible > frontier proves the count is pre-cap."""
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_SEARCH_TOPM", "1")
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+
+    shape = MegaShapeCounts()
+    readiness = Depth2ReadinessCounts()
+    _choose_best(_d2_req(), shape_sink=shape, readiness_sink=readiness, **_d2_kwargs())
+
+    assert readiness.depth2_response_slots_eligible > 0
+    assert shape.depth2_frontier > 0
+    assert readiness.depth2_response_slots_eligible > shape.depth2_frontier, (
+        f"eligible ({readiness.depth2_response_slots_eligible}) should exceed "
+        f"frontier ({shape.depth2_frontier}) when top-M < n_resps (pre-cap count)"
+    )
+
+
+# ---- Origin counterproof: eligible slots pre-cap, Mega ----
+
+def test_eligible_slots_precap_mega(mega_decision_fixture, monkeypatch):
+    """Same pre-cap proof for the Mega path: depth2_response_slots_eligible
+    counts all response slots per top-N candidate, not just top-M."""
+    from showdown_bot.battle.mega_scoring import MegaShapeCounts
+    from showdown_bot.eval.depth2_readiness import Depth2ReadinessCounts
+
+    monkeypatch.setenv("SHOWDOWN_SEARCH_DEPTH", "2")
+    monkeypatch.setenv("SHOWDOWN_SEARCH_TOPM", "1")
+    monkeypatch.delenv("SHOWDOWN_WORLD_SAMPLES", raising=False)
+    monkeypatch.delenv("SHOWDOWN_ACCURACY_MODE", raising=False)
+
+    req, kw = mega_decision_fixture
+    _CB_KEYS = {
+        "state", "book", "our_side", "calc", "oracle", "speed_oracle", "dex",
+        "priors", "weights", "risk_lambda", "tera_margin", "rollout_horizon",
+        "report", "our_spreads", "opp_sets", "trace", "format_config",
+        "opp_mega_evidence_sink", "shape_sink", "readiness_sink",
+    }
+
+    shape = MegaShapeCounts()
+    readiness = Depth2ReadinessCounts()
+    cb_kw = {k: v for k, v in kw.items() if k in _CB_KEYS}
+    cb_kw["shape_sink"] = shape
+    cb_kw["readiness_sink"] = readiness
+
+    _choose_best(req, **cb_kw)
+
+    assert readiness.depth2_response_slots_eligible > 0
+    assert shape.depth2_frontier > 0
+    assert readiness.depth2_response_slots_eligible > shape.depth2_frontier, (
+        f"eligible ({readiness.depth2_response_slots_eligible}) should exceed "
+        f"frontier ({shape.depth2_frontier}) when top-M < n_resps (pre-cap count)"
+    )

@@ -72,6 +72,13 @@ def _rows(tmp_path):
     return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
 
 
+_FALLBACK_REASON_FOR_STAGE = {
+    "max_damage_fallback": "heuristic_timeout",
+    "deterministic_default_pair": "max_damage_error",
+    "server_default": "default_pair_error",
+}
+
+
 def _drive(client, monkeypatch, *, req, state, stage="heuristic", crash=False):
     import showdown_bot.client.gauntlet as g
     monkeypatch.setattr(client, "_state_for", lambda room, request: state)
@@ -83,6 +90,8 @@ def _drive(client, monkeypatch, *, req, state, stage="heuristic", crash=False):
         ss = kw.get("stage_sink")
         if ss is not None and stage is not None:
             ss.selection_stage = stage
+            if stage in _FALLBACK_REASON_FOR_STAGE:
+                ss.fallback_reason = _FALLBACK_REASON_FOR_STAGE[stage]
         return f"/choose default|{request.rqid}"
 
     monkeypatch.setattr(g, "agent_choose", _stub)
@@ -183,6 +192,74 @@ def test_wait_consumes_no_index_and_no_row(monkeypatch, tmp_path):
 # The same pairing / games==1 invariants the other sidecars enforce: a writer with no context
 # (or vice versa) can't build a bound row, and a context implies exactly one battle is played.
 # Both raise at the top of run_local_gauntlet, before ShowdownConnection/auth -- no server.
+
+def test_dropped_row_does_not_break_close_but_exposes_counter(monkeypatch, tmp_path):
+    """close() must never raise (resource cleanup contract), but the
+    dropped-row counter must be accessible so the caller can abort after cleanup."""
+    conn = _RecordingConn()
+    w = _writer(tmp_path)
+    client = _client(conn, writer=w, context=_ctx())
+    req, state = _board()
+
+    def _exploding_write(row):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(w, "write", _exploding_write)
+    _drive(client, monkeypatch, req=req, state=state)
+    assert client._profile_rows_dropped == 1
+    client.close()
+    assert client._profile_rows_dropped == 1
+
+
+def test_dropped_rows_cause_run_abort_after_both_clients_cleaned_up(monkeypatch, tmp_path):
+    """The gauntlet-level fail-closed check must fire AFTER both clients are
+    fully cleaned up.  Prove: (1) both close() succeed without raising,
+    (2) the production post-cleanup check (identical to run_local_gauntlet's)
+    raises RuntimeError."""
+    hero_conn = _RecordingConn()
+    villain_conn = _RecordingConn()
+    w = _writer(tmp_path)
+    hero = _client(hero_conn, writer=w, context=_ctx())
+    villain = _client(villain_conn)
+
+    req, state = _board()
+
+    def _exploding_write(row):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(w, "write", _exploding_write)
+    _drive(hero, monkeypatch, req=req, state=state)
+    assert hero._profile_rows_dropped == 1
+
+    close_order: list[str] = []
+    orig_hero_close = hero.close
+    orig_villain_close = villain.close
+
+    def _tracking_hero_close():
+        orig_hero_close()
+        close_order.append("hero")
+
+    def _tracking_villain_close():
+        orig_villain_close()
+        close_order.append("villain")
+
+    hero.close = _tracking_hero_close
+    villain.close = _tracking_villain_close
+
+    hero.close()
+    villain.close()
+
+    assert close_order == ["hero", "villain"], "both clients must complete cleanup"
+
+    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
+    assert dropped == 1
+    with pytest.raises(RuntimeError, match="decision-profile row.*dropped.*fail-closed"):
+        if dropped > 0:
+            raise RuntimeError(
+                f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
+                f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
+            )
+
 
 def test_run_local_gauntlet_requires_writer_and_context_together():
     from showdown_bot.client.gauntlet import run_local_gauntlet

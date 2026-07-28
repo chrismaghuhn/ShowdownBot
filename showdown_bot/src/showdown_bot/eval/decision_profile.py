@@ -261,6 +261,17 @@ LIVE_FALLBACK_STAGES = frozenset(
 BASELINE_OK_STAGE = "max_damage_baseline"
 BASELINE_FALLBACK_STAGES = frozenset({"max_damage_baseline_default"})
 
+KNOWN_FALLBACK_REASONS = frozenset({
+    "heuristic_timeout", "heuristic_error", "max_damage_error",
+    "default_pair_error",
+})
+
+STAGE_ALLOWED_REASONS: dict[str, frozenset[str]] = {
+    "max_damage_fallback": frozenset({"heuristic_timeout", "heuristic_error"}),
+    "deterministic_default_pair": frozenset({"max_damage_error"}),
+    "server_default": frozenset({"default_pair_error"}),
+}
+
 # The two stages that mean "this decision completed on its agent's INTENDED path". Everything
 # else -- a fallback layer, team preview, an unknown future stage, no stage at all -- is degraded.
 _INTENDED_COMPLETION_STAGES = frozenset({LIVE_OK_STAGE, BASELINE_OK_STAGE})
@@ -1047,6 +1058,15 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
             f"accuracy_branch_cap must be >= 1, got {row['accuracy_branch_cap']}",
         )
 
+        # K-world guard: depth-2 runs only under single-world (world_samples()<=1).
+        nw = row.get("n_worlds", 0)
+        if nw > 1:
+            _require(row["depth2_frontier"] == 0,
+                     f"n_worlds={nw} but depth2_frontier={row['depth2_frontier']} "
+                     "(depth-2 is single-world only)")
+            _require(row["depth2_candidates_selected"] == 0,
+                     f"n_worlds={nw} but depth2_candidates_selected != 0")
+
         # selection_stage / fallback_reason vocabulary
         ss = row["selection_stage"]
         _require(
@@ -1055,18 +1075,50 @@ def validate_decision_profile_row(row: dict, *, manifest: dict | None) -> None:
         )
         fr = row["fallback_reason"]
         _require(
-            fr is None or isinstance(fr, str),
-            f"fallback_reason must be None or str, got {type(fr).__name__}",
+            fr is None or (isinstance(fr, str) and fr in KNOWN_FALLBACK_REASONS),
+            f"fallback_reason must be None or one of {sorted(KNOWN_FALLBACK_REASONS)}, got {fr!r}",
         )
         if ss == LIVE_OK_STAGE:
             _require(
                 row["outcome"] == "ok",
                 f"selection_stage={ss!r} but outcome={row['outcome']!r} (expected 'ok')",
             )
+            _require(
+                fr is None,
+                f"selection_stage={ss!r} (ok path) but fallback_reason={fr!r}",
+            )
         if ss in LIVE_FALLBACK_STAGES:
             _require(
                 row["outcome"] == "fallback",
                 f"selection_stage={ss!r} but outcome={row['outcome']!r} (expected 'fallback')",
+            )
+            _require(
+                fr is not None,
+                f"selection_stage={ss!r} (fallback) but fallback_reason is None",
+            )
+            if fr is not None and ss in STAGE_ALLOWED_REASONS:
+                _require(
+                    fr in STAGE_ALLOWED_REASONS[ss],
+                    f"selection_stage={ss!r} does not allow fallback_reason={fr!r} "
+                    f"(allowed: {sorted(STAGE_ALLOWED_REASONS[ss])})",
+                )
+        if row["outcome"] == "ok":
+            _require(
+                ss == LIVE_OK_STAGE,
+                f"outcome='ok' but selection_stage={ss!r} (expected {LIVE_OK_STAGE!r})",
+            )
+            _require(
+                fr is None,
+                f"outcome='ok' but fallback_reason={fr!r} (expected None)",
+            )
+        if row["outcome"] == "fallback":
+            _require(
+                ss in LIVE_FALLBACK_STAGES,
+                f"outcome='fallback' but selection_stage={ss!r} is not a known fallback stage",
+            )
+            _require(
+                fr is not None,
+                f"outcome='fallback' but fallback_reason is None",
             )
 
     # ---- outcome <-> measured_ms (§2.6) ---------------------------------

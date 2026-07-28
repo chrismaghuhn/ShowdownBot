@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from showdown_bot.battle.actions import enumerate_my_actions
 from showdown_bot.battle.evaluate import EvalWeights
+from showdown_bot.battle.decision import _search_depth, _search_topn, _search_topm
 from showdown_bot.battle.mega_scoring import (
     MegaShapeCounts,
     build_own_mega_contexts,
@@ -271,6 +272,8 @@ class ProfileSession:
             calc_profile=self.calc_profile, accuracy_mode=False, accuracy_branch_cap=6,
             endgame=False, fast_board=False, foe_mega_eligibility=elig,
             species_meta=species_meta_table(), shape_sink=shape,
+            search_depth=_search_depth(), search_topn=_search_topn(),
+            search_topm=_search_topm(),
         )
         return {
             "n_candidates": shape.n_candidates,

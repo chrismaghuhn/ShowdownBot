@@ -414,11 +414,16 @@ def _choose_best(
         risk_lambda = _risk_lambda()
     accuracy_mode = _accuracy_mode()
     accuracy_branch_cap = _accuracy_branch_cap()
+    search_depth = _search_depth()
+    search_topn = _search_topn()
+    search_topm = _search_topm()
 
     if readiness_sink is not None:
-        readiness_sink.search_depth = _search_depth()
+        readiness_sink.search_depth = search_depth
         readiness_sink.accuracy_mode = accuracy_mode
         readiness_sink.accuracy_branch_cap = accuracy_branch_cap
+        readiness_sink.search_topn_requested = search_topn
+        readiness_sink.search_topm_requested = search_topm
 
     our_side = our_side or (req.side.id or "p1")
     opp_side = _opp_side(our_side)
@@ -537,6 +542,7 @@ def _choose_best(
             endgame=endgame, fast_board=fast_board, resolve_mode=_resolve_mode, my_actions=my_actions,
             opp_mega_evidence_sink=opp_mega_evidence_sink, shape_sink=shape_sink,
             readiness_sink=readiness_sink,
+            search_depth=search_depth, search_topn=search_topn, search_topm=search_topm,
         )
 
     plans = {
@@ -562,6 +568,8 @@ def _choose_best(
         seed = world_seed(os.environ.get("SHOWDOWN_BATTLE_SEED_BASE", "world"),
                           getattr(state, "turn", 0) or 0, _board_key(state, opp_side))
         worlds = sample_worlds(world_dist, world_samples(), seed=seed)
+        if shape_sink is not None:
+            shape_sink.n_worlds = len(worlds)
         shared_oracle = oracle or DamageOracle()
         world_ctx = []  # (world_weight, opp_resps_k, model_k)
         for world_sets, world_w in worlds:
@@ -610,6 +618,8 @@ def _choose_best(
         best_ja, best_val = pick_best(items, mode, risk_lambda=risk_lambda, weights=resp_weights)
     else:
         # --- single-world path (unchanged; byte-identical when world_samples()<=1) ---
+        if shape_sink is not None:
+            shape_sink.n_worlds = 1
         opp_resps = predict_responses(
             state, our_side, opp_side, speed_oracle=speed_oracle, book=book,
             dex=dex, field=state.field, priors=priors, threatened_slots=threatened,
@@ -659,7 +669,7 @@ def _choose_best(
                     )[0])
             return scores
 
-        if _search_depth() > 1 and world_samples() <= 1:
+        if search_depth > 1 and world_samples() <= 1:
             # --- depth-2 wrap (guarded; the verbatim 1-ply branch below runs
             # unchanged whenever this condition is false -> byte-identical off) ---
             def score_plan_with_outcome(
@@ -704,11 +714,8 @@ def _choose_best(
             ]
 
             # Frontier caps: N turn-1 candidates x M response slots.
-            top_n = _search_topn()
-            top_m = _search_topm()
-            if readiness_sink is not None:
-                readiness_sink.search_topn_requested = top_n
-                readiness_sink.search_topm_requested = top_m
+            top_n = search_topn
+            top_m = search_topm
             ranked_pos = sorted(
                 range(len(items)),
                 key=lambda i: aggregate_scores(
@@ -776,7 +783,7 @@ def _choose_best(
                     len(top_n_pos)
                 )
                 readiness_sink.depth2_response_slots_eligible = (
-                    len(top_n_pos) * len(top_m_idx)
+                    len(top_n_pos) * n_resps
                 )
         else:
             items = [(ja, score_plan(plan)) for ja, plan in plans.items()]
@@ -893,6 +900,9 @@ def _choose_best_mega(
     opp_mega_evidence_sink: list | None = None,
     shape_sink=None,
     readiness_sink=None,
+    search_depth: int = 1,
+    search_topn: int = 2,
+    search_topm: int = 2,
 ) -> tuple[JointAction, float]:
     """Own-Mega-aware ranking (I7a-B Task 4, design spec Sec.7.1/7.3): every
     own-Mega variant is scored as a first-class candidate in the SAME grid as
@@ -957,6 +967,9 @@ def _choose_best_mega(
         opp_mega_evidence_sink=opp_mega_evidence_sink,
         shape_sink=shape_sink,
         readiness_sink=readiness_sink,
+        search_depth=search_depth,
+        search_topn=search_topn,
+        search_topm=search_topm,
     )
     # Lever A: GameMode is resolved inside score_evaluated_variants after the first world's
     # flush; retrieve the memoized value for this function's downstream trace/tera/report uses.

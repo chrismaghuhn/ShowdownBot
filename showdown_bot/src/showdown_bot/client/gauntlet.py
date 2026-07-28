@@ -447,6 +447,7 @@ class _Client:
         # [P1] Rows WRITTEN, not the decision index. The two differ whenever a decision
         # produces no row, which is why this must never be used to number one.
         self._opp_mega_rows_written = 0
+        self._profile_rows_dropped = 0
         # [P1] The shared request/decision sequence: advances once per handled non-wait
         # request, independent of any writer, and is what every sidecar row's
         # `decision_index` is stamped with. A per-writer row counter cannot do this job:
@@ -1004,9 +1005,11 @@ class _Client:
                     ),
                 )
                 self.decision_profile_writer.write(row)
-            except Exception as exc:  # noqa: BLE001 - best-effort; never stall the battle
-                logger.debug(
-                    "[%s] decision-profile write failed (row dropped): %s", self.name, exc
+            except Exception as exc:  # noqa: BLE001 - fail-closed: count for post-battle abort
+                self._profile_rows_dropped += 1
+                logger.warning(
+                    "[%s] decision-profile write FAILED (row #%d dropped): %s",
+                    self.name, self._profile_rows_dropped, exc,
                 )
         # Export observe: only when trace was built (export enabled, heuristic, non-preview).
         # The explicit `self.agent == "heuristic"` guard (redundant when capture is off, since
@@ -1664,6 +1667,13 @@ async def run_local_gauntlet(
         # calls don't leak a Node process per hero/villain client per battle.
         hero.close()
         villain.close()
+
+    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
+    if dropped > 0:
+        raise RuntimeError(
+            f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
+            f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
+        )
 
     stats.latencies = hero.latencies
     # Same single read site the per-battle emitter uses, so the two artifacts cannot disagree

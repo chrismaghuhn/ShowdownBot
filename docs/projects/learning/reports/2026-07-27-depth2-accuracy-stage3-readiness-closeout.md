@@ -4,10 +4,13 @@
 **Plan:** `docs/projects/learning/plans/2026-07-27-depth2-accuracy-stage3-readiness.md`
 **Branch:** `codex/depth2-accuracy-stage3-readiness-design`
 
-## Completion statement (spec §15)
+## Completion statement (spec §15) — DRAFT, pending cost preflight
 
 > When the existing coarse Depth-2 path is used, its Turn-1 and Turn-2 evaluations now use one
 > resolved accuracy configuration, and the executed work is observable.
+
+**Note:** This statement is a draft. It cannot be asserted as final until the cost preflight
+(§11 below) has been executed and its results satisfy the gate criteria.
 
 ## What changed
 
@@ -37,17 +40,41 @@
    when profiling is on, forwards it through `agent_choose`, and passes the sink to
    `build_live_profile_row` at persistence time.
 
-## What was verified locally (Task 9)
+5. **Review-round fixes (post-Task-9):**
+   - `N`/`M`/`search_depth` once-resolved at `_choose_best_ja` entry and threaded as
+     parameters through `_choose_best_mega` → `score_evaluated_variants` (eliminates
+     redundant env-var reads).
+   - K-world `shape_sink.n_worlds` wired at the origin of world sampling (both K-world
+     and single-world branches).
+   - `_Client.close()` never raises; the fail-closed RuntimeError check fires AFTER
+     both hero and villain are fully cleaned up.
+   - `STAGE_ALLOWED_REASONS` enforces exact stage↔reason coupling in the V4 validator
+     (`max_damage_fallback` → `{heuristic_timeout, heuristic_error}`,
+     `deterministic_default_pair` → `{max_damage_error}`,
+     `server_default` → `{default_pair_error}`).
+   - `profile_fixtures.py` updated to forward `search_depth`/`search_topn`/`search_topm`
+     to `score_evaluated_variants` (regression fix for arm 12).
+   - Origin counterproof tests: search resolvers once per decision, real K-world
+     `n_worlds > 1` with zero depth-2 work, eligible slots pre-cap (separate for Mega
+     and non-Mega paths).
+
+## What was verified locally (Task 9, updated 2026-07-28)
 
 | Tier | Tests | Result |
 |---|---|---|
-| Focused (new tests only) | 37 passed, 1 skipped | GREEN |
-| Affected suites (10 existing test files) | 185 passed | GREEN |
-| Full `showdown_bot` suite | 995 passed, 2 skipped, 1 xfailed | GREEN |
+| New tests (46 new test functions) | 46 passed | GREEN |
+| Affected suites (6 modified + 1 downstream test files) | 167 passed | GREEN |
+| Full `showdown_bot` suite | 3821 passed, 2 skipped, 1 xfailed | GREEN |
 | `git diff --check` | clean | PASS |
 
-The 1 failure in the full suite (`test_config_hash_provenance.py::test_every_raw_byte_hashed_provenance_input_is_lf_on_disk`)
-is a pre-existing Windows CRLF issue unrelated to this slice. No new skip or xfail was introduced.
+38 pre-existing failures in unmodified test files (none introduced by this branch):
+`test_coverage_runner.py` (missing `config/eval/panels/` fixture path),
+`test_eval_report_golden.py` (golden-file drift from `main`),
+`test_strength_holdout_verdict.py` / `test_strength_holdout_runner.py` (schedule/team
+path fixtures). One regression found and fixed during review: `profile_fixtures.py` was
+missing the `search_depth`/`search_topn`/`search_topm` parameters added to
+`score_evaluated_variants` in this slice (arm 12 now passes).
+No new skip or xfail was introduced.
 
 ## What remains unrun
 
@@ -105,8 +132,9 @@ python -m showdown_bot.cli gauntlet --schedule <schedule.yaml> --result-out <arm
 ### Strata
 
 Cold and warm cache strata **must be reported separately** (spec §11.3: never pooled).
-The `backend_class` field in the v4 row distinguishes `clean_warm` vs `persistent_warm`
-(the label describes the cache state observed in that row, not the backend env var value).
+The `backend_class` field in the v4 row distinguishes `clean_cold`, `clean_warm`, and
+`contaminated` (the label describes the cache state observed in that row, not the backend
+env var value).
 
 ### Required output columns (§11.2)
 
@@ -120,8 +148,8 @@ For every arm and cache stratum:
 - Deterministic `cap_fallback` count
 - `search_topn_requested`, `search_topm_requested`, `depth2_candidates_selected`,
   `depth2_response_slots_eligible`
-- Calc transport: `calc_calls`, `calc_attempts`, `calc_spawns`, `calc_total_requests`,
-  `calc_unique_requests`, `calc_cache_hits`
+- Calc transport: `transport_calls`, `transport_attempts`, `spawn_calls`, `requests_total`,
+  `requests_unique`, `cache_hits`
 - Environment/provenance: `config_hash`, `git_sha`, `battle_id`
 
 ### Validation (post-run)

@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass, field, replace
 
 from showdown_bot.battle.actions import JointAction
-from showdown_bot.battle.decision import _plan_my_actions, _search_depth, _search_topm, _search_topn
+from showdown_bot.battle.decision import _plan_my_actions
 from showdown_bot.battle.evaluate import DamageModel, EvalWeights, LineEvaluation, _evaluate_line_details
 from showdown_bot.battle.mega_variants import (
     ScoredMegaVariant,
@@ -405,6 +405,9 @@ def score_evaluated_variants(
     opp_mega_evidence_sink: list[ScoredResponseEvidence] | None = None,
     shape_sink: MegaShapeCounts | None = None,
     readiness_sink=None,
+    search_depth: int = 1,
+    search_topn: int = 2,
+    search_topm: int = 2,
 ) -> list[MegaScoreRecord]:
     """Expand no actions -- score exactly the supplied ``evaluated_variants``
     against the already-built ``contexts`` (I7a-B Task 3).
@@ -822,7 +825,7 @@ def score_evaluated_variants(
     # the resolve would otherwise score with an unset mode.
     assert mode is not None, "score_evaluated_variants needs mode= or resolve_mode()"
 
-    if _search_depth() > 1 and world_samples() <= 1:
+    if search_depth > 1 and world_samples() <= 1:
         # --- depth-2 wrap for the Mega grid (I7a-B Task 1 follow-up; mirrors
         # decision.py's single-world depth-2 wrap in spirit): base AND
         # own-Mega candidates are ranked together in the SAME grid for the
@@ -837,11 +840,8 @@ def score_evaluated_variants(
         # ``diagnostic_weights`` populated; that is also the only world that
         # exists when this gate is true (``world_samples() <= 1``), so
         # ``score_vector``'s indices line up with them one-to-one here.
-        top_n = _search_topn()
-        top_m = _search_topm()
-        if readiness_sink is not None:
-            readiness_sink.search_topn_requested = top_n
-            readiness_sink.search_topm_requested = top_m
+        top_n = search_topn
+        top_m = search_topm
         ranked_pos = sorted(
             range(len(records)),
             key=lambda i: aggregate_scores(
@@ -869,7 +869,7 @@ def score_evaluated_variants(
             "accuracy_branch_cap": accuracy_branch_cap,
         }
         _d2_n_candidates = 0
-        _d2_n_slots = 0
+        _d2_eligible_slots = 0
         for pos in ranked_pos[:top_n]:
             rec = records[pos]
             _d2_n_candidates += 1
@@ -877,13 +877,13 @@ def score_evaluated_variants(
                 rec.diagnostic_weights
                 or [1.0] * len(rec.score_vector)
             )
+            _d2_eligible_slots += len(resp_ws)
             top_m_idx = sorted(
                 range(len(resp_ws)),
                 key=lambda i: -resp_ws[i],
             )[:top_m]
 
             for i in top_m_idx:
-                _d2_n_slots += 1
                 if shape_sink is not None:
                     shape_sink.depth2_frontier += 1
                 outcome = (
@@ -918,7 +918,7 @@ def score_evaluated_variants(
                 _d2_n_candidates
             )
             readiness_sink.depth2_response_slots_eligible = (
-                _d2_n_slots
+                _d2_eligible_slots
             )
 
     # [REV.9 finding 3] Finalise evidence AFTER the depth-2 wrap and BEFORE the
