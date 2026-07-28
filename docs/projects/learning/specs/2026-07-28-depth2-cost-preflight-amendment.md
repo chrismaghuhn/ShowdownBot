@@ -59,6 +59,37 @@ The interpreter must be invoked with `PYTHONPATH` set exclusively to
 editable package from another checkout is picked up. The two `__file__` values are
 recorded in `operator-preflight.json` (§7.1).
 
+### 2.2 Calc backend dependencies
+
+The persistent calc backend (`SHOWDOWN_CALC_BACKEND=persistent`) spawns a Node process
+from `<candidate>/showdown_bot/tools/calc/calc.mjs`, which requires `@smogon/calc` in
+`node_modules`. Since `node_modules` is gitignored, it must be installed in the candidate
+worktree **before** writing `operator-preflight.json` and before battle 1.
+
+Installation must use the frozen lockfile:
+
+```
+npm ci --prefix <candidate>/showdown_bot/tools/calc
+```
+
+`operator-preflight.json` (§7.1) records:
+
+- `node_version`: output of `node --version`
+- `npm_version`: output of `npm --version`
+- `calc_lockfile_sha256`: SHA-256 of `<candidate>/showdown_bot/tools/calc/package-lock.json`
+- `calc_deps_installed`: `true` after `npm ci` completes with exit code 0
+
+All four values must be recorded **before** the first arm starts. If `npm ci` fails or
+the lockfile is missing, the attempt is invalid.
+
+**Rationale (Attempt 2):** Attempt 2 wrote `operator-preflight.json` before installing
+the calc dependencies. The first arm (`d1_acc_off`) ran with a missing `node_modules`,
+producing 239 contaminated fallback rows. The dependencies were then installed mid-run,
+the contaminated arm output was deleted and re-created under the same paths, and the
+remaining arms ran cleanly. This violated three rules: §9.2/§11.5 (contaminated rows
+invalidate the preflight), §10 (nothing is overwritten), and the operator-preflight
+no longer reflected the actual runtime environment.
+
 **Rationale (Attempt 1):** Attempt 1 ran with the process CWD inside the candidate
 worktree but without pinning `PYTHONPATH`. Python resolved the installed editable package
 from the main repo (`SHowdown BOt/showdown_bot/src`), so `cli_invocation` and
@@ -154,8 +185,9 @@ manifest's `dirty` flag to `true`, invalidating the run by §2's own clean-candi
 Created before the first arm if it does not exist. All arm-specific paths below use
 **absolute paths** under this root.
 
-- Attempt 1 (invalidated — see Appendix A): `cost-preflight-d2-d64982a/`
-- **Attempt 2:** `cost-preflight-d2-d64982a-attempt2/`
+- Attempt 1 (invalidated — see Appendix A.1): `cost-preflight-d2-d64982a/`
+- Attempt 2 (invalidated — see Appendix A.2): `cost-preflight-d2-d64982a-attempt2/`
+- **Attempt 3:** `cost-preflight-d2-d64982a-attempt3/`
 
 All arms share:
 - `PYTHONPATH=<candidate-worktree>/showdown_bot/src` (exclusive; no other entries — see §2.1)
@@ -240,6 +272,10 @@ Written once before battle 1 of the first arm. Contains:
 | `showdown_bot_file` | `showdown_bot.__file__` (must be under `<candidate>/showdown_bot/src/`) |
 | `showdown_bot_cli_file` | `showdown_bot.cli.__file__` (must be under `<candidate>/showdown_bot/src/`) |
 | `import_root_verified` | `true` if both `__file__` paths are under the candidate worktree |
+| `node_version` | output of `node --version` |
+| `npm_version` | output of `npm --version` |
+| `calc_lockfile_sha256` | SHA-256 of `<candidate>/showdown_bot/tools/calc/package-lock.json` |
+| `calc_deps_installed` | `true` after `npm ci` completes with exit code 0 |
 
 The SHA-256 of `operator-preflight.json` is included in the freeze evidence alongside
 the run manifests and output-file hashes.
@@ -312,7 +348,10 @@ Plus one shared file (written once before the first arm):
 |---|---|
 | `operator-preflight.json` | Server provenance, live-checkout verification, output root (§7.1) |
 
-Nothing is overwritten. Each arm writes to its own files.
+Nothing is overwritten. Each arm writes to its own files. Once an attempt begins
+(operator-preflight.json is written), no output file under that attempt's output root
+may be deleted, emptied, or re-created. Any arm failure invalidates the entire attempt;
+a retry requires a new output root and a new attempt pre-registration.
 
 ---
 
@@ -450,7 +489,7 @@ On an invalid matrix: issue #123 stays open with the exact failure reason docume
 
 ---
 
-## Appendix A: Attempt 1 invalidation and Attempt 2 pre-registration
+## Appendix A: Attempt history
 
 ### A.1 Attempt 1 — invalidated (import-root provenance violation)
 
@@ -494,20 +533,77 @@ with these SHA-256 hashes:
 | `cost_preflight_d2_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
 | `operator-preflight.json` | `d4e1c1b8cc5e8678e065599deb8716a981db7d492048c3f891b48ce710b7b123` |
 
-No data from Attempt 1 may be reused, pooled, or cited as evidence for Attempt 2.
+No data from Attempt 1 may be reused, pooled, or cited as evidence.
 
-### A.2 Attempt 2 — pre-registration
+### A.2 Attempt 2 — invalidated (contaminated arm, overwritten output, stale preflight)
+
+Attempt 2 fixed the import-root provenance violation (§2.1) but introduced three new
+invalidation reasons:
+
+1. **Contaminated arm (§9.2 / §11.5):** The first run of `d1_acc_off` started before
+   the calc backend's Node dependencies (`@smogon/calc`) were installed in the candidate
+   worktree. All 239 profile rows were `outcome=fallback`,
+   `selection_stage=deterministic_default_pair`, `backend_class=contaminated`. Any
+   contaminated row invalidates the entire preflight.
+
+2. **Overwritten output (§10):** The contaminated arm's four output files were deleted
+   and re-created under the same paths within the same output root. §10 requires that
+   nothing is overwritten; the original contaminated files can no longer be frozen as
+   evidence.
+
+3. **Stale operator-preflight (§7.1 / §2.2):** `operator-preflight.json` was written
+   before `npm ci` installed the calc dependencies. The recorded preflight does not
+   reflect the actual runtime environment (missing `node_version`, `npm_version`,
+   `calc_lockfile_sha256`, `calc_deps_installed` fields; and the calc backend was
+   non-functional at the time of recording).
+
+The 17 surviving output files (arms 2–4 are clean; arm 1 is the re-run, not the
+original contaminated output) are preserved at
+`C:\Users\chris\Documents\cost-preflight-d2-d64982a-attempt2\` with these SHA-256 hashes:
+
+| File | SHA-256 |
+|---|---|
+| `cost_preflight_d1_acc_off_profile.jsonl` | `6919f06efd8f43e3a10e9e9dfaf827ee084bf7c5da081834cbb00ec2e7fd4f1f` |
+| `cost_preflight_d1_acc_off_result.jsonl` | `b06d6b023feea94160608476583114e06d00dc059cb2a43690c228e7eb8263d3` |
+| `cost_preflight_d1_acc_off_result.jsonl.manifest.json` | `ce46c50f7979efcc7c4c5661113a73bd52ddd93d81fffed22fad17196f6347da` |
+| `cost_preflight_d1_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d1_acc_on_profile.jsonl` | `01d76e1c1ef28e50dacf1534aea514243aa91eea6a778f30d541a6c8d49dcb50` |
+| `cost_preflight_d1_acc_on_result.jsonl` | `384eccab9e87f27167a1c0b15379ff89d3a843f369a5756cc3760bfa4b0bd13d` |
+| `cost_preflight_d1_acc_on_result.jsonl.manifest.json` | `3a34a3bbc9de4738c1d614d8f5bc8b5aa636addc019ea8d2dae846769e3934eb` |
+| `cost_preflight_d1_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_off_profile.jsonl` | `c613309d578a62b2c7038b4f8585599f2bb6ed93e090fa1e9052dd67254b95c1` |
+| `cost_preflight_d2_acc_off_result.jsonl` | `aace11426e05a3464e4c83a0ef5c9c73ea5371b1f37891513b82cb4ac07443ea` |
+| `cost_preflight_d2_acc_off_result.jsonl.manifest.json` | `6bbbef81f8975a6597241da8487d1f2906009c34086a129b6a8ebccc8798182a` |
+| `cost_preflight_d2_acc_off_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `cost_preflight_d2_acc_on_profile.jsonl` | `1ba31c0144e3335e7d83b8b58624ad86a31988b21b68bd6724e26d56825a6e0a` |
+| `cost_preflight_d2_acc_on_result.jsonl` | `bae5373701f05fb2d71125a983e2db3438aaee3da0bc5f5eed0456126e057ffb` |
+| `cost_preflight_d2_acc_on_result.jsonl.manifest.json` | `d5f9d8a8270c43a5df72b9030730ee2e35771827bc053e8cc49e3bb13bbf62f4` |
+| `cost_preflight_d2_acc_on_seedlog.jsonl` | `3362a305c20ef53b8846564281cc76bcbc2373713a3d324c8b651b29bf6bae43` |
+| `operator-preflight.json` | `a4760c7a3768fe6e9abae271dc99344eb4d6676ba498be55440304d4e0a34ebe` |
+
+**Note:** The `d1_acc_off` files above are the **re-run** output, not the original
+contaminated output. The original contaminated files (239 fallback rows) were deleted
+mid-attempt and cannot be frozen. This is itself an invalidation reason (point 2 above).
+
+No data from Attempt 1 or Attempt 2 may be reused, pooled, or cited as evidence.
+
+### A.3 Attempt 3 — pre-registration
 
 | Property | Value |
 |---|---|
-| Reason for repeat | Import-root provenance violation (§2.1, Attempt 1) |
+| Reason for repeat | Three invalidation reasons (§A.2): contaminated arm, overwritten output, stale preflight |
 | Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` (unchanged) |
-| Candidate worktree | same detached worktree as Attempt 1 |
-| Output root | `cost-preflight-d2-d64982a-attempt2/` (sibling of candidate worktree, outside git tree) |
+| Candidate worktree | same detached worktree as Attempts 1 and 2 |
+| Output root | `cost-preflight-d2-d64982a-attempt3/` (sibling of candidate worktree, outside git tree) |
 | `PYTHONPATH` | exclusively `<candidate-worktree>/showdown_bot/src` |
 | Import-root verification | `showdown_bot.__file__` and `showdown_bot.cli.__file__` both under `<candidate>/showdown_bot/src/`, recorded in `operator-preflight.json` |
+| Calc dependencies | `npm ci --prefix <candidate>/showdown_bot/tools/calc` **before** writing `operator-preflight.json`; lockfile SHA-256 `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
+| Node version | `v24.16.0` |
+| npm version | `11.13.0` |
+| Operator-preflight timing | written **after** calc dependency installation and import-root verification, **before** battle 1 |
 | Arms | same 4-arm matrix, same fixed order, same schedule, same seeds |
-| Data isolation | no Attempt 1 data reused or pooled |
+| Output immutability | no output file may be deleted, emptied, or re-created after `operator-preflight.json` is written; any arm failure invalidates the entire attempt |
+| Data isolation | no Attempt 1 or Attempt 2 data reused or pooled |
 
 All other parameters (schedule, panel, seeds, server provenance, environment discipline,
 validation rules) are unchanged from the body of this amendment.
