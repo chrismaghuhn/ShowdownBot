@@ -259,6 +259,20 @@ def _seat_counters(hero, villain) -> dict:
     }
 
 
+def check_profile_rows_dropped(hero, villain) -> None:
+    """Fail-closed check: any dropped decision-profile row aborts the run.
+
+    Called AFTER both clients are fully closed, so resource cleanup is never
+    skipped regardless of the outcome.
+    """
+    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
+    if dropped > 0:
+        raise RuntimeError(
+            f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
+            f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
+        )
+
+
 class _PerBattleCounters:
     """Turn lifetime-cumulative client counters into per-battle deltas (T3e-P0).
 
@@ -1668,12 +1682,7 @@ async def run_local_gauntlet(
         hero.close()
         villain.close()
 
-    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
-    if dropped > 0:
-        raise RuntimeError(
-            f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
-            f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
-        )
+    check_profile_rows_dropped(hero, villain)
 
     stats.latencies = hero.latencies
     # Same single read site the per-battle emitter uses, so the two artifacts cannot disagree

@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 
+from showdown_bot.client.gauntlet import check_profile_rows_dropped
 from showdown_bot.eval.decision_profile import LiveProfileContext
 from showdown_bot.eval import profile_fixtures as pf
 
@@ -251,14 +252,9 @@ def test_dropped_rows_cause_run_abort_after_both_clients_cleaned_up(monkeypatch,
 
     assert close_order == ["hero", "villain"], "both clients must complete cleanup"
 
-    dropped = hero._profile_rows_dropped + villain._profile_rows_dropped
-    assert dropped == 1
+    assert hero._profile_rows_dropped + villain._profile_rows_dropped == 1
     with pytest.raises(RuntimeError, match="decision-profile row.*dropped.*fail-closed"):
-        if dropped > 0:
-            raise RuntimeError(
-                f"{dropped} decision-profile row(s) dropped during battle — fail-closed "
-                f"(hero={hero._profile_rows_dropped}, villain={villain._profile_rows_dropped})"
-            )
+        check_profile_rows_dropped(hero, villain)
 
 
 def test_run_local_gauntlet_requires_writer_and_context_together():

@@ -64,16 +64,17 @@
 |---|---|---|
 | New tests (46 new test functions) | 46 passed | GREEN |
 | Affected suites (6 modified + 1 downstream test files) | 167 passed | GREEN |
-| Full `showdown_bot` suite | 3821 passed, 2 skipped, 1 xfailed | GREEN |
+| Full `showdown_bot` suite | 3853 passed, 6 failed, 2 skipped, 1 xfailed | RED (6 pre-existing) |
 | `git diff --check` | clean | PASS |
 
-38 pre-existing failures in unmodified test files (none introduced by this branch):
-`test_coverage_runner.py` (missing `config/eval/panels/` fixture path),
-`test_eval_report_golden.py` (golden-file drift from `main`),
-`test_strength_holdout_verdict.py` / `test_strength_holdout_runner.py` (schedule/team
-path fixtures). One regression found and fixed during review: `profile_fixtures.py` was
+6 pre-existing failures in unmodified test files (none introduced by this branch):
+`test_eval_report_golden.py` (2, golden-file drift from `main`),
+`test_strength_holdout_verdict.py` (2, schedule/team path fixtures),
+`test_strength_holdout_runner.py` (1, schedule/team path fixture),
+`test_profile_arms_end_to_end.py` (1, arm 12 fixture path).
+One regression found and fixed during review: `profile_fixtures.py` was
 missing the `search_depth`/`search_topn`/`search_topm` parameters added to
-`score_evaluated_variants` in this slice (arm 12 now passes).
+`score_evaluated_variants` in this slice.
 No new skip or xfail was introduced.
 
 ## What remains unrun
