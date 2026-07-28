@@ -1,0 +1,364 @@
+# Depth-2 Cost Preflight — Spec Amendment
+
+**Amends:** `docs/projects/learning/specs/2026-07-27-depth2-accuracy-stage3-readiness-design.md` §11–§12
+**Candidate SHA:** `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4`
+**Date:** 2026-07-28
+
+---
+
+## Motivation
+
+The parent spec (§11) defines the 4-arm cost-preflight matrix but leaves five execution
+parameters as placeholders: schedule, positions, seeds, repetition count, and output paths.
+The offline microprofile runner (`profile_runner.py`) cannot serve this purpose because
+`decision-profile-v4` is live-only — the microprofiler produces v2 rows and has no
+readiness sink, chooser stage, or accuracy fields. This amendment pins all parameters for
+a **live-gauntlet** measurement path that natively produces v4 rows.
+
+This amendment adds no production code. The candidate remains `d64982a`.
+
+---
+
+## 1. Measurement path
+
+Live gauntlet (`python -m showdown_bot.cli gauntlet --schedule <path>`), which natively
+emits v4 decision-profile rows when `SHOWDOWN_DECISION_PROFILE_OUT` is set.
+
+---
+
+## 2. Clean candidate worktree
+
+The amendment and schedule YAML are versioned on their own branch, separate from the
+candidate. The measurement run executes in a **detached worktree** checked out at exactly
+`d64982ae9fdba6a877c8c2b7e804923ebcc7fec4`.
+
+Before battle 1 in any arm, the following must hold:
+
+- `git rev-parse HEAD` in the worktree equals `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4`.
+- `git status --porcelain` in the worktree is empty (no modified, untracked, or staged
+  files).
+- `git diff d64982a -- showdown_bot/src showdown_bot/tests` produces no output (no
+  production-file diff against the candidate).
+- The run manifest's `dirty` field is `false`.
+- The run manifest's `git_sha` field equals the full 40-character SHA of `d64982a`.
+
+If any of these fail, the arm is invalid and the preflight is invalid.
+
+---
+
+## 3. Schedule
+
+A static YAML generated from the existing I8-D development panel
+(`config/eval/panels/panel_champions_v0.yaml`) with `n_battles=30`.
+
+| Property | Value |
+|---|---|
+| File | `config/eval/schedules/cost_preflight_d2_30.yaml` |
+| Battles | 30 (5 full cycles of 6 I8-D matchups, zero remainder) |
+| `schedule_hash` | `b6f5910e4bc3c584` |
+| `panel_hash` | `aac1ea30446fde88` |
+| Hero team | `teams/fixed_champions_v0.txt` |
+| Dev teams | goodstuff, tailwind_offense, trick_room |
+| Policies | heuristic, max_damage |
+| Panel split | dev only — no held-out teams |
+| Seed indices | 0–29, contiguous |
+
+The YAML is frozen as an input artifact. The gauntlet reads it via `load_schedule`.
+
+---
+
+## 4. Working directory and team-path discipline
+
+### 4.1 Process CWD
+
+The gauntlet process CWD is `<candidate-worktree>/showdown_bot`. The schedule YAML is
+loaded via its **absolute path** (not a relative path that could resolve against an
+unintended root).
+
+### 4.2 Pre-battle-1 schedule and team checks
+
+Before the first battle of each arm:
+
+1. **Reconstruct the canonical schedule** from the panel
+   (`build_i8d_schedule(panel, n_battles=30)`) and verify byte-equality of the resulting
+   `schedule_hash` against the YAML's frozen `b6f5910e4bc3c584`. A mismatch means the
+   panel or the generation code changed between YAML creation and the run.
+
+2. **Run `verify_i8d_panel_and_teams(schedule, teams_root=<candidate>/showdown_bot)`**.
+   This re-reads every distinct team file from the candidate worktree, re-hashes their
+   contents, and checks `panel_hash == aac1ea30446fde88`. This is the TOCTOU guard
+   that binds team-file contents (not just paths) to the run identity.
+
+3. **Pack and verify every team**: for every distinct `hero_team_path` and
+   `opp_team_path` in the schedule, load the packed team string and assert it is
+   **non-empty**. The gauntlet's `load_schedule` silently produces an empty string on
+   file-not-found; an empty packed team is an invalid arm, and the preflight is invalid.
+
+If any of (1)–(3) fail, the arm is invalid and the preflight is invalid.
+
+---
+
+## 5. Seeds
+
+Seed base: `champions-panel-v0-d2-cost-preflight`
+
+Set as `SHOWDOWN_BATTLE_SEED_BASE` for every arm. The server derives per-battle seeds via
+Channel A (`derive_battle_seed(base, seed_index)`). The same base + schedule produces
+identical seeds across all four arms.
+
+Distinct from existing namespaces (`champions-panel-v0-i8d-latency`,
+`champions-coverage-v0`, `champions-strength-holdout-v0`).
+
+---
+
+## 6. Arms
+
+### 6.1 Fixed arm order
+
+Arms are executed in this exact order: `d1_acc_off`, `d1_acc_on`, `d2_acc_off`,
+`d2_acc_on`. The order is fixed so that any environmental drift across the run is not
+confounded with the Depth/Accuracy manipulation.
+
+### 6.2 Shared environment
+
+All arms share:
+- `SHOWDOWN_CALC_BACKEND=persistent`
+- `SHOWDOWN_DECISION_PROFILE_OUT=<arm-specific path>`
+- `SHOWDOWN_BATTLE_SEED_BASE=champions-panel-v0-d2-cost-preflight`
+- `SHOWDOWN_EVAL_SEED_LOG=<arm-specific path>`
+- `PYTHONHASHSEED=0`
+- `--schedule` loaded via absolute path to the frozen YAML
+- `--result-out <arm-specific path>`
+
+### 6.3 Arm-specific environment
+
+| Arm ID | `SEARCH_DEPTH` | `ACCURACY_MODE` | `ACCURACY_BRANCH_CAP` | `SEARCH_TOPN` | `SEARCH_TOPM` |
+|---|---|---|---|---|---|
+| `d1_acc_off` | `1` | `0` | (unset) | (unset) | (unset) |
+| `d1_acc_on` | `1` | `1` | `6` | (unset) | (unset) |
+| `d2_acc_off` | `2` | `0` | (unset) | `3` | `3` |
+| `d2_acc_on` | `2` | `1` | `6` | `3` | `3` |
+
+Every `SHOWDOWN_*` variable listed above must be explicitly set or removed before each
+arm. No arm inherits values from a previous arm.
+
+### 6.4 Timeout
+
+`SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S` is **explicitly unset** for every arm. The effective
+timeout is the code default of **180 seconds**.
+
+---
+
+## 7. Server and determinism provenance
+
+The following values are **pre-registered** as part of this amendment. Before battle 1 of
+the first arm, every value must be checked against the real environment. Any mismatch
+makes the preflight invalid.
+
+| Property | Pre-registered value | Verification |
+|---|---|---|
+| `PYTHONHASHSEED` | `0` | `os.environ["PYTHONHASHSEED"] == "0"` |
+| Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` | `load_showdown_commit()` from `config/eval/provenance.yaml` |
+| Server patch hash | `86e31891547e87da` | `server_patch_hash()` from `tools/eval/patches/pokemon-showdown-seeded-battle.patch` |
+| Server start command | `node pokemon-showdown --no-security --port <PORT>` | recorded in the run manifest's `cli_invocation` or equivalent |
+| Server port | pinned at execution time (recorded in manifest) | server accessible on the recorded port before battle 1 |
+| Timeout | 180 s (unset `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S`) | `os.environ.get("SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S") is None` |
+
+The run manifest (§12) records `showdown_commit`, `server_patch_hash`, and
+`pythonhashseed` in their standard fields. These are checked both pre-registered (before
+battle 1) and post-hoc (in the frozen manifest).
+
+---
+
+## 8. Environment discipline
+
+### 8.1 Between arms
+
+1. Stop the Showdown server process.
+2. Stop the persistent calc backend (Node process).
+3. Clear or unset every `SHOWDOWN_*` environment variable.
+4. Set exactly the new arm's variables (§6.2 + §6.3).
+5. Verify `SHOWDOWN_GAUNTLET_BATTLE_TIMEOUT_S` is unset.
+6. Restart the server with the new seed base + seed log.
+7. Run the arm.
+
+### 8.2 Cross-arm contamination
+
+Each arm starts a fresh server + fresh backend. No shared state carries between arms.
+
+---
+
+## 9. Cache semantics
+
+### 9.1 Row-level classification
+
+Cold/warm is a property of **individual decision-profile rows**, not of entire battles.
+The `backend_class` field in each v4 row is computed by `backend_class_of()` from the
+row's own calc-counter deltas. A single battle may contain both `clean_cold` and
+`clean_warm` rows (the first scored decision after a fresh backend spawn is cold;
+subsequent decisions in the same battle are warm).
+
+### 9.2 Aggregation rule
+
+- Aggregation is performed exclusively by the **actual `backend_class` value** of each
+  profile row.
+- `clean_cold` and `clean_warm` rows are reported in **separate strata** — never pooled.
+- `contaminated` rows (transport retry, unexpected respawn, or any combination not
+  matching the two clean predicates) are counted separately. **Any `contaminated` row in
+  any arm makes the entire preflight invalid.**
+
+### 9.3 Repetitions vs. observations
+
+- **30 battles** are the arm repetitions (the schedule has 30 rows).
+- **Profile rows** are decision-level observations *within* those battles. A single
+  battle produces one or more profile rows (one per scored decision). Profile rows are
+  NOT additional repetitions.
+- Evidence tables report both the battle count (from the result JSONL) and the
+  observation count (from the profile JSONL), clearly distinguished.
+
+---
+
+## 10. Output files
+
+Per arm, in a single output directory:
+
+| File | Content |
+|---|---|
+| `cost_preflight_<arm>_result.jsonl` | Gauntlet per-battle result (T2) |
+| `cost_preflight_<arm>_profile.jsonl` | Decision-profile v4 rows |
+| `cost_preflight_<arm>_seedlog.jsonl` | Server Channel-A seed log |
+| `cost_preflight_<arm>_result.jsonl.manifest.json` | Run manifest |
+
+Nothing is overwritten. Each arm writes to its own files.
+
+---
+
+## 11. Validation
+
+### 11.1 Per-row validation (after each arm)
+
+1. `validate_decision_profile_row` on every line of the profile JSONL.
+2. Verify `git_sha` == `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` in every row.
+3. Verify `config_hash` is consistent within the arm.
+
+### 11.2 Dataset-level validation (after each arm)
+
+4. `validate_live_profile_dataset(profile_path)` — this enforces:
+   - exclusively `decision-profile-v4` (single schema version);
+   - unique `(battle_id, decision_index)` across all rows;
+   - all rows have `source == "live"`.
+5. Profile JSONL is **non-empty** (at least one scored decision occurred).
+6. Every `battle_id` present in the 30 result rows has **at least one** corresponding
+   profile row.
+7. Result JSONL has exactly **30 rows**, with **zero crashes** and **zero invalid
+   choices**.
+8. Every profile row has `outcome == "ok"`, `selection_stage == "heuristic"`, and
+   `fallback_reason` is `null`.
+
+### 11.3 Cross-arm validation (after all four arms)
+
+9. The sets of `battle_id` keys (derived from `seed_base + seed_index`) are **identical**
+   across all four arms.
+10. `schedule_hash`, `panel_hash`, and `seed_base` in every run manifest are identical
+    across arms.
+11. Every arm has a complete run manifest with all fields populated (including
+    `showdown_commit`, `server_patch_hash`, `pythonhashseed`, `git_sha`, `dirty`).
+12. Content hashes (SHA-256) of every output file are recorded for freeze evidence.
+
+### 11.4 Cache-class validation (after all four arms)
+
+13. No `contaminated` row exists in any arm. If any exists, the entire preflight is
+    invalid.
+14. `backend_class` values are exclusively `clean_cold` or `clean_warm`.
+
+### 11.5 Invalidation
+
+The preflight is **invalid** if any of the following occur in any arm:
+- Timeout
+- Degradation
+- Chooser fallback (any `selection_stage` ∉ `{heuristic}`)
+- Any `outcome` ∉ `{ok}`
+- Any `fallback_reason` that is not `null`
+- Missing telemetry field
+- Malformed JSONL line
+- Schema violation
+- Wrong `git_sha`
+- `dirty == true` in the run manifest
+- Inconsistent `config_hash`
+- Seed-log mismatch
+- Result row count ≠ 30
+- Result crash or invalid choice
+- Empty profile dataset
+- Missing profile row for any result battle_id
+- Duplicate `(battle_id, decision_index)`
+- Any `contaminated` `backend_class`
+- Cross-arm schedule/panel/seed/battle-key mismatch
+- Incomplete run manifest
+
+No rows are filtered. No successful subset is reported as a result.
+
+---
+
+## 12. Required evidence (per arm × backend_class stratum)
+
+Unchanged from parent spec §11.2, with the aggregation unit corrected:
+
+Evidence is stratified by the **actual `backend_class` value** of each profile row
+(`clean_cold`, `clean_warm`), not by battle ordinal. Each stratum reports:
+
+- **Observation count** (profile rows in this stratum) and **battle count** (distinct
+  battle_ids contributing rows to this stratum)
+- p50, p95, and maximum `measured_ms`
+- Timeout count
+- Chooser-fallback and degradation count
+- Turn-1 and Turn-2 `accuracy_leaf_count`
+- Turn-1 and Turn-2 `accuracy_cap_hits`
+- Deterministic `cap_fallback` count
+- `search_topn_requested`, `search_topm_requested`, `depth2_candidates_selected`,
+  `depth2_response_slots_eligible`
+- Calc transport: `transport_calls`, `transport_attempts`, `spawn_calls`,
+  `requests_total`, `requests_unique`, `cache_hits`
+- `config_hash`, `git_sha`, `battle_id`
+
+Plus: full commands, environment variables, seed base, host identity, run manifests,
+output-file content hashes.
+
+---
+
+## 13. Claims
+
+Unchanged from parent spec §11.3. The preflight produces **cost and readiness evidence
+only**. It does not claim:
+
+- Depth-2 is stronger
+- Depth-2 is production-ready
+- The live latency gate passed
+- 1000 ms is a microprofile threshold
+- Accuracy on/off shows a causal effect
+
+---
+
+## 14. Identity
+
+The preflight run is identified by:
+
+| Property | Value |
+|---|---|
+| Candidate SHA | `d64982ae9fdba6a877c8c2b7e804923ebcc7fec4` |
+| Schedule hash | `b6f5910e4bc3c584` |
+| Panel hash | `aac1ea30446fde88` |
+| Seed base | `champions-panel-v0-d2-cost-preflight` |
+| Arms | `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on` (fixed order) |
+| `PYTHONHASHSEED` | `0` |
+| Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
+| Server patch hash | `86e31891547e87da` |
+| Battle timeout | 180 s (unset) |
+
+---
+
+## 15. Completion
+
+On a fully valid matrix: the parent spec's §12 step 11 ("Run and freeze the cost
+preflight") is satisfied. The closeout statement moves from DRAFT to final.
+
+On an invalid matrix: issue #123 stays open with the exact failure reason documented.
