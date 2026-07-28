@@ -8,9 +8,8 @@ ladder, challenge and smoke run, always on, without touching the turn path or th
 
 **Base:** `main @ 43f08af` · **Issue:** #125
 **Authoritative decision:** `docs/projects/champions/decisions/2026-07-28-live-path-degradation-recording.md`
-(referenced below as §N — the plan implements it and adds no new rulings except the two named
-explicitly in "Two additions beyond the decision record" below, which need a ruling before any
-code is written).
+(referenced below as §N — the plan implements it and adds no new rulings; §8 is being amended
+separately, see the status banner below).
 
 **Architecture:** one new self-contained module owns the schema, its validators, the writer and the
 aggregation. `runner.py` gains call sites only; `cli.py` gains one wrapper. The decision core is
@@ -52,21 +51,33 @@ Two further defects were found while writing this revision and are fixed here:
 
 ---
 
-## Two additions beyond the decision record — a ruling is needed before implementation
-
-Both arise from the review requirement *"a recorder or validator failure after a successful choice
-must not prevent the chosen action being sent"*. Neither is invented silently; both are named here
-so the reviewer can accept or reject them.
-
-| Addition | What it is | Why it is not in §8 | Alternative if rejected |
-|---|---|---|---|
-| `schema_errors` | in-memory counter, incremented when a validator rejects a row the recorder itself built | §8 closes `completion.json` to six fields; adding a seventh needs a decision-record amendment | amend §8 to add `schema_errors` to `completion.json` |
-| `recorder_errors` | in-memory counter, incremented when the call-site guard catches anything escaping a `record_*` call | same | same |
-
-Both feed **`exit_status()`** and `logger.error`, so they are machine-checkable in the sense §10.3
-requires. **Stated limitation:** they do **not** appear in `completion.json`, so a consumer reading
-only that file sees `write_errors_total` but not these two. That is a real gap, and it is stated
-rather than closed by widening a schema this plan has no authority to widen.
+> **STATUS: NOT YET EXECUTABLE — do not start implementation from this revision.**
+>
+> The two additions this revision flagged have been **ruled on: §8 is amended.** `completion.json`
+> gains `schema_errors_total` and `recorder_errors_total`, success is defined as all three error
+> counters being zero, there is no `recording_ok` field, and `validate_completion_row()` is
+> required. Rationale for the ruling: as this revision stands, `completion.json` could read
+> permanently clean (`write_errors_total = 0`, `preflight_ok = true`) while the process exits 1 on
+> a schema or recorder error. **An exit code and a log line are not a substitute for the persisted
+> evidence artifact** — which is the whole premise of this slice.
+>
+> The amended contract must land in the decision record **first**. This plan is then rewritten
+> against it and re-reviewed. Concretely still to do here:
+>
+> 1. `COMPLETION_FIELDS` gains `schema_errors_total` and `recorder_errors_total` (Task 1), and the
+>    field-set test with it.
+> 2. The recorder's in-memory counters are renamed `schema_errors_total` / `recorder_errors_total`
+>    so the persisted names and the attribute names are one-to-one (Tasks 4–8).
+> 3. `validate_completion_row()` plus its mutation tests (Task 2).
+> 4. `write_completion()` persists all three counters (Task 8).
+> 5. Four separate tests, not one combined: clean run → three zeros and exit 0; a prior schema
+>    error → persisted counter 1 and exit 1; a prior recorder error → persisted counter 1 and
+>    exit 1; missing or unwritable completion → exit 1.
+> 6. The "Two additions beyond the decision record" section is deleted — after the amendment
+>    there is no addition beyond the record.
+>
+> **Correction to the previous PR comment:** revision `c2a2ac8` removed the NOT-YET-EXECUTABLE
+> banner rather than keeping it. It was absent for the length of that revision. This restores it.
 
 ---
 
@@ -2958,6 +2969,6 @@ Two limits are stated rather than hidden:
   unflushed decisions. No `finally` runs. This is §10.4's accepted residual gap of the buffered
   design; per-decision appending was rejected because it puts a filesystem write on the turn path.
 - `schema_errors` and `recorder_errors` reach the process exit status and the log, but **not**
-  `completion.json`, whose field set §8 closes. A consumer reading only that file sees
-  `write_errors_total` and not those two. Closing that gap needs a decision-record amendment; see
-  "Two additions beyond the decision record" at the top.
+  `completion.json` — **in this revision only.** That gap is exactly what the §8 amendment closes;
+  see the status banner at the top. Until the amendment lands and this plan is rewritten against
+  it, the plan is not executable.
