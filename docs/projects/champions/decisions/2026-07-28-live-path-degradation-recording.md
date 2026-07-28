@@ -202,7 +202,7 @@ one of them is covered by the absence rule:
 | Case | What is on disk | What carries the failure |
 |---|---|---|
 | The **first** completion write fails | no file at all | the absence (§10.3) plus the exit status |
-| A **later** completion write is refused (§8.1: exclusive create, never truncate) | the earlier file, unchanged and possibly reading clean | **the exit status alone.** The existing file cannot report a failure that occurred after it was written, and it must not be rewritten to say so |
+| A **later** completion write is refused (§8.1: exclusive create, never truncate) | the earlier file, unchanged and possibly reading clean | **the exit status** — the only contractually guaranteed machine-checkable signal outside that unchanged file. The existing file cannot report a failure that occurred after it was written, and it must not be rewritten to say so. `logger.error` also fires (§10.3 item 1), but a log line is neither guaranteed to be retained nor a defined machine contract |
 
 The second row is the reason the exit status is a required part of the guarantee and not a
 convenience: for that case it is the *only* signal. A consumer must therefore not treat a clean
@@ -252,15 +252,30 @@ and passing the recorder's own `self.run_id` as `expected_run_id` proves only th
 self-consistent, since both values come from the same source. The cross-file identity is therefore
 a **directory-level invariant with its own check**, not something the row validator establishes:
 
-> **Artifact invariant.** In a completed run directory, `decisions.jsonl`, `events.jsonl`,
-> `battles.jsonl` and `completion.json` all carry the same `run_id`, and it equals the directory
-> name (§8.1).
+> **Artifact invariant.** In a completed run directory, **every JSONL line that is present**
+> carries the same `run_id` as `completion.json`, and that `run_id` equals the directory name
+> (§8.1). A **missing** JSONL file means zero persisted rows of that grain — unless the error
+> counters mark that state as a write failure, in which case the absence is a failure, not an
+> emptiness.
 
-This is proven by an integration test that writes a real run, reads all four files back and
-compares — separately from the pure row validators, which perform no IO and must keep performing
-none (they run at record time). Keeping the two apart also keeps each able to fail on its own: a
-row validator that silently could not check something would be worse than one that does not claim
-to.
+**Why "present", not "all four".** An earlier wording of this invariant demanded all four files
+and would have been false on a normal run. Nothing creates empty files: preflight removes its probe
+and leaves an empty directory (§10.1), and the append helper returns without touching the disk when
+it is handed zero rows. A clean run with no `|error|` and no invalid-choice PM therefore has **no
+`events.jsonl` at all** — the commonest case there is — and a run whose writes failed can be
+missing more. An invariant that a correct run violates is not a check; it is a false alarm waiting
+to happen.
+
+This is proven by an integration test that writes a real run and reads back whatever files exist —
+separately from the pure row validators, which perform no IO and must keep performing none (they
+run at record time). It covers **two** shapes, not one:
+
+1. a run that produces **every** grain (decisions, at least one event, a battle row, completion);
+2. a run with **no events at all**, asserting that `events.jsonl` is absent, that the error
+   counters are zero, and that its absence is therefore read as emptiness rather than as loss.
+
+Keeping the invariant and the row validators apart also keeps each able to fail on its own: a row
+validator that silently could not check something would be worse than one that does not claim to.
 
 **The absence rule of §10.3 is unchanged and still primary:** a missing `completion.json` and a
 `completion.json` reporting non-zero counters are equivalent failure states, and success is never
@@ -410,8 +425,11 @@ is unwritable, the record of that fact is unwritable too. The guarantee is split
    closes. It **can** read clean about failures that happen at or after its own write; that
    residual case is bounded and tabulated in §8.0's persistence limit, not waved away.
 3. **Process exit status** — the machine-checkable signal, and for §8.0's refused-second-write
-   case the *only* one. On the normal-return path the run exits non-zero if and only if one of
-   the three counters is non-zero. This is an **additional** condition, not a definition of the
+   case the only contractually guaranteed machine-checkable one outside the unchanged file.
+   Item 1's `logger.error` still fires there; it is simply not a machine contract — nothing in
+   this record guarantees the log is retained, parseable or even enabled. On the normal-return
+   path the run exits non-zero if and only if one of the three counters is non-zero. This is an
+   **additional** condition, not a definition of the
    exit status: a propagated runner exception, a cancellation and a `KeyboardInterrupt` produce
    their own non-zero exits, and the recorder must not mask, replace or suppress any of them —
    whatever ended the run keeps its own status. Exit status depends on no file being writable,
