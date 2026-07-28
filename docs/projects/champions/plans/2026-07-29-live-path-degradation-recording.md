@@ -17,6 +17,33 @@ ladder, challenge and smoke run, always on, without touching the turn path or th
 
 **Tech stack:** Python 3.14, stdlib only (`json`, `os`, `pathlib`, `datetime`, `secrets`), pytest.
 
+> **STATUS: NOT YET EXECUTABLE — do not start implementation from this revision.**
+>
+> Review of PR #145 found six defects. Fixed in this revision: the `flush_battle` ordering bug
+> (decisions were popped before aggregation, so every battle row would have been all-zero), the
+> lost `unattributed` events (now `flush_run_events`), the truncating `completion.json` write
+> (now exclusive, C9), the first-turn filesystem import, `except BaseException` swallowing
+> `CancelledError`/`KeyboardInterrupt`/`SystemExit` as agent crashes, the unapproved
+> `payload[:500]` truncation, and the wrong closeout baseline.
+>
+> **Still outstanding, and this revision does not claim otherwise:**
+> 1. **Validators are missing.** Field-name tuples do not close a schema. `record_event` still
+>    accepts unknown `event_type` values and contradictory attribution combinations; decision and
+>    battle rows are unvalidated. Needs `validate_decision_row` / `validate_event_row` /
+>    `validate_battle_row` plus mutation tests for field set, types, enums, null rules and
+>    cross-field consistency.
+> 2. **The exit status is not wired to a process status.** `exit_status()` alone changes nothing:
+>    the three runners return battle counts and `cli.py` ignores those returns. The plan must say
+>    exactly how a clean-finishing run with a write error reaches a non-zero process status
+>    **without masking an original exception or a cancellation**.
+> 3. **Placeholders remain.** Task 8's test helpers, all five Task 9 tests, the Task 10 smoke
+>    driver and two production blocks still contain `...`. An earlier revision of this plan and
+>    its PR body both claimed "no placeholders". That claim was false and is withdrawn.
+> 4. **A recorder or validator failure after a successful choice must not stop the chosen action
+>    being sent.** No fail-closed rule for that has been approved.
+> 5. **The environment override needs its own test.**
+> 6. **The real-smoke step needs a complete command** plus explicit output and credential rules.
+
 ---
 
 ## Load-bearing constraints (from the decision record)
@@ -253,6 +280,10 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Module level, NOT inside record_decision: a first-turn import would put a filesystem
+# read on the turn path (C1).
+from showdown_bot.eval.decision_profile import classify_live_outcome, is_degraded_decision
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PARENT = Path("logs") / "live-degradation"
@@ -406,10 +437,6 @@ def test_row_has_exactly_the_declared_fields(tmp_path):
         agent_crash_type: str | None,
     ) -> dict:
         """Buffer one decision row. NO filesystem access here (C1)."""
-        from showdown_bot.eval.decision_profile import (
-            classify_live_outcome, is_degraded_decision,
-        )
-
         applicable = (not book_absent) and (not team_preview)
         if applicable:
             crashed = agent_crash_type is not None
@@ -669,7 +696,7 @@ def test_exit_status_zero_on_a_clean_run(tmp_path):
 
 def test_completion_is_best_effort_and_absence_is_a_failure_signal(tmp_path, monkeypatch):
     rec = LiveDegradationRecorder.preflight(parent=tmp_path)
-    monkeypatch.setattr("showdown_bot.client.live_degradation._write_json", boom_json)
+    monkeypatch.setattr("showdown_bot.client.live_degradation._write_json_exclusive", boom_json)
     rec.write_completion()                      # must not raise
     assert not (rec.run_dir / "completion.json").exists()
     assert rec.exit_status() != 0               # the machine-checkable signal (§10.3)
@@ -696,8 +723,11 @@ def _append_jsonl(path: Path, rows: list[dict]) -> None:
         os.fsync(fh.fileno())
 
 
-def _write_json(path: Path, payload: dict) -> None:
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
+def _write_json_exclusive(path: Path, payload: dict) -> None:
+    """Exclusive create (C9). Mode "w" would truncate; inside a run directory that is
+    by construction ours, an EXISTING completion.json means something already wrote
+    here -- that is a refusal, not a file to overwrite."""
+    with open(path, "x", encoding="utf-8", newline="\n") as fh:
         json.dump(payload, fh, indent=2)
         fh.flush()
         os.fsync(fh.fileno())
@@ -748,7 +778,7 @@ def _write_json(path: Path, payload: dict) -> None:
             "preflight_ok": True,
         }
         try:
-            _write_json(self.run_dir / "completion.json", payload)
+            _write_json_exclusive(self.run_dir / "completion.json", payload)
         except OSError as exc:                            # noqa: BLE001
             self.write_errors_total += 1
             logger.error("live-degradation completion write failed: %s", exc)
@@ -836,7 +866,8 @@ In `handle_battle_message`, replace the chooser block:
             choose = choose_with_fallback(..., stage_sink=stage_sink)
         else:
             choose = choose_for_request(req)
-    except BaseException as exc:
+    except Exception as exc:   # NOT BaseException: CancelledError/KeyboardInterrupt/
+                               # SystemExit are not agent crashes (C5 scope)
         crash_type = type(exc).__name__
         if _recorder is not None:
             _recorder.record_decision(
@@ -866,14 +897,14 @@ In `_run_battle_loop`, add event recording at the two existing sites:
                 if _recorder is not None:
                     only = next(iter(active_battles)) if len(active_battles) == 1 else None
                     _recorder.record_event(
-                        event_type="invalid_choice_pm", payload=parsed.args[-1][:500],
+                        event_type="invalid_choice_pm", payload=parsed.args[-1],
                         room_id=only, active_battle_count=len(active_battles))
                 ...
 
                 if parsed.prefix == "error":
                     if _recorder is not None:
                         _recorder.record_event(
-                            event_type="server_error", payload=parsed.payload[:500],
+                            event_type="server_error", payload=parsed.payload,
                             room_id=parsed.room, active_battle_count=len(active_battles))
                     await _send_default_choose(conn, parsed.room)
 ```
@@ -1002,7 +1033,7 @@ python -m pytest showdown_bot -q
 ```
 
 Expected: `git diff --check` silent; suite at or above the 3860 passed / 2 skipped / 1 xfailed
-baseline from `main @ cf7755c`, with the new tests added and no new failures.
+baseline from `main @ 43f08af`, with the new tests added and no new failures.
 
 - [ ] **Step 7: Confirm the seven local artifacts are untouched**
 
