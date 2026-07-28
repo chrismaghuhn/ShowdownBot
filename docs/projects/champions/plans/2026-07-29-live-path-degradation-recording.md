@@ -8,8 +8,8 @@ ladder, challenge and smoke run, always on, without touching the turn path or th
 
 **Base:** `main @ 43f08af` · **Issue:** #125
 **Authoritative decision:** `docs/projects/champions/decisions/2026-07-28-live-path-degradation-recording.md`
-(referenced below as §N — the plan implements it and adds no new rulings; §8 is being amended
-separately, see the status banner below).
+(referenced below as §N, **including the merged §8.0 amendment** — the plan implements the
+record and adds no rulings of its own).
 
 **Architecture:** one new self-contained module owns the schema, its validators, the writer and the
 aggregation. `runner.py` gains call sites only; `cli.py` gains one wrapper. The decision core is
@@ -51,34 +51,22 @@ Two further defects were found while writing this revision and are fixed here:
 
 ---
 
-> **STATUS: NOT YET EXECUTABLE — do not start implementation from this revision.**
+> **STATUS: AWAITING PLAN REVIEW — implementation only after an explicit GO.**
 >
-> The two additions this revision flagged have been **ruled on: §8 is amended.** `completion.json`
-> gains `schema_errors_total` and `recorder_errors_total`, success is defined as all three error
-> counters being zero, there is no `recording_ok` field, and `validate_completion_row()` is
-> required. Rationale for the ruling: as this revision stands, `completion.json` could read
-> permanently clean (`write_errors_total = 0`, `preflight_ok = true`) while the process exits 1 on
-> a schema or recorder error. **An exit code and a log line are not a substitute for the persisted
-> evidence artifact** — which is the whole premise of this slice.
+> The §8 amendment is **merged** (`main @ 3fad797`, PR #146). This revision is rewritten against
+> the final contract, and the "Two additions beyond the decision record" section is gone: after the
+> amendment there is no addition beyond the record. What changed here:
 >
-> The amended contract must land in the decision record **first**. This plan is then rewritten
-> against it and re-reviewed. Concretely still to do here:
->
-> 1. `COMPLETION_FIELDS` gains `schema_errors_total` and `recorder_errors_total` (Task 1), and the
->    field-set test with it.
-> 2. The recorder's in-memory counters are renamed `schema_errors_total` / `recorder_errors_total`
->    so the persisted names and the attribute names are one-to-one (Tasks 4–8).
-> 3. `validate_completion_row()` plus its mutation tests (Task 2).
+> 1. `COMPLETION_FIELDS` gains `schema_errors_total` and `recorder_errors_total` (Task 1).
+> 2. The recorder's counters are named `schema_errors_total` / `recorder_errors_total`, one-to-one
+>    with the persisted fields (Tasks 4–8).
+> 3. `validate_completion_row(row, *, expected_run_id=None)` plus mutation tests (Task 2).
 > 4. `write_completion()` persists all three counters (Task 8).
-> 5. Four separate tests, not one combined: clean run → three zeros and exit 0; a prior schema
->    error → persisted counter 1 and exit 1; a prior recorder error → persisted counter 1 and
->    exit 1; missing or unwritable completion → exit 1.
-> 6. The "Two additions beyond the decision record" section is deleted — after the amendment
->    there is no addition beyond the record.
+> 5. Four separate exit-status tests, not one combined (Task 8).
+> 6. The artifact invariant and its two run shapes, plus the parse/validate success condition
+>    (Task 8, Task 12).
 >
-> **Correction to the previous PR comment:** revision `c2a2ac8` removed the NOT-YET-EXECUTABLE
-> banner rather than keeping it. It was absent for the length of that revision. This restores it.
-
+> The plan is complete and self-consistent as far as I can verify it. It has not been executed.
 ---
 
 ## Load-bearing constraints (from the decision record)
@@ -177,7 +165,8 @@ def test_event_fields_are_exactly_the_contract():
 def test_completion_fields_are_exactly_the_contract():
     assert COMPLETION_FIELDS == (
         "schema_version", "run_id", "battles_finished", "unterminated_rooms",
-        "write_errors_total", "preflight_ok",
+        "write_errors_total", "schema_errors_total", "recorder_errors_total",
+        "preflight_ok",
     )
 
 
@@ -246,7 +235,8 @@ BATTLE_FIELDS = (
 )
 COMPLETION_FIELDS = (
     "schema_version", "run_id", "battles_finished", "unterminated_rooms",
-    "write_errors_total", "preflight_ok",
+    "write_errors_total", "schema_errors_total", "recorder_errors_total",
+    "preflight_ok",
 )
 
 EVENT_TYPES = ("server_error", "invalid_choice_pm")
@@ -290,6 +280,7 @@ Append to `showdown_bot/tests/test_live_degradation.py`:
 from showdown_bot.client.live_degradation import (  # noqa: E402
     SchemaError,
     validate_battle_row,
+    validate_completion_row,
     validate_decision_row,
     validate_event_row,
 )
@@ -469,6 +460,59 @@ BATTLE_MUTATIONS = [
 def test_battle_mutation_is_rejected(label, row):
     with pytest.raises(SchemaError):
         validate_battle_row(dict(row))
+
+
+# --- completion mutations (section 8.0) ----------------------------------------
+
+VALID_COMPLETION = {
+    "schema_version": "live-degradation-v1", "run_id": "20260729T101112Z-a1b2c3",
+    "battles_finished": 3, "unterminated_rooms": ["battle-gen9vgc2025regg-9"],
+    "write_errors_total": 0, "schema_errors_total": 0, "recorder_errors_total": 0,
+    "preflight_ok": True,
+}
+
+
+def _completion_without(key: str) -> dict:
+    out = dict(VALID_COMPLETION)
+    del out[key]
+    return out
+
+
+COMPLETION_MUTATIONS = [
+    ("missing_field", _completion_without("recorder_errors_total")),
+    ("extra_field", _mutate(VALID_COMPLETION, recording_ok=True)),
+    ("wrong_schema_version", _mutate(VALID_COMPLETION, schema_version="v2")),
+    ("empty_run_id", _mutate(VALID_COMPLETION, run_id="")),
+    ("battles_finished_is_bool", _mutate(VALID_COMPLETION, battles_finished=True)),
+    ("battles_finished_negative", _mutate(VALID_COMPLETION, battles_finished=-1)),
+    ("counter_is_bool", _mutate(VALID_COMPLETION, schema_errors_total=True)),
+    ("counter_negative", _mutate(VALID_COMPLETION, recorder_errors_total=-1)),
+    ("counter_is_str", _mutate(VALID_COMPLETION, write_errors_total="0")),
+    ("unterminated_is_not_a_list", _mutate(VALID_COMPLETION, unterminated_rooms="r")),
+    ("unterminated_holds_a_non_string", _mutate(VALID_COMPLETION, unterminated_rooms=[1])),
+    ("unterminated_holds_an_empty_string", _mutate(VALID_COMPLETION, unterminated_rooms=[""])),
+    ("unterminated_has_duplicates", _mutate(VALID_COMPLETION, unterminated_rooms=["a", "a"])),
+    ("preflight_ok_false", _mutate(VALID_COMPLETION, preflight_ok=False)),
+    ("preflight_ok_is_int", _mutate(VALID_COMPLETION, preflight_ok=1)),
+]
+
+
+@pytest.mark.parametrize("label,row", COMPLETION_MUTATIONS,
+                         ids=[m[0] for m in COMPLETION_MUTATIONS])
+def test_completion_mutation_is_rejected(label, row):
+    with pytest.raises(SchemaError):
+        validate_completion_row(dict(row))
+
+
+def test_completion_run_id_is_checked_only_when_an_expectation_is_supplied():
+    """The validator sees ONE object. It cannot reach the other three files, and passing the
+    recorder's own run_id proves only self-consistency -- section 8.0 says so explicitly. The
+    cross-file property is the artifact invariant, tested separately in Task 12."""
+    validate_completion_row(dict(VALID_COMPLETION))                       # no expectation
+    validate_completion_row(dict(VALID_COMPLETION),
+                            expected_run_id="20260729T101112Z-a1b2c3")    # matching
+    with pytest.raises(SchemaError, match="expected_run_id"):
+        validate_completion_row(dict(VALID_COMPLETION), expected_run_id="someone-elses-run")
 ```
 
 - [ ] **Step 2: Run, expect an ImportError**
@@ -650,6 +694,43 @@ def validate_event_row(row: dict) -> None:
             )
 
 
+def validate_completion_row(row: dict, *, expected_run_id: str | None = None) -> None:
+    """Validate the single completion object (section 8.0).
+
+    `expected_run_id` is optional and proves only that the caller and the row agree. It does
+    NOT establish the cross-file identity -- a validator handed one object cannot see the other
+    three files, and the recorder's own run_id shares a source with this row. That property is
+    the ARTIFACT INVARIANT and has its own integration test (Task 12).
+    """
+    what = "completion row"
+    _require_shape(row, COMPLETION_FIELDS, what)
+
+    _require_count(row, "battles_finished", what)
+    for key in ("write_errors_total", "schema_errors_total", "recorder_errors_total"):
+        _require_count(row, key, what)
+
+    rooms = row["unterminated_rooms"]
+    if not isinstance(rooms, list):
+        raise SchemaError(f"{what}: unterminated_rooms must be a list, got {rooms!r}")
+    for room in rooms:
+        if not isinstance(room, str) or not room:
+            raise SchemaError(f"{what}: unterminated_rooms holds {room!r}")
+    if len(set(rooms)) != len(rooms):
+        raise SchemaError(f"{what}: unterminated_rooms has duplicates: {rooms!r}")
+
+    if row["preflight_ok"] is not True:
+        raise SchemaError(
+            f"{what}: preflight_ok must be True -- this file can only be written after preflight "
+            f"succeeded (section 10.1), so {row['preflight_ok']!r} is a defect, not a state"
+        )
+
+    if expected_run_id is not None and row["run_id"] != expected_run_id:
+        raise SchemaError(
+            f"{what}: run_id={row['run_id']!r} does not match expected_run_id="
+            f"{expected_run_id!r}"
+        )
+
+
 def validate_battle_row(row: dict) -> None:
     what = "battle row"
     _require_shape(row, BATTLE_FIELDS, what)
@@ -688,7 +769,7 @@ def validate_battle_row(row: dict) -> None:
         )
 ```
 
-- [ ] **Step 4: Run, expect 8 + 1 + 25 + 13 + 10 = 57 passed**
+- [ ] **Step 4: Run, expect 8 + 1 + 25 + 13 + 10 + 15 + 1 = 73 passed**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -955,8 +1036,8 @@ class LiveDegradationRecorder:
         self.run_dir = run_dir
         self.run_id = run_id
         self.write_errors_total = 0
-        self.schema_errors = 0
-        self.recorder_errors = 0
+        self.schema_errors_total = 0
+        self.recorder_errors_total = 0
         self.battles_finished = 0
         self.unterminated_rooms: list[str] = []
         self._decisions: dict[str, list[dict]] = {}
@@ -994,7 +1075,7 @@ class LiveDegradationRecorder:
         return cls(run_dir, run_id)
 ```
 
-- [ ] **Step 4: Run, expect 10 more passing (67 total in this file)**
+- [ ] **Step 4: Run, expect 10 more passing (85 total in this file: 73 from Task 2, 2 from Task 3)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1125,7 +1206,7 @@ def test_every_recorded_decision_validates(tmp_path):
     ]
     for row in rows:
         validate_decision_row(dict(row))
-    assert rec.schema_errors == 0
+    assert rec.schema_errors_total == 0
 
 
 def test_an_invalid_row_is_counted_and_not_buffered(tmp_path, monkeypatch):
@@ -1139,7 +1220,7 @@ def test_an_invalid_row_is_counted_and_not_buffered(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "showdown_bot.client.live_degradation.validate_decision_row", _reject)
     _record_clean(rec)
-    assert rec.schema_errors == 1
+    assert rec.schema_errors_total == 1
     assert rec._decisions.get("battle-x-1", []) == []
     assert rec.exit_status() != 0
 
@@ -1214,7 +1295,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         try:
             validate_decision_row(row)
         except SchemaError as exc:
-            self.schema_errors += 1
+            self.schema_errors_total += 1
             logger.error("live-degradation rejected a decision row: %s | row=%r", exc, row)
             return row
         self._seq[room_id] = seq + 1
@@ -1222,7 +1303,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return row
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (79 total in this file)**
+- [ ] **Step 4: Run, expect 12 more passing (97 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1297,7 +1378,7 @@ def test_an_unknown_event_type_is_counted_and_not_buffered(tmp_path):
     rec = LiveDegradationRecorder.preflight(parent=tmp_path)
     rec.record_event(event_type="disconnect", payload="p",
                      room_id="battle-x-1", active_battle_count=1)
-    assert rec.schema_errors == 1
+    assert rec.schema_errors_total == 1
     assert rec._events == []
     assert rec.exit_status() != 0
 ```
@@ -1337,14 +1418,14 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         try:
             validate_event_row(ev)
         except SchemaError as exc:
-            self.schema_errors += 1
+            self.schema_errors_total += 1
             logger.error("live-degradation rejected an event row: %s | row=%r", exc, ev)
             return ev
         self._events.append(ev)
         return ev
 ```
 
-- [ ] **Step 4: Run, expect 7 more passing (86 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 7 more passing (104 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1469,7 +1550,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         }
 ```
 
-- [ ] **Step 4: Run, expect 5 more passing (91 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 5 more passing (109 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1606,21 +1687,58 @@ def test_the_battle_row_sees_this_flushs_own_write_errors(tmp_path, monkeypatch)
     assert battle["decisions_total"] == 1        # the row existed; only the WRITE failed
 
 
-def test_exit_status_zero_on_a_clean_run(tmp_path):
+def test_clean_run_persists_three_zeros_and_exits_zero(tmp_path):
+    """Case 1 of four (§8.0): the ONLY combination that establishes a successful run."""
     rec = LiveDegradationRecorder.preflight(parent=tmp_path)
     _record_clean(rec, room="R", rqid=1)
     rec.flush_battle(room_id="R", end_reason="win")
     rec.flush_run_events()
     rec.write_completion()
-    assert rec.exit_status() == 0
     completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
     assert tuple(completion) == COMPLETION_FIELDS
-    assert completion["battles_finished"] == 1
     assert completion["write_errors_total"] == 0
+    assert completion["schema_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert completion["battles_finished"] == 1
     assert completion["preflight_ok"] is True
+    assert rec.exit_status() == 0
 
 
-def test_completion_is_best_effort_and_absence_is_a_failure_signal(tmp_path, monkeypatch):
+def test_a_prior_schema_error_is_persisted_as_one_and_exits_non_zero(tmp_path, monkeypatch):
+    """Case 2 of four. The counter must reach the FILE, not only the exit status -- a
+    completion.json reading permanently clean beside a non-zero exit was the hole §8.0 closes."""
+    def _reject(row):
+        raise SchemaError("forced")
+
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation.validate_decision_row", _reject)
+    _record_clean(rec, room="R", rqid=1)
+    monkeypatch.undo()                          # the completion write must not be rejected too
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    assert completion["schema_errors_total"] == 1
+    assert completion["write_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert rec.exit_status() != 0
+
+
+def test_a_prior_recorder_error_is_persisted_as_one_and_exits_non_zero(tmp_path):
+    """Case 3 of four."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.note_recorder_error(RuntimeError("something escaped a record_ call"))
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    assert completion["recorder_errors_total"] == 1
+    assert completion["schema_errors_total"] == 0
+    assert completion["write_errors_total"] == 0
+    assert rec.exit_status() != 0
+
+
+def test_a_missing_completion_exits_non_zero(tmp_path, monkeypatch):
+    """Case 4 of four: an unwritable completion. The failure of THIS write cannot appear in the
+    file it failed to produce, so the exit status carries it (§8.0 persistence limit)."""
     rec = LiveDegradationRecorder.preflight(parent=tmp_path)
 
     def _boom(*args, **kwargs):
@@ -1631,6 +1749,22 @@ def test_completion_is_best_effort_and_absence_is_a_failure_signal(tmp_path, mon
     rec.write_completion()                      # must not raise
     assert not (rec.run_dir / "completion.json").exists()
     assert rec.exit_status() != 0               # the machine-checkable signal (10.3)
+
+
+def test_a_present_but_unusable_completion_is_a_failure_state_not_a_success(tmp_path):
+    """§8.0: open(..., "x") buys exclusivity, NOT atomicity. A write that dies after the create
+    leaves a file behind. Absent, unparseable and schema-invalid are ONE failure state, which is
+    why a consumer must parse and validate rather than stat."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    path = rec.run_dir / "completion.json"
+
+    path.write_text('{"schema_version": "live-degrad', encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(path.read_text(encoding="utf-8"))
+
+    path.write_text('{"schema_version": "live-degradation-v1"}', encoding="utf-8")
+    with pytest.raises(SchemaError):
+        validate_completion_row(json.loads(path.read_text(encoding="utf-8")))
 
 
 def test_completion_never_overwrites_an_existing_file(tmp_path):
@@ -1648,7 +1782,7 @@ def test_recorder_errors_reach_the_exit_status(tmp_path):
     rec = LiveDegradationRecorder.preflight(parent=tmp_path)
     assert rec.exit_status() == 0
     rec.note_recorder_error(RuntimeError("something escaped a record_ call"))
-    assert rec.recorder_errors == 1
+    assert rec.recorder_errors_total == 1
     assert rec.exit_status() != 0
 ```
 
@@ -1722,7 +1856,7 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
         try:
             validate_battle_row(battle_row)
         except SchemaError as exc:
-            self.schema_errors += 1
+            self.schema_errors_total += 1
             logger.error("live-degradation rejected a battle row: %s | row=%r", exc, battle_row)
         else:
             self._append_or_count(self.run_dir / "battles.jsonl", [battle_row], room_id)
@@ -1753,18 +1887,36 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
     def note_recorder_error(self, exc: BaseException) -> None:
         """Something escaped a record_/flush_ call at a call site. Counted so it reaches the
         exit status; never re-raised (C11)."""
-        self.recorder_errors += 1
+        self.recorder_errors_total += 1
         logger.error("live-degradation recorder error: %s: %s", type(exc).__name__, exc)
 
     def write_completion(self) -> None:
-        """Best-effort (10.3). Its ABSENCE is meaningful, not neutral."""
+        """Best-effort (10.3). Its ABSENCE is meaningful, not neutral.
+
+        The payload is a SNAPSHOT: the counters as they stand right now. A failure of this very
+        write increments write_errors_total afterwards and therefore cannot appear in the file
+        it just failed to produce -- section 8.0's persistence limit. The exit status carries it.
+
+        The write is exclusive but NOT atomic. open(..., "x") can succeed and the serialisation
+        then fail, leaving an empty, truncated or unsynced completion.json behind. A reader must
+        parse and validate it, never merely stat it (section 8.0).
+        """
         payload = {
             "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
             "battles_finished": self.battles_finished,
             "unterminated_rooms": list(self.unterminated_rooms),
             "write_errors_total": self.write_errors_total,
+            "schema_errors_total": self.schema_errors_total,
+            "recorder_errors_total": self.recorder_errors_total,
             "preflight_ok": True,
         }
+        try:
+            validate_completion_row(payload, expected_run_id=self.run_id)
+        except SchemaError as exc:
+            self.schema_errors_total += 1
+            logger.error("live-degradation rejected the completion row: %s | row=%r",
+                         exc, payload)
+            return
         try:
             _write_json_exclusive(self.run_dir / "completion.json", payload)
         except OSError as exc:
@@ -1774,15 +1926,20 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
     def exit_status(self) -> int:
         """The machine-checkable signal (10.3): it depends on no file being readable.
 
-        schema_errors and recorder_errors are included here but do NOT appear in
-        completion.json -- section 8 closes that file to six fields. A consumer reading only
-        completion.json therefore sees write_errors_total and not these two. That gap is
-        stated in the plan rather than closed by widening a frozen schema.
+        All three counters feed it, and all three are also PERSISTED in completion.json since
+        the section 8.0 amendment -- that is what closes the hole where a run could exit 1
+        while its only per-run artifact read permanently clean.
+
+        This is the recorder-derived status only. Section 8.0 scopes it to the normal-return
+        path, evaluated after every finalisation attempt including the completion write; a
+        propagated exception, a cancellation or a KeyboardInterrupt keeps its own status and
+        must never be masked by this value.
         """
-        return 1 if (self.write_errors_total or self.schema_errors or self.recorder_errors) else 0
+        return 1 if (self.write_errors_total or self.schema_errors_total
+                     or self.recorder_errors_total) else 0
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (103 total in this file)**
+- [ ] **Step 4: Run, expect 15 more passing (124 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -2043,7 +2200,7 @@ async def test_a_recorder_failure_after_a_successful_choice_does_not_stop_the_se
     conn = _StubConnection([])
     await runner.handle_battle_message(conn, ROOM, _request_payload())    # must NOT raise
     assert len(conn.sent) == 1
-    assert rec.recorder_errors == 1
+    assert rec.recorder_errors_total == 1
     assert rec.exit_status() != 0
 
 
@@ -2810,7 +2967,94 @@ python -m pytest showdown_bot/tests/test_live_degradation_runner.py -q -k smoke
 Expected: **PASS with no new production code.** If it fails, the §5.1 gate is wrong, not the
 test — fix the gate, not the assertion.
 
-- [ ] **Step 3: The real smoke run — requires the user's explicit go-ahead**
+- [ ] **Step 3: The artifact invariant, both run shapes (§8.0)**
+
+`validate_completion_row()` cannot establish the cross-file `run_id` identity — it sees one
+object, and `expected_run_id` proves only that the recorder agrees with itself. §8.0 makes the
+cross-file property a **directory-level invariant with its own check**, and it must not demand
+files a correct run never creates: nothing writes an empty file, so a run with no `|error|` and
+no invalid-choice PM has **no `events.jsonl` at all**.
+
+Append to `showdown_bot/tests/test_live_degradation_runner.py`:
+
+```python
+def _run_id_of_every_line(run_dir: Path) -> set[str]:
+    """Collect run_id from every JSONL line PRESENT. A missing file is zero rows, not a
+    violation -- see the second test below for why that distinction is load-bearing."""
+    seen: set[str] = set()
+    for name in ("decisions.jsonl", "events.jsonl", "battles.jsonl"):
+        path = run_dir / name
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                seen.add(json.loads(line)["run_id"])
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_artifact_invariant_on_a_run_that_produces_every_grain(
+        tmp_path, monkeypatch, _clean_runner_state):
+    """Shape 1: decisions, at least one event, a battle row and a completion."""
+    rec = _install_recorder(monkeypatch, tmp_path)
+    _use_heuristic_path(monkeypatch)
+    conn = _StubConnection([
+        f">{ROOM}\n|init|battle",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|error|[Invalid choice] Can't move: Zamazenta needs a target",
+        f">{ROOM}\n|win|opponent",
+    ])
+    await runner._run_battle_loop(conn, max_battles=1, cancel_on_done=None)
+
+    for name in ("decisions.jsonl", "events.jsonl", "battles.jsonl", "completion.json"):
+        assert (rec.run_dir / name).exists(), f"{name} missing on the all-grains shape"
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert _run_id_of_every_line(rec.run_dir) == {completion["run_id"]}
+    assert completion["run_id"] == rec.run_dir.name          # §8.1: dir name IS the run_id
+
+
+@pytest.mark.asyncio
+async def test_artifact_invariant_on_a_run_with_no_events(
+        tmp_path, monkeypatch, _clean_runner_state):
+    """Shape 2, and the commonest one: no |error| and no invalid-choice PM. events.jsonl is
+    ABSENT, and with all three counters at zero that absence means zero rows, not loss. An
+    invariant demanding all four files would fail here -- on a correct run."""
+    rec = _install_recorder(monkeypatch, tmp_path)
+    _use_heuristic_path(monkeypatch)
+    conn = _StubConnection([
+        f">{ROOM}\n|init|battle",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|win|opponent",
+    ])
+    await runner._run_battle_loop(conn, max_battles=1, cancel_on_done=None)
+
+    assert not (rec.run_dir / "events.jsonl").exists()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert completion["write_errors_total"] == 0
+    assert completion["schema_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert rec.exit_status() == 0                            # absence here is emptiness
+    assert _run_id_of_every_line(rec.run_dir) == {completion["run_id"]}
+```
+
+The test file needs `validate_completion_row` in its imports:
+
+```python
+from showdown_bot.client.live_degradation import (
+    LiveDegradationRecorder,
+    validate_completion_row,
+)
+```
+
+- [ ] **Step 4: Run, expect 29 passed in this file**
+
+```bash
+python -m pytest showdown_bot/tests/test_live_degradation_runner.py -q
+```
+
+- [ ] **Step 5: The real smoke run — requires the user's explicit go-ahead**
 
 This step plays one real battle against a real opponent on the public server. It is an
 outward-facing action; **do not run it without the user saying so in this session.** No local
@@ -2860,7 +3104,7 @@ Output rules for the closeout report:
 
 Write the report at `docs/projects/champions/reports/2026-07-29-live-path-degradation-closeout.md`.
 
-- [ ] **Step 4: Closeout gates**
+- [ ] **Step 6: Closeout gates**
 
 ```bash
 git diff --check
@@ -2877,7 +3121,7 @@ plus the new tests, with no new failures. Run from the repo root, and note that
 `python -m pytest showdown_bot -q` (not a bare `pytest -q`) is the form that actually picks up
 new modules in this repo.
 
-- [ ] **Step 5: Confirm the seven local artifacts are untouched**
+- [ ] **Step 7: Confirm the seven local artifacts are untouched**
 
 ```bash
 git status --porcelain
@@ -2892,7 +3136,7 @@ unmodified — `.claude/`,
 `tools/_pkmn_differential_audit/`. **No `logs/` entry may appear** — if one does, the Task 3
 gitignore entry is wrong.
 
-- [ ] **Step 6: Commit the closeout**
+- [ ] **Step 8: Commit the closeout**
 
 ```bash
 git add docs/projects/champions/reports/2026-07-29-live-path-degradation-closeout.md
@@ -2919,6 +3163,14 @@ git commit -m "docs: live-path degradation recording closeout"
 | §7 | `\|error\|` room-scoped, payload preserved, not pre-classified | 6, 9 |
 | §7 | PM unattributable; `inferred` only at `active_battle_count == 1` | 6, 9 |
 | §8 | Closed schema: field set, order, types, enums, null rules | 1, 2 |
+| §8.0 | `completion.json` carries all three error counters | 1, 8 |
+| §8.0 | Three zeros = a clean **snapshot**, never a verdict | 8 (four separate exit tests) |
+| §8.0 | Success = exit `0` **and** a present, parsing, validating, three-zero file | 8, 11, 12 |
+| §8.0 | Absent / unparseable / schema-invalid are one failure state | 8 |
+| §8.0 | Persistence limit: the completion write's own failure is not in it | 8 |
+| §8.0 | No `recording_ok` field | 1 (`COMPLETION_FIELDS`), 2 (`extra_field` mutation) |
+| §8.0 | `validate_completion_row(row, *, expected_run_id=None)` + mutation tests | 2 |
+| §8.0 | Artifact invariant is a directory check, not a row check | 2 (what the row cannot prove), 12 (both shapes) |
 | §8 | `is_degraded` persisted; `null`, never `false`, when gated | 2, 5 |
 | §8 | Counters from their named sources | 7 |
 | §8 | Join keys `run_id` / `(run_id, room_id)` / `(…, decision_seq)`; `rqid` not a join key | 1, 5 (`decision_seq` monotonic per room) |
@@ -2933,6 +3185,7 @@ git commit -m "docs: live-path degradation recording closeout"
 | §10.3 | In-memory counter + `logger.error` | 8 |
 | §10.3 | Best-effort `completion.json`; its absence is a failure state | 8 |
 | §10.3 | Non-zero process exit status, without masking | 11 |
+| §10.3 | Status evaluated **last**, after every finalisation attempt | 8 (`exit_status` docstring), 11 |
 | §10.4 | Buffered-design residual limit documented, not fixed here | — (this document + the non-claims below) |
 
 ## Coverage matrix — #125 acceptance criteria
@@ -2943,6 +3196,10 @@ git commit -m "docs: live-path degradation recording closeout"
 | Flush before the room log is discarded; loop-exit flush on all three exits | 10 |
 | Write failure blocks nothing, is counted, surfaces at completion | 8 |
 | Non-zero process exit; a missing `completion.json` counts as failure | 8, 11 |
+| All three counters **persisted**, not merely surfaced via the exit status | 1, 2, 8 |
+| Clean run → three zeros + exit 0; prior schema error → 1 + exit 1; prior recorder error → 1 + exit 1; unwritable completion → exit 1 | 8 (four separate tests) |
+| A present-but-unusable `completion.json` is a failure, not a success | 8 |
+| Artifact invariant, all-grains shape **and** no-events shape | 12 |
 | No `hero_`/`villain_` names | 1 |
 | `state_build_failed` not raised for preview, missing book, or smoke | 2, 9, 12 |
 | Derivation gated so smoke is not reported 100 % degraded | 5, 12 |
@@ -2968,7 +3225,8 @@ Two limits are stated rather than hidden:
 - A hard process termination (`SIGKILL`, power loss, OOM kill) loses the current battle's
   unflushed decisions. No `finally` runs. This is §10.4's accepted residual gap of the buffered
   design; per-decision appending was rejected because it puts a filesystem write on the turn path.
-- `schema_errors` and `recorder_errors` reach the process exit status and the log, but **not**
-  `completion.json` — **in this revision only.** That gap is exactly what the §8 amendment closes;
-  see the status banner at the top. Until the amendment lands and this plan is rewritten against
-  it, the plan is not executable.
+- `completion.json` is written **exclusively but not atomically** (§8.0): `open(..., "x")` buys
+  exclusivity only, so a write that dies after the create leaves an empty, truncated or unsynced
+  file. The plan does not fix that — an atomic temp-file commit would need §8.1 reopened — so
+  *absent*, *unparseable* and *schema-invalid* are treated as one failure state, and success
+  requires exit `0` **plus** a present, parsing, validating, three-zero file.
