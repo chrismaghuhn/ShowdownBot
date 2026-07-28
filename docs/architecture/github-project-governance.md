@@ -43,14 +43,20 @@ work progresses.
 | Verdict | Single select | Not Applicable, Not Run, PASS, FAIL, NO-GO, Inconclusive | Gate outcome |
 | Target | Single select | Now, Next, Later, Parked | Planning horizon |
 | Start Date | Date | — | When work began |
+| Target Date | Date | — | When work should be complete |
 
 ### Evidence ladder
 
 Evidence progresses monotonically: None → Spec Approved → Implemented → Verified →
-Frozen. It never moves backward. "Spec Approved" means a spec exists and was approved —
-the code may or may not be implemented yet. "Implemented" means the code is written and
-tested. "Verified" means a preflight or dry-run passed. "Frozen" means evidence is
-committed to `main` under `data/eval/`.
+Frozen. It never moves backward.
+
+- **None** — no evidence exists yet.
+- **Spec Approved** — a spec exists and was approved; the code may or may not be
+  implemented yet.
+- **Implemented** — the required code is on `main`.
+- **Verified** — the defined tests or experiments were reproducibly executed.
+- **Frozen** — result, configuration, seeds, environment, commands, and artifacts are
+  immutably referenced on `main`.
 
 ### Verdict semantics
 
@@ -103,6 +109,7 @@ These GitHub Project workflows should be enabled:
 |---|---|---|
 | Item added to project | Issue added | Set Status → Inbox |
 | Item closed | Issue closed | Set Status → Resolved |
+| Auto-add sub-issues | Sub-issue added to a tracked parent | Add sub-issue to project |
 | Auto-close issue | — | **DISABLED** (gates must be closed manually) |
 | Pull request merged | — | **DISABLED** (merging a PR does not close the issue) |
 
