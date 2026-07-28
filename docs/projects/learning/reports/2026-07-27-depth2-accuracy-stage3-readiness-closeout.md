@@ -125,11 +125,17 @@ what was pre-registered.** It is not the result. The executed run, its parameter
 evidence per arm × stratum, the 21 frozen output hashes and the operator scripts are in
 `docs/projects/learning/reports/2026-07-28-depth2-cost-preflight-attempt6-freeze.md`.
 
-The execution deviated from the template below in one respect worth recording: the four arms
-required a spec amendment (`2026-07-28-depth2-cost-preflight-amendment.md`) that pinned the
-full `SHOWDOWN_`-prefixed variable names, same-process environment delivery, a pre-arm
-resolver gate, and post-arm treatment validation. Five attempts were invalidated before a
-valid matrix was obtained.
+The template below was **incomplete as an executable procedure**: it fixed the environment
+variables and the invocation shape, but left the schedule, the seeds, the import root, the
+server lifecycle and the validation gates unspecified. The amendment
+(`2026-07-28-depth2-cost-preflight-amendment.md`) supplied exactly those.
+
+The template is **not** the source of the Attempt-4 defect. It uses the correct, fully
+`SHOWDOWN_`-prefixed variable names throughout. The short-name defect that made all four
+Attempt-4 arms run code defaults was introduced by an early revision of the amendment's
+§6.3 table and corrected there; see Appendix A.4.
+
+Five attempts were invalidated before a valid matrix was obtained (Appendix A.1–A.5).
 
 
 ### Matrix (§11.1)
