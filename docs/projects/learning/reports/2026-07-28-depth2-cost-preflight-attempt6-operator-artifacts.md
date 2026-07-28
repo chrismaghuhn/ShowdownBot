@@ -33,11 +33,9 @@ Each script appears twice:
 
 Verify against Base64, not the code block. The code block is line-normalised by Markdown
 rendering and does not reliably reproduce the hash: `preflight6.py` in particular ends with
-the byte sequence `
-
-`, and the lone CR does not survive ordinary line extraction. An
-earlier revision of this document claimed all contents were byte-exact; that was wrong for
-that file, which is why the Base64 blocks exist.
+the three bytes `0A 0D 0A` (LF CR LF), and the lone CR does not survive ordinary line
+extraction. An earlier revision of this document claimed all contents were byte-exact; that
+was wrong for that file, which is why the Base64 blocks exist.
 
 To check a script:
 
