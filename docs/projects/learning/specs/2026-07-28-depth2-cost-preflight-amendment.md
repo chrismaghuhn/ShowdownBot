@@ -84,11 +84,12 @@ the lockfile is missing, the attempt is invalid.
 
 **Rationale (Attempt 2):** Attempt 2 wrote `operator-preflight.json` before installing
 the calc dependencies. The first arm (`d1_acc_off`) ran with a missing `node_modules`,
-producing 239 contaminated fallback rows. The dependencies were then installed mid-run,
-the contaminated arm output was deleted and re-created under the same paths, and the
-remaining arms ran cleanly. This violated three rules: §9.2/§11.5 (contaminated rows
-invalidate the preflight), §10 (nothing is overwritten), and the operator-preflight
-no longer reflected the actual runtime environment.
+producing 239 contaminated fallback rows. The dependencies were then installed mid-run
+via `npm install --omit=dev` (not `npm ci`), the contaminated arm output was deleted and
+re-created under the same paths, and the remaining arms ran cleanly. This violated three
+rules: §9.2/§11.5 (contaminated rows invalidate the preflight), §10 (nothing is
+overwritten), and the operator-preflight no longer reflected the actual runtime
+environment.
 
 **Rationale (Attempt 1):** Attempt 1 ran with the process CWD inside the candidate
 worktree but without pinning `PYTHONPATH`. Python resolved the installed editable package
@@ -97,7 +98,8 @@ from the main repo (`SHowdown BOt/showdown_bot/src`), so `cli_invocation` and
 identical (only the amendment/schedule YAML differ between `d64982a` and `25d3dae`), but
 the approved candidate-provenance contract was not met. The 17 output files are preserved
 as `attempt-1-invalid-import-root/` with frozen SHA-256 hashes (Appendix A). No data
-from Attempt 1 may be reused or pooled with Attempt 2.
+from any invalidated attempt may be reused, pooled, or cited as evidence for a later
+attempt.
 
 ---
 
@@ -199,8 +201,9 @@ All arms share:
 - `--schedule` loaded via absolute path to the frozen YAML
 - `--result-out <output-root>/cost_preflight_<arm>_result.jsonl`
 
-where `<output-root>` is the absolute path to `cost-preflight-d2-d64982a/` and `<arm>`
-is one of `d1_acc_off`, `d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
+where `<output-root>` is the absolute path to the current attempt's output directory
+(Attempt 3: `cost-preflight-d2-d64982a-attempt3/`) and `<arm>` is one of `d1_acc_off`,
+`d1_acc_on`, `d2_acc_off`, `d2_acc_on`.
 
 ### 6.3 Arm-specific environment
 
@@ -477,6 +480,11 @@ The preflight run is identified by:
 | Showdown commit | `f8ac14003a5f27e1bdc8d8c59608a773c1cb96e5` |
 | Server patch hash | `86e31891547e87da` |
 | Battle timeout | 180 s (unset) |
+| Attempt | `3` |
+| Output root | `cost-preflight-d2-d64982a-attempt3/` |
+| Node | `v24.16.0` |
+| npm | `11.13.0` |
+| Calc lockfile SHA-256 | `c03c577c3e62c7c1de12ba74ac60ca311bf3dd077e37e09c30d5269f2b61dabe` |
 
 ---
 
@@ -552,7 +560,7 @@ invalidation reasons:
    evidence.
 
 3. **Stale operator-preflight (§7.1 / §2.2):** `operator-preflight.json` was written
-   before `npm ci` installed the calc dependencies. The recorded preflight does not
+   before `npm install --omit=dev` installed the calc dependencies. The recorded preflight does not
    reflect the actual runtime environment (missing `node_version`, `npm_version`,
    `calc_lockfile_sha256`, `calc_deps_installed` fields; and the calc backend was
    non-functional at the time of recording).
