@@ -2,7 +2,8 @@
 
 **Status:** DECIDED — written before the implementation it authorises.
 **Date:** 2026-07-28
-**Scope:** `showdown_bot/src/showdown_bot/client/runner.py` (ladder + challenge + smoke).
+**Scope:** `showdown_bot/src/showdown_bot/client/runner.py` — `run_ladder_search`,
+`run_challenge`, `run_smoke_battle`. See §3 for what `run_smoke_battle` may and may not record.
 **Issue:** #125.
 
 ---
@@ -24,100 +25,167 @@ looking for evidence that was never produced.
 This is not hypothetical in this repository. The Gate B independent strength holdout captured
 no hero logs across **360 battles** because `SHOWDOWN_ROOM_RAW_DUMP` was env-gated and unset
 for both arms. That evidence is not recoverable, and the gap was found only after the run.
-An env-gated degradation record would fail the same way, for the same reason, on the path
-where the bot actually plays real ladder games.
-
-The cost of the opposite error is small and bounded: an always-on writer appends a small
-structured record per battle to a directory the runner already creates.
 
 ## 3. Correcting the premise this slice inherited
 
 The ROADMAP and #125 described the gap as "`client/runner.py`: 0 of 9 signals". **That number
-is not supported by any artifact and is withdrawn.**
+is not supported by any artifact and is withdrawn.** It was reconstructible only by adding
+categories that are not comparable:
 
-The nine was reconstructible only by adding categories that are not comparable:
-
-- `_seat_counters` (`gauntlet.py:230`) returns six dictionary values, but only **four** are
-  per-seat: `hero`/`villain` × `degraded`/`invalid`.
-- `invalid_total` and `crashes_total` are explicitly the **summed historical** fields. Gate B
-  finding 5 identified that summing as the defect — a summed counter lets a blind baseline
-  hide behind a clean candidate. Counting the sum as an additional independent signal
-  reproduces the very error the per-seat split exists to correct.
+- `_seat_counters` (`gauntlet.py:230`) returns six values, but only **four** are per-seat.
+- `invalid_total` / `crashes_total` are the explicitly **summed historical** fields. Gate B
+  finding 5 identified that summing as the defect; counting the sum as an additional
+  independent signal reproduces the error the per-seat split exists to correct.
 - Crashes are not transported per seat at all.
 - `SelectionStageSink`, the decision-profile row and `on_battle_result` are **transport and
   persistence mechanisms**, not degradation signals of the same kind.
 - The audit `2026-07-27-degradation-asymmetry-gauntlet-vs-live.md` §3 contains no enumeration
-  of nine. Its `6`, `13` and `2` are counts of code references in the gauntlet.
+  of nine; its `6`, `13` and `2` are counts of code references in the gauntlet.
 
-**And the decisive one:** the ladder runner controls exactly **one seat — its own**. The
-gauntlet drives both clients; the live runner does not. `hero_*` / `villain_*` pairs therefore
-cannot be carried across literally. A schema that copied them would ship fields that are
-structurally always zero, and a later reader would take "zero" for "clean" instead of "not
-observable from this path".
+**And the decisive one:** the ladder runner controls exactly **one seat — its own**. `hero_*` /
+`villain_*` pairs cannot be carried across literally. A schema that copied them would ship
+fields that are structurally always zero, and a later reader would take "zero" for "clean"
+instead of "not observable from this path".
 
 ## 4. The contract, by layer
 
-Replaces the fixed-count promise. Each layer is defined by what it is, not by how many
-members it has, so a signal can be added later without renegotiating a number.
-
 | Layer | Content | Note |
 |---|---|---|
-| **Raw facts** | `state_degraded` (the state build returned `None`); agent crash; selection stage / fallback reason; own invalid choice | Observed at the decision, own seat only |
+| **Raw facts** | `state_build_failed` (§5); agent crash (§6); selection stage / fallback reason; own invalid choice (§7); room-scoped server error (§7) | Own seat only |
 | **Derivation** | `is_degraded_decision()` / `classify_live_outcome()` | Existing functions, unchanged — this slice adds no new definition |
 | **Aggregation** | Own per-battle counters | **Never mixed with another seat.** No `hero_`/`villain_` field names on this path |
 | **Transport** | `SelectionStageSink` | Already an explicit optional sink parameter |
-| **Persistence** | Structured decision-profile rows + a battle-completion record | Under `logs/` |
+| **Persistence** | `live-degradation-v1` — see §8 | **Not** the decision-profile schema |
 
-## 5. Battle boundaries
+## 5. `state_build_failed` is narrower than `state is None`
 
-Taken from the real loop in `runner.py::_run_battle_loop`, not assumed:
+In `handle_battle_message`, `state` ends up `None` in **three** distinct situations, and only
+one of them is degradation:
+
+| Situation | `state is None` | Degradation? |
+|---|---|---|
+| `book is None` (format unsupported, e.g. a random format) | yes | **no** — the state path was never entered |
+| `req.team_preview` | yes | **no** — deliberately skipped |
+| The build was attempted and raised | yes | **yes** |
+
+The raw fact is therefore `state_build_failed`: *the build was attempted and failed*. It is
+recorded only on the third branch and must not be derived from `state is None`.
+
+The gauntlet already scopes this — it guards with `not req.team_preview and self.agent in
+_DEGRADABLE_AGENTS` before passing `state_degraded=(state is None)` (`gauntlet.py:885-889`).
+The live path needs the same scoping **plus** the `book is None` exclusion, which the gauntlet
+does not need because it always has a book.
+
+**Consequence for `run_smoke_battle`:** it searches `gen9randomdoublesbattle`, for which
+`_get_book` returns `None`. Every smoke decision therefore has `state is None` while nothing is
+degraded. A naive rule would report smoke as 100 % degraded. Smoke runs record the
+`book_absent` condition and take the no-state path; they do **not** emit `state_build_failed`,
+and a smoke record must never be read as a degradation measurement of the heuristic path.
+
+## 6. Agent crash
+
+"Agent crash" means an exception escaping the chooser call for **this** decision, caught at the
+recording boundary, after which the runner still returns a legal action. It is recorded with
+the exception type; it is not a process crash and not a connection error. A process crash is
+covered by §9, not here.
+
+## 7. `|error|` and the invalid-choice PM
+
+These are two different things and must not be conflated:
+
+- **`|error|` in a battle room** — recorded as a **room-scoped server error with its payload**,
+  attributed to that room. It is *not* automatically classified as an invalid choice: the
+  server sends `|error|` for several conditions, and pre-classifying at record time would bake
+  an interpretation into the raw layer. Classification, if any, belongs to the derivation layer
+  or to later analysis.
+- **A `pm` containing `Invalid choice`** — carries **no room**. The loop fans out
+  `_send_default_choose` to *every* active battle precisely because it cannot tell which battle
+  the PM refers to. It is therefore **unattributable in general** and is recorded as a
+  run-scoped event, never assigned to a room. It may be attributed to a room only in the
+  degenerate case where exactly one battle is active at that moment, and the record must mark
+  that attribution as inferred.
+
+An earlier revision of this record said attribution "must be per room, not per event". That was
+wrong: per-room attribution is not available for the PM path.
+
+## 8. Artifact: `live-degradation-v1`, not the decision-profile schema
+
+The decision-profile schema is **closed** and produced by the gauntlet's own machinery, which
+supplies fields the ladder runner has no way to produce. Writing partial or improvised rows into
+it would corrupt a schema that frozen evidence and its validators depend on.
+
+This slice therefore defines its own artifact, under a run directory in `logs/`:
+
+| File | Content |
+|---|---|
+| `decisions.jsonl` | one row per decision — the raw facts of §4 for the runner's own seat |
+| `battles.jsonl` | one row per battle — own per-battle counters, plus how the battle ended (`win` / `tie` / `unterminated`) |
+| `completion.json` | run-level summary, **best-effort** — see §10 |
+
+Schema name `live-degradation-v1`, versioned independently of `decision-profile-v*`. Nothing in
+this slice writes to the decision-profile schema.
+
+## 9. Battle boundaries and exit paths
+
+Taken from `runner.py::_run_battle_loop`, not assumed:
 
 - **Start:** `|init|battle` → the room enters `active_battles`.
-- **End:** `|win|` or `|tie|` → `battles_finished += 1`, the room leaves `active_battles`, and
-  `_room_raw.pop(room)` discards the raw log. **The battle record must be flushed before that
-  pop**, which is the point where today's evidence is thrown away.
+- **End:** `|win|` or `|tie|` → the room leaves `active_battles` and `_room_raw.pop(room)`
+  discards the raw log. **The battle record must be flushed before that pop** — that pop is
+  where today's evidence is thrown away.
 - **Run end:** `battles_finished >= max_battles` → connection closed, count returned.
 
-**A battle can end without either event.** If the message stream ends — disconnect, server
-close, cancelled search — `_run_battle_loop` falls out of its `async for` and returns with
-rooms still in `active_battles`. Those battles have no terminal event, so any design that only
-flushes on `|win|`/`|tie|` silently loses precisely the battles most likely to have degraded.
-Unterminated rooms must be flushed on loop exit and marked as unterminated rather than
-completed.
+**A battle can end without either event, and not only by the stream running out.** Rooms may
+still be in `active_battles` when the loop exits via:
 
-Two further degradation paths already exist in the loop and are currently uncounted:
-`|error|` in a battle room, and a `pm` containing `Invalid choice` — both call
-`_send_default_choose`. The second fans out to **every** active battle, so attribution must be
-per room, not per event.
+- the `async for` ending (disconnect, server close),
+- an exception — `_run_battle_loop` itself raises `RuntimeError` on the `not ladderable` and
+  `invalid team` popups, and any other exception propagates,
+- `asyncio.CancelledError` — cancellation is not an exception the loop handles today.
 
-## 6. Write failures
+All three must flush the still-active rooms as `unterminated`. That requires a `finally`, not a
+post-loop statement: a post-loop flush is skipped on exactly the exception and cancellation
+paths where the evidence matters most. A design that flushes only on `|win|`/`|tie|` silently
+loses precisely the battles most likely to have degraded.
+
+## 10. Write failures, and what cannot be guaranteed
 
 **A write failure must never block a turn or a battle.** The runner plays real ladder games
 against a live server; a blocking write costs the game. Recording is buffered in memory during
-the battle and flushed at the boundaries in §5, inside a handler that cannot propagate into the
+the battle and flushed at the boundaries in §9, inside a handler that cannot propagate into the
 battle loop.
 
-**But a swallowed write failure is the same defect as no recording at all.** So:
+**But the failure record cannot be guaranteed by the writer that just failed.** An earlier
+revision said a flush failure "is itself recorded", which is circular — if the sink is
+unwritable, the record of that fact is unwritable too. The guarantee is therefore split:
 
-- A flush failure is itself recorded (in memory, and to the logger) and counted.
-- At run completion the runner **fails visibly and machine-checkably** if any flush failed —
-  a non-zero result and an explicit failure field in the run-completion record, not a warning
-  someone has to notice in a log.
+1. **In-memory counter + `logger.error`** — always available, independent of the sink.
+2. **`completion.json`** — best-effort. It may itself fail to write, and its absence is
+   meaningful, not neutral.
+3. **Process exit status** — the machine-checkable signal. If any flush failed, the run exits
+   non-zero. This does not depend on any file being writable and is what an automated caller
+   must key on.
 
-The asymmetry is deliberate: silent during play, loud at the end.
+A consumer must treat *"no `completion.json`"* and *"`completion.json` reporting failures"* as
+equivalent failure states, and must not infer success from the absence of a failure record.
 
-## 7. Non-goals
+**Remaining evidence limit, stated rather than papered over:** because a battle is buffered in
+memory until its boundary, a hard process termination — `SIGKILL`, power loss, an OOM kill —
+loses that battle's unflushed decisions entirely. No `finally` runs. This is the accepted
+residual gap of the buffered design; the alternative, appending per decision, was not chosen
+because it puts a filesystem write on the turn path. A future slice may revisit that trade;
+this record does not.
+
+## 11. Non-goals
 
 - No new degradation signals beyond the raw facts in §4.
 - No threshold changes.
 - No automatic abort on degradation. `_abort_on_degradation` checks four counters and stays
   narrower than what is recorded. **Recording and aborting are allowed to differ in breadth** —
   that is this slice's explicit non-goal, not a gap to be closed later by accident.
-- No strength claim, and no change to how any decision is chosen. This is a recording slice;
-  the choosing behaviour on the live path is untouched.
+- No strength claim, and no change to how any decision is chosen. This is a recording slice.
 
-## 8. What this authorises
+## 12. What this authorises
 
-A narrow wiring slice against the layered contract in §4, honouring the boundaries in §5 and
-the failure policy in §6. It does not authorise harmonising the two choosers (option C in the
-asymmetry audit), which remains a separate, unmade decision.
+A narrow wiring slice against §4, honouring §5–§10. It does not authorise harmonising the two
+choosers (option C in the asymmetry audit), which remains a separate, unmade decision.
