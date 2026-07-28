@@ -161,23 +161,38 @@ decision they do not belong to.
 
 | File | Grain | Required fields |
 |---|---|---|
-| `decisions.jsonl` | one decision | `schema_version`, `run_id`, `room_id`, `decision_seq`, `rqid`, `book_absent`, `team_preview`, `state_build_failed`, `selection_stage`, `fallback_reason`, `agent_crash_type`, `derivation_applicable`, `outcome` |
+| `decisions.jsonl` | one decision | `schema_version`, `run_id`, `room_id`, `decision_seq`, `rqid`, `book_absent`, `team_preview`, `state_build_failed`, `selection_stage`, `fallback_reason`, `agent_crash_type`, `derivation_applicable`, **`is_degraded`**, `outcome` |
 | `events.jsonl` | one async event | `schema_version`, `run_id`, `event_type` (`server_error` \| `invalid_choice_pm`), `attribution` (`room` \| `inferred` \| `unattributed`), `room_id`, `payload`, `active_battle_count` |
-| `battles.jsonl` | one battle | `schema_version`, `run_id`, `room_id`, `decisions_total`, `decisions_not_applicable`, `state_build_failures`, `agent_crashes`, `fallback_decisions`, `own_invalid_choices`, `server_errors`, `end_reason` (`win` \| `tie` \| `unterminated`), `write_errors` |
+| `battles.jsonl` | one battle | `schema_version`, `run_id`, `room_id`, `decisions_total`, `decisions_not_applicable`, **`degraded_decisions`**, `state_build_failures`, `agent_crashes`, `fallback_decisions`, `own_invalid_choices`, `server_errors`, `end_reason` (`win` \| `tie` \| `unterminated`), `write_errors` |
 | `completion.json` | one run, best-effort | `schema_version`, `run_id`, `battles_finished`, `unterminated_rooms`, `write_errors_total`, `preflight_ok` |
 
-**Counter derivation** — each `battles.jsonl` counter is the count of that room's
-`decisions.jsonl` rows matching a stated predicate, so no counter can drift from the rows:
+**`is_degraded` — the canonical result, and it must be persisted.** `is_degraded_decision()`
+is the one function that answers this slice's actual question. Gating its *invocation* (§5.1)
+without recording its *result* would discard exactly the signal the slice exists to capture.
 
-| Counter | Predicate over the room's decision rows |
+| Field | Value |
 |---|---|
-| `decisions_total` | all rows |
-| `decisions_not_applicable` | `derivation_applicable == false` |
-| `state_build_failures` | `state_build_failed == true` |
-| `agent_crashes` | `agent_crash_type != null` |
-| `fallback_decisions` | `derivation_applicable == true` and `outcome == "fallback"` |
-| `own_invalid_choices` | own invalid-choice events attributed to this room |
-| `server_errors` | `events.jsonl` rows with `event_type == "server_error"` and `room_id` == this room |
+| `is_degraded` | the return value of `is_degraded_decision()` when `derivation_applicable == true`; **`null`** when it is `false` — never `false`, because "not asked" is not "not degraded" |
+
+**Counter derivation** — each `battles.jsonl` counter is the count of rows **from the source
+named for it**, matching a stated predicate. Not all counters come from `decisions.jsonl`; an
+earlier revision claimed they did, which was wrong for three of them.
+
+| Counter | Source | Predicate |
+|---|---|---|
+| `decisions_total` | `decisions.jsonl` | all rows for this room |
+| `decisions_not_applicable` | `decisions.jsonl` | `derivation_applicable == false` |
+| `degraded_decisions` | `decisions.jsonl` | `is_degraded == true` |
+| `state_build_failures` | `decisions.jsonl` | `state_build_failed == true` |
+| `agent_crashes` | `decisions.jsonl` | `agent_crash_type != null` |
+| `fallback_decisions` | `decisions.jsonl` | `derivation_applicable == true` and `outcome == "fallback"` |
+| `own_invalid_choices` | `events.jsonl` | `event_type == "invalid_choice_pm"` **and** `attribution == "inferred"` **and** `room_id` == this room |
+| `server_errors` | `events.jsonl` | `event_type == "server_error"` and `room_id` == this room |
+| `write_errors` | in-memory failure counter for this room's flushes | not derived from any row — the rows are precisely what could not be written |
+
+`attribution == "unattributed"` events stay **only** in the event stream and increment no battle
+counter (§8, attribution rule). `is_degraded == null` rows are counted by
+`decisions_not_applicable` and by nothing else.
 
 `decisions_not_applicable` is reported **separately and is never folded into any degradation
 counter** (§5.1). Events with `attribution == "unattributed"` contribute to **no** room counter
@@ -192,6 +207,7 @@ not exist — no sentinel strings, no empty strings:
 | `fallback_reason` | the decision did not fall back |
 | `agent_crash_type` | no exception escaped the chooser |
 | `room_id` | and only when `attribution == "unattributed"` |
+| `is_degraded` | `derivation_applicable == false` — the question was not asked |
 | `outcome` | never — it is `"not_applicable"` when the gate is false |
 
 **Join keys:** `run_id` across all four; `(run_id, room_id)` joins `decisions` and `events` to
