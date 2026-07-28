@@ -241,8 +241,23 @@ all end the process non-zero for their own reasons, and this record does not cha
 the recorder mask any of them (§10.3). The rule added here is only the **additional** recorder-based
 status **on the normal-return path**:
 
-> When a run returns normally, the process exits non-zero if and only if the conjunction above is
-> false at the moment `completion.json` is serialised.
+> On the normal-return path, **after all finalisation attempts — including the completion write —
+> and immediately before the recorder-derived status is evaluated**, the process exits non-zero if
+> and only if any in-memory error counter is non-zero.
+
+**The two moments are deliberately different, and that difference is the whole taxonomy.** An
+earlier revision of this amendment pinned the rule to the moment `completion.json` is serialised,
+which made it contradict the persistence limit it sits next to. Walk the refused-second-write case:
+
+1. the payload is serialised — the counters are three zeros, and that is what reaches the file;
+2. the write fails or is refused;
+3. `write_errors_total` is incremented **in memory**;
+4. the status check runs afterwards and yields non-zero.
+
+A rule tied to step 1 would demand exit `0` for a run that just lost its completion write. The
+status is therefore evaluated **last**, over the in-memory counters, while the **persisted snapshot
+remains the earlier state from step 1** — it cannot be otherwise, since the file was already
+written or already refused. That temporal gap is exactly why row 2 of the taxonomy exists.
 
 A non-zero exit therefore means "the run failed, possibly at recording"; it never means "recording
 failed" on its own, and a clean snapshot never upgrades it to success.
@@ -448,8 +463,11 @@ is unwritable, the record of that fact is unwritable too. The guarantee is split
    case the only contractually guaranteed machine-checkable one outside the unchanged file.
    Item 1's `logger.error` still fires there; it is simply not a machine contract — nothing in
    this record guarantees the log is retained, parseable or even enabled. On the normal-return
-   path the run exits non-zero if and only if one of the three counters is non-zero. This is an
-   **additional** condition, not a definition of the
+   path, **after all finalisation attempts including the completion write, and immediately before
+   the recorder-derived status is evaluated**, the run exits non-zero if and only if any in-memory
+   counter is non-zero — §8.0 states this rule authoritatively and explains why it is evaluated
+   last rather than at serialisation time. This is an **additional** condition, not a definition
+   of the
    exit status: a propagated runner exception, a cancellation and a `KeyboardInterrupt` produce
    their own non-zero exits, and the recorder must not mask, replace or suppress any of them —
    whatever ended the run keeps its own status. Exit status depends on no file being writable,
