@@ -1,6 +1,9 @@
 # Live-path degradation recording: always-on, own-seat only, off the turn path
 
 **Status:** DECIDED — written before the implementation it authorises.
+**Amended:** 2026-07-29, §8.0 — `completion.json` gains `schema_errors_total` and
+`recorder_errors_total`, and success is defined as all three error counters at zero. Still before
+the implementation: no code exists yet, so nothing frozen is recalculated by this amendment.
 **Date:** 2026-07-28
 **Scope:** `showdown_bot/src/showdown_bot/client/runner.py` — `run_ladder_search`,
 `run_challenge`, `run_smoke_battle`. See §3 for what `run_smoke_battle` may and may not record.
@@ -164,7 +167,63 @@ decision they do not belong to.
 | `decisions.jsonl` | one decision | `schema_version`, `run_id`, `room_id`, `decision_seq`, `rqid`, `book_absent`, `team_preview`, `state_build_failed`, `selection_stage`, `fallback_reason`, `agent_crash_type`, `derivation_applicable`, **`is_degraded`**, `outcome` |
 | `events.jsonl` | one async event | `schema_version`, `run_id`, `event_type` (`server_error` \| `invalid_choice_pm`), `attribution` (`room` \| `inferred` \| `unattributed`), `room_id`, `payload`, `active_battle_count` |
 | `battles.jsonl` | one battle | `schema_version`, `run_id`, `room_id`, `decisions_total`, `decisions_not_applicable`, **`degraded_decisions`**, `state_build_failures`, `agent_crashes`, `fallback_decisions`, `own_invalid_choices`, `server_errors`, `end_reason` (`win` \| `tie` \| `unterminated`), `write_errors` |
-| `completion.json` | one run, best-effort | `schema_version`, `run_id`, `battles_finished`, `unterminated_rooms`, `write_errors_total`, `preflight_ok` |
+| `completion.json` | one run, best-effort | `schema_version`, `run_id`, `battles_finished`, `unterminated_rooms`, **`write_errors_total`**, **`schema_errors_total`**, **`recorder_errors_total`**, `preflight_ok` |
+
+### 8.0 Amendment 2026-07-29 — the three error counters, and why two were added
+
+The original six-field `completion.json` carried only `write_errors_total`. That left a hole the
+implementation plan discovered and could not close on its own: a run whose recording failed for a
+**non-write** reason would write a `completion.json` that reads permanently clean —
+`write_errors_total: 0`, `preflight_ok: true` — while the process exited non-zero. Two such
+reasons exist and both are real:
+
+- a **validator rejection**, when a row this module built does not satisfy the schema it declares;
+- a **recorder failure** at a call site, when something escapes a `record_*`/`flush_*` call and the
+  guard that exists to keep it out of the battle loop swallows it (§10.2, and the rule that a
+  recorder failure must never prevent an already-chosen action being sent).
+
+**An exit code and a log line are not a substitute for the persisted evidence artifact.** This
+slice exists precisely because evidence that is not written down is evidence that is lost; leaving
+two of three failure modes out of the only per-run artifact would reproduce that error inside the
+fix for it. The three counters are therefore persisted:
+
+| Field | Counts |
+|---|---|
+| `write_errors_total` | failed appends/writes across the whole run, including the completion write itself when it is retried or refused |
+| `schema_errors_total` | rows rejected by `validate_decision_row` / `validate_event_row` / `validate_battle_row` / `validate_completion_row` |
+| `recorder_errors_total` | anything that escaped a `record_*`/`flush_*` call and was caught by the call-site guard |
+
+**Definition of a successfully recorded run — the only one.** It is *derived by the consumer* from
+the three persisted counters; it is not itself a stored field:
+
+```
+write_errors_total == 0 and schema_errors_total == 0 and recorder_errors_total == 0
+```
+
+The process exit status is non-zero exactly when that expression is false.
+
+**There is deliberately no `recording_ok` boolean field.** A stored boolean is a second
+representation of the same fact, and a second representation can disagree with the first. A
+consumer computes the conjunction above from the three counters; that cannot drift, because there
+is nothing to drift from.
+
+**`completion.json` is validated like the three JSONL grains, not exempt from them.** The closed
+contract of §8 covers it: `validate_completion_row()` checks field set **and order**, types
+(`bool` is not an integer counter), non-negativity, and the two invariants below. Mutation tests
+prove each rule can fail, exactly as for the other three grains.
+
+| Field | Rule |
+|---|---|
+| `schema_version` | the literal `"live-degradation-v1"` |
+| `run_id` | non-empty string, equal to the `run_id` of every row in the same directory |
+| `battles_finished` | non-negative int; `bool` rejected |
+| `unterminated_rooms` | list of non-empty strings, no duplicates |
+| `write_errors_total`, `schema_errors_total`, `recorder_errors_total` | non-negative ints; `bool` rejected |
+| `preflight_ok` | must be `true`. The file can only be written after preflight succeeded (§10.1), so `false` here is a defect, not a state |
+
+**The absence rule of §10.3 is unchanged and still primary:** a missing `completion.json` and a
+`completion.json` reporting non-zero counters are equivalent failure states, and success is never
+inferred from the absence of a failure record.
 
 **`is_degraded` — the canonical result, and it must be persisted.** `is_degraded_decision()`
 is the one function that answers this slice's actual question. Gating its *invocation* (§5.1)
@@ -301,11 +360,16 @@ The precise contract:
 An earlier revision said a flush failure "is itself recorded", which is circular — if the sink
 is unwritable, the record of that fact is unwritable too. The guarantee is split:
 
-1. **In-memory counter + `logger.error`** — always available, independent of the sink.
-2. **`completion.json`** — best-effort. It may itself fail to write, and its absence is
-   meaningful, not neutral.
-3. **Process exit status** — the machine-checkable signal. If any flush failed, the run exits
-   non-zero. This depends on no file being writable and is what an automated caller keys on.
+1. **In-memory counters + `logger.error`** — always available, independent of the sink. All three
+   counters of §8.0 (`write_errors_total`, `schema_errors_total`, `recorder_errors_total`), not
+   the write counter alone.
+2. **`completion.json`** — best-effort, and it **persists all three counters** (§8.0). It may
+   itself fail to write, and its absence is meaningful, not neutral. What it must never do is
+   read clean while one of the other two counters is non-zero — that was the hole §8.0 closes.
+3. **Process exit status** — the machine-checkable signal. The run exits non-zero exactly when any
+   of the three counters is non-zero. This depends on no file being writable and is what an
+   automated caller keys on. It is the *last* line of defence, not the only one: an exit code is
+   not persisted evidence and does not survive the process.
 
 A consumer must treat *"no `completion.json`"* and *"`completion.json` reporting failures"* as
 equivalent failure states, and must never infer success from the absence of a failure record.
