@@ -226,14 +226,39 @@ def test_every_raw_byte_hashed_provenance_input_is_lf_on_disk():
     )
 
 
-def _eol_attributes(root: Path, paths: list[str]) -> dict[str, str]:
-    """The `eol` attribute git would apply per path. Empty string when unset."""
-    import subprocess
+def _committed_eol_attributes(root: Path, paths: list[str]) -> dict[str, str]:
+    """The `eol` attribute the COMMITTED .gitattributes alone would apply.
 
-    proc = subprocess.run(
-        ["git", "check-attr", "eol", "--", *paths],
+    Deliberately not a plain ``git check-attr``. Per gitattributes(5), git layers several
+    attribute sources -- the worktree .gitattributes, ``$GIT_DIR/info/attributes`` and
+    ``core.attributesFile`` -- and ``check-attr`` reports the merged, effective answer.
+    ``--source=<tree-ish>`` swaps only the tree source; ``info/attributes`` still applies.
+    Measured: a rule written solely into ``.git/info/attributes`` makes ``check-attr``
+    (with and without ``--source``) report ``eol: lf`` for a path the committed file does
+    not cover at all.
+
+    That would defeat this check's whole purpose -- it would go green on a machine holding
+    a local override while a fresh clone forks. So evaluate hermetically: materialise the
+    committed .gitattributes into a throwaway repo with no info/attributes and the global
+    attributes file neutralised, and ask there. Paths need not exist; check-attr matches on
+    the name."""
+    import subprocess
+    import tempfile
+
+    blob = subprocess.run(
+        ["git", "show", "HEAD:.gitattributes"],
         cwd=root, capture_output=True, text=True, check=True,
-    )
+    ).stdout
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        (tmp_path / ".gitattributes").write_text(blob, encoding="utf-8", newline="")
+        empty = tmp_path / "empty-attrs"
+        empty.write_text("", encoding="utf-8")
+        subprocess.run(["git", "init", "-q", "."], cwd=tmp, check=True, capture_output=True)
+        proc = subprocess.run(
+            ["git", "-c", f"core.attributesFile={empty}", "check-attr", "eol", "--", *paths],
+            cwd=tmp, capture_output=True, text=True, check=True,
+        )
     attrs: dict[str, str] = {}
     for line in proc.stdout.splitlines():
         # format: "<path>: eol: <value>"; repo paths carry no ": " so rsplit is safe.
@@ -251,7 +276,10 @@ def test_every_raw_byte_hashed_provenance_input_has_eol_lf_attribute():
     fixes. This test isolates the first: every raw-byte-hashed input must carry
     `eol=lf`, so a FRESH clone on any platform materialises LF regardless of
     core.autocrlf. A new provenance input added without a rule fails here even when
-    the author's own disk happens to look fine."""
+    the author's own disk happens to look fine.
+
+    Evaluated against the COMMITTED .gitattributes only -- see
+    ``_committed_eol_attributes`` for why a plain ``git check-attr`` would not do."""
     root = _repo_root()
     paths = []
     for pattern in _RAW_BYTE_HASHED_GLOBS:
@@ -261,7 +289,7 @@ def test_every_raw_byte_hashed_provenance_input_has_eol_lf_attribute():
             if p.is_file()
         ]
     assert len(paths) >= 20, f"glob set matched only {len(paths)} files -- did paths move?"
-    attrs = _eol_attributes(root, paths)
+    attrs = _committed_eol_attributes(root, paths)
     missing = sorted(p for p in paths if attrs.get(p) != "lf")
     assert not missing, (
         "these raw-byte-hashed provenance inputs have no `eol=lf` .gitattributes rule, so "
