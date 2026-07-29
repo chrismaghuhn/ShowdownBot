@@ -563,10 +563,15 @@ def test_a_keyboard_interrupt_is_never_masked(monkeypatch):
         cli._run_live(_interrupted())
 
 
-def test_run_live_contains_no_exception_handler_at_all():
-    """The non-masking property is structural, not behavioural: if _run_live ever grows a
-    try/except, some future exception WILL be swallowed and these tests would not
-    necessarily notice. Assert the absence directly."""
+def test_run_live_contains_no_except_handler():
+    """The non-masking property is structural, not behavioural: if _run_live ever grows an
+    `except`, some future exception WILL be swallowed and the behavioural tests below would not
+    necessarily notice, since they only cover the four cases someone thought of.
+
+    Only ExceptHandler is forbidden, deliberately. A bare `try/finally` catches and masks
+    nothing -- an exception passing through it still propagates -- so banning ast.Try as well
+    would forbid a construct the contract permits. The rule is 'no exception handlers', not 'no
+    try statements'."""
     import ast
     import inspect
     import textwrap
@@ -574,8 +579,8 @@ def test_run_live_contains_no_exception_handler_at_all():
     from showdown_bot import cli
 
     tree = ast.parse(textwrap.dedent(inspect.getsource(cli._run_live)))
-    handlers = [n for n in ast.walk(tree) if isinstance(n, (ast.Try, ast.ExceptHandler))]
-    assert handlers == [], "_run_live must contain no exception handling (section 10.3)"
+    handlers = [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]
+    assert handlers == [], "_run_live must contain no except handler (section 10.3)"
 
 
 def test_main_routes_all_three_live_commands_through_run_live():
