@@ -477,18 +477,38 @@ DECISION_MUTATIONS = [
     ("is_degraded_false_on_a_fallback_stage",
      _mutate(VALID_DECISION, selection_stage="max_damage_fallback",
              fallback_reason="heuristic_timeout", is_degraded=False, outcome="fallback")),
+    ("reason_less_default_pair_without_a_failed_state_build",
+     _mutate(VALID_DECISION, selection_stage="deterministic_default_pair",
+             fallback_reason=None, state_build_failed=False, is_degraded=True,
+             outcome="fallback")),
 ]
 
 
-def test_deterministic_default_pair_may_carry_no_reason():
-    """The counterpart to the two mutations above, and the reason
-    STAGES_REQUIRING_A_REASON names only two of the three fallback stages: on the
-    state-is-None path choose_with_fallback skips both earlier blocks and marks this stage
-    with fallback_reason still None. A blanket 'every fallback stage needs a reason' rule
-    would reject a row the runner legitimately produces."""
+def test_deterministic_default_pair_may_carry_no_reason_on_the_degraded_state_path():
+    """The counterpart to the mutation directly above, and the reason
+    STAGES_REQUIRING_A_REASON names only two of the three fallback stages.
+
+    The stage has exactly two routes and the reason distinguishes them: max_damage_choice
+    raising sets "max_damage_error" and the state was built, while the state-is-None path
+    leaves the reason unset. With the gate true, `state is None` can only mean the build was
+    attempted and failed -- so the reason-less row necessarily carries state_build_failed=True,
+    and state dominance makes its outcome "degraded_state", not "fallback".
+
+    An earlier revision of this test asserted the reason-less row with state_build_failed=False
+    and outcome="fallback". That row cannot occur, and enshrining it as the positive case was
+    worse than having no positive case at all.
+    """
     validate_decision_row(_mutate(
         VALID_DECISION, selection_stage="deterministic_default_pair", fallback_reason=None,
-        is_degraded=True, outcome="fallback"))
+        state_build_failed=True, is_degraded=True, outcome="degraded_state"))
+
+
+def test_deterministic_default_pair_with_its_reason_is_a_plain_fallback():
+    """The other route: the state WAS built, max_damage_choice raised, so the reason is set and
+    the outcome is an ordinary fallback."""
+    validate_decision_row(_mutate(
+        VALID_DECISION, selection_stage="deterministic_default_pair",
+        fallback_reason="max_damage_error", is_degraded=True, outcome="fallback"))
 
 
 @pytest.mark.parametrize("label,row", DECISION_MUTATIONS, ids=[m[0] for m in DECISION_MUTATIONS])
@@ -830,6 +850,19 @@ def _validate_stage_outcome_reason(row: dict, what: str) -> None:
             f"{what}: selection_stage={stage!r} is unreachable without a fallback_reason -- "
             f"see STAGES_REQUIRING_A_REASON"
         )
+    elif stage == "deterministic_default_pair" and not row["state_build_failed"]:
+        # This stage has exactly two routes, and the reason distinguishes them:
+        #   max_damage_choice raised  -> fallback_reason="max_damage_error", state was built
+        #   state is None             -> fallback_reason stays None
+        # With the gate true, `state is None` can ONLY mean the build was attempted and failed
+        # (handle_battle_message enters the try solely when a book exists and it is not team
+        # preview), so a reason-less row here without state_build_failed describes a path that
+        # does not exist.
+        raise SchemaError(
+            f"{what}: selection_stage='deterministic_default_pair' with fallback_reason=None is "
+            f"only reachable on the state-is-None path, which with the gate true requires "
+            f"state_build_failed=True; the max_damage_error route sets a reason"
+        )
 
     # Outcome agreement, in dominance order -- the same order both derivations use.
     outcome = row["outcome"]
@@ -1004,7 +1037,7 @@ def validate_battle_row(row: dict) -> None:
         )
 ```
 
-- [ ] **Step 4: Run, expect 8 + 1 + 36 + 13 + 10 + 15 + 1 + 20 + 1 + 1 = 106 passed**
+- [ ] **Step 4: Run, expect 8 + 1 + 37 + 13 + 10 + 15 + 1 + 20 + 1 + 2 = 108 passed**
 
 The generic grid (5 rules × 4 grains = 20) deliberately overlaps three entries in
 `DECISION_MUTATIONS` and two in `COMPLETION_MUTATIONS`. The per-grain lists stay complete and
@@ -1315,7 +1348,7 @@ class LiveDegradationRecorder:
         return cls(run_dir, run_id)
 ```
 
-- [ ] **Step 4: Run, expect 10 more passing (118 total in this file: 106 from Task 2, 2 from Task 3)**
+- [ ] **Step 4: Run, expect 10 more passing (120 total in this file: 108 from Task 2, 2 from Task 3)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1543,7 +1576,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return row
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (130 total in this file)**
+- [ ] **Step 4: Run, expect 12 more passing (132 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1665,7 +1698,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return ev
 ```
 
-- [ ] **Step 4: Run, expect 7 more passing (137 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 7 more passing (139 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1790,7 +1823,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         }
 ```
 
-- [ ] **Step 4: Run, expect 5 more passing (142 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 5 more passing (144 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -2203,7 +2236,7 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
                      or self.recorder_errors_total) else 0
 ```
 
-- [ ] **Step 4: Run, expect 15 more passing (157 total in this file)**
+- [ ] **Step 4: Run, expect 15 more passing (159 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
