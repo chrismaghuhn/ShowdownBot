@@ -596,3 +596,191 @@ def test_the_override_is_the_only_environment_read_in_the_module():
     assert text.count("os.environ") == 1
     assert "os.environ.get(DIR_ENV)" in text
     assert 'DIR_ENV = "SHOWDOWN_LIVE_DEGRADATION_DIR"' in text
+
+
+def _record_clean(rec, room="battle-x-1", rqid=1):
+    return rec.record_decision(
+        room_id=room, rqid=rqid, book_absent=False, team_preview=False,
+        state_build_failed=False, selection_stage="heuristic",
+        fallback_reason=None, agent_crash_type=None)
+
+
+def test_gate_false_for_book_absent_records_not_applicable(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=3, book_absent=True, team_preview=False,
+        state_build_failed=False, selection_stage=None, fallback_reason=None,
+        agent_crash_type=None)
+    assert row["derivation_applicable"] is False
+    assert row["is_degraded"] is None       # NOT False -- "not asked" != "not degraded"
+    assert row["outcome"] == "not_applicable"
+
+
+def test_gate_false_for_team_preview(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=1, book_absent=False, team_preview=True,
+        state_build_failed=False, selection_stage=None, fallback_reason=None,
+        agent_crash_type=None)
+    assert row["is_degraded"] is None and row["outcome"] == "not_applicable"
+
+
+def test_gate_false_normalises_stage_and_reason_to_none(tmp_path):
+    """choose_with_fallback marks 'team_preview' on the preview path, and the caller passes
+    whatever the sink holds. The gate-false branch must NULL both fields rather than carry a
+    stage the derivation was never asked about (section 8 null rules)."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=1, book_absent=False, team_preview=True,
+        state_build_failed=False, selection_stage="team_preview",
+        fallback_reason="heuristic_timeout", agent_crash_type=None)
+    assert row["selection_stage"] is None
+    assert row["fallback_reason"] is None
+
+
+def test_gate_true_clean_decision(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = _record_clean(rec, rqid=5)
+    assert row["derivation_applicable"] is True
+    assert row["is_degraded"] is False
+    assert row["outcome"] == "ok"
+
+
+def test_state_build_failure_is_degraded_with_the_stage_it_really_gets(tmp_path):
+    """When the state build fails, choose_with_fallback skips both the heuristic and the
+    max_damage layer (both require `state is not None`) and lands on
+    deterministic_default_pair. state_degraded DOMINATES that stage in both derivations."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=6, book_absent=False, team_preview=False,
+        state_build_failed=True, selection_stage="deterministic_default_pair",
+        fallback_reason=None, agent_crash_type=None)
+    assert row["is_degraded"] is True
+    assert row["outcome"] == "degraded_state"
+
+
+def test_fallback_stage_is_degraded_and_classified_fallback(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=7, book_absent=False, team_preview=False,
+        state_build_failed=False, selection_stage="max_damage_fallback",
+        fallback_reason="heuristic_timeout", agent_crash_type=None)
+    assert row["is_degraded"] is True and row["outcome"] == "fallback"
+
+
+def test_crash_dominates_the_stage(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=8, book_absent=False, team_preview=False,
+        state_build_failed=False, selection_stage="heuristic", fallback_reason=None,
+        agent_crash_type="ValueError")
+    assert row["is_degraded"] is True and row["outcome"] == "crash"
+
+
+def test_crash_on_the_book_absent_path_stays_not_applicable(tmp_path):
+    """A smoke crash has the gate FALSE: neither derivation is called, so is_degraded stays
+    null. This is why agent_crashes is not bounded by degraded_decisions."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    row = rec.record_decision(
+        room_id="battle-x-1", rqid=9, book_absent=True, team_preview=False,
+        state_build_failed=False, selection_stage=None, fallback_reason=None,
+        agent_crash_type="KeyError")
+    assert row["is_degraded"] is None and row["outcome"] == "not_applicable"
+
+
+def test_decision_seq_is_zero_based_and_separate_per_room(tmp_path):
+    """Exactly [0, 1, 0, 2] -- zero-based, and each room counts on its own. 'Monotonic' would
+    be a weaker claim that [3, 7, 0, 9] would also satisfy."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    seqs = [
+        _record_clean(rec, room=r, rqid=i)["decision_seq"]
+        for r, i in (("a", 1), ("a", 2), ("b", 1), ("a", 3))
+    ]
+    assert seqs == [0, 1, 0, 2]
+
+
+def test_row_has_exactly_the_declared_fields_in_order(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    assert tuple(_record_clean(rec)) == DECISION_FIELDS
+
+
+def test_every_recorded_decision_validates(tmp_path):
+    """Not a restatement of the validator: this proves the rows record_decision actually BUILDS
+    satisfy it, which is a different claim from the hand-written fixtures in the mutation tests."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rows = [
+        _record_clean(rec, rqid=1),
+        rec.record_decision(room_id="battle-x-1", rqid=2, book_absent=True,
+                            team_preview=False, state_build_failed=False,
+                            selection_stage=None, fallback_reason=None,
+                            agent_crash_type=None),
+        rec.record_decision(room_id="battle-x-1", rqid=3, book_absent=False,
+                            team_preview=False, state_build_failed=True,
+                            selection_stage="deterministic_default_pair",
+                            fallback_reason=None, agent_crash_type=None),
+        rec.record_decision(room_id="battle-x-1", rqid=4, book_absent=False,
+                            team_preview=False, state_build_failed=False,
+                            selection_stage="server_default",
+                            fallback_reason="default_pair_error", agent_crash_type=None),
+    ]
+    for row in rows:
+        validate_decision_row(dict(row))
+    assert rec.schema_errors_total == 0
+    assert len(rec._decisions["battle-x-1"]) == 4
+
+
+def test_an_invalid_row_is_counted_and_not_buffered(tmp_path, monkeypatch):
+    """The validator is a DEFECT signal. If it fires the row is refused rather than written into
+    a file consumers are told is schema-valid, the failure is counted, and the recorder status
+    goes faulty. It never propagates (C11)."""
+    def _reject(row):
+        raise SchemaError("forced [test]: injected")
+
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation.validate_decision_row", _reject)
+    _record_clean(rec)
+    assert rec.schema_errors_total == 1
+    assert rec._decisions.get("battle-x-1", []) == []
+    assert rec.exit_status() != 0
+
+
+def test_a_refused_row_does_not_consume_a_sequence_number(tmp_path, monkeypatch):
+    """decision_seq indexes what was BUFFERED. A refused row must not leave a gap, or a reader
+    would take the gap for a lost decision."""
+    calls = {"n": 0}
+    real = None
+
+    def _reject_first(row):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise SchemaError("forced [test]: injected")
+        return real(row)
+
+    import showdown_bot.client.live_degradation as mod
+    real = mod.validate_decision_row
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    monkeypatch.setattr(mod, "validate_decision_row", _reject_first)
+    _record_clean(rec, rqid=1)
+    row = _record_clean(rec, rqid=2)
+    assert row["decision_seq"] == 0
+
+
+def test_the_stage_vocabulary_of_choose_with_fallback_is_fully_classifiable():
+    """classify_live_outcome RAISES on an unknown stage. That raise is unreachable here only
+    because every stage choose_with_fallback can mark is either an intended-completion stage, a
+    known fallback stage, or team_preview -- which the 5.1 gate excludes. This turns that
+    assumption into a checked invariant: if a future stage is added to battle/decision.py without
+    extending the vocabulary, THIS fails rather than a live run."""
+    from pathlib import Path
+
+    from showdown_bot.eval.decision_profile import LIVE_FALLBACK_STAGES, LIVE_OK_STAGE
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src" / "showdown_bot" / "battle" / "decision.py"
+    ).read_text(encoding="utf-8")
+    marked = set(re.findall(r'_mark_selection\(\s*trace,\s*"([a-z_]+)"', source))
+    assert marked, "no _mark_selection call sites found -- the regex needs updating"
+    classifiable = {LIVE_OK_STAGE, *LIVE_FALLBACK_STAGES, "team_preview"}
+    assert marked <= classifiable, f"unclassifiable stages: {sorted(marked - classifiable)}"

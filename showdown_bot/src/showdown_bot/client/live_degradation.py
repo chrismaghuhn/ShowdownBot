@@ -22,6 +22,7 @@ from showdown_bot.eval.decision_profile import (
     LIVE_FALLBACK_STAGES,
     LIVE_OK_STAGE,
     STAGE_ALLOWED_REASONS,
+    classify_live_outcome,
     is_degraded_decision,
 )
 
@@ -533,3 +534,70 @@ class LiveDegradationRecorder:
         except OSError as exc:
             _preflight_fail("probe", f"writer probe failed in {run_dir}: {exc}", exc)
         return cls(run_dir, run_id)
+
+    def exit_status(self) -> int:
+        """The recorder-derived process status (section 10.3).
+
+        Brought forward from Task 8 because Task 5's own merged test asserts on it: a refused row
+        must make the recorder status faulty, and that IS this value. It is a pure read of the
+        three counters section 8.0 persists, all of which already exist.
+
+        Scope, stated narrowly: this is the ADDITIONAL status on the normal-return path, read
+        after every finalisation attempt. A propagated exception, a cancellation or a
+        KeyboardInterrupt keeps its own status and must never be masked by this value.
+        """
+        return 1 if (self.write_errors_total or self.schema_errors_total
+                     or self.recorder_errors_total) else 0
+
+    def record_decision(
+        self, *, room_id: str, rqid: int | None, book_absent: bool, team_preview: bool,
+        state_build_failed: bool, selection_stage: str | None, fallback_reason: str | None,
+        agent_crash_type: str | None,
+    ) -> dict:
+        """Build, validate and buffer one decision row.
+
+        NO filesystem access here (C1). Validation is pure field checking -- it touches no file,
+        so it does not violate C1, and it catches a malformed row while the offending inputs are
+        still in scope instead of at a flush minutes later.
+
+        A refused row is NOT buffered and does NOT consume a decision_seq: that counter indexes
+        what was persisted, and a gap would read as a lost decision rather than a rejected one.
+        """
+        applicable = (not book_absent) and (not team_preview)
+        if applicable:
+            crashed = agent_crash_type is not None
+            is_degraded = is_degraded_decision(
+                crashed=crashed, state_degraded=state_build_failed,
+                selection_stage=selection_stage)
+            outcome = classify_live_outcome(
+                crashed=crashed, state_degraded=state_build_failed,
+                selection_stage=selection_stage)
+        else:
+            # Section 5.1: neither derivation is CALLED. Ungated, is_degraded_decision fails
+            # closed to True and classify_live_outcome RAISES -- both wrong on this path, where
+            # an absent stage is normal and innocent. Stage and reason are normalised to None
+            # because the sink may still hold "team_preview", and carrying a stage the derivation
+            # was never asked about would invite exactly the misreading section 5 warns about.
+            is_degraded = None
+            outcome = "not_applicable"
+            selection_stage = None
+            fallback_reason = None
+
+        seq = self._seq.get(room_id, 0)
+        row = {
+            "schema_version": SCHEMA_VERSION, "run_id": self.run_id, "room_id": room_id,
+            "decision_seq": seq, "rqid": rqid, "book_absent": book_absent,
+            "team_preview": team_preview, "state_build_failed": state_build_failed,
+            "selection_stage": selection_stage, "fallback_reason": fallback_reason,
+            "agent_crash_type": agent_crash_type, "derivation_applicable": applicable,
+            "is_degraded": is_degraded, "outcome": outcome,
+        }
+        try:
+            validate_decision_row(row)
+        except SchemaError as exc:
+            self.schema_errors_total += 1
+            logger.error("live-degradation rejected a decision row: %s | row=%r", exc, row)
+            return row
+        self._seq[room_id] = seq + 1
+        self._decisions.setdefault(room_id, []).append(row)
+        return row
