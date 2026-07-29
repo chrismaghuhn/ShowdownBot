@@ -27,3 +27,6 @@ data/datasets/**/*.jsonl
 # CWD of the runner). The showdown_bot/logs/ entry above does not cover the repo root, where the
 # ladder, challenge and smoke commands are run from.
 logs/live-degradation/
+
+# Raw per-battle protocol logs written by client/runner.py when live commands run from repo root.
+logs/battle-*.log
