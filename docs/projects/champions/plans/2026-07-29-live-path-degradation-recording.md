@@ -465,7 +465,30 @@ DECISION_MUTATIONS = [
              is_degraded=True, outcome="degraded_state")),
     ("stage_absent_without_a_crash",
      _mutate(VALID_DECISION, selection_stage=None, is_degraded=True, outcome="fallback")),
+    # --- reason and is_degraded bound to the stage ---
+    ("reason_missing_on_max_damage_fallback",
+     _mutate(VALID_DECISION, selection_stage="max_damage_fallback", fallback_reason=None,
+             is_degraded=True, outcome="fallback")),
+    ("reason_missing_on_server_default",
+     _mutate(VALID_DECISION, selection_stage="server_default", fallback_reason=None,
+             is_degraded=True, outcome="fallback")),
+    ("is_degraded_true_on_a_clean_heuristic_decision",
+     _mutate(VALID_DECISION, is_degraded=True)),
+    ("is_degraded_false_on_a_fallback_stage",
+     _mutate(VALID_DECISION, selection_stage="max_damage_fallback",
+             fallback_reason="heuristic_timeout", is_degraded=False, outcome="fallback")),
 ]
+
+
+def test_deterministic_default_pair_may_carry_no_reason():
+    """The counterpart to the two mutations above, and the reason
+    STAGES_REQUIRING_A_REASON names only two of the three fallback stages: on the
+    state-is-None path choose_with_fallback skips both earlier blocks and marks this stage
+    with fallback_reason still None. A blanket 'every fallback stage needs a reason' rule
+    would reject a row the runner legitimately produces."""
+    validate_decision_row(_mutate(
+        VALID_DECISION, selection_stage="deterministic_default_pair", fallback_reason=None,
+        is_degraded=True, outcome="fallback"))
 
 
 @pytest.mark.parametrize("label,row", DECISION_MUTATIONS, ids=[m[0] for m in DECISION_MUTATIONS])
@@ -622,6 +645,18 @@ from showdown_bot.eval.decision_profile import (
 # "team_preview" is deliberately absent -- the 5.1 gate excludes it before the derivation runs --
 # and so are the BASELINE_* stages, which only the gauntlet's max_damage arm emits.
 LIVE_STAGES = frozenset({LIVE_OK_STAGE}) | LIVE_FALLBACK_STAGES
+
+# Fallback stages that CANNOT be reached with fallback_reason=None, read off
+# choose_with_fallback's control flow rather than guessed:
+#   max_damage_fallback -- only reachable after the heuristic block ran and failed, which is the
+#     one place heuristic_timeout/heuristic_error are set. If the heuristic block was skipped
+#     (no state, no book) the max_damage branch is skipped by the same condition, so this stage
+#     is never marked with the reason still unset.
+#   server_default      -- marked literally as
+#     _mark_selection(trace, "server_default", "default_pair_error", stage_sink=stage_sink).
+# deterministic_default_pair is deliberately NOT here: on the state-is-None path both blocks
+# above are skipped and it is marked with the reason still None, which is legitimate.
+STAGES_REQUIRING_A_REASON = frozenset({"max_damage_fallback", "server_default"})
 
 
 class SchemaError(ValueError):
@@ -790,6 +825,11 @@ def _validate_stage_outcome_reason(row: dict, what: str) -> None:
                 f"{what}: fallback_reason={reason!r} is not permitted on "
                 f"selection_stage={stage!r}; allowed: {sorted(allowed) or 'none'}"
             )
+    elif stage in STAGES_REQUIRING_A_REASON:
+        raise SchemaError(
+            f"{what}: selection_stage={stage!r} is unreachable without a fallback_reason -- "
+            f"see STAGES_REQUIRING_A_REASON"
+        )
 
     # Outcome agreement, in dominance order -- the same order both derivations use.
     outcome = row["outcome"]
@@ -822,6 +862,31 @@ def _validate_stage_outcome_reason(row: dict, what: str) -> None:
     if outcome == "degraded_state":
         raise SchemaError(
             f"{what}: outcome='degraded_state' requires state_build_failed=True")
+
+    _require_is_degraded_matches_the_derivation(row, what, crashed=crashed, stage=stage)
+
+
+def _require_is_degraded_matches_the_derivation(
+    row: dict, what: str, *, crashed: bool, stage: str | None,
+) -> None:
+    """`is_degraded` must BE the derivation's answer, not merely a plausible boolean.
+
+    Nothing above pins it: with the gate true the field only had to be a bool, so a fallback
+    stage could carry is_degraded=False and a clean heuristic decision could carry True -- the
+    two rows a reader would most want to trust. Recomputing is exact and cannot drift, because it
+    calls the same function `record_decision` calls rather than restating its rule.
+
+    Honest limit: this cannot catch a bug INSIDE is_degraded_decision. It catches a row whose
+    is_degraded disagrees with it, which is what a hand-built, mutated or future-diverged row is.
+    """
+    expected = is_degraded_decision(
+        crashed=crashed, state_degraded=row["state_build_failed"], selection_stage=stage)
+    if row["is_degraded"] is not expected:
+        raise SchemaError(
+            f"{what}: is_degraded={row['is_degraded']!r} contradicts is_degraded_decision("
+            f"crashed={crashed}, state_degraded={row['state_build_failed']}, "
+            f"selection_stage={stage!r}) = {expected}"
+        )
 
 
 def validate_event_row(row: dict) -> None:
@@ -939,7 +1004,7 @@ def validate_battle_row(row: dict) -> None:
         )
 ```
 
-- [ ] **Step 4: Run, expect 8 + 1 + 32 + 13 + 10 + 15 + 1 + 20 + 1 = 101 passed**
+- [ ] **Step 4: Run, expect 8 + 1 + 36 + 13 + 10 + 15 + 1 + 20 + 1 + 1 = 106 passed**
 
 The generic grid (5 rules × 4 grains = 20) deliberately overlaps three entries in
 `DECISION_MUTATIONS` and two in `COMPLETION_MUTATIONS`. The per-grain lists stay complete and
@@ -1250,7 +1315,7 @@ class LiveDegradationRecorder:
         return cls(run_dir, run_id)
 ```
 
-- [ ] **Step 4: Run, expect 10 more passing (113 total in this file: 101 from Task 2, 2 from Task 3)**
+- [ ] **Step 4: Run, expect 10 more passing (118 total in this file: 106 from Task 2, 2 from Task 3)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1478,7 +1543,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return row
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (125 total in this file)**
+- [ ] **Step 4: Run, expect 12 more passing (130 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1600,7 +1665,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return ev
 ```
 
-- [ ] **Step 4: Run, expect 7 more passing (132 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 7 more passing (137 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1725,7 +1790,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         }
 ```
 
-- [ ] **Step 4: Run, expect 5 more passing (137 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 5 more passing (142 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -2138,7 +2203,7 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
                      or self.recorder_errors_total) else 0
 ```
 
-- [ ] **Step 4: Run, expect 15 more passing (152 total in this file)**
+- [ ] **Step 4: Run, expect 15 more passing (157 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
