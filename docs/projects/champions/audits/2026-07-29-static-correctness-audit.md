@@ -16,8 +16,14 @@ It is **not** the passes' output. The passes collected their claims in a tempora
 only. Not a repository artifact, approved diagnosis, issue, priority decision, or implementation
 authorization."* That file has no authority. **Every claim below was re-derived against the code on
 `main @ 34bc98dc` before being recorded here**, and the re-derivation changed several of them —
-three exposure statements, one severity framing, one classification, and one status. Those changes
-are marked in place.
+four exposure statements (§4.1a, §4.1, §4.2, §4.8), one severity framing (§4.3), one classification
+(§4.7) and one status (§4.6). Those changes are marked in place.
+
+**Revision 2 (post-review) additionally corrects two of this document's own errors**, both found in
+review rather than by the passes: `SHOWDOWN_ACCURACY_MODE` was described as default-off when the
+production default is **on** (§3), and item 1a was recorded as `Panel: none` while the same register
+confirmed `any` moves on the panel (§4.1a). Neither changes the 13-defect blocker set, and §5 now
+says so with the check rather than by assumption.
 
 It is also **not** a strength statement, a prioritisation, or an authorisation. Prioritisation is
 [`docs/projects/champions/specs/2026-07-29-128-correctness-slice-prioritisation.md`](../specs/2026-07-29-128-correctness-slice-prioritisation.md).
@@ -95,14 +101,23 @@ data and committed teams.
 
 ## 3. Finding register
 
-`Default?` = reachable on the **shipped default configuration** (`SHOWDOWN_SEARCH_DEPTH` unset → 1;
-`SHOWDOWN_ROLLOUT_HORIZON` unset → 2; `SHOWDOWN_ACCURACY_MODE` off). `Panel` = exposure on the hero
-team plus the three dev Champions teams. `Blocks` = blocks #128 ranking a strength candidate whose
-evaluation would run through the defect.
+`Default?` = reachable on the **shipped default configuration**: `SHOWDOWN_SEARCH_DEPTH` unset → 1
+(`battle/decision.py:66-72`), `SHOWDOWN_ROLLOUT_HORIZON` unset → 2 (`:47-50`),
+`SHOWDOWN_ACCURACY_MODE` unset → **on** (`:100-108` — `_accuracy_mode()` returns `True` when the key
+is absent, with an explicit off-list). `Panel` = exposure on the hero team plus the three dev
+Champions teams. `Blocks` = blocks #128 ranking a strength candidate whose evaluation would run
+through the defect.
+
+Accuracy being default-**on** does not move any entry into or out of the `Default?` column — only
+items 10 and 11 are gated to `no`, and they are gated by `SHOWDOWN_SEARCH_DEPTH`, not by accuracy.
+It does make items 14 and 16 *more* active than a default-off reading would suggest: the hit/miss
+branch expansion is live on every default decision, so item 14's flinch runs on every accuracy leaf
+and item 16's missing `attempted_hits` for non-damaging moves is a gap inside machinery that is
+actually executing.
 
 | # | Finding | Status | Primary path | Default? | Panel | Blast radius | Existing tests | Blocks #128 | WS |
 |---|---|---|---|---|---|---|---|---|---|
-| 1a | `normal`/`any` never offer an ally target | Confirmed | `battle/legal_actions.py:45-58` | yes | none | missing legal actions | none | no | B |
+| 1a | `normal`/`any` never offer an ally target | **Confirmed, corrected** | `battle/legal_actions.py:45-58` | yes | **yes — 32 moves** (30 `normal` + 2 `any`), see §4.1a | missing legal actions, all ally-directed | none | no — dominated on this panel, §4.1a | B |
 | 1b | `adjacentAlly` hardcodes `-1`, not actor-slot aware | **Confirmed, corrected** | `battle/legal_actions.py:53-54` | yes | **yes** (Helping Hand, `trick_room`) | illegal choice from the left slot → server reject | none | **yes** | B |
 | 1c | Pollen Puff unselectable as an ally heal | Confirmed | as 1a | yes | no (`panel_v001` dev only) | missing legal action | none | no | B |
 | 1d | Resolver lacks Pollen Puff ally-heal semantics | Overlap → 24 | `battle/resolve.py:293-295` | yes | no | mis-scored line | none | no | C |
@@ -137,6 +152,36 @@ evaluation would run through the defect.
 
 Entries whose scratch statement was accurate and needs no elaboration are covered by the register
 above. What follows is the material that changed, or that a repair will have to respect.
+
+### 4.1a Item 1a — panel-wide exposure, near-zero value: correcting an earlier `Panel: none`
+
+An earlier revision of this register recorded item 1a as `Panel: none`. **That was wrong**, and the
+error was self-contradictory: the same register confirms under item 2 that `any` is mishandled and
+names Acrobatics as a current-panel `any` move. A defect in how `any` is targeted cannot have no
+panel exposure while `any` moves are on the panel.
+
+Counted across the hero team and the three dev panel teams: **32 moves take a target `_move_targets`
+restricts to the two foe slots** — 30 `normal` (Close Combat, Will-O-Wisp, Fake Out, Encore, Knock
+Off, Thunder Wave, Taunt, Parting Shot, …) and 2 `any` (**Acrobatics**, **Dark Pulse**). In doubles
+both target classes legally include the ally; `_move_targets` returns `[1, 2]` for all of them
+(`battle/legal_actions.py:51-52`). Exposure is therefore **panel-wide, not absent**.
+
+What the corrected exposure does *not* change is the blocker status, and the reason has to be stated
+rather than assumed. The omitted actions are ally-directed attacks and ally-directed status moves.
+On this panel they are dominated:
+
+- no ally-heal move (Pollen Puff is on `panel_v001`, not here — item 1c);
+- no ally-trigger item across the four teams (the item set is Sitrus/Chople/Haban/Leftovers/Focus
+  Sash/White Herb/Mental Herb/Black Glasses/Choice Scarf and four Mega stones — no Weakness Policy,
+  no Absorb Bulb, no Berry Juice);
+- none of the 30 `normal` status moves has a friendly use (Encore, Taunt, Thunder Wave, Will-O-Wisp
+  on one's own partner are all self-harm here).
+
+So item 1a is **panel-exposed but not a blocker**: the missing actions exist, and on this panel a
+correct enumeration would add only dominated options. That is a materially different statement from
+"no exposure", and it is the one the evidence supports. It also means the *general* defect must not
+be dismissed — introduce one ally-heal or one ally-trigger item to a future panel and it becomes
+load-bearing immediately.
 
 ### 4.1 Item 1b — the ally-target defect is current-panel exposed, and the scratch understated it
 
@@ -346,10 +391,20 @@ into 24, 13 folded into 4) = **24 independent confirmed defects**:
 Item 20 is kept as independent despite elaborating 15: it is a second, separate code path (the
 request model) for the same contract, and it must be repaired on its own terms.
 
-**Of the 19 decision-path defects, 13 are both current-panel exposed and reachable on the shipped
-default configuration: 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.** Those 13 are exactly the
-entries marked *blocks #128* in the register. Items 10 and 11 are excluded from that set because
-depth 2 is off by default; 1a, 1c, 21 and 22 because they have no current-panel exposure.
+**13 defects are marked *blocks #128*: 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.** Each is
+current-panel exposed *and* reachable on the shipped default configuration. The remaining six
+decision-path entries are excluded for three different reasons, and the reasons are not
+interchangeable:
+
+| Excluded | Why |
+|---|---|
+| 10, 11 | depth 2 is **off by default** (`SHOWDOWN_SEARCH_DEPTH` → 1) |
+| 1c, 21 | **no current-panel exposure** — Pollen Puff is on `panel_v001`; no Urshifu on hero or dev teams |
+| 22 | **no current-panel exposure** — the only Choice holder is Basculegion @ Choice Scarf, whose four moves are all damaging |
+| 1a | **panel-exposed but dominated** — §4.1a: the omitted actions exist on 32 panel moves, but every one of them is an ally-directed option with no use on this team set |
+
+The `SHOWDOWN_ACCURACY_MODE` correction above was checked against this set and changes nothing in
+it: accuracy gates no entry's `Default?` value.
 
 ---
 

@@ -85,48 +85,102 @@ workstream split.
 Six candidates, formed by grouping confirmed findings along their actual dependency and contract
 boundaries rather than by finding count.
 
-| ID | Slice | Findings | Workstream |
-|---|---|---|---|
-| **S1** | Persistent combatant state + dynamic action order | 8, 3, 20, 15, 23 | A |
-| **S2** | Legal action + authoritative switch transition | 9, 1a, 1b, 1c, 22 | B |
-| **S3** | Resolved effects — current panel core | 14, 16, 17, 24-residual | C |
-| **S4** | Attacker-aware mechanics and calc binding | 2, 21, 25 | C |
-| **S5** | Ally targeting only (1a–1c, carved out of S2) | 1a, 1b, 1c | B |
-| **S6** | Screens as a standalone state + calc binding | 17 | C |
+| ID | Slice | Findings | Blockers covered | Workstream |
+|---|---|---|---|---|
+| **S1** | Persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | 3, 8, 15, 20, 23 | A |
+| **S2** | Legal action + authoritative switch transition | 1a, 1b, 1c, 9, 22 | 1b, 9 | B |
+| **S3** | Resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24-residual, 25 | 2, 14, 16, 17, 24, 25 | C |
+| **S5** | Ally targeting only (1a–1c, carved out of S2) | 1a, 1b, 1c | 1b | B |
+| **S6** | Screens as a standalone state + calc binding (carved out of S3) | 17 | 17 | C |
 
-S5 and S6 exist as deliberately narrow carve-outs, considered so the shortlist is a choice and not
-a restatement of the grouping.
+S5 and S6 are deliberately narrow carve-outs, considered so the shortlist is a choice and not a
+restatement of the grouping.
+
+### Closure against the audit's blocker set — corrected in review
+
+An earlier revision of this document had a sixth candidate, **S4** ("attacker-aware mechanics and
+calc binding": items 2, 21, 25), which was then excluded from the shortlist as "folding into S1 and
+S3". That was wrong twice over: the fold was asserted rather than performed, and it dropped **items
+2 and 25 — both on the audit's 13-defect blocker list — out of the shortlist entirely**. A
+prioritisation that leaves two of its own stated blockers unassigned does not close its correctness
+boundary.
+
+**S4 is dissolved and its findings are placed explicitly:**
+
+- **Item 2** (`hits_foe` omits `any`, so Protect never blocks an `any` move) → **S3**. It is a
+  Protect-predicate question and belongs with the resolved-effect contract, not in a separate slice.
+- **Item 25** (current HP absent from calc requests) → **S3**. Its repair is the *same seam* as item
+  17's: both add fields the pinned `@smogon/calc` already accepts but `CalcMon.to_payload()` /
+  `showdown_bot/tools/calc/calc.mjs` do not send. S3 is therefore defined to include the calc-binding
+  half, which is why its title now names it.
+- **Item 21** (Unseen Fist vs Protect) → **explicitly deferred**, not folded. It is the one member
+  of former S4 that is *not* a blocker: no Urshifu on the hero or dev panel teams. It must be
+  repaired before Urshifu appears in strength evidence, and it is recorded here as a named,
+  out-of-shortlist item rather than silently dropped.
+
+**Closure check.** The audit's 13 blockers are 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.
+S1 covers 3, 8, 15, 20, 23 · S2 covers 1b, 9 · S3 covers 2, 14, 16, 17, 24, 25. Union = all 13, with
+no blocker assigned twice and none left over. Non-blocking findings 1a, 1c and 22 ride along inside
+S1–S3; only item 21 sits outside, deliberately and by name.
 
 ---
 
 ## 4. Ranking by strength relevance
 
-**Inputs, and only these:** current Champions/panel exposure; decision frequency; error severity
-(how wrong the modelled result is when it fires); concentration of possible regret; and any
-existing development-outcome link.
+**Inputs, and only these:** current Champions/panel exposure; structural position in the decision
+path; error severity (how wrong the modelled result is when it fires); concentration of possible
+regret; and any existing development-outcome link.
 
 **Effort, dependencies, testability, regression risk and reversibility are not inputs to this
 ranking.** They are §5. A slice does not move up because it is easy or down because it is risky.
 
 There is no `games recovered` column and there will not be one: §1, Fact 1.
 
-| Rank | Slice | Panel exposure | Decision frequency | Error severity | Regret concentration | Dev-outcome link |
+### What replaced "decision frequency", and why — corrected in review
+
+An earlier revision ranked partly on *decision frequency*, with cells reading "every turn" for S1 and
+"fires on most turns" for S3. **Those were not established and are withdrawn.** What is verifiable is
+that `sort_actions` is *called* for every candidate line — a fact about the code. Whether the
+ability-order defect *fires* on a given turn depends on whether an ability-order Pokémon is on the
+field with its activation predicate met, and **no measurement of that exists in this repository**.
+The same applies to S3: "most turns" was an assertion about candidate composition that nothing here
+measures. Using either to order S1 and S3 would have been the same error #1 Fact 1 rejects — an
+unmeasured quantity doing load-bearing work.
+
+The column is replaced by two that can be checked:
+
+- **Structural position** — where in the pipeline the defect sits, and what is downstream of it.
+  Read from the code.
+- **Trigger presence** — how much of the panel carries the precondition. Counted from the committed
+  hero and dev team files.
+
+Neither is a firing rate, and neither is presented as one.
+
+| Rank | Slice | Trigger presence (counted) | Structural position (read from code) | Error severity | Regret concentration | Dev-outcome link |
 |---|---|---|---|---|---|---|
-| **1** | **S1** state truth + action order | Gale Wings, Sand Rush, Unburden, Intimidate, Levitate, Blaze; Fake Out on 3 of 4 teams | **every turn** — order is computed for every action of every candidate | **highest**: wrong order inverts KO-before-act, flinch-before-act and every successor state built from it | maximal: one wrong ordering mis-scores the entire candidate set for that turn, not one line | none measured |
-| **2** | **S3** resolved effects — panel core | Rock Slide on 4 mons; Will-O-Wisp on 3 teams; Aurora Veil on 1; six unexecuted effect families | high — fires whenever such a move is a candidate, which is most turns | high, and **two-directional**: flinch is over-valued, screens and status are under-valued | broad rather than concentrated: many moves, each moderately mis-valued | **weak but present**: #127's W2 (`tailwind_both`, highest mean regret of any bucket) is a fast-board Protect/tempo context, which is exactly where flinch and screens are decided. This is an adjacency, **not** a demonstrated cause. |
-| **3** | **S2** legality + switch transition | Helping Hand on `trick_room` (illegal choice from the left slot); switch scoring on every team | moderate — voluntary switches are a minority of turns; the illegal-choice path is rarer still | **severe when it fires**: an illegal choice is rejected outright and triggers the item-5 fan-out; a mis-resolved switch damages the wrong Pokémon | concentrated in few but high-stakes decisions | none measured |
-| 4 | S4 attacker-aware mechanics | Blaze Delphox (HP); Acrobatics vs Protect | moderate | moderate: wrong damage on specific pairings | narrow | none |
-| 5 | S6 screens standalone | Aurora Veil, 1 team | low in isolation | moderate | narrow | none |
-| 6 | S5 ally targeting standalone | Helping Hand, 1 team | low | severe when it fires | very narrow | none |
+| **1** | **S1** state truth + action order | Gale Wings, Sand Rush, Unburden, Intimidate, Levitate, Blaze across **3 of 4** teams; Fake Out on **3 of 4** | **upstream of every other slice**: `sort_actions` fixes the order in which S2's transitions and S3's effects are applied, and every successor state is built from that order | **highest**: a wrong order inverts KO-before-act and flinch-before-act, so the error is in the frame, not in one line | maximal *when it fires*: one wrong ordering mis-scores the whole candidate set for that turn | none measured |
+| **2** | **S3** resolved effects + calc binding | Rock Slide on **4 mons / 3 teams**; Will-O-Wisp on **3 teams**; Aurora Veil **1**; Blaze Delphox **1**; Acrobatics **1**; six unexecuted effect families across the panel | **inside the turn**: wrong effect values on an otherwise correct frame | high and **two-directional**: flinch over-valued, screens/status/HP-conditional damage under-valued | broad rather than concentrated: many moves, each moderately mis-valued | **weak, and an adjacency only**: #127's W2 (`tailwind_both`, highest mean regret of any bucket) is a fast-board Protect/tempo context, which is where flinch and screens are decided. **Not** a demonstrated cause. |
+| **3** | **S2** legality + switch transition | Helping Hand **1 team** (illegal choice from the left slot); switch candidates enumerated on every team | **inside the turn**, but conditional: the transition defect reaches only lines that contain a switch | **severe when it fires**: an illegal choice is rejected outright and triggers the item-5 fan-out; a mis-resolved switch damages the wrong Pokémon | concentrated in few but high-stakes decisions | none measured |
+| 4 | **S6** screens standalone | Aurora Veil **1 team** | inside the turn, one mechanic | moderate | narrow | none |
+| 5 | **S5** ally targeting standalone | 1b: Helping Hand **1 team**. 1a: **32 panel moves** — but every omitted action is ally-directed and dominated on this team set (audit §4.1a) | enumeration only, upstream of scoring but additive | 1b severe when it fires; 1a's omissions are dominated options | very narrow | none |
 
-**Why S1 outranks S3 on strength relevance alone.** S3 touches more moves; S1 touches more
-decisions. Turn order is computed for every action of every candidate on every turn, and it is
-upstream of the effects S3 fixes — a correctly-modelled Rock Slide flinch evaluated in the wrong
-turn order is still the wrong answer. Frequency and upstream position beat breadth here.
+**Why S1 outranks S3 — a containment argument, not a frequency one.** S1 is upstream of S3 in the
+literal sense that S3's effects are evaluated inside a turn whose order S1 determines. A correctly
+modelled Rock Slide flinch applied in the wrong turn order is still the wrong answer; a correct order
+with one wrong effect is wrong only for that effect. The relation is asymmetric and readable from the
+code, which is why it can carry the ranking where a frequency claim cannot.
 
-**Why S3 outranks S2 on strength relevance alone.** S2's defects are more severe per occurrence, but
-they fire on a minority of turns; S3's fire on most. This is the one place the two rankings disagree
-sharply, and §5 flips it.
+**Why S3 outranks S2.** By counted trigger presence: S3's preconditions appear on all four teams and
+across six effect families; S2's non-conditional half is one move on one team, and its transition
+half reaches only candidate lines containing a switch. S2's per-occurrence severity is higher — which
+is exactly why it is close, and why §5 reverses it.
+
+**Why S5 is last, on the corrected exposure.** An earlier revision justified S5's last place with
+"Helping Hand, 1 team", which understated it: audit §4.1a establishes that item 1a's exposure is 32
+panel moves, not one. The rank survives the correction for a different reason — those 32 omissions
+are all ally-directed options that are dominated on this panel (no ally-heal move, no ally-trigger
+item). S5 is last because the missing actions are *worthless here*, not because they are *few*. That
+distinction matters: add one ally-heal to a future panel and this ranking changes.
 
 ---
 
@@ -135,22 +189,30 @@ sharply, and §5 flips it.
 **Inputs, and only these:** dependencies; testability; implementation effort; regression risk;
 reversibility. Strength relevance is not an input.
 
+**One total order over the same five candidates as §4.** An earlier revision printed S5 at rank 6 in
+this table while §6 called it rank 1, and printed S2 at rank 1 in both places — two candidates
+sharing a rank and one contradicting itself. That is corrected: the order below is the only
+feasibility order in this document, and §6 quotes it verbatim.
+
 | Rank | Slice | Dependencies | Testability | Effort | Regression risk | Reversibility |
 |---|---|---|---|---|---|---|
-| **1** | **S2** legality + switch transition | needs S1's identity for the *transition* half; the *legality* half (1a–1c) has **none** | **highest**: legality is decidable per request; a transition contract is directly assertable | legality small; transition medium | moderate — must **replace** the item-22 Choice guard, not delete it, and change a test that currently freezes the defect | high: enumeration changes are local and revertible |
-| **2** | **S1** state truth + action order | needs its own two sources (log `\|-ability\|`, request `ability`/`baseAbility`) before ordering can read them | high: replay-based, deterministic, no calc needed | large — identity, two ability sources, activation predicates (full HP, weather, item consumption) | **highest**: turn order is upstream of everything; every scored line moves | low: the whole decision path shifts at once |
-| **3** | **S3** resolved effects — panel core | needs an **unapproved** resolved-effect event taxonomy; item 17 also needs `FieldState` extension and a calc-bridge change | mixed: flinch branches are testable; a general effect model is not testable before it is specified | large and partly unscoped | high, and spread across resolver, rollout and calc binding | low |
-| 4 | S4 attacker-aware mechanics | needs S1's ability truth (item 25 compounds with item 20) | good | medium | medium | medium |
-| 5 | S6 screens standalone | none beyond `FieldState` + bridge | good | small | low | high |
-| 6 | S5 ally targeting standalone | none — `_slot_move_actions` already has `active_index` | **highest**: a pure function of request and actor slot | **smallest** in the set | very low | very high |
+| **1** | **S5** ally targeting standalone | **none** — `_slot_move_actions` already receives `active_index` and simply does not pass it to `_move_targets` | **highest**: a pure function of request and actor slot | **smallest** in the set | very low: additive to enumeration | very high |
+| **2** | **S2** legality + switch transition | the *legality* half has none; the *transition* half needs S1's identity contract | high: legality is decidable per request, and a transition contract is directly assertable | legality small; transition medium | moderate — must **replace** the item-22 Choice guard rather than delete it, and change `tests/test_legal_actions.py:118-126`, which currently asserts the defect | high: enumeration changes are local and revertible |
+| **3** | **S6** screens standalone | none beyond a `FieldState` extension and the calc-bridge field copy | good: replay for state, golden payload for the bridge | small | low | high |
+| **4** | **S1** state truth + action order | needs its own two ability sources (log `\|-ability\|`, request `ability`/`baseAbility`) before ordering can read them | high: replay-based, deterministic, no calc needed | large — identity, two ability sources, and activation predicates (full HP, weather, item consumption) | **highest**: order is upstream of everything, so every scored line moves at once | low: the whole decision path shifts together |
+| **5** | **S3** resolved effects + calc binding | needs an **unapproved** effect-event taxonomy; carries item 17's `FieldState` work and items 17/25's calc-bridge changes | mixed: flinch branches are testable, a general effect model is not testable before it is specified | **largest**, and partly unscoped | high, spread across resolver, rollout and calc binding | low |
 
-**Where the two orders disagree, and what that means.** S2 is first on feasibility and third on
-strength relevance; S1 is first on strength relevance and second on feasibility; S3 is second on
-relevance and third on feasibility. S5 is last on relevance and first on feasibility — the clearest
-illustration that the two axes must not be collapsed.
+S1 moved from 2 to 4 in this revision. Nothing about S1 changed — S5 and S6 were previously ranked
+below it by carrying the "carve-out" label rather than by their actual dependency, testability and
+risk profile, which are better than S1's on all three.
 
-The disagreement is not resolved by averaging. It is resolved by the dependency in §6, which is a
-fact about the code and belongs to neither ranking.
+**Where the two orders disagree.** Relevance gives **S1, S3, S2, S6, S5**; feasibility gives
+**S5, S2, S6, S1, S3**. The two are close to reversed. S1 is 1st and 4th; S3 is 2nd and last; S5 is
+last and 1st. No candidate holds the same rank on both.
+
+The disagreement is not resolved by averaging — averaging would put S2 first, and S2 cannot go first
+because half of it depends on S1. It is resolved by the dependency chain in §6, which is a fact about
+the code and belongs to neither ranking.
 
 ---
 
@@ -166,16 +228,18 @@ The starting hypothesis under test was:
 
 ### Adopted as-is: the composition of all three
 
-Each of the three names a real, current, default-path group of confirmed defects, and the audit's
-de-duplication (§5 there) supports the grouping — S3's umbrella item 24 genuinely subsumes its
-sub-gaps rather than adding a fourth slice.
+Each of the three names a real, current, default-path group of confirmed defects, and together they
+cover **all 13** of the audit's blockers with none assigned twice and none left over — the closure
+check in §3. S3 carries the two blockers that an earlier revision lost with the dissolved S4
+(items 2 and 25).
 
 ### Correction: the order is a dependency order, not the strength order
 
 The hypothesis presents S1 → S2 → S3 as a ranking. It is not one, on either axis:
 
 - On **strength relevance** the order is S1, **S3**, **S2** (§4).
-- On **feasibility** the order is **S2**, S1, S3 (§5).
+- On **feasibility** the order is **S2**, S1, S3 among these three — and **S5, S2, S6, S1, S3**
+  across all five candidates (§5).
 
 Neither produces S1 → S2 → S3. What does produce it is the dependency chain, which is a third thing:
 
@@ -195,26 +259,41 @@ and closes a current-panel path that today emits an illegal choice from the left
 into unrelated rooms. `_slot_move_actions` already receives `active_index` and simply does not pass
 it to `_move_targets`.
 
-It is last on strength relevance and first on feasibility — precisely the profile that should not be
-promoted on relevance grounds. It is proposed **as a pre-slice**, not as a shortlist member, on
-availability alone: it is independently landable while S1 is specified, and it removes an active
-illegal-action path.
+It is **last on strength relevance (5 of 5) and first on feasibility (1 of 5)** — precisely the
+profile that must not be promoted on relevance grounds. It is proposed **as a pre-slice**, not as a
+shortlist member, on availability alone: it is independently landable while S1 is specified, and it
+removes an active illegal-action path.
+
+Its one blocker, item 1b, is **also covered by S2**, so skipping the pre-slice loses nothing but
+time. Item 1a rides along in both; audit §4.1a establishes that its 32 panel-move omissions are
+dominated on this team set, which is why it does not lift S5's relevance rank.
 
 ### Resulting shortlist
 
-| Order | Slice | Rank on relevance | Rank on feasibility | Gate to start |
-|---|---|---|---|---|
-| **0** (pre-slice, optional) | **S5** ally targeting | 6 of 6 | 1 of 6 | none — independent |
-| **1** | **S1** persistent combatant state + dynamic action order | **1** | 2 | approval of this document |
-| **2** | **S2** legal action + authoritative switch transition | 3 | **1** | S1's identity contract landed |
-| **3** | **S3** resolved effects — current panel core | 2 | 3 | S1 landed; an **approved** effect taxonomy |
+Ranks are quoted verbatim from §4 and §5 over the same five candidates. No rank appears twice.
+
+| Order | Slice | Blockers covered | Rank on relevance | Rank on feasibility | Gate to start |
+|---|---|---|---|---|---|
+| **0** (pre-slice, optional) | **S5** ally targeting | 1b | 5 of 5 | **1 of 5** | none — independent |
+| **1** | **S1** persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | **1 of 5** | 4 of 5 | approval of this document |
+| **2** | **S2** legal action + authoritative switch transition | 1b, 9 | 3 of 5 | 2 of 5 | S1's identity contract landed |
+| **3** | **S3** resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24, 25 | 2 of 5 | 5 of 5 | S1 landed **and** an approved effect taxonomy |
+
+**Blocker closure: S1 ∪ S2 ∪ S3 = all 13** (§3). S5's single blocker is already inside S2, so the
+pre-slice is optional in the strict sense — skipping it costs time, not coverage.
 
 **S3 carries an unmet precondition** and must not be started on the strength of this document alone:
-its event taxonomy does not exist. That is a design slice of its own, and §5 records it as the
-reason S3 is third on feasibility despite being second on relevance.
+its event taxonomy does not exist. That is a design slice of its own, and it is why S3 ranks **last**
+on feasibility while ranking second on relevance — the sharpest single disagreement between the two
+orders.
 
-**Not shortlisted:** S4 (folds into S1 and S3 once ability truth exists — sequencing it separately
-would duplicate the ability plumbing), S6 (subsumed by S3's item 17).
+**Not shortlisted, each for a stated reason — no candidate is dropped by hand-wave:**
+
+| Candidate | Disposition |
+|---|---|
+| **S4** (former) | **Dissolved**, §3. Items 2 and 25 moved into S3; item 21 explicitly deferred. An earlier revision excluded S4 as "folding into S1 and S3" without performing the fold, which silently dropped two blockers out of the shortlist. |
+| **S6** | **Subsumed by S3** (item 17). Kept in both ranking tables so its profile is visible: it is 3rd on feasibility and 4th on relevance, and it is the natural fallback if S3's taxonomy work stalls — screens are the one part of S3 that needs no new event model. |
+| **Item 21** (Unseen Fist) | **Deferred by name**, not folded. Not a blocker: no Urshifu on the hero or dev panel teams. Must be repaired before Urshifu enters strength evidence. |
 
 ---
 
@@ -235,6 +314,9 @@ would duplicate the ability plumbing), S6 (subsumed by S3's item 17).
 
 - [x] Shortlist of 2–3 candidates documented — three, plus an optional independent pre-slice.
 - [x] Each candidate has stated relevance, feasibility and risk — §4, §5, §6.
-- [x] Ranking rationale is explicit, with the two rankings kept separate and their disagreement
-      named rather than averaged.
-- [x] No invented outcome metric — §1 Fact 1, §4.
+- [x] Ranking rationale is explicit, with the two rankings kept separate, each a single total order,
+      and their disagreement named rather than averaged.
+- [x] No invented outcome metric, and no unmeasured firing rate doing load-bearing work — §1 Fact 1,
+      §4 ("What replaced *decision frequency*").
+- [x] The shortlist closes its own correctness boundary: all 13 audit blockers are assigned, none
+      twice, none left over — §3 closure check, restated in §6.
