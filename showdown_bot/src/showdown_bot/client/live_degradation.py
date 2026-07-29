@@ -494,7 +494,7 @@ class LiveDegradationRecorder:
         self._seq: dict[str, int] = {}
 
     @classmethod
-    def preflight(cls, *, parent: Path | None = None) -> "LiveDegradationRecorder":
+    def preflight(cls, *, parent: Path | None = None) -> LiveDegradationRecorder:
         """Create the run directory exclusively and prove the writer works.
 
         Called BEFORE _connect_and_login and before any /search or challenge (section 10.1).
@@ -502,15 +502,15 @@ class LiveDegradationRecorder:
         aborting costs nothing, whereas an unwritable sink discovered after 50 ladder games costs
         all 50 games' evidence.
 
-        If the probe fails the directory created just above is LEFT BEHIND. That is deliberate:
-        the contract is "abort before the connection", not "tidy up the failed attempt", and a
-        cleanup path here could delete a directory a concurrent run had just claimed. The
-        exclusive create means the leftover is refused rather than reused next time, which is the
-        property that actually matters.
+        Exactly two things are binding when the probe fails: the live run does not start, and
+        existing evidence is never adopted or overwritten. The second is carried by the exclusive
+        create, which refuses a directory that is already there.
 
-        open() is called as the bare builtin, resolved through this module's globals. Tests patch
-        it there to simulate an unwritable sink; switching to Path.open() would silently turn that
-        patch into a no-op and the test would prove nothing.
+        What happens to the directory this preflight just made is NOT part of the contract. This
+        implementation leaves it; removing it would be equally allowed, provided the cleanup only
+        ever touches the directory this same preflight exclusively created -- deleting anything
+        else could destroy a concurrent run's claim. No test may require either behaviour without
+        a decision record saying so.
         """
         base = resolve_parent(parent)
         run_id = _new_run_id()

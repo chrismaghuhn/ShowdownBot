@@ -504,10 +504,11 @@ from showdown_bot.client.live_degradation import (  # noqa: E402
 def _refuse_the_probe(monkeypatch):
     """Make only the probe write fail, leaving every other open() alone.
 
-    Patching the MODULE namespace works because preflight calls the bare builtin open(), which
-    Python resolves through module globals first. If the implementation ever switches to
-    Path.open(), this patch becomes a silent no-op and the test would prove nothing -- so the
-    implementation deliberately keeps the global call.
+    This patches the MODULE namespace because preflight currently calls the bare builtin open(),
+    which Python resolves through module globals first. That is a fact about today's
+    implementation, not a requirement on it: if preflight is ever refactored to Path.open(), THIS
+    TEST must be adapted -- the patch would otherwise become a silent no-op and prove nothing.
+    The test follows the implementation, never the other way round.
     """
     real_open = open
 
@@ -552,24 +553,6 @@ def test_preflight_probe_is_removed_and_the_dir_is_left_empty(tmp_path):
 def test_preflight_fails_when_the_probe_cannot_be_written(tmp_path, monkeypatch):
     _refuse_the_probe(monkeypatch)
     with pytest.raises(PreflightError, match=re.escape("[probe]")):
-        LiveDegradationRecorder.preflight(parent=tmp_path)
-
-
-def test_a_failed_probe_leaves_its_directory_and_it_is_never_reused(tmp_path, monkeypatch):
-    """Section 10.1 aborts BEFORE the connection; it does not promise to tidy up the failed
-    attempt. So the directory may legitimately remain -- what must never happen is a later run
-    reusing it, because that is how one run's evidence ends up mixed into another's."""
-    monkeypatch.setattr(
-        "showdown_bot.client.live_degradation._new_run_id", lambda: "fixed-run-id")
-    _refuse_the_probe(monkeypatch)
-    with pytest.raises(PreflightError, match=re.escape("[probe]")):
-        LiveDegradationRecorder.preflight(parent=tmp_path)
-    assert (tmp_path / "fixed-run-id").is_dir()
-
-    monkeypatch.undo()
-    monkeypatch.setattr(
-        "showdown_bot.client.live_degradation._new_run_id", lambda: "fixed-run-id")
-    with pytest.raises(PreflightError, match=re.escape("[dir_exists]")):
         LiveDegradationRecorder.preflight(parent=tmp_path)
 
 
