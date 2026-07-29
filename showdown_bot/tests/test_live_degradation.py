@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 
 from showdown_bot.client.live_degradation import (
@@ -922,3 +923,229 @@ def test_a_gate_false_crash_counts_as_a_crash_but_not_as_degraded(tmp_path):
     assert row["agent_crashes"] == 1
     assert row["degraded_decisions"] == 0
     validate_battle_row(dict(row))
+
+
+def _read_jsonl(path):
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in
+            path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_flush_writes_decisions_events_and_battle(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.record_event(event_type="server_error", payload="p",
+                     room_id="R", active_battle_count=1)
+    rec.flush_battle(room_id="R", end_reason="win")
+    assert len(_read_jsonl(rec.run_dir / "decisions.jsonl")) == 1
+    assert len(_read_jsonl(rec.run_dir / "events.jsonl")) == 1
+    battles = _read_jsonl(rec.run_dir / "battles.jsonl")
+    assert len(battles) == 1 and battles[0]["end_reason"] == "win"
+
+
+def test_the_battle_row_is_built_after_the_rows_are_written(tmp_path):
+    """REGRESSION: an earlier plan revision popped the decision buffer BEFORE calling
+    build_battle_row, so every battle row was all-zero -- a clean-looking battle that had in
+    fact recorded three decisions."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    _record_clean(rec, room="R", rqid=2)
+    rec.record_decision(room_id="R", rqid=3, book_absent=True, team_preview=False,
+                        state_build_failed=False, selection_stage=None,
+                        fallback_reason=None, agent_crash_type=None)
+    rec.flush_battle(room_id="R", end_reason="win")
+    battle = _read_jsonl(rec.run_dir / "battles.jsonl")[0]
+    assert battle["decisions_total"] == 3
+    assert battle["decisions_not_applicable"] == 1
+
+
+def test_flush_appends_and_never_truncates(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="A", rqid=1)
+    rec.flush_battle(room_id="A", end_reason="win")
+    _record_clean(rec, room="B", rqid=1)
+    rec.flush_battle(room_id="B", end_reason="tie")
+    assert len(_read_jsonl(rec.run_dir / "battles.jsonl")) == 2
+    assert len(_read_jsonl(rec.run_dir / "decisions.jsonl")) == 2
+
+
+def test_flush_discards_the_buffers_so_a_second_flush_writes_no_new_decisions(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.flush_battle(room_id="R", end_reason="win")
+    rec.flush_battle(room_id="R", end_reason="win")
+    assert len(_read_jsonl(rec.run_dir / "decisions.jsonl")) == 1
+
+
+def test_flush_counts_a_finished_battle_but_not_an_unterminated_one(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="A", rqid=1)
+    rec.flush_battle(room_id="A", end_reason="win")
+    _record_clean(rec, room="B", rqid=1)
+    rec.flush_unterminated(["B"])
+    assert rec.battles_finished == 1
+    assert rec.unterminated_rooms == ["B"]
+
+
+def test_run_scoped_events_are_persisted_at_run_end(tmp_path):
+    """REGRESSION: a battle flush writes only events whose room_id matches, so every
+    unattributed invalid-choice PM -- the most likely event in a multi-battle ladder session --
+    lived and died in memory."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.record_event(event_type="invalid_choice_pm", payload="Invalid choice",
+                     room_id=None, active_battle_count=3)
+    rec.flush_battle(room_id="R", end_reason="win")
+    assert _read_jsonl(rec.run_dir / "events.jsonl") == []
+    rec.flush_run_events()
+    events = _read_jsonl(rec.run_dir / "events.jsonl")
+    assert len(events) == 1
+    assert events[0]["attribution"] == "unattributed" and events[0]["room_id"] is None
+
+
+def test_flush_failure_is_counted_and_never_raises(tmp_path, monkeypatch):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+
+    def _boom(*args, **kwargs):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr("showdown_bot.client.live_degradation._append_jsonl", _boom)
+    rec.flush_battle(room_id="R", end_reason="win")   # must NOT raise (10.2)
+    assert rec.write_errors_total > 0
+    assert rec.exit_status() != 0
+
+
+def test_the_battle_row_sees_this_flushs_own_write_errors(tmp_path, monkeypatch):
+    import showdown_bot.client.live_degradation as mod
+
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    calls = {"n": 0}
+    real_append = mod._append_jsonl
+
+    def _fail_first(path, rows):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("disk gone")
+        return real_append(path, rows)
+
+    monkeypatch.setattr(mod, "_append_jsonl", _fail_first)
+    rec.flush_battle(room_id="R", end_reason="win")
+    battle = _read_jsonl(rec.run_dir / "battles.jsonl")[0]
+    assert battle["write_errors"] == 1
+    assert battle["decisions_total"] == 1        # the row existed; only the WRITE failed
+
+
+def test_clean_run_persists_three_zeros_and_exits_zero(tmp_path):
+    """Case 1 of four (section 8.0): the ONLY combination that establishes a successful run."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.flush_battle(room_id="R", end_reason="win")
+    rec.flush_run_events()
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert tuple(completion) == COMPLETION_FIELDS
+    assert completion["write_errors_total"] == 0
+    assert completion["schema_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert completion["battles_finished"] == 1
+    assert completion["preflight_ok"] is True
+    assert rec.exit_status() == 0
+
+
+def test_a_prior_schema_error_is_persisted_as_one_and_exits_non_zero(tmp_path, monkeypatch):
+    """Case 2 of four. The counter must reach the FILE, not only the exit status -- a
+    completion.json reading permanently clean beside a non-zero exit was the hole 8.0 closes."""
+    def _reject(row):
+        raise SchemaError("forced [test]: injected")
+
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation.validate_decision_row", _reject)
+    _record_clean(rec, room="R", rqid=1)
+    monkeypatch.undo()
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    assert completion["schema_errors_total"] == 1
+    assert completion["write_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert rec.exit_status() != 0
+
+
+def test_a_prior_recorder_error_is_persisted_as_one_and_exits_non_zero(tmp_path):
+    """Case 3 of four."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.note_recorder_error(RuntimeError("something escaped a record_ call"))
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    assert completion["recorder_errors_total"] == 1
+    assert completion["schema_errors_total"] == 0
+    assert completion["write_errors_total"] == 0
+    assert rec.exit_status() != 0
+
+
+def test_a_missing_completion_exits_non_zero(tmp_path, monkeypatch):
+    """Case 4 of four: an unwritable completion. The failure of THIS write cannot appear in the
+    file it failed to produce, so the exit status carries it (8.0 persistence limit)."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+
+    def _boom(*args, **kwargs):
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation._write_json_exclusive", _boom)
+    rec.write_completion()                      # must not raise
+    assert not (rec.run_dir / "completion.json").exists()
+    assert rec.exit_status() != 0
+
+
+def test_a_present_but_unusable_completion_is_a_failure_state_not_a_success(tmp_path):
+    """Section 8.0: open(..., "x") buys exclusivity, NOT atomicity. A write that dies after the
+    create leaves a file behind. Absent, unparseable and schema-invalid are ONE failure state,
+    which is why a consumer must parse and validate rather than stat."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    path = rec.run_dir / "completion.json"
+
+    path.write_text('{"schema_version": "live-degrad', encoding="utf-8")
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(path.read_text(encoding="utf-8"))
+
+    path.write_text('{"schema_version": "live-degradation-v1"}', encoding="utf-8")
+    with pytest.raises(SchemaError, match=re.escape("[shape]")):
+        validate_completion_row(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_completion_never_overwrites_an_existing_file(tmp_path):
+    """C9: mode 'x'. A second write is a refusal, counted, not a truncation."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.write_completion()
+    first = (rec.run_dir / "completion.json").read_text(encoding="utf-8")
+    rec.battles_finished = 99
+    rec.write_completion()
+    assert (rec.run_dir / "completion.json").read_text(encoding="utf-8") == first
+    assert rec.exit_status() != 0
+
+
+def test_recorder_errors_reach_the_exit_status(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    assert rec.exit_status() == 0
+    rec.note_recorder_error(RuntimeError("something escaped a record_ call"))
+    assert rec.recorder_errors_total == 1
+    assert rec.exit_status() != 0
+
+
+def test_unterminated_rooms_are_deduped_so_the_completion_row_stays_valid(tmp_path):
+    """flush_unterminated APPENDS, so flushing a room twice would duplicate it and the
+    validator forbids duplicates. Removing the failure mode by construction is worth more than
+    detecting it, because a completion row that fails validation cannot report its own failure."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.flush_unterminated(["B"])
+    rec.flush_unterminated(["B"])
+    rec.write_completion()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert completion["unterminated_rooms"] == ["B"]
+    assert completion["schema_errors_total"] == 0

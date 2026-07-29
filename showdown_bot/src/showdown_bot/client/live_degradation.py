@@ -12,6 +12,7 @@ sentence wording turns every clarification into a contract breach.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -480,6 +481,30 @@ def resolve_parent(explicit: Path | None = None) -> Path:
     return Path(override) if override else DEFAULT_PARENT
 
 
+def _append_jsonl(path: Path, rows: list[dict]) -> None:
+    """Append-only. Never opens in a truncating mode (C9)."""
+    with open(path, "a", encoding="utf-8", newline="\n") as fh:
+        for row in rows:
+            fh.write(json.dumps(row, sort_keys=False) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
+def _write_json_exclusive(path: Path, payload: dict) -> None:
+    """Exclusive create (C9). Mode "w" would truncate; inside a run directory that is by
+    construction ours, an EXISTING completion.json means something already wrote here -- that is
+    a refusal, not a file to overwrite.
+
+    Exclusive is not atomic: once the create succeeds the file exists, so a failure during
+    serialisation leaves a partial file behind. Section 8.0 makes absent, unparseable and
+    schema-invalid one single failure state precisely because of that.
+    """
+    with open(path, "x", encoding="utf-8", newline="\n") as fh:
+        json.dump(payload, fh, indent=2)
+        fh.flush()
+        os.fsync(fh.fileno())
+
+
 class LiveDegradationRecorder:
     def __init__(self, run_dir: Path, run_id: str) -> None:
         self.run_dir = run_dir
@@ -667,3 +692,115 @@ class LiveDegradationRecorder:
             "end_reason": end_reason,
             "write_errors": self._room_write_errors.get(room_id, 0),
         }
+
+    def _append_or_count(self, path: Path, rows: list[dict], room_id: str | None) -> None:
+        """One guarded append. Errors are counted and logged, never propagated (10.2)."""
+        if not rows:
+            return
+        try:
+            _append_jsonl(path, rows)
+        except OSError as exc:
+            self.write_errors_total += 1
+            if room_id is not None:
+                self._room_write_errors[room_id] = self._room_write_errors.get(room_id, 0) + 1
+            logger.error("live-degradation write failed for %s -> %s: %s",
+                         room_id or "<run>", path.name, exc)
+
+    def flush_battle(self, *, room_id: str, end_reason: str) -> None:
+        """Flush one battle at its boundary. Synchronous, with NO latency bound (C2).
+
+        Called BEFORE _room_raw.pop(room) discards the raw log -- that pop is where the evidence
+        is thrown away today (section 9). Deliberately not backgrounded (C3); the accepted
+        consequence is that a stalled disk here can delay message processing for other active
+        battles, and no upper bound is claimed.
+
+        ORDER IS LOAD-BEARING. The rows are written first; the battle row is built AFTER, so it
+        sees the write errors of this same flush; the buffers are discarded LAST. Popping first
+        made build_battle_row read an empty buffer and emit an all-zero row.
+
+        One inherent limit: write_errors on the battle row cannot include the failure of writing
+        the battle row itself. That failure is still counted in write_errors_total and in the
+        exit status.
+        """
+        rows = list(self._decisions.get(room_id, []))
+        evs = [e for e in self._events if e["room_id"] == room_id]
+
+        self._append_or_count(self.run_dir / "decisions.jsonl", rows, room_id)
+        self._append_or_count(self.run_dir / "events.jsonl", evs, room_id)
+
+        battle_row = self.build_battle_row(room_id=room_id, end_reason=end_reason)
+        try:
+            validate_battle_row(battle_row)
+        except SchemaError as exc:
+            self.schema_errors_total += 1
+            logger.error("live-degradation rejected a battle row: %s | row=%r", exc, battle_row)
+        else:
+            self._append_or_count(self.run_dir / "battles.jsonl", [battle_row], room_id)
+
+        self._decisions.pop(room_id, None)
+        self._events = [e for e in self._events if e["room_id"] != room_id]
+        self._seq.pop(room_id, None)
+        if end_reason != "unterminated":
+            self.battles_finished += 1
+
+    def flush_unterminated(self, rooms) -> None:
+        """Rooms still active when the loop exits (stream end, exception, cancellation)."""
+        for room_id in list(rooms):
+            self.unterminated_rooms.append(room_id)
+            self.flush_battle(room_id=room_id, end_reason="unterminated")
+
+    def flush_run_events(self) -> None:
+        """Persist events that belong to no battle (section 7 / C8).
+
+        A battle flush writes only events whose room_id matches. An unattributed invalid-choice
+        PM has room_id None by construction and would otherwise never be written -- and in a
+        multi-battle ladder session it is the MOST likely event there is.
+        """
+        leftover = list(self._events)
+        self._append_or_count(self.run_dir / "events.jsonl", leftover, None)
+        self._events = []
+
+    def note_recorder_error(self, exc: BaseException) -> None:
+        """Something escaped a record_/flush_ call at a call site. Counted so it reaches the
+        exit status; never re-raised (C11)."""
+        self.recorder_errors_total += 1
+        logger.error("live-degradation recorder error: %s: %s", type(exc).__name__, exc)
+
+    def write_completion(self) -> None:
+        """Best-effort (10.3). Its ABSENCE is meaningful, not neutral.
+
+        The payload is a SNAPSHOT: the counters as they stand right now. A failure of this very
+        write increments write_errors_total afterwards and therefore cannot appear in the file it
+        just failed to produce -- section 8.0's persistence limit. The exit status carries it.
+
+        ONE class of schema error is structurally unpersistable: a rejection of THIS payload. The
+        counter that would record it can only reach a reader through the file the rejection
+        prevents. So the only realistic cause -- duplicate unterminated_rooms, since
+        flush_unterminated appends -- is removed BY CONSTRUCTION below, and if the validator
+        fires anyway that is a defect signalled by logger.error, a non-zero exit and the ABSENCE
+        of completion.json, a state section 8.0 already equates with non-zero counters.
+        """
+        payload = {
+            "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
+            "battles_finished": self.battles_finished,
+            # dict.fromkeys dedupes while preserving order.
+            "unterminated_rooms": list(dict.fromkeys(self.unterminated_rooms)),
+            "write_errors_total": self.write_errors_total,
+            "schema_errors_total": self.schema_errors_total,
+            "recorder_errors_total": self.recorder_errors_total,
+            "preflight_ok": True,
+        }
+        try:
+            validate_completion_row(payload, expected_run_id=self.run_id)
+        except SchemaError as exc:
+            self.schema_errors_total += 1
+            logger.error(
+                "live-degradation rejected its OWN completion row -- this counter cannot be "
+                "persisted, so the absence of completion.json plus a non-zero exit is the "
+                "signal: %s | row=%r", exc, payload)
+            return
+        try:
+            _write_json_exclusive(self.run_dir / "completion.json", payload)
+        except OSError as exc:
+            self.write_errors_total += 1
+            logger.error("live-degradation completion write failed: %s", exc)
