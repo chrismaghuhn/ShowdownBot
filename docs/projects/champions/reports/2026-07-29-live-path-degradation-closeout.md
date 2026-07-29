@@ -188,7 +188,31 @@ the final branch state** is the figure that counts; it is recorded in §6.
 
 ## 6. Final verification on the finished branch
 
-*(filled in below from the run itself, not carried forward)*
+Run on `e3716ac8`, the finished branch state — after `ee9f67c` and after the documentation and
+ignore changes, so nothing is carried forward from the earlier run:
+
+```
+python -m pytest showdown_bot -q
+4056 passed, 2 skipped, 1 xfailed in 768.82s (0:12:48)
+```
+
+Identical to the intermediate figure, which is the expected outcome: the commits between the two
+runs changed one test's predicate, two documentation files and two `.gitignore` lines, none of
+which adds or removes a test. Against the `main @ 21e5b14` baseline of `3860 passed, 2 skipped,
+1 xfailed` this is **+196**, exactly the 164 module tests and 32 runner tests this slice adds,
+with no regression among the pre-existing 3860.
+
+| Gate | Result on `e3716ac8` |
+|---|---|
+| `python -m pytest showdown_bot -q` | 4056 passed, 2 skipped, 1 xfailed |
+| `git diff --check` | clean |
+| `git status --porcelain` | the seven known local artifacts only |
+| Public smoke | one battle, `exit=0`, artifacts validated |
+
+What was verified locally versus reported elsewhere: everything in this report was run and read
+here. Nothing in it rests on CI. That distinction matters in this repository — no workflow runs
+the full offline suite; `.github/workflows/pytest.yml` runs a named slice smoke plus a
+two-platform provenance matrix, and the Studio lanes cover Studio only.
 
 ---
 
