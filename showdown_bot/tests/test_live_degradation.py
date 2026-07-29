@@ -446,3 +446,45 @@ def test_every_grain_accepts_its_own_valid_row_under_the_same_harness():
     for name in GRAINS:
         validator, valid = _grain(name)
         validator(dict(valid))
+
+
+def test_live_degradation_dir_is_non_behavioural():
+    """It is an IO path with no /choose effect. is_excluded fails closed toward INCLUSION, so
+    leaving it unclassified would put the telemetry path into config_hash -- merely choosing
+    where to write would change the identity of the run being measured.
+
+    NOTE ON TIMING: this task does not yet READ the variable anywhere in production code, so
+    test_every_showdown_env_read_is_classified can only confirm the existing inventory here.
+    The full link is proven in Task 4, which introduces the real os.environ read.
+    """
+    from showdown_bot.eval.config_env import (
+        NON_BEHAVIORAL,
+        behavior_env,
+        is_classified,
+        is_excluded,
+    )
+
+    name = "SHOWDOWN_LIVE_DEGRADATION_DIR"
+    assert name in NON_BEHAVIORAL
+    assert is_classified(name)
+    assert is_excluded(name)
+    assert behavior_env({name: "X:/anywhere"}) == {}
+
+
+def test_run_directory_is_gitignored():
+    """The recorder is ALWAYS ON and writes under the repo root by default. .gitignore covers
+    showdown_bot/logs/ only, so without this entry every run would leave untracked evidence in
+    git status and break the Task 12 hygiene check."""
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    target = "logs/live-degradation/20260729T000000Z-abc123/decisions.jsonl"
+    proc = subprocess.run(
+        ["git", "check-ignore", "--", target],
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, (
+        f"{target} is not ignored; git check-ignore said rc={proc.returncode} "
+        f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
+    )

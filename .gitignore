@@ -22,3 +22,8 @@ data/datasets/**/*.jsonl
 # 2b-2.5a evidence: small per-quarter result rows + seed logs are provenance (byte-pinned by
 # sha256.txt), not the large regenerable merged dataset — keep them despite the rule above.
 !data/datasets/phase3-slice2b25a/evidence/**/*.jsonl
+
+# [#125] live-degradation-v1 run directories (always-on live-path evidence, written under the
+# CWD of the runner). The showdown_bot/logs/ entry above does not cover the repo root, where the
+# ladder, challenge and smoke commands are run from.
+logs/live-degradation/
