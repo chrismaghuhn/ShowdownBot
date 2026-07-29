@@ -601,3 +601,69 @@ class LiveDegradationRecorder:
         self._seq[room_id] = seq + 1
         self._decisions.setdefault(room_id, []).append(row)
         return row
+
+    def record_event(
+        self, *, event_type: str, payload: str, room_id: str | None,
+        active_battle_count: int,
+    ) -> dict:
+        """Build, validate and buffer one asynchronous event. NO filesystem access (C1).
+
+        The invalid-choice PM carries no room -- the loop fans _send_default_choose out to EVERY
+        active battle precisely because it cannot tell which one it means. It is therefore
+        unattributable in general; `inferred` is permitted only in the degenerate single-battle
+        case and is recorded as such, never as `room` (section 7). A caller may pass a room hint,
+        but it is DROPPED unless exactly one battle is active: charging an unattributable event to
+        a room would manufacture degradation that battle never showed (C8).
+        """
+        if event_type == "server_error":
+            attribution = "room"
+        elif room_id is not None and active_battle_count == 1:
+            attribution = "inferred"
+        else:
+            attribution = "unattributed"
+            room_id = None
+        ev = {
+            "schema_version": SCHEMA_VERSION, "run_id": self.run_id,
+            "event_type": event_type, "attribution": attribution, "room_id": room_id,
+            "payload": payload, "active_battle_count": active_battle_count,
+        }
+        try:
+            validate_event_row(ev)
+        except SchemaError as exc:
+            self.schema_errors_total += 1
+            logger.error("live-degradation rejected an event row: %s | row=%r", exc, ev)
+            return ev
+        self._events.append(ev)
+        return ev
+
+    def build_battle_row(self, *, room_id: str, end_reason: str) -> dict:
+        """Aggregate one battle from the sources named per counter (section 8).
+
+        Not every counter comes from decisions.jsonl: own_invalid_choices and server_errors come
+        from the EVENT stream, and write_errors from the in-memory failure counter -- necessarily,
+        since the rows are precisely what could not be written.
+
+        own_invalid_choices counts only `inferred` events. An `unattributed` PM has room_id None
+        and matches no room here, which is the whole point of C8: it stays in the event stream and
+        increments nothing.
+        """
+        rows = self._decisions.get(room_id, [])
+        evs = [e for e in self._events if e["room_id"] == room_id]
+        return {
+            "schema_version": SCHEMA_VERSION, "run_id": self.run_id, "room_id": room_id,
+            "decisions_total": len(rows),
+            "decisions_not_applicable": sum(
+                1 for r in rows if r["derivation_applicable"] is False),
+            "degraded_decisions": sum(1 for r in rows if r["is_degraded"] is True),
+            "state_build_failures": sum(1 for r in rows if r["state_build_failed"]),
+            "agent_crashes": sum(1 for r in rows if r["agent_crash_type"] is not None),
+            "fallback_decisions": sum(
+                1 for r in rows
+                if r["derivation_applicable"] is True and r["outcome"] == "fallback"),
+            "own_invalid_choices": sum(
+                1 for e in evs
+                if e["event_type"] == "invalid_choice_pm" and e["attribution"] == "inferred"),
+            "server_errors": sum(1 for e in evs if e["event_type"] == "server_error"),
+            "end_reason": end_reason,
+            "write_errors": self._room_write_errors.get(room_id, 0),
+        }

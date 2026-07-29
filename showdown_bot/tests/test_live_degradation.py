@@ -784,3 +784,141 @@ def test_the_stage_vocabulary_of_choose_with_fallback_is_fully_classifiable():
     assert marked, "no _mark_selection call sites found -- the regex needs updating"
     classifiable = {LIVE_OK_STAGE, *LIVE_FALLBACK_STAGES, "team_preview"}
     assert marked <= classifiable, f"unclassifiable stages: {sorted(marked - classifiable)}"
+
+
+def test_server_error_is_room_attributed(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    ev = rec.record_event(event_type="server_error",
+                          payload="[Invalid choice] Can't move: needs a target",
+                          room_id="battle-x-1", active_battle_count=2)
+    assert ev["attribution"] == "room" and ev["room_id"] == "battle-x-1"
+
+
+def test_server_error_payload_is_stored_whole(tmp_path):
+    """Section 7 requires the payload; no truncation rule has been approved."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    payload = "x" * 4096
+    ev = rec.record_event(event_type="server_error", payload=payload,
+                          room_id="battle-x-1", active_battle_count=1)
+    assert ev["payload"] == payload
+
+
+def test_invalid_choice_pm_with_two_active_battles_is_unattributed(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    ev = rec.record_event(event_type="invalid_choice_pm", payload="Invalid choice",
+                          room_id=None, active_battle_count=2)
+    assert ev["attribution"] == "unattributed" and ev["room_id"] is None
+
+
+def test_invalid_choice_pm_room_hint_is_dropped_when_more_than_one_is_active(tmp_path):
+    """Even if a caller passes a room, two active battles make the PM unattributable. Charging
+    it anyway would manufacture degradation never observed on that battle (C8)."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    ev = rec.record_event(event_type="invalid_choice_pm", payload="Invalid choice",
+                          room_id="battle-x-1", active_battle_count=2)
+    assert ev["attribution"] == "unattributed" and ev["room_id"] is None
+
+
+def test_invalid_choice_pm_with_one_active_battle_is_inferred(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    ev = rec.record_event(event_type="invalid_choice_pm", payload="Invalid choice",
+                          room_id="battle-x-1", active_battle_count=1)
+    assert ev["attribution"] == "inferred" and ev["room_id"] == "battle-x-1"
+
+
+def test_event_row_has_exactly_the_declared_fields_and_validates(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    ev = rec.record_event(event_type="server_error", payload="p",
+                          room_id="battle-x-1", active_battle_count=1)
+    assert tuple(ev) == EVENT_FIELDS
+    validate_event_row(dict(ev))
+
+
+def test_an_unknown_event_type_is_counted_and_not_buffered(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.record_event(event_type="disconnect", payload="p",
+                     room_id="battle-x-1", active_battle_count=1)
+    assert rec.schema_errors_total == 1
+    assert rec._events == []
+    assert rec.exit_status() != 0
+
+
+def test_counters_come_from_their_named_sources(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.record_decision(room_id="R", rqid=2, book_absent=True, team_preview=False,
+                        state_build_failed=False, selection_stage=None,
+                        fallback_reason=None, agent_crash_type=None)
+    rec.record_decision(room_id="R", rqid=3, book_absent=False, team_preview=False,
+                        state_build_failed=True,
+                        selection_stage="deterministic_default_pair",
+                        fallback_reason=None, agent_crash_type=None)
+    rec.record_event(event_type="server_error", payload="p",
+                     room_id="R", active_battle_count=1)
+    rec.record_event(event_type="invalid_choice_pm", payload="p",
+                     room_id="R", active_battle_count=1)
+    row = rec.build_battle_row(room_id="R", end_reason="win")
+    assert row["decisions_total"] == 3
+    assert row["decisions_not_applicable"] == 1
+    assert row["degraded_decisions"] == 1
+    assert row["state_build_failures"] == 1
+    assert row["agent_crashes"] == 0
+    assert row["fallback_decisions"] == 0
+    assert row["server_errors"] == 1
+    assert row["own_invalid_choices"] == 1     # from the EVENT stream, inferred only
+    assert row["write_errors"] == 0
+    assert tuple(row) == BATTLE_FIELDS
+    validate_battle_row(dict(row))
+
+
+def test_fallback_decisions_counts_only_gate_true_fallback_outcomes(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.record_decision(room_id="R", rqid=1, book_absent=False, team_preview=False,
+                        state_build_failed=False, selection_stage="max_damage_fallback",
+                        fallback_reason="heuristic_timeout", agent_crash_type=None)
+    row = rec.build_battle_row(room_id="R", end_reason="win")
+    assert row["fallback_decisions"] == 1 and row["degraded_decisions"] == 1
+
+
+def test_unattributed_event_increments_no_battle_counter(tmp_path):
+    """C8: charging an unattributable event to a room -- or to all -- would manufacture
+    degradation never observed on that battle."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.record_event(event_type="invalid_choice_pm", payload="p",
+                     room_id=None, active_battle_count=3)
+    row = rec.build_battle_row(room_id="R", end_reason="win")
+    assert row["own_invalid_choices"] == 0
+    assert row["degraded_decisions"] == 0
+
+
+def test_another_rooms_events_do_not_leak_into_this_battle(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    _record_clean(rec, room="R", rqid=1)
+    rec.record_event(event_type="server_error", payload="p",
+                     room_id="OTHER", active_battle_count=2)
+    row = rec.build_battle_row(room_id="R", end_reason="win")
+    assert row["server_errors"] == 0
+
+
+def test_not_applicable_rows_are_never_counted_as_degraded(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    for i in range(4):
+        rec.record_decision(room_id="R", rqid=i, book_absent=True, team_preview=False,
+                            state_build_failed=False, selection_stage=None,
+                            fallback_reason=None, agent_crash_type=None)
+    row = rec.build_battle_row(room_id="R", end_reason="win")
+    assert row["decisions_not_applicable"] == 4 and row["degraded_decisions"] == 0
+
+
+def test_a_gate_false_crash_counts_as_a_crash_but_not_as_degraded(tmp_path):
+    """agent_crashes is deliberately NOT bounded by degraded_decisions: a crash on the
+    book-absent path has the gate false, so is_degraded stays null."""
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    rec.record_decision(room_id="R", rqid=1, book_absent=True, team_preview=False,
+                        state_build_failed=False, selection_stage=None,
+                        fallback_reason=None, agent_crash_type="KeyError")
+    row = rec.build_battle_row(room_id="R", end_reason="tie")
+    assert row["agent_crashes"] == 1
+    assert row["degraded_decisions"] == 0
+    validate_battle_row(dict(row))
