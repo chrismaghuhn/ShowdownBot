@@ -19,20 +19,22 @@ wrapper. `eval/config_env.py` gained one classification. `.gitignore` gained two
 Twelve tasks, executed test-first in plan order. Each task's tests were verified RED for the
 stated reason before its implementation existed.
 
-| Commit | Task | Content |
+| # | Task | Content |
 |---|---|---|
-| `63a7d00` | 1 | schema constants, closed vocabularies |
-| `e7ba9be` | 2 (partial) | four validators, decision-grain mutations |
-| `1ee266a` | 2 | stable rule identifiers, restored messages, full coverage |
-| `deebcdf` | 3 | `SHOWDOWN_LIVE_DEGRADATION_DIR` classified, run dirs ignored |
-| `b9ca14c` | 4 | exclusive run directory, env override, writer preflight |
-| `c32531a` | 4 (fix) | two over-specifications withdrawn |
-| `b5fe98e` | 5 | gated decision rows, persisted `is_degraded` |
-| `a14587a` | 6, 7 | event attribution, battle aggregation |
-| `e60189f` | 8 | boundary flush, write-failure accounting, completion |
-| `e8f4e7f` | 9, 10 | runner wiring, boundaries, preflight call sites |
-| `54eb1e5` | 11, 12 (local) | non-masking exit status, smoke shape, artifact invariant |
-| `ee9f67c` | 11 (fix) | AST guard narrowed to `ExceptHandler` |
+| 1 | 1 | schema constants, closed vocabularies |
+| 2 | 2 (partial) | four validators, decision-grain mutations |
+| 3 | 2 | stable rule identifiers, restored messages, full coverage |
+| 4 | 3 | `SHOWDOWN_LIVE_DEGRADATION_DIR` classified, run dirs ignored |
+| 5 | 4 | exclusive run directory, env override, writer preflight |
+| 6 | 4 (fix) | two over-specifications withdrawn |
+| 7 | 5 | gated decision rows, persisted `is_degraded` |
+| 8 | 6, 7 | event attribution, battle aggregation |
+| 9 | 8 | boundary flush, write-failure accounting, completion |
+| 10 | 9, 10 | runner wiring, boundaries, preflight call sites |
+| 11 | 11, 12 (local) | non-masking exit status, smoke shape, artifact invariant |
+| 12 | 11 (fix) | AST guard narrowed to `ExceptHandler` |
+| 13 | 12 | closeout, narrow battle-log ignore rule |
+| 14 | 12 | final suite figure |
 
 This branch contains **only** the #125 implementation. Five user-commissioned working-agreement
 commits were made during the same session and initially shared this branch; they were split onto
@@ -180,37 +182,41 @@ unchanged and untracked throughout.
 
 Baseline at `main @ 21e5b14`: `3860 passed, 2 skipped, 1 xfailed`.
 
-An intermediate full run at `54eb1e5` returned `4056 passed, 2 skipped, 1 xfailed` — exactly
-+196, matching the 164 module tests and 32 runner tests this slice adds, with no regression in
-the pre-existing 3860.
-
-That run predates `ee9f67c` and the documentation and ignore changes, so a **final full run on
-the final branch state** is the figure that counts; it is recorded in §6.
+The suite was run in full three times during this slice: once before the public smoke, once after
+it, and once more after the working-agreement commits were split off this branch, which rewrote
+every commit here. Only the last one describes the branch as it now stands; it is §6.
 
 ---
 
-## 6. Final verification on the finished branch
+## 6. Final verification
 
-Run on `e3716ac8`, the finished branch state — after `ee9f67c` and after the documentation and
-ignore changes, so nothing is carried forward from the earlier run:
+**Tested head: `98b09860`.** That is the head of `claude/125-live-degradation-impl` after the
+branch split, with every task, the smoke, the closeout and the narrow ignore rule in place.
 
 ```
 python -m pytest showdown_bot -q
-4056 passed, 2 skipped, 1 xfailed in 768.82s (0:12:48)
+4056 passed, 2 skipped, 1 xfailed in 763.18s (0:12:43)
 ```
 
-Identical to the intermediate figure, which is the expected outcome: the commits between the two
-runs changed one test's predicate, two documentation files and two `.gitignore` lines, none of
-which adds or removes a test. Against the `main @ 21e5b14` baseline of `3860 passed, 2 skipped,
-1 xfailed` this is **+196**, exactly the 164 module tests and 32 runner tests this slice adds,
-with no regression among the pre-existing 3860.
+Against the `main @ 21e5b14` baseline of `3860 passed, 2 skipped, 1 xfailed` this is **+196** —
+exactly the 164 module tests and 32 runner tests this slice adds, with no regression among the
+pre-existing 3860.
 
-| Gate | Result on `e3716ac8` |
+**One commit follows the tested head: this one, and it changes only this report.** The suite was
+therefore not run on the final commit of the branch, and this report does not claim it was. Nothing
+that could affect a test result lies between `98b09860` and the tip: no source file, no test, no
+`.gitignore` line, no configuration — only prose in `docs/projects/champions/reports/`.
+
+| Gate | Result on `98b09860` |
 |---|---|
 | `python -m pytest showdown_bot -q` | 4056 passed, 2 skipped, 1 xfailed |
 | `git diff --check` | clean |
 | `git status --porcelain` | the seven known local artifacts only |
 | Public smoke | one battle, `exit=0`, artifacts validated |
+
+No commit hashes appear anywhere else in this report. The split invalidated a full set of them
+once already, and this file's own contract forbids duplicating volatile identifiers. Section 1's
+table is ordinal for that reason; read the branch history for the mapping.
 
 What was verified locally versus reported elsewhere: everything in this report was run and read
 here. Nothing in it rests on CI. That distinction matters in this repository — no workflow runs
