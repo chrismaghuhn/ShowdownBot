@@ -3214,8 +3214,11 @@ Output rules for the closeout report:
    pasted blocks for that exact string; if it occurs, replace it with the literal token
    `SMOKE_USER` and state in the report that the substitution was made and where. Never paste
    `SHOWDOWN_PASSWORD`, an assertion string, or a session cookie. The name is disposable and
-   unregistered, so the scrub is hygiene rather than secrecy — but a report that silently
-   contains a live account name is still worse than one that says it substituted.
+   *almost certainly* free — but the run only reached this point by authenticating as a **guest**,
+   which proves the name was not registered **at that moment** and nothing more. Do not restate it
+   as "unregistered": that is exactly the claim the collision paragraph above withdraws. Scrub it
+   for the plain reason that a report which silently carries a live account name is worse than one
+   that says it substituted.
 4. **Artifact rule.** The run directory itself is evidence but is **not committed** — it is
    covered by the `.gitignore` entry from Task 3, and the repository hygiene rule keeps raw logs
    out of commits. Only the three excerpts, inside the closeout report, enter git.
