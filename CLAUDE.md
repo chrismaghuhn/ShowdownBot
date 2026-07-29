@@ -1,5 +1,20 @@
 # Working Agreement
 
+## Hard rules
+
+These are the irreversible or trust-destroying ones. Everything below elaborates; these do not
+bend.
+
+- Do not force-push, push directly to `main`, merge, delete branches, or remove worktrees without
+  explicit approval.
+- Do not start a later phase or broaden a slice without explicit approval.
+- Never claim a check passed that you did not run and read. Name what you ran; name what was only
+  reported by CI or another agent.
+- Never turn a safety, parser, provenance, or pipeline smoke into a strength claim.
+- Do not violate INV-1…INV-7 (`docs/architecture/brain-v1-northstar.md`). Relitigating one needs an
+  approved decision record, not an argument in a plan.
+- Stage files intentionally. Never use broad staging when unrelated files are present.
+
 ## Partnership
 
 - Work as a critical collaborator, not an order-taker.
@@ -10,13 +25,14 @@
 
 ## Sources of Truth
 
-1. Read `docs/PROJECT_INDEX.md` for orientation.
-2. For **what is open / blocked / next** (operational status): check the GitHub Project
-   "ShowdownBot — North Star" (`docs/architecture/github-project-governance.md` for the
-   field contract and views).
-3. For **detailed technical status, evidence chains, and provenance**: treat
-   `docs/ROADMAP.md` as the authoritative source.
-4. For the active slice, read its approved spec and plan, relevant reports, tests, and Git history.
+1. `docs/PROJECT_INDEX.md` for orientation. Read the `Purpose`, `Current North Star`, and
+   `Current Priority` sections, then grep for the active slice. Do not read it end-to-end.
+2. For **what is open / blocked / next** (operational status): the GitHub Project
+   "ShowdownBot — North Star" (`docs/architecture/github-project-governance.md` for the field
+   contract and views).
+3. For **detailed technical status, evidence chains, and provenance**: `docs/ROADMAP.md` is
+   authoritative. It is large; grep it for the active slice rather than reading it whole.
+4. For the active slice: its approved spec and plan, relevant reports, tests, and Git history.
 
 When summaries conflict, trust current code, committed evidence, the roadmap, and Git history.
 Do not duplicate volatile phase status, commit hashes, or measurements in this file.
@@ -24,19 +40,75 @@ If the GitHub Project is temporarily inaccessible, state that limitation explici
 the roadmap, current code, committed evidence, and Git history, and do not claim that operational
 status was verified.
 
+The canonical Brain V1 architecture documents live **outside this repository**
+(`TestBOtpläne/`, sibling of the repo). An agent working only from the repo does not have them:
+say so rather than reconstructing them from `docs/architecture/brain-v1-northstar.md`, which is a
+pointer, not the source.
+
+## Repository map
+
+- `showdown_bot/src/showdown_bot/` — the package.
+  `client/` (connection, auth, runner, gauntlet) · `protocol/` · `battle/` (the Brain seam is
+  `battle/decision.py::choose_with_fallback`) · `engine/` (`belief/`, `calc/`) · `eval/` ·
+  `learning/` · `models/` · `team/` · `analysis/` · `research/` · `cli.py`
+- `showdown_bot/tests/` — the pytest suite. `showdown_bot/tools/calc/` — pinned `@smogon/calc`
+  bridge (JS). `showdown_bot/config/` — hashed format/species/move/item config.
+- `config/eval/` — panels, schedules, baselines, holdout, coverage.
+  `data/eval/`, `data/datasets/` — frozen evidence. `reports/` — verdict reports.
+- `showdownbot_studio/` — Godot viewer, with its own CI lanes and its own `docs/` tree.
+- `.github/workflows/` — CI. `docs/` — see *Documentation placement*.
+
+The architecture phrase *Preview → Belief → Policy → Search → Fusion* describes layers, not
+directories. There is no `policy/`, `search/`, or `fusion/` package.
+
+## Commands
+
+```
+cd showdown_bot
+npm ci --prefix tools/calc --no-audit --no-fund   # calc bridge; the suite needs it
+pip install -e ".[dev]"
+python -m pytest                                  # full offline suite
+python -m showdown_bot.cli <command> -v
+```
+
+The authoritative command list is the `choices` list in `cli.py::_build_parser` — read it there
+rather than trusting any prose copy, including this one.
+
+`pip install -e ".[learning]"` pulls lightgbm/numpy for offline reranker work only. A live run
+must never import lightgbm (INV-1). If a change makes it reachable from the live path, that is a
+defect, not a dependency question.
+
+There is no linter, formatter, or type checker configured in this repository. Do not introduce one
+as a side effect of another slice.
+
+## Project invariants
+
+INV-1…INV-7 in `docs/architecture/brain-v1-northstar.md` are binding: live-path allowlist, memory
+as priors only, anytime/abortable search, one layer at a time behind an ablation gate, no LLM
+anywhere, no label leakage, model-artifact safety. Read them before touching the decision path,
+the learning schema, or a model artifact.
+
+**Byte stability.** Provenance hashes in this repository are computed over *raw file bytes*
+(`format_config_hash`, `file_content_hash`, `_sha256_file`). Any new file whose bytes are hashed —
+config YAML/JSON, teams, fixtures, frozen evidence, pinned manifests — needs a `text eol=lf` rule
+in `.gitattributes` **in the same commit that introduces it**. Without it, the same content hashes
+differently on Windows and Linux and cross-platform comparisons silently compare different
+configurations. This has regressed repeatedly; the rationale per rule is in `.gitattributes`.
+
 ## Scope and Claims
 
-- Do not start a later phase or broaden a slice without explicit approval.
 - Within an approved slice, proceed autonomously through all necessary implementation, tests,
   documentation, and review steps implied by its acceptance criteria. These are not scope
   expansion.
-- Do not turn safety, parser, provenance, or pipeline smokes into strength claims.
 - Preserve explicit non-goals and fail-closed gates from approved specs and plans.
 
 ## Execution Default
 
 For repository tasks, default to completing the requested task rather than merely advising what
 someone else should do.
+
+**When a plan is required:** one plan per slice, before implementation, and for any change to a
+committed contract. Work inside an already-approved slice does not need a new plan — implement it.
 
 For implementation tasks such as implement, fix, complete, or continue:
 
@@ -109,14 +181,15 @@ structure has no value by itself.
 - Inspect the actual diff and relevant production paths; do not accept agent reports on trust.
 - Before claiming success, run fresh checks proportional to the change and read their full output.
 - Run `git diff --check` for every commit-ready slice.
+- **CI is not the suite.** `.github/workflows/pytest.yml` runs a named slice smoke plus a
+  two-platform provenance-bytes matrix; the Studio lanes cover Studio only. Nothing runs the full
+  offline suite automatically. "CI is green" is not "the suite passed" — run
+  `python -m pytest` and report what it returned.
 - Report exactly what was verified locally and what was only reported by another agent or CI.
 
 ## Repository Hygiene
 
 - Preserve unrelated user changes and local-only artifacts.
-- Stage files intentionally; never use broad staging when unrelated files are present.
-- Do not force-push, push directly to `main`, merge, delete branches, or remove worktrees without
-  explicit approval.
 - Keep raw logs, caches, temporary diagnostics, and large external datasets out of commits unless
   an approved plan explicitly freezes them as evidence.
 
@@ -132,3 +205,5 @@ instance: `docs/projects/champions/decisions/2026-07-27-gate-b-justified-repeat.
 Put user-facing material in `docs/guides/<topic>/` and
 cross-project architecture in `docs/architecture/`. Do not recreate
 `docs/superpowers/`; see `docs/README.md` and `docs/PATH_MIGRATION.md`.
+
+`AGENTS.md` is a pointer to this file, not a copy. Do not restore prose into it.
