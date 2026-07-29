@@ -104,9 +104,9 @@ place where this repository has already measured the metric being wrong.
 
 ## 4. Weakness inventory
 
-**Four weaknesses (W1, W2, W4, W5) and one contested surface (C1).** C1 is listed here because
-the evidence about it is real and worth recording, but it is deliberately not counted as a
-weakness and does not appear in §6a — see its own entry for why.
+**Three weaknesses (W1, W2, W4), one contested surface (C1), one baseline context (B1).** Only the
+three weaknesses are ranked in §6a. C1 and B1 are recorded because the evidence about them is real
+and worth having, but neither is a concrete weakness pattern — see each entry for why.
 
 ### W1 — Terastallization is never an enumerated candidate
 
@@ -119,7 +119,7 @@ weakness and does not appear in §6a — see its own entry for why.
 | **Strength relevance** | Tera is a once-per-battle strategic resource in VGC. Unknown magnitude — see frequency. |
 | **Frequency** | **`unknown`.** `tera_used` is `False` in 17458/17458 dataset rows (S6), but S6 shows that is partly a *export* artifact: the heuristic does occasionally Tera, and those decisions are dropped from the export by a separate structural mechanism. The dataset therefore cannot measure how often this costs anything. No number is invented here. |
 | **Evidence confidence** | **High** for the structural fact (read in today's code, not inferred). **Unknown** for impact. |
-| **Overlap** | Independent of W2–W5. |
+| **Overlap** | Independent of W2, W4 and C1. Not claimed independent of B1 — B1 is the aggregate level and every weakness contributes to it by construction. |
 | **Scope limit that a solution must respect** | `gen9championsvgc2026regma` sets `tera: false` (S8), and `_maybe_tera` returns early on it. **On the current Champions front-track format this weakness is moot.** It applies to the Tera-enabled configured formats, `gen9vgc2024regg` and `gen9vgc2025regi`. **Correction:** an earlier revision of this audit reasoned that the default `gen9vgc2025regg` also exercises the overlay, because it has no format config and so the guard cannot fire. That is a non-sequitur, and the code says the opposite — with no format config `_get_book` returns `None` (`runner.py`), so `handle_battle_message` takes the `else` branch to `choose_for_request`, which `decision.py:138` documents as the *"legacy random agent"*. `choose_with_fallback` is never called and `_maybe_tera` is never reached. A guard that does not fire on an unreachable path proves nothing. |
 | **Boundaries** | Enlarging the action space touches the live decision path: INV-1 (live-path allowlist), INV-3 (anytime/abortable) and the I8-D latency budget all bind. A ~4× space increase is exactly what the pruning bought. |
 
@@ -171,10 +171,19 @@ evidence of a weakness. It is labelled `C1` rather than `W6` so it is not counte
 | **Strength relevance** | Directly wasted turns — the most legible loss mechanism in this inventory. |
 | **Frequency** | 12 occurrences / 150 games ≈ **0.08 per game**, upper-bounded by the over-count caveat. Games lost: **`unknown`**. |
 | **Evidence confidence** | **Medium.** Log-observed and countable, but one archive, a v0 detector, and an acknowledged over-count. |
-| **Overlap** | Independent of W1, W2 and C1. |
+| **Overlap** | Independent of W1, W2 and C1. Not claimed independent of B1, for the same reason. |
 | **Boundaries** | Touches the live decision path (INV-1). Any move-dex dependency must not reach the live path as a new heavy import. |
 
-### W5 — Low absolute winrate against `max_damage` on the development panel
+### B1 — Low absolute winrate against `max_damage` — **baseline context, not a weakness pattern**
+
+Reclassified. An earlier revision listed this as W5 and ranked it second on strength relevance.
+That repeated, one level up, the error already corrected for `MUST_REACT`: the document's own rows
+said *no affected decisions*, *no mechanism identified*, *not directly actionable*, and *aggregate
+of everything including causes not in this inventory*. A measurement with those four properties is
+a **baseline level**, not one of the concrete weakness patterns #127 asks for. Ranking it among
+them mixes "how weak is the bot overall?" with "where is a specific weakness?" — which is the exact
+confusion §6 exists to prevent. It is labelled `B1` and excluded from the weakness count and from
+§6a; it is kept because the level genuinely frames everything else.
 
 | | |
 |---|---|
@@ -183,10 +192,10 @@ evidence of a weakness. It is labelled `C1` rather than `W6` so it is not counte
 | **Affected decisions** | None specifically — this is a level, not a mechanism. |
 | **Mechanism (inference)** | Not identified. The number is consistent across two independent slices and two configurations, so it is a property of the bot-panel-opponent triple, not of one run. |
 | **Counter-evidence / limits** | **Opponents are `max_damage` only**, on dev cells (trickroom / sun / rain) (S4 caveats). `max_damage` is not a weak opponent in every matchup, and the panel has only 4 archetypes with a coarse LOTO test (S10). This is not a ladder-strength statement. |
-| **Strength relevance** | High as a *level* signal: it bounds how much headroom exists. |
+| **What it is good for** | Bounding the headroom: it says most of this panel is lost, so there is a lot to recover. It cannot point at anything to recover it with. |
 | **Frequency** | Not applicable. |
 | **Evidence confidence** | **High** for the measurement, **low** for any causal reading. It tells us the bot loses most of these games; it does not tell us why. |
-| **Overlap** | Aggregate of everything, including causes not in this inventory. |
+| **Overlap** | Aggregates every cause, including the three weaknesses below it and causes not in this inventory at all. Nothing can be *independent* of it, which is why no weakness entry claims to be. |
 | **Boundaries** | Must never be quoted as a ladder or held-out strength statement. |
 
 ---
@@ -215,6 +224,14 @@ one, and because "the bot Protect-spams" is the intuition this repository's own 
 `tailwind_both` disagreements are move→move, not Protect. A Protect-focused fix addresses the
 minority, and one was already tried and failed (W2).
 
+**C-e — `MUST_REACT` (C1): do not reopen without new evidence.** An earlier revision listed it as
+investigation rank 3 for #128. That was wrong on its own terms: C1 is explicitly *not* a weakness,
+and its only cheap lever is the scalar aggregation that C-a records as already well explored on the
+development side — the axis has been probed in both directions from the shipped baseline. Listing
+it as something to investigate invited exactly the re-tuning C-a warns against. It becomes
+actionable again only if a **new** error indicator appears that does not invert on this axis, or if
+outcome-attributed evidence links `MUST_REACT` decisions to lost games. Neither exists today.
+
 ---
 
 ## 6. Ranking
@@ -223,10 +240,10 @@ Two separate questions, kept separate on purpose. An earlier revision merged the
 it ranked by "expected strength relevance" while its stated reasons were evidence quality,
 testability, effort and regression risk. Those are #128's selection criteria, not #127's.
 
-**Four weaknesses are ranked. `MUST_REACT` is not among them** — it was demoted to C1, a contested
-surface, because mode frequency plus parameter sensitivity does not establish a defect in the
-current bot, and the only per-decision error indicator on that axis is the one indicator measured
-to invert there.
+**Three weaknesses are ranked: W2, W1, W4.** Two entries in §4 are deliberately excluded —
+`MUST_REACT` (C1), because parameter sensitivity is not a defect, and the low absolute dev winrate
+(B1), because a level with no affected decisions and no mechanism is not a weakness pattern. Both
+were ranked here in earlier revisions; both removals are corrections, not omissions.
 
 ### 6a. Ranking by expected strength relevance — this is what #127 asks for
 
@@ -237,9 +254,8 @@ are deliberately **not** inputs here.
 | Rank | Weakness | Exposure | What the evidence says is at stake | Evidence confidence |
 |---|---|---|---|---|
 | 1 | **W2** `tailwind_both` | 4.1% of decisions | Highest mean regret of any bucket — **9.19** against 5.57 for the next-largest — and stable across two independent panel subsets | Medium (High for the pattern) |
-| 2 | **W5** low absolute dev winrate | Whole panel | Bounds total headroom: ~18% vs `max_damage` means most of the panel is lost | High (measurement) / Low (causal) |
-| 3 | **W1** Tera never enumerated | `unknown`; **zero** on the front-track format | A once-per-battle strategic resource sits outside the search space — magnitude unmeasured | High (structural) / Unknown (impact) |
-| 4 | **W4** immunity-punished attacks | 0.08/game (upper bound) | Directly wasted turns, but the smallest measured occurrence rate here | Medium |
+| 2 | **W1** Tera never enumerated | `unknown`; **zero** on the front-track format | A once-per-battle strategic resource sits outside the search space — magnitude unmeasured | High (structural) / Unknown (impact) |
+| 3 | **W4** immunity-punished attacks | 0.08/game (upper bound) | Directly wasted turns, but the smallest measured occurrence rate here | Medium |
 
 **Why this order.**
 
@@ -248,40 +264,38 @@ weakness verified stable across two independent subsets (full panel 92%/n=137, r
 91.7%/n=132). Its ceiling is set by §3: the regret is teacher-defined and nothing links it to game
 outcomes, so "highest regret" is not "most games lost".
 
-**W5 second.** It bounds how much strength is available to recover at all, which is real relevance —
-but it names no mechanism, so it cannot be acted on directly. It ranks above W1 because it is
-measured on the whole panel while W1's magnitude is unmeasured.
-
-**W1 third**, despite carrying the highest evidence confidence in the inventory. Confidence in a
+**W1 second**, despite carrying the highest evidence confidence in the inventory. Confidence in a
 *structural fact* is not strength relevance: the impact is `unknown`, the dataset that would measure
 it drops exactly the rows needed, and **on the format the front-track actually runs the weakness
-does not exist**. If the front-track moves to a Tera-enabled format this should move up.
+does not exist**. If the front-track moves to a Tera-enabled format this should move to rank 1 — it
+is the only entry here whose rank is contingent on a format decision rather than on new evidence.
 
-**W4 last on relevance.** 0.08 occurrences per game is the smallest quantified effect here. That it
-ranks last on this axis and first on the next is the most useful single fact in this audit.
+**W4 third.** 0.08 occurrences per game is the smallest quantified effect in the inventory. That it
+ranks last here and first in §6b is the most useful single fact in this audit.
+
+**A ranking of three is the honest length.** Two candidates were removed during review because they
+were a decision *surface* and a *level* rather than weakness patterns. What survives is short, and
+that is a finding in itself: this repository's development evidence supports fewer concrete,
+localised weakness claims than the volume of evidence first suggests.
 
 ### 6b. Suggested investigation order — NOT a ranking of strength relevance, NOT a selection
 
 Input to #128, explicitly **not** an answer to #127. It reorders 6a by tractability: how good the
 evidence is, how cheaply a hypothesis can be tested, and what a wrong answer would cost. **Nothing
-here selects a candidate or authorises work.**
+here selects a candidate or authorises work.** C1 and B1 do not appear — C1 is parked under C-e,
+and B1 is not actionable at all.
 
-| Order | Item | Evidence quality | Implementation effort | Regression risk | Falsifiable how? |
+| Order | Weakness | Evidence quality | Implementation effort | Regression risk | Falsifiable how? |
 |---|---|---|---|---|---|
 | 1 | **W4** | Log-observed, not teacher-derived | Low–Medium — scoring change, no new state | **Low** — narrow, no search-space change | The detector that found it can measure whether a fix removed it |
 | 2 | **W2** | Teacher-derived, but panel-stable and mechanism-decomposed | High — depth or belief, not tuning | **High** — INV-3, INV-4, I8-D latency budget | Atlas bucket re-measure; but see §3 on that metric |
-| 3 | **C1** *(contested surface, not a weakness)* | Winrate-measured on its own axis; no clean defect evidence | Low if scalar — but see C-a | Medium — the axis moves winrate in both directions | Paired dev A/B, the method already used on it |
-| 4 | **W1** | Structural, verified in today's code | Medium–High — ~4× action space | **High** — live path, INV-1/INV-3, latency | Hard: the dataset drops Tera'd decisions, so its own measurement is blocked |
-| 5 | **W5** | High as a measurement | Not directly actionable | — | Not applicable — it is a bound, not a lever |
-
-C1 appears here and not in 6a on purpose: it is tractable to investigate precisely *because* its axis
-is winrate-measurable, while remaining unproven as a defect. Tractability and relevance are
-different questions, and this is the clearest case of the two coming apart.
+| 3 | **W1** | Structural, verified in today's code | Medium–High — ~4× action space | **High** — live path, INV-1/INV-3, latency | Hard: the dataset drops Tera'd decisions, so its own measurement is blocked |
 
 **The disagreement between 6a and 6b is the finding, not a flaw.** W4 is last on strength relevance
-and first on tractability. Whether to attack the largest measured effect or the best-evidenced one
-is a judgement about method and risk appetite — it belongs to #128, with the tension stated rather
-than hidden inside a single blended number.
+and first on tractability; W2 is the reverse of neither and sits second on both. Whether to attack
+the largest measured effect or the best-evidenced one is a judgement about method and risk
+appetite — it belongs to #128, with the tension stated rather than hidden inside a single blended
+number.
 
 ---
 
@@ -325,6 +339,9 @@ These are gaps demonstrated by the sources, not speculation.
   direction or derived diagnostic appears above. The older T6 held-out results were excluded on the
   same principle.
 - **No ladder or generalisation claim.** Every number is development-panel, `max_damage`-only.
+- **Three weaknesses are claimed, not five.** `MUST_REACT` (C1) and the low absolute dev winrate
+  (B1) are recorded as a contested surface and a baseline level. Neither is counted or ranked as a
+  weakness pattern.
 - **`MUST_REACT` is not claimed as a weakness.** It is recorded as C1, a contested surface. The
   audit states what is measured — the axis moves winrate — and states plainly that this does not
   establish a defect in the current policy.
