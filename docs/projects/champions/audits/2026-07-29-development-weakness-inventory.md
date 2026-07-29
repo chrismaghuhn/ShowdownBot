@@ -11,7 +11,10 @@ started.
 ### What this is
 
 A structured inventory of bot weaknesses reconstructed **only** from evidence that already exists
-in this repository, ranked by expected strength relevance.
+in this repository, ranked by expected strength relevance **on `gen9championsvgc2026regma`** — the
+format the front track runs, and therefore the one the improvement #126/#127 feed will be judged on.
+Weaknesses that are real but have no exposure on that format are recorded and ranked separately
+(§6c) rather than mixed into the current order.
 
 ### What this is not
 
@@ -104,11 +107,20 @@ place where this repository has already measured the metric being wrong.
 
 ## 4. Weakness inventory
 
-**Three weaknesses (W1, W2, W4), one contested surface (C1), one baseline context (B1).** Only the
-three weaknesses are ranked in §6a. C1 and B1 are recorded because the evidence about them is real
-and worth having, but neither is a concrete weakness pattern — see each entry for why.
+**Three weaknesses (W1, W2, W4), one contested surface (C1), one baseline context (B1)** — but they
+do not all belong to the same question. Only **W2 and W4** apply to `gen9championsvgc2026regma`, the
+format the front track runs, so only those two are ranked for current strength relevance in §6a.
+**W1 is conditional**: structurally real, but with zero exposure on that format, so it is ranked
+separately in §6c as a cross-format weakness. C1 and B1 are recorded because the evidence about
+them is real and worth having, but neither is a concrete weakness pattern — see each entry for why.
 
-### W1 — Terastallization is never an enumerated candidate
+### W1 — Terastallization is never an enumerated candidate — **conditional: does not exist on the current front-track format**
+
+Classified in review as a **cross-format, structural** weakness rather than a current one. It is
+real, it is verified in today's code, and it is out of scope for the improvement #126/#127 feed:
+`gen9championsvgc2026regma` sets `tera: false`, so on the format the front track actually runs
+there is no decision for this weakness to affect. It is ranked in §6c, not §6a — see there for why
+a weakness with zero exposure on the target format cannot hold a current-relevance rank.
 
 | | |
 |---|---|
@@ -129,12 +141,14 @@ and worth having, but neither is a concrete weakness pattern — see each entry 
 |---|---|
 | **Observed pattern** | When both sides have Tailwind up, the heuristic disagrees with the teacher on **91.97%** of decisions (126/137) at mean regret **9.19** — the worst of every `speed_control_state` bucket. Next worst with meaningful n is `tailwind_ours` at 53.96%, regret 5.57 (S1). |
 | **Sources** | S1 `speed_control_state`; S2 for stability and mechanism. |
-| **Affected decisions** | Fast boards where both sides outspeed their base order. 137/3302 ≈ **4.1%** of dev decisions. |
+| **Affected decisions** | Fast boards where both sides outspeed their base order. 137/3302 ≈ **4.1%** of dev decisions panel-wide — but see the concentration row: they are not spread across the panel. |
+| **Concentration — corrected in review** | The bucket is **almost entirely a rain-cell phenomenon**. S2 isolates the rain shard of the same committed aggregate (`config_hash 9ef99d8415353a77`, 1387 of 3302 decisions) and finds **132** `tailwind_both` decisions in it. The full panel has 137. So **~5 of 137 lie outside rain**: ≈ **9.5%** of rain decisions (132/1387) against ≈ **0.3%** everywhere else (5/1915). Both directions of that matter: exposure *within* the cell where it occurs is more than double the panel-wide 4.1%, and there is essentially **no evidence about this bucket on the trickroom or sun cells** — n≈5 supports nothing. |
 | **Mechanism (inference, but decomposed in S2 rather than guessed)** | Of 126 disagreements: **93 are move→move** (different move or target) and **33 are heuristic-attacks → teacher-switches-one**. Only a minority are Protect-spam. The dominant line is the teacher's H-step **pivot-to-best-attacker**, whose payoff accrues over later turns a one-ply resolver cannot see. |
 | **Counter-evidence, actively sought and found** | A targeted fix was **already tried and failed**. An env-gated wasted-Protect penalty on fast boards moved the bucket 91.7% → 90.2% (−1.5pp on n=132, i.e. a few decisions) and made mean regret **worse**, 9.26 → 9.44 (S2). Every other bucket was frozen. This is one intervention at one value; S2's own caveat says a larger penalty is not expected to help *because the mechanism decomposition shows the gap is dominated by non-Protect disagreements* — that reasoning, not the single A/B, is what carries the depth hypothesis. |
 | **Strength relevance** | Regret is concentrated here, but regret is teacher-defined — see §3. |
 | **Frequency** | 4.1% of decisions. Games lost: **`unknown`** — no development evidence links this bucket to game outcomes. |
-| **Evidence confidence** | **High** that the pattern is real and panel-stable (full panel 92%/n=137 ≈ rain subset 91.7%/n=132). **Medium** on the depth hypothesis: what is demonstrated is that *this* intervention — one wasted-Protect penalty at one value, −3.0 — did not move the bucket, which is consistent with the depth explanation and with S2's mechanism decomposition but does not prove the whole bucket is beyond every valuation change. **Medium** for strength relevance, per §3. |
+| **The two samples are not independent — corrected in review** | An earlier revision called full panel 92%/n=137 and rain subset 91.7%/n=132 "two independent panel subsets" and treated their agreement as replication. They are not independent: S2 defines the flag-OFF set as *"the rain subset of the committed 2b-2.5a aggregate"*, the same `dataset.jsonl.gz` the full-panel atlas was computed over. The second sample therefore contains **132 of the same 137 decisions — ≈96%**. Their agreement confirms the shard was isolated correctly and the atlas computation reproduces. It says **nothing** about panel stability or generalisation, because a set and its own 96% subset cannot disagree by much whatever is true. **S2 itself makes this error** (its "Panel-stability sanity" paragraph), and this audit inherited it rather than introducing it — recorded here so the claim is not carried forward again. |
+| **Evidence confidence** | **High** that the pattern is real *in this dataset* — 91.97% at regret 9.19 is a large, exactly-counted effect. **Not established** that it is panel-stable: per the row above there is only one real sample, and it is a rain-cell sample. **Medium** on the depth hypothesis: what is demonstrated is that *this* intervention — one wasted-Protect penalty at one value, −3.0 — did not move the bucket, which is consistent with the depth explanation and with S2's mechanism decomposition but does not prove the whole bucket is beyond every valuation change. **Medium** for strength relevance, per §3. |
 | **Overlap** | Independent of C1, and an earlier revision was wrong to link them. It claimed both share a depth mechanism and that "a valuation change moves neither" — but C1's own source records a *scalar valuation* change moving that surface by ±11.3pp. The two behave oppositely under the same class of intervention, which is the opposite of a shared mechanism. |
 | **Boundaries** | INV-3 (anytime/abortable) and INV-4 (one layer at a time behind an ablation gate). The I8-D 1000 ms p95 budget is the hard operational constraint on any depth increase. |
 
@@ -240,62 +254,94 @@ Two separate questions, kept separate on purpose. An earlier revision merged the
 it ranked by "expected strength relevance" while its stated reasons were evidence quality,
 testability, effort and regression risk. Those are #128's selection criteria, not #127's.
 
-**Three weaknesses are ranked: W2, W1, W4.** Two entries in §4 are deliberately excluded —
-`MUST_REACT` (C1), because parameter sensitivity is not a defect, and the low absolute dev winrate
-(B1), because a level with no affected decisions and no mechanism is not a weakness pattern. Both
-were ranked here in earlier revisions; both removals are corrections, not omissions.
+**Two weaknesses are ranked for current relevance: W2 and W4.** Three entries in §4 are excluded
+from that ranking, each for a different and stated reason:
 
-### 6a. Ranking by expected strength relevance — this is what #127 asks for
+- **W1** — real and structural, but **zero exposure on `gen9championsvgc2026regma`**. Ranked
+  separately in §6c. #126/#127 feed the next improvement *after the Champions gate*, so a weakness
+  that does not exist on that format cannot hold a position in the current relevance order. This is
+  a scope judgement, not a downgrade of the evidence.
+- **C1** `MUST_REACT` — parameter sensitivity is not a defect. Parked under C-e.
+- **B1** low absolute dev winrate — a level with no affected decisions and no mechanism is not a
+  weakness pattern.
+
+All three were ranked in §6a in earlier revisions. All three removals are corrections.
+
+### 6a. Ranking by expected strength relevance on the current front-track format — this is what #127 asks for
 
 Ranked **only** on what the development evidence suggests is at stake in strength terms: exposure,
 concentration of regret, and any measured link to winning or losing. Effort, risk and testability
-are deliberately **not** inputs here.
+are deliberately **not** inputs here. Scope: `gen9championsvgc2026regma`.
 
 | Rank | Weakness | Exposure | What the evidence says is at stake | Evidence confidence |
 |---|---|---|---|---|
-| 1 | **W2** `tailwind_both` | 4.1% of decisions | Highest mean regret of any bucket — **9.19** against 5.57 for the next-largest — and stable across two independent panel subsets | Medium (High for the pattern) |
-| 2 | **W1** Tera never enumerated | `unknown`; **zero** on the front-track format | A once-per-battle strategic resource sits outside the search space — magnitude unmeasured | High (structural) / Unknown (impact) |
-| 3 | **W4** immunity-punished attacks | 0.08/game (upper bound) | Directly wasted turns, but the smallest measured occurrence rate here | Medium |
+| 1 | **W2** `tailwind_both` | 4.1% of dev decisions panel-wide; ≈9.5% within the rain cell, ≈0.3% outside it | Highest mean regret of any bucket — **9.19** against 5.57 for the next-largest | **Medium** — one large, exactly-counted effect in one dataset; teacher-defined; not shown to generalise |
+| 2 | **W4** immunity-punished attacks | 12 events / 150 games = 0.08 per game (upper bound) | Directly wasted turns — an unambiguous error, but the smallest measured occurrence rate here | **Medium** — directly observed in logs, not teacher-derived |
 
-**Why this order.**
+**Why this order, and how thin it is.**
 
-**W2 first.** It is the largest concentration of measured regret anywhere in the atlas, and the only
-weakness verified stable across two independent subsets (full panel 92%/n=137, rain subset
-91.7%/n=132). Its ceiling is set by §3: the regret is teacher-defined and nothing links it to game
-outcomes, so "highest regret" is not "most games lost".
+**W2 first** on the strength of the observed pattern alone: 91.97% disagreement at mean regret 9.19
+is the largest concentration of measured regret anywhere in the atlas, several times the next
+bucket. Two things bound that, and both are recorded in its entry rather than in the rank:
 
-**W1 second**, despite carrying the highest evidence confidence in the inventory. Confidence in a
-*structural fact* is not strength relevance: the impact is `unknown`, the dataset that would measure
-it drops exactly the rows needed, and **on the format the front-track actually runs the weakness
-does not exist**. If the front-track moves to a Tera-enabled format this should move to rank 1 — it
-is the only entry here whose rank is contingent on a format decision rather than on new evidence.
+- The regret is **teacher-defined**, and §3 shows this repository has already measured the teacher
+  pointing the wrong way on one axis. Highest regret is not most games lost.
+- The **second sample is not a second sample.** An earlier revision ranked W2 first partly because
+  it was "verified stable across two independent panel subsets". That was wrong — the rain subset
+  contains 132 of the same 137 decisions (≈96%), so the two figures cannot disagree by much
+  whatever is true. W2 keeps rank 1 because the pattern within its dataset is strong, **not**
+  because it replicated. Panel stability is unestablished, and the bucket is concentrated in one
+  cell.
 
-**W4 third.** 0.08 occurrences per game is the smallest quantified effect in the inventory. That it
+**W4 second.** 0.08 occurrences per game is the smallest quantified effect in the inventory, and
+that is the honest reason it ranks below W2. What it has instead is evidence of a kind nothing else
+here has: the error is visible directly in battle logs, needs no teacher to define it, and is
+unambiguous when it happens — attacking into an immunity is wrong under any evaluator. That it
 ranks last here and first in §6b is the most useful single fact in this audit.
 
-**A ranking of three is the honest length.** Two candidates were removed during review because they
-were a decision *surface* and a *level* rather than weakness patterns. What survives is short, and
-that is a finding in itself: this repository's development evidence supports fewer concrete,
-localised weakness claims than the volume of evidence first suggests.
+**A ranking of two is the honest length, and that is the finding.** Five candidate items entered
+review. One was a decision *surface*, one was a *level*, one exists only on formats the front track
+does not play. What survives as a current, concrete, localised weakness claim is two entries, one
+of them rare and the other measured in a metric §3 says can invert. This repository's development
+evidence supports far less than its volume suggests — which is a more useful result for #128 than a
+longer list would have been.
 
 ### 6b. Suggested investigation order — NOT a ranking of strength relevance, NOT a selection
 
-Input to #128, explicitly **not** an answer to #127. It reorders 6a by tractability: how good the
+Input to #128, explicitly **not** an answer to #127. It reorders §6a by tractability: how good the
 evidence is, how cheaply a hypothesis can be tested, and what a wrong answer would cost. **Nothing
-here selects a candidate or authorises work.** C1 and B1 do not appear — C1 is parked under C-e,
-and B1 is not actionable at all.
+here selects a candidate or authorises work.** Same scope as §6a, so the same two entries: W1 is in
+§6c, C1 is parked under C-e, B1 is not actionable at all.
 
 | Order | Weakness | Evidence quality | Implementation effort | Regression risk | Falsifiable how? |
 |---|---|---|---|---|---|
-| 1 | **W4** | Log-observed, not teacher-derived | Low–Medium — scoring change, no new state | **Low** — narrow, no search-space change | The detector that found it can measure whether a fix removed it |
-| 2 | **W2** | Teacher-derived, but panel-stable and mechanism-decomposed | High — depth or belief, not tuning | **High** — INV-3, INV-4, I8-D latency budget | Atlas bucket re-measure; but see §3 on that metric |
-| 3 | **W1** | Structural, verified in today's code | Medium–High — ~4× action space | **High** — live path, INV-1/INV-3, latency | Hard: the dataset drops Tera'd decisions, so its own measurement is blocked |
+| 1 | **W4** | Log-observed, not teacher-derived; unambiguous per event | Low–Medium — scoring change, no new state | **Low** — narrow, no search-space change | The detector that found it can measure whether a fix removed it |
+| 2 | **W2** | Teacher-derived, single dataset, one cell; mechanism decomposed | High — depth or belief, not tuning | **High** — INV-3, INV-4, I8-D latency budget | Atlas bucket re-measure; but see §3 on that metric, and a re-measure on the rain cell would face the same non-independence |
 
-**The disagreement between 6a and 6b is the finding, not a flaw.** W4 is last on strength relevance
-and first on tractability; W2 is the reverse of neither and sits second on both. Whether to attack
-the largest measured effect or the best-evidenced one is a judgement about method and risk
-appetite — it belongs to #128, with the tension stated rather than hidden inside a single blended
-number.
+**The disagreement between §6a and §6b is the finding, not a flaw.** W4 is second on strength
+relevance and first on tractability; W2 is the reverse. Whether to attack the largest measured
+effect or the best-evidenced one is a judgement about method and risk appetite — it belongs to #128,
+with the tension stated rather than hidden inside a single blended number. With only two entries the
+tension is the whole content of the ranking.
+
+### 6c. Conditional / cross-format — W1, not part of the current order
+
+| Weakness | Applies to | Exposure on `gen9championsvgc2026regma` | What the evidence says is at stake | Evidence confidence |
+|---|---|---|---|---|
+| **W1** Tera never enumerated | The Tera-enabled configured formats: `gen9vgc2024regg`, `gen9vgc2025regi` | **Zero** — `tera: false`, and `_maybe_tera` returns early | A once-per-battle strategic resource sits outside the search space; the "different line, because Tera" case is structurally unreachable | **High** (structural, read in today's code) / **Unknown** (impact) |
+
+W1 carries the **highest evidence confidence in the inventory** and is still not in §6a. That is
+deliberate, and it is the clearest case in this audit of confidence and relevance being different
+things: what is established with high confidence is a *structural property of the code*, while the
+question §6a answers is what is at stake **on the format the front track plays** — and there the
+answer is nothing, by configuration.
+
+**What would move it.** A front-track decision to play a Tera-enabled format, at which point W1
+enters §6a and, on exposure, plausibly at rank 1. **No new evidence is needed for that** — this is
+the only entry whose position depends on a format decision rather than on a measurement. Note the
+trap in the other direction: its impact would still be `unknown` on arrival, because S6's export gap
+drops exactly the rows that would measure it (§7.6). Tractability is poor for the same reason — a
+~4× action-space increase against the I8-D latency budget, with its own measurement blocked.
 
 ---
 
@@ -339,15 +385,22 @@ These are gaps demonstrated by the sources, not speculation.
   direction or derived diagnostic appears above. The older T6 held-out results were excluded on the
   same principle.
 - **No ladder or generalisation claim.** Every number is development-panel, `max_damage`-only.
-- **Three weaknesses are claimed, not five.** `MUST_REACT` (C1) and the low absolute dev winrate
-  (B1) are recorded as a contested surface and a baseline level. Neither is counted or ranked as a
-  weakness pattern.
+- **Three weaknesses are claimed, not five — and only two are current.** `MUST_REACT` (C1) and the
+  low absolute dev winrate (B1) are recorded as a contested surface and a baseline level; neither is
+  counted or ranked as a weakness pattern. Of the three that remain, **W1 has zero exposure on
+  `gen9championsvgc2026regma`** and is ranked separately in §6c. The current front-track relevance
+  ranking is two entries long.
+- **No replication is claimed for W2.** Its two figures (full panel n=137, rain subset n=132) are a
+  set and its own ≈96% subset drawn from the same dataset file. Their agreement is a computation
+  check, not evidence of panel stability or generalisation — and the source report's own
+  "panel-stability sanity" wording is corrected here rather than repeated.
 - **`MUST_REACT` is not claimed as a weakness.** It is recorded as C1, a contested surface. The
   audit states what is measured — the axis moves winrate — and states plainly that this does not
   establish a defect in the current policy.
-- **Two rankings, and only one of them answers #127.** §6a ranks by expected strength relevance
-  and is the deliverable. §6b reorders by tractability and is **input to #128, not an answer to
-  #127 and not a selection**. They disagree — W4 is last on relevance and first on tractability —
-  and that disagreement is reported rather than blended into one number.
+- **Only one of the three ranking sections answers #127 as asked.** §6a ranks by expected strength
+  relevance on the current front-track format and is the deliverable. §6b reorders by tractability
+  and is **input to #128, not an answer to #127 and not a selection**. §6c holds the one conditional
+  weakness, out of the current order by scope. §6a and §6b disagree — W4 is second on relevance and
+  first on tractability — and that disagreement is reported rather than blended into one number.
 - **Where effect size is unknown it is written `unknown`.** No rank position asserts a magnitude
   that the evidence does not carry.
