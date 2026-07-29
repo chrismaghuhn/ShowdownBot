@@ -7,8 +7,13 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from showdown_bot.battle.decision import choose_for_request, choose_with_fallback
+from showdown_bot.battle.decision import (
+    SelectionStageSink,
+    choose_for_request,
+    choose_with_fallback,
+)
 from showdown_bot.client.connection import ShowdownConnection, authenticate, join_lobby
+from showdown_bot.client.live_degradation import LiveDegradationRecorder
 from showdown_bot.config import Settings
 from showdown_bot.engine.belief.hypotheses import SpreadBook, load_opp_sets_for_format, load_spread_book
 from showdown_bot.engine.belief.protect_priors import ProtectPriors, load_protect_priors
@@ -32,6 +37,44 @@ _opp_sets: dict | None = None
 _book_cache: dict[str, SpreadBook | None] = {}
 _priors_cache: dict[str, ProtectPriors | None] = {}
 _format_config_cache: dict[str, FormatConfig | None] = {}
+
+
+# The always-on live-degradation sink (live-degradation-v1). Set by preflight in each of the
+# three run_* entry points; None only in unit tests that do not exercise recording.
+_recorder: LiveDegradationRecorder | None = None
+
+
+def recorder_exit_status() -> int:
+    """0, or non-zero when the last run had a write, schema or recorder failure (10.3).
+
+    Read by cli.py on the NORMAL-return path only, so it can never mask an exception.
+    """
+    return _recorder.exit_status() if _recorder is not None else 0
+
+
+def _guarded(call, *args, **kwargs) -> None:
+    """Run a recorder call so that no recorder defect can reach a battle (C11).
+
+    `except Exception`, not BaseException: a CancelledError or KeyboardInterrupt raised through
+    here is control flow, not a recorder failure, and must keep propagating.
+    """
+    if _recorder is None:
+        return
+    try:
+        call(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - a recorder defect must never kill a battle
+        _recorder.note_recorder_error(exc)
+
+
+def _record_decision_for(*, room, req, book_absent, team_preview, state_build_failed,
+                         stage_sink, agent_crash_type) -> None:
+    _recorder.record_decision(
+        room_id=room, rqid=req.rqid, book_absent=book_absent, team_preview=team_preview,
+        state_build_failed=state_build_failed,
+        selection_stage=getattr(stage_sink, "selection_stage", None),
+        fallback_reason=getattr(stage_sink, "fallback_reason", None),
+        agent_crash_type=agent_crash_type,
+    )
 
 
 def reset_format_caches() -> None:
@@ -103,6 +146,9 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
     _last_rqid[room] = req.rqid
 
     book = _get_book(_active_format)
+    book_absent = book is None
+    team_preview = bool(req.team_preview)
+    state_build_failed = False
     state: BattleState | None = None
     if book is not None and not req.team_preview:
         try:
@@ -111,20 +157,40 @@ async def handle_battle_message(conn: ShowdownConnection, room: str, payload: st
         except Exception as exc:  # noqa: BLE001 - never block a turn on state build
             logger.warning("state build failed in %s: %s", room, exc)
             state = None
+            # Section 5: the raw fact is "ATTEMPTED and failed". `state is None` also happens
+            # for a missing book and for team preview, neither of which is degradation.
+            state_build_failed = True
 
+    stage_sink = SelectionStageSink() if _recorder is not None else None
     report: list[str] = []
-    if book is not None:
-        priors = _get_priors(_active_format)
-        cfg = _get_format_config(_active_format)
-        choose = choose_with_fallback(
-            req, state=state, book=book, our_side=req.side.id, priors=priors, report=report,
-            our_spreads=_our_spreads, opp_sets=_opp_sets,
-            format_config=cfg,
+    try:
+        if book is not None:
+            priors = _get_priors(_active_format)
+            cfg = _get_format_config(_active_format)
+            choose = choose_with_fallback(
+                req, state=state, book=book, our_side=req.side.id, priors=priors, report=report,
+                our_spreads=_our_spreads, opp_sets=_opp_sets,
+                format_config=cfg, stage_sink=stage_sink,
+            )
+        else:
+            choose = choose_for_request(req)
+    except Exception as exc:  # noqa: BLE001 - NOT BaseException: CancelledError,
+        # KeyboardInterrupt and SystemExit are control flow, not agent crashes.
+        _guarded(
+            _record_decision_for, room=room, req=req, book_absent=book_absent,
+            team_preview=team_preview, state_build_failed=state_build_failed,
+            stage_sink=stage_sink, agent_crash_type=type(exc).__name__,
         )
-    else:
-        choose = choose_for_request(req)
+        raise                     # C5: unchanged exception, no new fallback
 
+    # C11: the action goes out BEFORE anything is recorded, so no recorder defect can prevent
+    # an already-chosen action being sent. The guard below is the second layer.
     await conn.send(f"{room}|{choose}")
+    _guarded(
+        _record_decision_for, room=room, req=req, book_absent=book_absent,
+        team_preview=team_preview, state_build_failed=state_build_failed,
+        stage_sink=stage_sink, agent_crash_type=None,
+    )
     kind = "team preview" if req.team_preview else "battle"
     logger.info("sent %s (%s)", choose, kind)
     if book is not None and not req.team_preview:
@@ -163,62 +229,95 @@ async def _run_battle_loop(
     battles_finished = 0
     active_battles: set[str] = set()
 
-    async for raw in conn.messages():
-        parsed_list = list(parse_incoming(raw))
-        for room in {p.room for p in parsed_list if p.room.startswith("battle-")}:
-            _room_raw.setdefault(room, []).append(raw)
-            _log_battle_line(room, raw)
-        for parsed in parsed_list:
-            if parsed.prefix == "popup" and parsed.args:
-                popup = parsed.args[0]
-                logger.warning("popup: %s", popup[:200])
-                lower = popup.lower()
-                if "not ladderable" in lower:
-                    if cancel_on_done:
-                        await conn.send(cancel_on_done)
-                    await conn.close()
-                    raise RuntimeError(popup)
-                if "invalid team" in lower or "team was rejected" in lower:
-                    if cancel_on_done:
-                        await conn.send(cancel_on_done)
-                    await conn.close()
-                    raise RuntimeError(popup)
+    try:
+        async for raw in conn.messages():
+            parsed_list = list(parse_incoming(raw))
+            for room in {p.room for p in parsed_list if p.room.startswith("battle-")}:
+                _room_raw.setdefault(room, []).append(raw)
+                _log_battle_line(room, raw)
+            for parsed in parsed_list:
+                if parsed.prefix == "popup" and parsed.args:
+                    popup = parsed.args[0]
+                    logger.warning("popup: %s", popup[:200])
+                    lower = popup.lower()
+                    if "not ladderable" in lower:
+                        if cancel_on_done:
+                            await conn.send(cancel_on_done)
+                        await conn.close()
+                        raise RuntimeError(popup)
+                    if "invalid team" in lower or "team was rejected" in lower:
+                        if cancel_on_done:
+                            await conn.send(cancel_on_done)
+                        await conn.close()
+                        raise RuntimeError(popup)
 
-            if parsed.prefix == "pm" and parsed.args and "Invalid choice" in parsed.args[-1]:
-                for battle_room in list(active_battles):
-                    await _send_default_choose(conn, battle_room)
-                continue
-
-            if parsed.room.startswith("battle-"):
-                if parsed.prefix == "error":
-                    await _send_default_choose(conn, parsed.room)
-                if parsed.prefix == "request":
-                    await handle_battle_message(conn, parsed.room, parsed.payload)
-                if parsed.prefix in ("win", "tie"):
-                    if parsed.room in active_battles:
-                        battles_finished += 1
-                        active_battles.discard(parsed.room)
-                        _room_raw.pop(parsed.room, None)
-                        logger.info(
-                            "battle ended in %s (%d/%d)",
-                            parsed.room,
-                            battles_finished,
-                            max_battles,
+                if parsed.prefix == "pm" and parsed.args and "Invalid choice" in parsed.args[-1]:
+                    # Section 7: this PM carries NO room. The fan-out below exists precisely
+                    # because the loop cannot tell which battle it refers to, so `inferred` is
+                    # permitted only in the degenerate single-battle case.
+                    if _recorder is not None:
+                        only = next(iter(active_battles)) if len(active_battles) == 1 else None
+                        _guarded(
+                            _recorder.record_event, event_type="invalid_choice_pm",
+                            payload=parsed.args[-1], room_id=only,
+                            active_battle_count=len(active_battles),
                         )
-                        if battles_finished >= max_battles:
-                            if cancel_on_done:
-                                await conn.send(cancel_on_done)
-                            await conn.close()
-                            return battles_finished
-                if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
-                    active_battles.add(parsed.room)
-                    await conn.send(f"|/join {parsed.room}")
-                    logger.info("battle started: %s", parsed.room)
+                    for battle_room in list(active_battles):
+                        await _send_default_choose(conn, battle_room)
+                    continue
 
-        logger.debug("recv %s", raw[:160])
+                if parsed.room.startswith("battle-"):
+                    if parsed.prefix == "error":
+                        # parse_message fills `payload` only for prefix == "request"
+                        # (protocol/messages.py:26); the error text lives in args, and joining
+                        # with "|" restores a payload that itself contains "|".
+                        if _recorder is not None:
+                            _guarded(
+                                _recorder.record_event, event_type="server_error",
+                                payload="|".join(parsed.args), room_id=parsed.room,
+                                active_battle_count=len(active_battles),
+                            )
+                        await _send_default_choose(conn, parsed.room)
+                    if parsed.prefix == "request":
+                        await handle_battle_message(conn, parsed.room, parsed.payload)
+                    if parsed.prefix in ("win", "tie"):
+                        if parsed.room in active_battles:
+                            # BEFORE the pop below -- that pop is where the raw log, and with it
+                            # today's only evidence, is discarded (section 9).
+                            if _recorder is not None:
+                                _guarded(_recorder.flush_battle,
+                                         room_id=parsed.room, end_reason=parsed.prefix)
+                            battles_finished += 1
+                            active_battles.discard(parsed.room)
+                            _room_raw.pop(parsed.room, None)
+                            logger.info(
+                                "battle ended in %s (%d/%d)",
+                                parsed.room,
+                                battles_finished,
+                                max_battles,
+                            )
+                            if battles_finished >= max_battles:
+                                if cancel_on_done:
+                                    await conn.send(cancel_on_done)
+                                await conn.close()
+                                return battles_finished
+                    if parsed.prefix == "init" and parsed.args and parsed.args[0] == "battle":
+                        active_battles.add(parsed.room)
+                        await conn.send(f"|/join {parsed.room}")
+                        logger.info("battle started: %s", parsed.room)
 
-    return battles_finished
+            logger.debug("recv %s", raw[:160])
 
+        return battles_finished
+    finally:
+        # A `finally`, NOT a post-loop statement: the async-for ending, an exception
+        # (the two popup RuntimeErrors are raised by this function itself) and a
+        # CancelledError are exactly the exits where the evidence matters most, and a
+        # post-loop statement is skipped on two of those three (section 9).
+        if _recorder is not None:
+            _guarded(_recorder.flush_unterminated, active_battles)
+            _guarded(_recorder.flush_run_events)
+            _guarded(_recorder.write_completion)
 
 async def _connect_and_login(settings: Settings) -> ShowdownConnection:
     conn = ShowdownConnection(settings.server_url)
@@ -229,7 +328,13 @@ async def _connect_and_login(settings: Settings) -> ShowdownConnection:
 
 
 async def run_ladder_search(settings: Settings, max_battles: int = 1) -> int:
-    global _active_format, _our_spreads, _opp_sets
+    global _active_format, _our_spreads, _opp_sets, _recorder
+    # Section 10.1: prove the sink BEFORE anything reaches the wire. Nothing has been
+    # played yet, so aborting costs nothing -- whereas an unwritable sink discovered
+    # after 50 ladder games costs all 50 games' evidence. Reset first so a failed
+    # preflight can never leave a previous run's recorder in place.
+    _recorder = None
+    _recorder = LiveDegradationRecorder.preflight()
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
@@ -248,7 +353,13 @@ async def run_challenge(
     max_battles: int = 1,
 ) -> int:
     """Challenge a player (use when VGC ladder is closed)."""
-    global _active_format, _our_spreads, _opp_sets
+    global _active_format, _our_spreads, _opp_sets, _recorder
+    # Section 10.1: prove the sink BEFORE anything reaches the wire. Nothing has been
+    # played yet, so aborting costs nothing -- whereas an unwritable sink discovered
+    # after 50 ladder games costs all 50 games' evidence. Reset first so a failed
+    # preflight can never leave a previous run's recorder in place.
+    _recorder = None
+    _recorder = LiveDegradationRecorder.preflight()
     _active_format = settings.format_id
     conn = await _connect_and_login(settings)
     packed_team = load_packed_team(settings.team_path)
@@ -263,6 +374,13 @@ async def run_challenge(
 
 async def run_smoke_battle(settings: Settings) -> int:
     """End-to-end smoke test using random doubles (no custom team)."""
+    global _recorder
+    # Section 10.1: prove the sink BEFORE anything reaches the wire. Nothing has been
+    # played yet, so aborting costs nothing -- whereas an unwritable sink discovered
+    # after 50 ladder games costs all 50 games' evidence. Reset first so a failed
+    # preflight can never leave a previous run's recorder in place.
+    _recorder = None
+    _recorder = LiveDegradationRecorder.preflight()
     conn = await _connect_and_login(settings)
     smoke_settings = Settings(
         username=settings.username,
