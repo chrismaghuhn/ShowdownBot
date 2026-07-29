@@ -4,6 +4,10 @@
 **Type:** design / spec. **No production code is changed by this document and none is authorised by
 it.** The implementation plan is a separate artifact requiring separate approval.
 
+**Revision 4 (post-review).** Rev 3 closed six gaps and left four, three of which are the same
+shape: a rule stated for one trigger, one direction, or one side of an operation when the pinned
+server or the existing code has more than one. §0 records all four.
+
 **Revision 3 (post-review).** Rev 2 fixed five contract rules and introduced six new gaps of its
 own — an over-general conclusion, a truncated enumeration, a half-applied rule, an unimplementable
 split, an invariant that contradicted existing constructors, and a decision deferred to the plan that
@@ -25,7 +29,7 @@ the repository*, which is still true and is no longer the same as unavailable.
 
 ---
 
-## 0. What revisions 2 and 3 changed, and why
+## 0. What revisions 2–4 changed, and why
 
 ### Revision 2
 
@@ -71,6 +75,27 @@ move is disabled — but the reason is recorded correctly (§5.1a).
 because I read a `head -40`-truncated grep as a complete enumeration, and rev 2's own-side conclusion
 was global because I generalised from the one format I had checked. Both are the same failure:
 treating a partial look as a finished one.
+
+### Revision 4
+
+| # | Rev 3 said | Verified | Rev 4 |
+|---|---|---|---|
+| 1 | "no v3 mapping is needed" — the version is a pure function of the switch | true of **writing**; false of **comparing**. `observable_state_hash` is a sha256 over the mon payload (`decision_capture.py:121-131`) and `decision_diff.py:151` compares it, so every v3-baseline-vs-v4-candidate pair diverges at decision 0 from the shape change alone | §6.3 rule 6 — cross-version diffing is **refused loudly**, never translated; a comparison spanning the switch re-runs the baseline |
+| 2 | Unburden's volatile is removed on switch-out | `sim/pokemon.ts:1928` — `setAbility()` fires `singleEvent('End', oldAbility, …)`, so `onEnd` also fires on Skill Swap, Trace, Role Play and a Mega forme change | §5.2.1a — `unburden_active` clears on **two** triggers: switch-in, and any transition of `effective_ability` away from Unburden |
+| 3 | lazy adoption keys pre-existing `sides` entries by §3.2 | `combatant_key` needs the protocol ident, carried on `nickname`, which defaults to `""` (`engine/state.py:56`); `eval/accuracy_gate_a.py:58` and `eval/profile_fixtures.py:99` build mons **without** one, so they cannot be keyed at all | §3.1a rule 3 — adoption requires a non-empty nickname; anonymous entries stay unregistered, are counted, and are **not** given a synthesised species key |
+| 4 | unknown `cant` → `cant_unknown` (§5.1b) | §6.6 still said unknown increments the **third-party** counter — the document contradicted itself | §6.6 corrected to `cant_unknown` |
+
+**P2, upheld:** rev 3 justified `SetHypothesis.base_ability` with "preset and item-candidate logic
+reads base". Checked — `item_candidates()` reads `item_known` and `spreads`, `_to_calc_mon()` reads
+`spreads.preset(mode)`, and **no preset or item path reads `ability` at all**. The single reader of
+`SetHypothesis.ability` is `_to_calc_mon` → `CalcMon`. §4.2a now carries `effective_ability` **only**,
+the §4.2 table's third row is struck, and the split is stated where it is real — at `PokemonState`
+and at the calc boundary, not inside belief.
+
+**The pattern in rev 4, since it is the same one three times.** Rev 3's Unburden rule named one
+trigger where the server has several; its v3 contract covered one direction of an operation that has
+two; its adoption rule assumed a key that half the writers cannot supply. Each was *correct about
+what it described* and silent about the rest of the surface — which reads as completeness and is not.
 
 ---
 
@@ -202,9 +227,26 @@ Under rev 2's wording those last two produce states that **violate the invariant
 2. **Unregistered** slots are legal. `active_slots[side][slot]` is `None` and the slot has no
    `combatants` entry. Reads behave exactly as today; re-entry knowledge simply does not accumulate,
    which is precisely today's behaviour and therefore not a regression.
-3. **Adoption is lazy and explicit.** The first `switch` event for a side adopts any pre-existing
-   `sides` entries for that side into the registry, keyed by §3.2, preserving object identity. A
-   fixture that never replays a switch stays unregistered forever and never needs to change.
+3. **Adoption is lazy, explicit, and only possible where a key exists.** The first `switch` event for
+   a side adopts any pre-existing `sides` entries for that side into the registry, preserving object
+   identity.
+
+   **A directly-constructed fixture mon has no key.** `combatant_key` is `(side, ident_suffix)` and
+   the suffix comes from the protocol ident, carried on `PokemonState.nickname` — which defaults to
+   `""` (`engine/state.py:56`). `eval/accuracy_gate_a.py:58` builds
+   `PokemonState(species="Incineroar", hp=150, max_hp=150)`: no nickname, therefore no key. Rev 3
+   said adoption is "keyed by §3.2" without noticing that these entries cannot be.
+
+   **Contract.** Adoption is attempted only for entries with a non-empty `nickname`. An entry with an
+   empty nickname is **not adopted, not synthesised a key, and not an error** — it stays
+   unregistered under rule 2 and reads exactly as today. The alternative, synthesising a key from
+   `species`, is rejected: species is not stable across forme changes (§3.2), so a synthesised key
+   would collide or drift precisely where identity matters.
+
+   A fixture that never replays a switch stays unregistered forever and needs no change; a fixture
+   that *does* replay a switch gets its switched-in mons registered from the event's ident, which is
+   the normal path. `combatant_adoption_skipped` counts the anonymous case so the boundary is
+   visible rather than assumed.
 4. **`_resync`-style consumers read `sides`**, never `combatants`, so an unregistered slot is
    invisible to them.
 
@@ -383,7 +425,7 @@ explicitly, which is a small, enumerable set (`engine/belief/hypotheses.py:116,1
 |---|---|---|
 | damage calc (`CalcMon.ability`) | **effective** | the calc must model the ability actually modifying damage now — after a Trace or a Mega, not before |
 | speed / priority predicates (§5.2) | **effective** | a Traced or swapped Sand Rush should double speed; the pre-swap ability should not |
-| `SetHypothesis` preset filtering | **intrinsic** | belief is about what this Pokémon *is*; a Traced ability tells us nothing about its set |
+| ~~`SetHypothesis` preset filtering~~ | — | **withdrawn, see §4.2a**: no preset or item-candidate path reads `ability` today, so there is no such consumer to give the intrinsic value to |
 
 **Correction to rev 2's justification.** Rev 2 argued the speed row with *"Sand Rush suppressed by
 Neutralizing Gas must not double speed"*. That contradicts §4.5, which correctly records that
@@ -392,39 +434,38 @@ express it and the example was unreachable. The row is justified by *ability cha
 Swap, Role Play, Mega), which `effective_ability` does express. Suppression remains a stated
 limitation, not a benefit.
 
-### 4.2a `SetHypothesis` must split too — the contract rev 2 left unimplementable
+### 4.2a `SetHypothesis` carries the effective ability — and only that
 
-Rev 2 stated the consumer split and stopped. It is not reachable by renaming `PokemonState` fields,
-because the two consumers share one object:
+Rev 2 stated the consumer split and stopped, which was unimplementable: `hypothesis_from_state()`
+writes a single `ability` into `SetHypothesis` (`engine/belief/hypotheses.py:88, 136`) and
+`_to_calc_mon()` forwards that same value into `CalcMon.ability` (`:116`), so a `PokemonState`-only
+change gives the calc whichever value belief chose.
 
-- `hypothesis_from_state()` writes a single `ability` into `SetHypothesis`
-  (`engine/belief/hypotheses.py:136`, field at `:88`);
-- `_to_calc_mon()` passes that same value straight into `CalcMon.ability` (`:116`), and
-  `as_attacker()` / `as_defender()` are thin wrappers over it.
+Rev 3 fixed that by putting **both** abilities on `SetHypothesis` and justifying `base_ability` with
+"preset and item-candidate logic reads base". **That justification is false and is withdrawn.**
+Checked: `item_candidates()` reads `item_known` and `spreads` only, and `_to_calc_mon()` reads
+`spreads.preset(mode)` — **no preset or item path reads `ability` at all**. The single reader of
+`SetHypothesis.ability` in this repository is `_to_calc_mon` → `CalcMon`.
 
-So whatever single value `SetHypothesis` carries reaches **both** preset filtering and the calc. A
-`PokemonState`-only change gives the calc whichever one belief chose, or the reverse — never both.
-
-**Contract.** `SetHypothesis` carries both, and the split is made where the object is built:
+**Contract, corrected to what the code supports:**
 
 ```
-SetHypothesis.base_ability      : str | None    # preset filtering / belief
-SetHypothesis.effective_ability : str | None    # passed to CalcMon.ability
+SetHypothesis.effective_ability : str | None    # renamed from `ability`; the ONLY ability it carries
 ```
 
-- `hypothesis_from_state()` copies both from the combatant.
-- `_to_calc_mon()` emits `effective_ability` into `CalcMon.ability`, falling back to `base_ability`
-  when it is `None`.
-- Preset and item-candidate logic reads `base_ability` only.
+- The rename is the point: the field's one consumer is the calc, and the calc wants **effective**.
+  Leaving it named `ability` would preserve exactly the ambiguity §4 exists to remove.
+- **`SetHypothesis` gains no `base_ability`**, because no consumer of it exists. Adding a field with
+  no reader to satisfy a symmetry argument is how the false justification arose.
+- Belief-side readers that want the intrinsic value read `PokemonState.base_ability` directly, which
+  is where `eval/decision_capture.py:66` and `engine/validate.py` already sit.
+- `engine/validate.py:247,264` (`_mon_from_known`) is on the calc path and takes **effective** for
+  the same reason.
 
-`engine/validate.py:247,264` (`_mon_from_known`) is on the same path and takes `effective_ability`
-for the same reason as the calc.
-
-**Why not a call-site override instead.** An `effective_ability=` keyword threaded through
-`as_attacker()` / `as_defender()` would work, but every caller would have to remember to pass it, and
-a forgotten one silently reverts to the old behaviour. Carrying both on the object makes the split
-structural. The plan may propose the override form; it must then say how a missed call site is
-detected.
+**Consequence for §4.2's table:** its third row is withdrawn. The intrinsic/effective split is real
+at the `PokemonState` level and at the calc boundary; it is **not** yet a split *inside* belief,
+because belief does not use ability today. When a future slice filters presets by revealed ability —
+a natural use of `base_ability_source == "revealed"` — it adds the field then, with a reader.
 
 ### 4.3 Precedence for `base_ability`
 
@@ -634,7 +675,13 @@ unburden: {
 ```
 
 Unburden is a **volatile**, granted when the item is lost *while the ability is active* and removed
-by `onEnd` — which fires on switch-out. Its condition additionally requires **no current item**.
+by `onEnd`. Its condition additionally requires **no current item**.
+
+**`onEnd` is not only switch-out.** `sim/pokemon.ts:1928` — `setAbility()` fires
+`singleEvent('End', oldAbility, ...)` before installing the new ability. So the volatile is removed
+whenever the ability *stops being Unburden* for any reason: Skill Swap, Role Play, Trace overwriting
+it, a Mega forme change, or switch-out. Rev 3 named only the switch-out path, which would have kept
+a Sneasler that lost Unburden mid-battle at double Speed.
 
 Rev 1's rule would have given a re-entered, still-itemless Sneasler permanent double Speed. That is a
 **new state defect**, worse than the one being fixed, because it would have been introduced
@@ -648,8 +695,20 @@ unburden_active : bool   # granted on item loss while Unburden is the effective 
 ```
 
 The speed modifier requires `unburden_active` **and** `effective_ability == "Unburden"` **and** no
-current item. `item_lost` is untouched: it survives re-entry for belief (§3.3) and is no longer the
-Unburden predicate.
+current item.
+
+**`unburden_active` clears on two triggers, not one:**
+
+1. switch-in (§3.3), and
+2. **any transition of `effective_ability` away from `"Unburden"`** — the `setAbility` path above.
+
+The conjunction with `effective_ability` in the modifier makes trigger 2 redundant for the *speed*
+result, and it is still required: leaving a stale `True` behind means the flag stops meaning what it
+says, and a later reader (or a Trace that hands Unburden back) would resurrect a boost the server
+never granted.
+
+`item_lost` is untouched: it survives re-entry for belief (§3.3) and is no longer the Unburden
+predicate.
 
 **The dependency argument survives, in corrected form.** Unburden still argues for §3 before §5 — not
 because it reads `item_lost`, but because `unburden_active` is a per-combatant transient that needs a
@@ -726,28 +785,48 @@ four ways: `ability` is **replaced** by `base_ability` + `base_ability_source` +
 `effective_ability` (§4.2), `moved_since_switch` becomes `had_move_opportunity` (§5.1c), and
 `unburden_active` is added (§5.2.1a).
 
-**Contract — and rev 2's open question is closed here, not delegated.**
+**Contract — the write side, and the comparison side rev 3 missed.**
 
-Rev 2 wrote that "which value v3's `ability` carries when the switch is on is a decision the plan
-must make". That was wrong to defer: #129 requires a *defined* schema migration, and the question
-only exists because rev 2 left the version selection ambiguous. It is closed by removing the
-ambiguity rather than by choosing a mapping.
+Rev 2 deferred "which value v3's `ability` carries" to the plan. Rev 3 closed that by making the
+version a pure function of the switch — correct, and **not sufficient**, because it only reasoned
+about *writing*.
 
 1. **The schema version is a pure function of the switch.**
-   `SHOWDOWN_STATE_TRUTH_V1` **off → v3 only**; **on → v4 only**. There is no configuration in which
-   the new fields exist and a v3 row is written, so **no v3 `ability` mapping is needed and none is
-   defined**. Any code path that could emit v3 while the switch is on is a defect, and §7 test 37
-   is the assertion.
+   `SHOWDOWN_STATE_TRUTH_V1` **off → v3 only**; **on → v4 only**. No configuration writes a v3 row
+   containing the new fields, so no v3 *field* mapping is needed and none is defined.
 2. **v4 mints the new field set**: `base_ability`, `base_ability_source`, `effective_ability`,
    `had_move_opportunity`, `unburden_active`. The v3 keys `ability` and `moved_since_switch` do not
-   appear in v4 — a reader that wants "the ability" must choose which one it means, which is the
-   whole point of §4.
-3. **v3 stays readable, unchanged, forever.** `SUPPORTED_TRACE_SCHEMA_VERSIONS` gains v4 and keeps
-   v1–v3.
-4. **While off, writes are v3 and byte-identical.** The version bump is tied to the switch, not to
-   the merge.
-5. **Frozen evidence is never rewritten.** No artifact under `data/eval/` is touched; the Gate B and
-   Attempt-6 freezes stay valid because their rows are v3 and v3 readers survive.
+   appear in v4.
+3. **v3 stays readable and valid, unchanged.** `SUPPORTED_TRACE_SCHEMA_VERSIONS` gains v4 and keeps
+   v1–v3. Verified that this needs no work: `validate_trace_row` closes the schema at *row* level and
+   `state_summary` is a required key whose interior is not field-checked
+   (`eval/decision_capture.py:546-577`), so a frozen v3 row still validates against the new package.
+4. **While off, writes are v3 and byte-identical.**
+5. **Frozen evidence is never rewritten.**
+
+**6. A v3 baseline cannot be diffed against a v4 candidate — and this needs a decision, not silence.**
+
+`prepare_capture` computes `observable_state_hash = sha256({"state": state_payload, "request": …})`
+over the mon payload (`eval/decision_capture.py:121-131`), and `eval/decision_diff.py:151` compares
+that hash between baseline and candidate rows, reporting a mismatch as `state_divergence_index`.
+
+Replacing `ability` with three fields changes the payload shape, so **every** v3-baseline-vs-v4-candidate
+comparison diverges at the first decision — reported as a state divergence caused entirely by the
+schema, not by behaviour. Rev 3's "no mapping is needed" is true of writing and false of comparing.
+
+**Contract.** Cross-version diffing is **refused, not silently wrong**:
+
+- `decision_diff` raises when the two sides carry different `trace_schema_version` values, with a
+  message naming the versions. It does **not** attempt a shape translation — a translated hash would
+  be a new number that matches neither side's frozen evidence.
+- Any comparison spanning the switch requires **re-running the baseline** with the switch in the same
+  position. That is the same rule the repository already applies to a changed `config_hash`, and
+  `SHOWDOWN_STATE_TRUTH_V1` is `BEHAVIOR_AFFECTING` (§7 test 38) precisely so the identity records
+  which side of the change a run is on.
+- §7 gains `test_cross_version_decision_diff_is_refused`.
+
+This is a real cost of the split, and refusing loudly is the only option that cannot produce a
+false behavioural finding.
 
 **The consequence, stated rather than buried:** a consumer that reads both v3 and v4 rows sees
 `ability` on the old ones and two fields on the new ones, and must decide per row. That is correct —
@@ -775,9 +854,10 @@ reintroduces the bug on the validation path the moment a field is added. The pla
   `base_ability_source="unknown"` and `effective_ability=None`, and every consumer behaves exactly as
   today. The slice never guesses to fill a gap.
 - **An unrecognised `\|cant\|` reason** (§5.1b) — one in neither the self nor the third-party list —
-  sets nothing and increments the third-party counter. Fail-quiet: the allowlist is derived from a
-  pinned server, and a future reason should surface as a counter rather than as a silent state
-  mutation.
+  sets nothing and increments **`cant_unknown`**. Not `cant_third_party`: that is the whole point of
+  the third bucket, and rev 3 left this sentence saying the opposite of §5.1b. Fail-quiet on state,
+  loud on the counter — the allowlist is derived from a pinned server, and a future or missed reason
+  must surface as *unknown* rather than as a handled case.
 - **A `combatant_key_conflict`** (§3.5) must not crash a live turn. It increments the counter, logs,
   and takes the incoming details as authoritative for `species`/`types` while keeping the existing
   combatant. Fail-open here is correct: a wrong merge costs accuracy, a raised exception costs the
@@ -806,8 +886,11 @@ the corrected rule against the pinned server.
 7a. `test_unregistered_slot_is_legal_and_reads_as_today` **[rev3]** — a fixture built with a direct
     `sides[...] = PokemonState(...)` (the `eval/accuracy_gate_a.py` / `eval/profile_fixtures.py`
     shape) is valid, has no `combatants` entry, and behaves exactly as on `main` (§3.1a rule 2).
-7b. `test_first_switch_adopts_preexisting_slots_preserving_identity` **[rev3]** — lazy adoption
-    (§3.1a rule 3), asserted on object identity.
+7b. `test_first_switch_adopts_preexisting_named_slots_preserving_identity` **[rev3]** — lazy
+    adoption (§3.1a rule 3), asserted on object identity.
+7c. `test_anonymous_fixture_mon_is_not_adopted_and_is_not_an_error` **[rev4]** — a
+    `PokemonState(species=...)` with the default empty nickname has no `combatant_key`; adoption
+    skips it, counts it, and does not synthesise one from species (§3.1a rule 3).
 8. `test_copy_battle_state_preserves_alias_invariant` **[rev2]** — the `engine/mega_projection.py:46-51`
    hazard: a full `deepcopy` followed by a per-mon `deepcopy` overwrite of `sides` must not leave
    `combatants` and `sides` holding different objects.
@@ -840,9 +923,9 @@ the corrected rule against the pinned server.
      non-Mega forme-change path.
 21. `test_calc_receives_effective_ability_and_belief_receives_base` **[rev2]** — the split in §4.2's
     consumer table; without this the two-field design is indistinguishable from a rename.
-21a. `test_set_hypothesis_carries_both_abilities` **[rev3]** — `SetHypothesis` splits too (§4.2a).
-     Without this the consumer split is unimplementable: `hypothesis_from_state` writes one value
-     and `_to_calc_mon` forwards that same value to `CalcMon`.
+21a. `test_set_hypothesis_carries_effective_ability_only` **[rev4]** — the field is renamed, not
+     duplicated (§4.2a). A companion assertion that no preset or item-candidate path reads an
+     ability, so the rename cannot silently change belief.
 21b. `test_mon_from_known_uses_effective_ability` **[rev3]** — `engine/validate.py:247,264`, the same
      path.
 22. `test_unknown_ability_reaches_calc_as_none` — no guessing.
@@ -878,6 +961,9 @@ the corrected rule against the pinned server.
 31. `test_unburden_does_not_survive_a_switch` **[rev2]** — a re-entered itemless Sneasler is **not**
     boosted. This is the defect rev 1 would have introduced; it is the single most important test in
     this group.
+31a. `test_unburden_clears_when_the_effective_ability_changes` **[rev4]** — `sim/pokemon.ts:1928`:
+     `setAbility` fires `End` on the old ability, so Skill Swap, Trace, Role Play and a Mega forme
+     change all remove the volatile. Rev 3 named only switch-out.
 32. `test_gale_wings_priority_requires_full_hp_and_flying_move`
 33. `test_move_priority_without_actor_is_unchanged` — pins the default-arg compatibility.
 34. `test_speed_and_priority_read_effective_not_base_ability` **[rev2]**
@@ -889,7 +975,11 @@ the corrected rule against the pinned server.
     off. **This is the merge gate.**
 37. `test_trace_v3_payload_unchanged_when_off`, `test_trace_v4_carries_new_fields_when_on`, and
     `test_no_v3_row_is_ever_written_while_the_switch_is_on` **[rev3]** — the last one is what makes
-    §6.3's "no v3 `ability` mapping is needed" true rather than assumed.
+    §6.3's "no v3 field mapping is needed" true rather than assumed.
+37a. `test_frozen_v3_row_still_validates_against_the_new_package` **[rev4]** — §6.3 rule 3.
+37b. `test_cross_version_decision_diff_is_refused` **[rev4]** — §6.3 rule 6. Without it, a
+     v3-baseline-vs-v4-candidate run reports a state divergence at decision 0 that is caused by the
+     payload shape, not by behaviour.
 38. `test_env_var_is_behavior_affecting` — `SHOWDOWN_STATE_TRUTH_V1` classified in
     `eval/config_env.py`, so it lands in `config_hash`; the drift test enforces classification.
 39. Full offline suite — `python -m pytest` — run and reported, not inferred from CI.
@@ -927,8 +1017,9 @@ stand.
 5. **Third-party `cant`** — a diagnostic counter is sufficient for S1, accepted, **provided unknown
    reasons are not classified as third-party**. §5.1b now gives them their own counter.
 6. **Retiring the name `ability`** — accepted, conditional on the v3 mapping and `SetHypothesis`
-   being closed unambiguously. §6.3 closes the first by making the version a pure function of the
-   switch; §4.2a closes the second by splitting `SetHypothesis`.
+   being closed unambiguously. §6.3 closes the first (pure function of the switch on the write side,
+   loud refusal on the compare side); §4.2a closes the second by renaming `SetHypothesis.ability` to
+   `effective_ability` and **not** adding a `base_ability` that has no reader.
 
 **Still open — one, and it is a scoping question rather than a defect:**
 
