@@ -19,11 +19,22 @@ authorization."* That file has no authority. **Every claim below was re-derived 
 four exposure statements (§4.1a, §4.1, §4.2, §4.8), one severity framing (§4.3), one classification
 (§4.7) and one status (§4.6). Those changes are marked in place.
 
-**Revision 2 (post-review) additionally corrects two of this document's own errors**, both found in
-review rather than by the passes: `SHOWDOWN_ACCURACY_MODE` was described as default-off when the
-production default is **on** (§3), and item 1a was recorded as `Panel: none` while the same register
-confirmed `any` moves on the panel (§4.1a). Neither changes the 13-defect blocker set, and §5 now
-says so with the check rather than by assumption.
+**Two later revisions correct this document's own errors**, all found in review rather than by the
+passes:
+
+- **Rev 2** — `SHOWDOWN_ACCURACY_MODE` was described as default-off when the production default is
+  **on** (§3); item 1a was recorded as `Panel: none` while the same register confirmed `any` moves
+  on the panel (§4.1a). Neither changes the 13-defect blocker set, and §5 says so with the check
+  rather than by assumption.
+- **Rev 3** — §4.1a's replacement claim, that the omitted ally actions are "dominated" on this
+  panel, was **itself broader than its evidence** and is withdrawn; 4× Sitrus Berry is a
+  counterexample category the check missed. The exposure unit is now named (occurrences ≠ mons ≠
+  teams) with a warning against cross-unit comparison, and the item count is corrected from four
+  Mega stones to **five**. §8 is new and records what remains unmeasured.
+
+The pattern in rev 2 and rev 3 is the same one: a correction stated more strongly than the check
+that produced it. It is called out here rather than smoothed over, because the register's value
+depends on the gap between a claim and its evidence staying visible.
 
 It is also **not** a strength statement, a prioritisation, or an authorisation. Prioritisation is
 [`docs/projects/champions/specs/2026-07-29-128-correctness-slice-prioritisation.md`](../specs/2026-07-29-128-correctness-slice-prioritisation.md).
@@ -117,7 +128,7 @@ actually executing.
 
 | # | Finding | Status | Primary path | Default? | Panel | Blast radius | Existing tests | Blocks #128 | WS |
 |---|---|---|---|---|---|---|---|---|---|
-| 1a | `normal`/`any` never offer an ally target | **Confirmed, corrected** | `battle/legal_actions.py:45-58` | yes | **yes — 32 moves** (30 `normal` + 2 `any`), see §4.1a | missing legal actions, all ally-directed | none | no — dominated on this panel, §4.1a | B |
+| 1a | `normal`/`any` never offer an ally target | **Confirmed, corrected** | `battle/legal_actions.py:45-58` | yes | **yes — 23 mons / 4 teams** (55 moveset occurrences, 32 distinct names; §4.1a, note the unit) | missing legal actions, all ally-directed; **their value is unmeasured** (§8 gap 2) | none | no — a missing action does not corrupt the scoring of present ones, §4.1a | B |
 | 1b | `adjacentAlly` hardcodes `-1`, not actor-slot aware | **Confirmed, corrected** | `battle/legal_actions.py:53-54` | yes | **yes** (Helping Hand, `trick_room`) | illegal choice from the left slot → server reject | none | **yes** | B |
 | 1c | Pollen Puff unselectable as an ally heal | Confirmed | as 1a | yes | no (`panel_v001` dev only) | missing legal action | none | no | B |
 | 1d | Resolver lacks Pollen Puff ally-heal semantics | Overlap → 24 | `battle/resolve.py:293-295` | yes | no | mis-scored line | none | no | C |
@@ -160,28 +171,54 @@ error was self-contradictory: the same register confirms under item 2 that `any`
 names Acrobatics as a current-panel `any` move. A defect in how `any` is targeted cannot have no
 panel exposure while `any` moves are on the panel.
 
-Counted across the hero team and the three dev panel teams: **32 moves take a target `_move_targets`
-restricts to the two foe slots** — 30 `normal` (Close Combat, Will-O-Wisp, Fake Out, Encore, Knock
-Off, Thunder Wave, Taunt, Parting Shot, …) and 2 `any` (**Acrobatics**, **Dark Pulse**). In doubles
-both target classes legally include the ally; `_move_targets` returns `[1, 2]` for all of them
+Counted across the hero team and the three dev panel teams, in a unit stated explicitly because it
+is **not** the unit other rows of this register use:
+
+> **55 moveset occurrences** — 32 distinct move names, on 23 of the 24 mons, across all 4 teams —
+> take a target that `_move_targets` restricts to the two foe slots.
+
+30 of the names are `normal` (Close Combat, Will-O-Wisp, Fake Out, Encore, Knock Off, Thunder Wave,
+Taunt, Parting Shot, …) and 2 are `any` (**Acrobatics**, **Dark Pulse**). In doubles both target
+classes legally include the ally; `_move_targets` returns `[1, 2]` for all of them
 (`battle/legal_actions.py:51-52`). Exposure is therefore **panel-wide, not absent**.
 
-What the corrected exposure does *not* change is the blocker status, and the reason has to be stated
-rather than assumed. The omitted actions are ally-directed attacks and ally-directed status moves.
-On this panel they are dominated:
+**Unit warning.** Every other exposure cell in this register counts *mons* or *teams* (e.g. "Rock
+Slide on 4 mons / 3 teams"). Occurrence counts are a different and much larger unit — 55 occurrences
+is not comparable to "4 mons", and nothing in this document may compare them directly. Where item
+1a's exposure is used in a ranking, the mon/team figures (23 mons, 4 teams) are the comparable ones.
 
-- no ally-heal move (Pollen Puff is on `panel_v001`, not here — item 1c);
-- no ally-trigger item across the four teams (the item set is Sitrus/Chople/Haban/Leftovers/Focus
-  Sash/White Herb/Mental Herb/Black Glasses/Choice Scarf and four Mega stones — no Weakness Policy,
-  no Absorb Bulb, no Berry Juice);
-- none of the 30 `normal` status moves has a friendly use (Encore, Taunt, Thunder Wave, Will-O-Wisp
-  on one's own partner are all self-harm here).
+### What is *not* established: that the omitted actions are worthless
 
-So item 1a is **panel-exposed but not a blocker**: the missing actions exist, and on this panel a
-correct enumeration would add only dominated options. That is a materially different statement from
-"no exposure", and it is the one the evidence supports. It also means the *general* defect must not
-be dismissed — introduce one ally-heal or one ally-trigger item to a future panel and it becomes
-load-bearing immediately.
+An earlier revision of this section said the omitted ally-directed actions are "dominated" on this
+panel and therefore worthless. **That claim is withdrawn — it was broader than the check behind it.**
+What was actually checked was two categories: ally-heal moves, and items that a friendly hit would
+usefully trigger. Neither check licenses a universal claim over all board states and all tactical
+friendly-fire uses, and one concrete counterexample category was missed:
+
+- **Sitrus Berry is on 4 of the 24 panel mons** (hero Garchomp, `goodstuff` Incineroar,
+  `tailwind_offense` Garchomp, `trick_room` Gyarados). Deliberately dropping one's own Sitrus holder
+  below 50% to trigger the heal is a real technique. It is situational and its value here is
+  unquantified — but it is not nothing, and "dominated" asserted that it was.
+
+What the check *does* support, and all it supports:
+
+- **no ally-heal move** on these teams (Pollen Puff is on `panel_v001` — item 1c);
+- **no stat-trigger item** that a friendly hit would set off (the full item set is 4× Sitrus, 3×
+  Leftovers, 2× Chople, 2× Haban, 2× White Herb, 2× Focus Sash, 1× Choice Scarf, 1× Black Glasses,
+  1× Mental Herb and **five** Mega stones — Scovillainite, Aerodactylite, Delphoxite, Froslassite,
+  Tyranitarite; no Weakness Policy, no Absorb Bulb, no Berry Juice);
+- **no obviously friendly use** among the 30 `normal` status names — but "obviously" is doing real
+  work in that sentence, and it is not an enumeration of board states.
+
+So the supportable statement is: **no *demonstrated high-value* ally-target use exists on this
+panel, and no measurement of the omitted actions' value exists at all.** That is weaker than
+"dominated", and §8 of this document now carries it as an open evidence gap.
+
+Item 1a therefore remains **panel-exposed and not on the blocker list** — a blocker is a defect that
+would corrupt a candidate *evaluation*, and a missing action does not corrupt the scoring of the
+actions that are present. But its *low-value* characterisation is an assumption, not a finding, and
+anything that ranks on it must say so. Introduce one ally-heal move or one damage-trigger item to a
+future panel and it becomes load-bearing outright.
 
 ### 4.1 Item 1b — the ally-target defect is current-panel exposed, and the scratch understated it
 
@@ -436,12 +473,37 @@ D stays separate and off by default. E is a separate reliability track. Neither 
 
 ---
 
-## 8. Non-claims
+## 8. Open evidence gaps
+
+Gaps demonstrated by the verification, not speculation. Each one bounds a statement made above.
+
+1. **No firing rate exists for any defect.** Every exposure figure here is a *presence* count over
+   committed team files — how many mons or teams carry the precondition. Nothing in this repository
+   measures how often a defect actually fires per decision, and #127 §7 gap 3 records why: there is
+   no decision→outcome attribution anywhere. Any ranking that needs a frequency must record it as
+   **unknown**, not substitute a proxy for it.
+2. **The value of item 1a's omitted actions is unmeasured** (§4.1a). No ally-heal move and no
+   damage-trigger item is a checked fact; "worthless" is not, and 4× Sitrus Berry is a concrete
+   counterexample category. Any rank that rests on those actions being low-value rests on an
+   assumption.
+3. **The pinned Showdown server source is not in this repository** (§2 limit 1), so items 19, 21, 22
+   and 23 are recorded bot-side only.
+4. **Held-out team contents were not read** (§2 limit 2), so every exposure figure is a lower bound
+   on the full panel.
+5. **Reported calc magnitudes were not re-run** (§2 limit 3, item 25).
+6. **Test coverage was sampled, not enumerated.** 121 tests over eleven files pass on unrepaired
+   code; the full offline suite was not run, so "no existing test covers this" is a statement about
+   those eleven files.
+
+---
+
+## 9. Non-claims
 
 - No claim that any defect here costs games. None of the 25 has a measured outcome effect.
 - No claim that repairing any of them improves strength.
 - No claim that #127's W2 or W4 is explained by anything above.
 - No claim about the pinned server's behaviour beyond what §2 limit 1 permits.
+- No claim that any exposure figure is a firing rate. See §8 gap 1.
 - No claim of exhaustiveness. Four passes over selected paths are not a complete audit; the register
   is what those passes reached and this document could re-derive.
 - No claim that the targeted 121-test run is suite coverage. The full offline suite was not run.

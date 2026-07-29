@@ -82,8 +82,9 @@ workstream split.
 
 ## 3. Candidate slices
 
-Six candidates, formed by grouping confirmed findings along their actual dependency and contract
-boundaries rather than by finding count.
+Five candidates, formed by grouping confirmed findings along their actual dependency and contract
+boundaries rather than by finding count. (A sixth, S4, was dissolved in review — see below. The
+identifiers S1–S3, S5, S6 are kept stable so review history stays readable.)
 
 | ID | Slice | Findings | Blockers covered | Workstream |
 |---|---|---|---|---|
@@ -127,60 +128,80 @@ S1–S3; only item 21 sits outside, deliberately and by name.
 
 ## 4. Ranking by strength relevance
 
-**Inputs, and only these:** current Champions/panel exposure; structural position in the decision
-path; error severity (how wrong the modelled result is when it fires); concentration of possible
-regret; and any existing development-outcome link.
+**Inputs — the five approved axes, unchanged:** current Champions/panel exposure; **decision
+frequency**; error severity (how wrong the modelled result is when it fires); concentration of
+possible regret; and any existing development-outcome link.
 
 **Effort, dependencies, testability, regression risk and reversibility are not inputs to this
 ranking.** They are §5. A slice does not move up because it is easy or down because it is risky.
 
 There is no `games recovered` column and there will not be one: §1, Fact 1.
 
-### What replaced "decision frequency", and why — corrected in review
+### `decision frequency` is `unknown`, and it is not substituted — corrected in review
 
-An earlier revision ranked partly on *decision frequency*, with cells reading "every turn" for S1 and
-"fires on most turns" for S3. **Those were not established and are withdrawn.** What is verifiable is
-that `sort_actions` is *called* for every candidate line — a fact about the code. Whether the
-ability-order defect *fires* on a given turn depends on whether an ability-order Pokémon is on the
-field with its activation predicate met, and **no measurement of that exists in this repository**.
-The same applies to S3: "most turns" was an assertion about candidate composition that nothing here
-measures. Using either to order S1 and S3 would have been the same error #1 Fact 1 rejects — an
-unmeasured quantity doing load-bearing work.
+An earlier revision of this document **removed** the approved `decision frequency` axis and put
+`structural position` in its place. That was a unilateral change to a ranking contract this document
+does not own, and the substitution smuggled in exactly what the first correction had removed: an
+axis-shaped argument standing where a measurement should be.
 
-The column is replaced by two that can be checked:
+Both errors are fixed as follows.
 
-- **Structural position** — where in the pipeline the defect sits, and what is downstream of it.
-  Read from the code.
-- **Trigger presence** — how much of the panel carries the precondition. Counted from the committed
-  hero and dev team files.
+1. **`decision frequency` is restored as an axis and its value is `unknown` for every candidate.**
+   Audit §8 gap 1 records why: nothing here measures how often any defect fires per decision, and
+   #127 §7 gap 3 explains that no decision→outcome attribution exists at all. `unknown` is the
+   honest entry, and it is entered for all five candidates so the axis cannot silently separate any
+   pair.
+2. **Structural position and trigger presence are kept, but as *supporting* columns, not as the
+   frequency axis.** Structural position is read from the code; trigger presence is counted from the
+   committed team files. Neither is a firing rate and neither is offered as a proxy for one.
 
-Neither is a firing rate, and neither is presented as one.
+| Rank | Slice | Panel exposure — trigger presence (counted; unit named) | **Decision frequency** | Error severity | Regret concentration | Dev-outcome link | *Structural position (supporting)* |
+|---|---|---|---|---|---|---|---|
+| **1–2 (tied)** | **S1** state truth + action order | order-abilities (Gale Wings, Sand Rush, Unburden, Intimidate, Levitate, Blaze) on **3 of 4 teams**; Fake Out on **3 of 4 teams** | **unknown** | **highest**: a wrong order inverts KO-before-act and flinch-before-act, so the error is in the frame, not in one line | maximal *when it fires*: one wrong ordering mis-scores the whole candidate set for that turn | none measured | upstream of every other slice; `sort_actions` fixes the order in which S2's transitions and S3's effects are applied |
+| **1–2 (tied)** | **S3** resolved effects + calc binding | Rock Slide **4 mons / 3 teams**; Will-O-Wisp **3 mons / 3 teams**; Aurora Veil **1 mon / 1 team**; Blaze Delphox **1 / 1**; Acrobatics **1 / 1**; six unexecuted effect families | **unknown** | high and **two-directional**: flinch over-valued, screens/status/HP-conditional damage under-valued | broad rather than concentrated: many moves, each moderately mis-valued | **weak, and an adjacency only**: #127's W2 (`tailwind_both`, highest mean regret of any bucket) is a fast-board Protect/tempo context, which is where flinch and screens are decided. **Not** a demonstrated cause. | inside the turn: wrong effect values on an otherwise correct frame |
+| **3** | **S2** legality + switch transition | Helping Hand **1 mon / 1 team**; switch candidates enumerated on **4 of 4 teams** | **unknown** | **severe when it fires**: an illegal choice is rejected outright and triggers the item-5 fan-out; a mis-resolved switch damages the wrong Pokémon | concentrated in few but high-stakes decisions | none measured | inside the turn, and **reachability-restricted**: the transition defect cannot reach a candidate line that contains no switch |
+| **4** | **S6** screens standalone | Aurora Veil **1 mon / 1 team** | **unknown** | moderate | narrow | none | inside the turn, one mechanic |
+| **5** | **S5** ally targeting standalone | 1b: Helping Hand **1 mon / 1 team**. 1a: **23 mons / 4 teams** — see the unit note below | **unknown** | 1b severe when it fires; 1a's omissions are of **unmeasured** value (audit §8 gap 2) | very narrow | none | enumeration only; additive, corrupts no present action's score |
 
-| Rank | Slice | Trigger presence (counted) | Structural position (read from code) | Error severity | Regret concentration | Dev-outcome link |
-|---|---|---|---|---|---|---|
-| **1** | **S1** state truth + action order | Gale Wings, Sand Rush, Unburden, Intimidate, Levitate, Blaze across **3 of 4** teams; Fake Out on **3 of 4** | **upstream of every other slice**: `sort_actions` fixes the order in which S2's transitions and S3's effects are applied, and every successor state is built from that order | **highest**: a wrong order inverts KO-before-act and flinch-before-act, so the error is in the frame, not in one line | maximal *when it fires*: one wrong ordering mis-scores the whole candidate set for that turn | none measured |
-| **2** | **S3** resolved effects + calc binding | Rock Slide on **4 mons / 3 teams**; Will-O-Wisp on **3 teams**; Aurora Veil **1**; Blaze Delphox **1**; Acrobatics **1**; six unexecuted effect families across the panel | **inside the turn**: wrong effect values on an otherwise correct frame | high and **two-directional**: flinch over-valued, screens/status/HP-conditional damage under-valued | broad rather than concentrated: many moves, each moderately mis-valued | **weak, and an adjacency only**: #127's W2 (`tailwind_both`, highest mean regret of any bucket) is a fast-board Protect/tempo context, which is where flinch and screens are decided. **Not** a demonstrated cause. |
-| **3** | **S2** legality + switch transition | Helping Hand **1 team** (illegal choice from the left slot); switch candidates enumerated on every team | **inside the turn**, but conditional: the transition defect reaches only lines that contain a switch | **severe when it fires**: an illegal choice is rejected outright and triggers the item-5 fan-out; a mis-resolved switch damages the wrong Pokémon | concentrated in few but high-stakes decisions | none measured |
-| 4 | **S6** screens standalone | Aurora Veil **1 team** | inside the turn, one mechanic | moderate | narrow | none |
-| 5 | **S5** ally targeting standalone | 1b: Helping Hand **1 team**. 1a: **32 panel moves** — but every omitted action is ally-directed and dominated on this team set (audit §4.1a) | enumeration only, upstream of scoring but additive | 1b severe when it fires; 1a's omissions are dominated options | very narrow | none |
+**Unit note.** Every cell above counts **mons and teams**. Audit §4.1a additionally reports item 1a
+as *55 moveset occurrences / 32 distinct names*; those are a different and much larger unit and are
+deliberately **not** carried into this table, because comparing "55 occurrences" against "4 mons"
+would inflate S5 by unit choice alone.
 
-**Why S1 outranks S3 — a containment argument, not a frequency one.** S1 is upstream of S3 in the
-literal sense that S3's effects are evaluated inside a turn whose order S1 determines. A correctly
-modelled Rock Slide flinch applied in the wrong turn order is still the wrong answer; a correct order
-with one wrong effect is wrong only for that effect. The relation is asymmetric and readable from the
-code, which is why it can carry the ranking where a frequency claim cannot.
+### Why S1 and S3 are tied, not ordered
 
-**Why S3 outranks S2.** By counted trigger presence: S3's preconditions appear on all four teams and
-across six effect families; S2's non-conditional half is one move on one team, and its transition
-half reaches only candidate lines containing a switch. S2's per-occurrence severity is higher — which
-is exactly why it is close, and why §5 reverses it.
+An earlier revision ranked S1 above S3 on a containment argument: S3's effects are evaluated inside a
+turn whose order S1 determines, so a correct flinch in the wrong order is still wrong. **That
+argument is sound about *dependency* and does not establish *strength relevance*.** A defect that is
+structurally upstream but fires rarely can matter less than a downstream one that fires constantly —
+and which of those describes S1 versus S3 is precisely what `decision frequency` would have told us,
+and precisely what is unknown.
 
-**Why S5 is last, on the corrected exposure.** An earlier revision justified S5's last place with
-"Helping Hand, 1 team", which understated it: audit §4.1a establishes that item 1a's exposure is 32
-panel moves, not one. The rank survives the correction for a different reason — those 32 omissions
-are all ally-directed options that are dominated on this panel (no ally-heal move, no ally-trigger
-item). S5 is last because the missing actions are *worthless here*, not because they are *few*. That
-distinction matters: add one ally-heal to a future panel and this ranking changes.
+With the deciding axis unknown, the remaining four axes do not separate them either: S1 is higher on
+error severity and regret concentration; S3 is higher on counted trigger presence and is the only one
+of the two with even a weak dev-outcome adjacency. That is a split, not an ordering.
+
+**So S1 and S3 share rank 1–2, and the tie is recorded rather than broken.** Breaking it would mean
+choosing which unmeasured quantity to assume, which is the failure mode §1 Fact 1 rejects.
+
+**This changes no decision.** The execution order in §6 is set by the dependency chain, which is a
+fact about the code and belongs to neither ranking — S1 precedes S3 there because S3's repair is
+evaluated inside S1's frame, not because S1 outranks it. The tie removes an unsupported claim; it
+does not remove a conclusion.
+
+**Why S2, S6 and S5 sit below the tied band** — and this too rests on structure and counts, never on
+frequency. S2's transition defect is **reachability-restricted**: it cannot reach a candidate line
+containing no switch, which is a code fact rather than a rate estimate. S6 is one mechanic on one
+mon. S5's blocker (1b) is one mon on one team, and its larger component (1a) has unmeasured value.
+None of these is separated from the band by a frequency claim.
+
+**Why S5 is last, and how far that rank is defended.** Not "few": audit §4.1a establishes that item
+1a touches 23 mons across all 4 teams. The rank rests on two things — S5's *blocker* (1b) is one mon
+on one team, and the value of 1a's omitted ally-directed actions is **unmeasured**, with 4× Sitrus
+Berry a concrete counterexample category that an earlier "dominated" claim overlooked. So S5 is last
+on a **counted blocker footprint plus an acknowledged unknown**, not on a demonstration that the
+omitted actions are worthless. If those actions turn out to matter, this rank is not defended — and
+S5's place in §6 does not depend on it, because it is sequenced there on availability.
 
 ---
 
@@ -206,9 +227,11 @@ S1 moved from 2 to 4 in this revision. Nothing about S1 changed — S5 and S6 we
 below it by carrying the "carve-out" label rather than by their actual dependency, testability and
 risk profile, which are better than S1's on all three.
 
-**Where the two orders disagree.** Relevance gives **S1, S3, S2, S6, S5**; feasibility gives
-**S5, S2, S6, S1, S3**. The two are close to reversed. S1 is 1st and 4th; S3 is 2nd and last; S5 is
-last and 1st. No candidate holds the same rank on both.
+**Where the two orders disagree.** Relevance gives **{S1, S3} tied at 1–2, then S2, S6, S5**;
+feasibility gives **S5, S2, S6, S1, S3** — a strict order, because dependencies, effort and risk are
+knowable here where firing rates are not. The two are close to reversed: the tied relevance band
+holds the two candidates that sit 4th and 5th on feasibility, and S5 is last on relevance and first
+on feasibility. No candidate holds the same rank on both.
 
 The disagreement is not resolved by averaging — averaging would put S2 first, and S2 cannot go first
 because half of it depends on S1. It is resolved by the dependency chain in §6, which is a fact about
@@ -237,7 +260,8 @@ check in §3. S3 carries the two blockers that an earlier revision lost with the
 
 The hypothesis presents S1 → S2 → S3 as a ranking. It is not one, on either axis:
 
-- On **strength relevance** the order is S1, **S3**, **S2** (§4).
+- On **strength relevance** S1 and **S3 are tied** at 1–2 and **S2** is third (§4). The tie is not
+  a formality: `decision frequency` is `unknown`, and it is the axis that would have separated them.
 - On **feasibility** the order is **S2**, S1, S3 among these three — and **S5, S2, S6, S1, S3**
   across all five candidates (§5).
 
@@ -265,8 +289,11 @@ shortlist member, on availability alone: it is independently landable while S1 i
 removes an active illegal-action path.
 
 Its one blocker, item 1b, is **also covered by S2**, so skipping the pre-slice loses nothing but
-time. Item 1a rides along in both; audit §4.1a establishes that its 32 panel-move omissions are
-dominated on this team set, which is why it does not lift S5's relevance rank.
+time. Item 1a rides along in both; audit §4.1a establishes that it touches 23 mons across all four
+teams, and audit §8 gap 2 records that the value of those omitted ally-directed actions is
+**unmeasured**. S5's last relevance rank therefore rests on its blocker footprint plus an
+acknowledged unknown — not on a demonstration that the omissions are worthless. Its sequencing here
+is on availability and does not depend on that rank.
 
 ### Resulting shortlist
 
@@ -275,9 +302,13 @@ Ranks are quoted verbatim from §4 and §5 over the same five candidates. No ran
 | Order | Slice | Blockers covered | Rank on relevance | Rank on feasibility | Gate to start |
 |---|---|---|---|---|---|
 | **0** (pre-slice, optional) | **S5** ally targeting | 1b | 5 of 5 | **1 of 5** | none — independent |
-| **1** | **S1** persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | **1 of 5** | 4 of 5 | approval of this document |
+| **1** | **S1** persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | **1–2 of 5 (tied with S3)** | 4 of 5 | approval of this document |
 | **2** | **S2** legal action + authoritative switch transition | 1b, 9 | 3 of 5 | 2 of 5 | S1's identity contract landed |
-| **3** | **S3** resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24, 25 | 2 of 5 | 5 of 5 | S1 landed **and** an approved effect taxonomy |
+| **3** | **S3** resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24, 25 | **1–2 of 5 (tied with S1)** | 5 of 5 | S1 landed **and** an approved effect taxonomy |
+
+**S1 before S3 is not the relevance ranking.** They are tied there (§4). The order between them is
+the dependency chain below, and nothing in this document claims S1 is the more strength-relevant of
+the two.
 
 **Blocker closure: S1 ∪ S2 ∪ S3 = all 13** (§3). S5's single blocker is already inside S2, so the
 pre-slice is optional in the strict sense — skipping it costs time, not coverage.
@@ -314,9 +345,13 @@ orders.
 
 - [x] Shortlist of 2–3 candidates documented — three, plus an optional independent pre-slice.
 - [x] Each candidate has stated relevance, feasibility and risk — §4, §5, §6.
-- [x] Ranking rationale is explicit, with the two rankings kept separate, each a single total order,
-      and their disagreement named rather than averaged.
-- [x] No invented outcome metric, and no unmeasured firing rate doing load-bearing work — §1 Fact 1,
-      §4 ("What replaced *decision frequency*").
+- [x] Ranking rationale is explicit, with the two rankings kept separate and their disagreement
+      named rather than averaged. Feasibility is a single total order; relevance is a total order
+      with one recorded tie (S1 = S3), and §4 states what the tie rests on.
+- [x] All five approved relevance axes are present. `decision frequency` is retained and entered as
+      **`unknown`** for every candidate — neither dropped nor substituted — §4.
+- [x] No invented outcome metric, and no unmeasured quantity doing load-bearing work: the one
+      ordering that had rested on an unmeasured axis (S1 over S3) is now a recorded tie — §1 Fact 1,
+      §4.
 - [x] The shortlist closes its own correctness boundary: all 13 audit blockers are assigned, none
       twice, none left over — §3 closure check, restated in §6.
