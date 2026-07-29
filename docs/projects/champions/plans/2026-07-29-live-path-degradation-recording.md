@@ -271,9 +271,11 @@ grain, `completion.json` included (§8.0) — covering field set **and order**, 
 membership, null rules and cross-field consistency. They are pure — no IO — so they may run at
 record time without breaking C1.
 
-Every `SchemaError` they raise is counted in `schema_errors_total`, which §8.0 persists into
-`completion.json`. A validator that fires is therefore visible in the artifact, not only in the
-exit status — that is the whole point of the amendment.
+Every `SchemaError` they raise is counted in `schema_errors_total`. That counter is persisted by
+a `completion.json` written **later**, so a decision, event or battle rejection does reach the
+artifact — that is the point of the amendment. **One case cannot:** a rejection of the completion
+payload itself, because the file that would carry the count is the file the rejection prevents.
+It is signalled by `logger.error`, a non-zero exit and the file's absence instead (§8.0).
 
 **Files:** Modify `live_degradation.py`; add to `tests/test_live_degradation.py`
 
@@ -445,6 +447,24 @@ DECISION_MUTATIONS = [
     ("unknown_fallback_reason",
      _mutate(VALID_DECISION, selection_stage="max_damage_fallback",
              fallback_reason="made_up", is_degraded=True, outcome="fallback")),
+    # --- stage vocabulary and stage/outcome/reason agreement ---
+    ("invented_stage", _mutate(VALID_DECISION, selection_stage="invented")),
+    ("reason_on_a_completed_heuristic_decision",
+     _mutate(VALID_DECISION, fallback_reason="heuristic_timeout")),
+    ("fallback_outcome_on_the_heuristic_stage",
+     _mutate(VALID_DECISION, selection_stage="heuristic", outcome="fallback",
+             is_degraded=True)),
+    ("ok_outcome_on_a_fallback_stage",
+     _mutate(VALID_DECISION, selection_stage="max_damage_fallback",
+             fallback_reason="heuristic_timeout", is_degraded=True, outcome="ok")),
+    ("reason_not_allowed_for_its_stage",
+     _mutate(VALID_DECISION, selection_stage="max_damage_fallback",
+             fallback_reason="default_pair_error", is_degraded=True, outcome="fallback")),
+    ("degraded_state_outcome_without_a_failed_build",
+     _mutate(VALID_DECISION, selection_stage="deterministic_default_pair",
+             is_degraded=True, outcome="degraded_state")),
+    ("stage_absent_without_a_crash",
+     _mutate(VALID_DECISION, selection_stage=None, is_degraded=True, outcome="fallback")),
 ]
 
 
@@ -591,7 +611,17 @@ Expected: `ImportError: cannot import name 'SchemaError' from 'showdown_bot.clie
 Append to `live_degradation.py`, after the constants:
 
 ```python
-from showdown_bot.eval.decision_profile import KNOWN_FALLBACK_REASONS
+from showdown_bot.eval.decision_profile import (
+    LIVE_FALLBACK_STAGES,
+    LIVE_OK_STAGE,
+    STAGE_ALLOWED_REASONS,
+)
+
+# The stages the LIVE path can actually produce. Imported, never re-spelled: these are
+# decision_profile's frozen I8-D vocabulary, and a second copy here would be free to drift.
+# "team_preview" is deliberately absent -- the 5.1 gate excludes it before the derivation runs --
+# and so are the BASELINE_* stages, which only the gauntlet's max_damage arm emits.
+LIVE_STAGES = frozenset({LIVE_OK_STAGE}) | LIVE_FALLBACK_STAGES
 
 
 class SchemaError(ValueError):
@@ -606,8 +636,11 @@ class SchemaError(ValueError):
       battle           -> count it, write the decisions and events but not the battle row
       completion       -> count it, write no completion.json at all
 
-    In every case schema_errors_total is incremented, and section 8.0 persists that counter, so a
-    rejection is visible in the artifact rather than only in the exit status.
+    In every case schema_errors_total is incremented. For the first three grains that count is
+    then persisted by the completion write that follows, so the rejection reaches the artifact.
+    For the fourth it cannot: the completion write is what the rejection prevented. That one case
+    is signalled by logger.error, a non-zero exit and the ABSENCE of completion.json -- a state
+    section 8.0 already equates with non-zero counters.
     """
 
 
@@ -712,17 +745,83 @@ def validate_decision_row(row: dict) -> None:
                 f"{what}: crashed/state_build_failed dominate and force is_degraded=True"
             )
 
-    if row["fallback_reason"] is not None:
-        if row["selection_stage"] is None:
+    _validate_stage_outcome_reason(row, what)
+
+
+def _validate_stage_outcome_reason(row: dict, what: str) -> None:
+    """The stage vocabulary, and the BIDIRECTIONAL stage/outcome/reason agreement.
+
+    Without this, three contradictory rows validate: an invented stage; a fallback_reason on a
+    completed heuristic decision; and outcome="fallback" on selection_stage="heuristic". Each is
+    a row this module could only produce by being wrong, and each would read as evidence.
+
+    Dominance is respected, not re-derived: a crash and a failed state build outrank the stage in
+    both derivation functions, so the stage/outcome pairing is only asserted when neither applies.
+    """
+    stage = row["selection_stage"]
+    reason = row["fallback_reason"]
+    if not row["derivation_applicable"]:
+        # The gate-false branch already forced stage to None; a reason cannot survive it either.
+        if reason is not None:
+            raise SchemaError(f"{what}: gate false requires fallback_reason=None, got {reason!r}")
+        return
+
+    crashed = row["agent_crash_type"] is not None
+    if stage is None:
+        # Legitimate in exactly one case: the chooser raised BEFORE _mark_selection ran, so the
+        # sink was never written. Any other absent stage is a row we could not have produced.
+        if not crashed:
+            raise SchemaError(
+                f"{what}: selection_stage=None with the gate true and no crash -- "
+                f"choose_with_fallback marks a stage on every return path"
+            )
+    elif stage not in LIVE_STAGES:
+        raise SchemaError(f"{what}: selection_stage={stage!r} not in {sorted(LIVE_STAGES)}")
+
+    if reason is not None:
+        if stage is None:
             raise SchemaError(
                 f"{what}: fallback_reason without a selection_stage -- _mark_selection always "
                 f"writes both together"
             )
-        if row["fallback_reason"] not in KNOWN_FALLBACK_REASONS:
+        allowed = STAGE_ALLOWED_REASONS.get(stage, frozenset())
+        if reason not in allowed:
             raise SchemaError(
-                f"{what}: fallback_reason={row['fallback_reason']!r} not in "
-                f"{sorted(KNOWN_FALLBACK_REASONS)}"
+                f"{what}: fallback_reason={reason!r} is not permitted on "
+                f"selection_stage={stage!r}; allowed: {sorted(allowed) or 'none'}"
             )
+
+    # Outcome agreement, in dominance order -- the same order both derivations use.
+    outcome = row["outcome"]
+    if crashed:
+        return                      # outcome == "crash" is already enforced above
+    if row["state_build_failed"]:
+        if outcome != "degraded_state":
+            raise SchemaError(
+                f"{what}: state_build_failed=True forces outcome='degraded_state', got "
+                f"{outcome!r}"
+            )
+        return
+    if stage == LIVE_OK_STAGE:
+        if outcome != "ok":
+            raise SchemaError(
+                f"{what}: selection_stage={LIVE_OK_STAGE!r} on a clean decision means "
+                f"outcome='ok', got {outcome!r}"
+            )
+    elif stage in LIVE_FALLBACK_STAGES:
+        if outcome != "fallback":
+            raise SchemaError(
+                f"{what}: selection_stage={stage!r} is a fallback stage, so outcome must be "
+                f"'fallback', got {outcome!r}"
+            )
+    if outcome == "ok" and stage != LIVE_OK_STAGE:
+        raise SchemaError(f"{what}: outcome='ok' requires selection_stage={LIVE_OK_STAGE!r}")
+    if outcome == "fallback" and stage not in LIVE_FALLBACK_STAGES:
+        raise SchemaError(
+            f"{what}: outcome='fallback' requires a fallback stage, got {stage!r}")
+    if outcome == "degraded_state":
+        raise SchemaError(
+            f"{what}: outcome='degraded_state' requires state_build_failed=True")
 
 
 def validate_event_row(row: dict) -> None:
@@ -840,7 +939,7 @@ def validate_battle_row(row: dict) -> None:
         )
 ```
 
-- [ ] **Step 4: Run, expect 8 + 1 + 25 + 13 + 10 + 15 + 1 + 20 + 1 = 94 passed**
+- [ ] **Step 4: Run, expect 8 + 1 + 32 + 13 + 10 + 15 + 1 + 20 + 1 = 101 passed**
 
 The generic grid (5 rules × 4 grains = 20) deliberately overlaps three entries in
 `DECISION_MUTATIONS` and two in `COMPLETION_MUTATIONS`. The per-grain lists stay complete and
@@ -1151,7 +1250,7 @@ class LiveDegradationRecorder:
         return cls(run_dir, run_id)
 ```
 
-- [ ] **Step 4: Run, expect 10 more passing (106 total in this file: 94 from Task 2, 2 from Task 3)**
+- [ ] **Step 4: Run, expect 10 more passing (113 total in this file: 101 from Task 2, 2 from Task 3)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1379,7 +1478,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return row
 ```
 
-- [ ] **Step 4: Run, expect 12 more passing (118 total in this file)**
+- [ ] **Step 4: Run, expect 12 more passing (125 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -1501,7 +1600,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         return ev
 ```
 
-- [ ] **Step 4: Run, expect 7 more passing (125 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 7 more passing (132 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -1626,7 +1725,7 @@ python -m pytest showdown_bot/tests/test_live_degradation.py -q
         }
 ```
 
-- [ ] **Step 4: Run, expect 5 more passing (130 total in this file)** · **Step 5: Commit**
+- [ ] **Step 4: Run, expect 5 more passing (137 total in this file)** · **Step 5: Commit**
 
 ```bash
 git add showdown_bot/src/showdown_bot/client/live_degradation.py showdown_bot/tests/test_live_degradation.py
@@ -2023,9 +2122,12 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
     def exit_status(self) -> int:
         """The machine-checkable signal (10.3): it depends on no file being readable.
 
-        All three counters feed it, and all three are also PERSISTED in completion.json since
-        the section 8.0 amendment -- that is what closes the hole where a run could exit 1
-        while its only per-run artifact read permanently clean.
+        All three counters feed it, and all three are PERSISTED by any completion.json that gets
+        written -- that is what closes the hole where a run could exit 1 while its only per-run
+        artifact read permanently clean. The snapshot is bounded in one direction only: it holds
+        the counts as of its own serialisation, so a failure at or after that point -- including a
+        rejection of the completion payload itself -- is carried by this status and the file's
+        absence, not by the file (section 8.0).
 
         This is the recorder-derived status only. Section 8.0 scopes it to the normal-return
         path, evaluated after every finalisation attempt including the completion write; a
@@ -2036,7 +2138,7 @@ def _write_json_exclusive(path: Path, payload: dict) -> None:
                      or self.recorder_errors_total) else 0
 ```
 
-- [ ] **Step 4: Run, expect 15 more passing (145 total in this file)**
+- [ ] **Step 4: Run, expect 15 more passing (152 total in this file)**
 
 ```bash
 python -m pytest showdown_bot/tests/test_live_degradation.py -q
@@ -3206,9 +3308,15 @@ Output rules for the closeout report:
 1. Paste the **first** `decisions.jsonl` row, the `battles.jsonl` row and the whole
    `completion.json` **verbatim**. A hand-written sample does not satisfy this step; if the run
    did not happen, the report says so and the step stays open.
-2. Record `exit=` verbatim. `exit=0` is the expected result; any other value means
-   `write_errors_total`, `schema_errors_total` or `recorder_errors_total` was non-zero and the
-   closeout reports which one, from `completion.json` when it exists (§8.0 persists all three).
+2. Record `exit=` verbatim. `exit=0` is the expected result. **Any other value means the run
+   failed — it does not identify a recorder counter, and none may be inferred from it.** The run
+   can also end non-zero on the `AuthError` from a taken name (above), on a runner exception, on
+   a cancellation or on `KeyboardInterrupt`, none of which touch a counter. Report it this way:
+
+   - `completion.json` present, parsing **and** validating → report its three snapshot counters
+     verbatim, and note that they are a snapshot, not a verdict (§8.0);
+   - otherwise → report the file state (absent / unparseable / schema-invalid) together with the
+     exception or the log line, and draw no counter conclusion at all.
 3. **Credential scrub before pasting.** The generated name — the value printed as `username=` by
    the command above — can appear inside a `payload` field and in log lines. Search the three
    pasted blocks for that exact string; if it occurs, replace it with the literal token
