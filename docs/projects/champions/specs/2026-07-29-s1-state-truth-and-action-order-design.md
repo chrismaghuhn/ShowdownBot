@@ -4,9 +4,11 @@
 **Type:** design / spec. **No production code is changed by this document and none is authorised by
 it.** The implementation plan is a separate artifact requiring separate approval.
 
-**Revision 2 (post-review).** Four contract rules in rev 1 would have frozen new state defects, and
-one diagnostic would have false-alarmed. All five were raised in review, all five re-derived here
-against the pinned server, and §0 records what changed.
+**Revision 3 (post-review).** Rev 2 fixed five contract rules and introduced six new gaps of its
+own — an over-general conclusion, a truncated enumeration, a half-applied rule, an unimplementable
+split, an invariant that contradicted existing constructors, and a decision deferred to the plan that
+belongs here. All six were raised in review, all six re-derived here, and §0 records what changed
+across both revisions.
 
 **The pinned Showdown source is readable on this machine** at
 `C:/Users/chris/.cache/showdownbot/pokemon-showdown`, `git rev-parse HEAD` =
@@ -23,7 +25,9 @@ the repository*, which is still true and is no longer the same as unavailable.
 
 ---
 
-## 0. What revision 2 changed, and why
+## 0. What revisions 2 and 3 changed, and why
+
+### Revision 2
 
 | # | Rev 1 said | Verified on the pin | Rev 2 |
 |---|---|---|---|
@@ -33,20 +37,40 @@ the repository*, which is still true and is no longer the same as unavailable.
 | 4 | "every `\|cant\|` sets the flag" | `data/abilities.ts:215,864,3716` — Armor Tail / Dazzling / Queenly Majesty log the **ability holder** as the event's Pokémon, not the prevented mover | §5.1 — a verified two-class taxonomy. Third-party blocks set nothing. |
 | 5 | collision counter compares `base_species_id` to incoming details | `sim/pokemon.ts:1447-1449` — a Mega `formeChange` is `isPermanent`, rewriting `baseSpecies` and `details` | §3.5 — comparison resolves through form metadata; a Mega-re-entry test is added. |
 
-**Two further findings this revision adds, from the same reading:**
+**Two further findings rev 2 added, from the same reading:**
 
 - **§5.1a — on the front-track format the server disables Fake Out itself.**
   `data/mods/champions/moves.ts:331-338` overrides `fakeout` with
-  `onDisableMove(pokemon) { if (pokemon.activeMoveActions) pokemon.disableMove('fakeout'); }`.
-  `gen9championsvgc2026regma` runs that mod. So for **our own side** the request's per-move
-  `disabled` flag is authoritative — and `battle/legal_actions.py:112-113` already honours it. The
-  `drop_first_turn` heuristic is therefore **redundant on our side and derived from a broken
-  predicate**. This changes the shape of the fix and rev 1 missed it entirely.
-- **§5.1 — the prevented mover *does* consume its opportunity even under a third-party block.**
+  `onDisableMove(pokemon) { if (pokemon.activeMoveActions) pokemon.disableMove('fakeout'); }`, and
+  `battle/legal_actions.py:112-113` already honours `disabled`.
+- **§5.1b — the prevented mover *does* consume its opportunity even under a third-party block.**
   `sim/battle-actions.ts:217` increments `activeMoveActions` at the very top of `runMove`, before any
-  `TryMove` event, and `sim/pokemon.ts:249-250` states the contract: *"Incremented before the move is
-  used, so the first move use has `activeMoveActions === 1`."* The third-party `cant` events do not
-  name that mover at all, which is why §5.1 records it as a bounded gap rather than guessing.
+  `TryMove` event, and `sim/pokemon.ts:249-250` states the contract.
+
+### Revision 3
+
+| # | Rev 2 said | Verified | Rev 3 |
+|---|---|---|---|
+| 1 | remove `drop_first_turn` from the own-side path — the server disables Fake Out | base gen 9 uses `onTry` at execution (`data/moves.ts:5096`, `:5482`), **never** `disabled`; `_FIRST_TURN_MOVES` is `{fakeout, firstimpression}`; **2 of 3** supported formats are base gen 9 | §5.1a — `drop_first_turn` is **kept and re-fed**. A disjunction: `disabled` ∨ (first-turn move ∧ `had_move_opportunity`). No format detection. |
+| 2 | seven self-class `cant` reasons; unknown → third-party | the full gen-9 + Champions list is **sixteen**; `data/moves.ts` contributes nine (`Attract`, `Disable`, `Focus Punch`, `Shell Trap`, `move: Gravity`/`Heal Block`/`Imprison`/`Taunt`/`Throat Chop`) | §5.1b — complete list, **three** outcome classes, and a distinct `cant_unknown` counter |
+| 3 | form change updates `base_ability` "only for the intrinsic value" | Aerodactyl-Mega has Tough Claws; leaving `effective_ability` at Unnerve poisons every later calc and speed predicate | §4.3 — form change sets **both**, atomically; §7 pins both halves |
+| 4 | consumer split: calc takes effective, belief takes base | `hypothesis_from_state` writes **one** `ability` into `SetHypothesis` and `_to_calc_mon` forwards that same value — the split is unreachable by renaming `PokemonState` fields | §4.2a — `SetHypothesis` splits too |
+| 5 | ALIAS-1 over every bound slot; "existing consumers are untouched" | `eval/accuracy_gate_a.py:58-79` and `eval/profile_fixtures.py:99-149` build states with direct `sides[...] = PokemonState(...)`, which the invariant forbade | §3.1a — ALIAS-1 scoped to **registry-bound** slots, with explicit legacy adoption; the two fixture builders need no change |
+| 6 | v3's `ability` meaning "is a decision the plan must make" | the question exists only because rev 2 left version selection ambiguous | §6.3 — the version is a **pure function of the switch**: off → v3 only, on → v4 only. No v3 mapping is needed, and a test asserts no v3 row can be written while on. |
+
+**Also corrected in rev 3:** the §4.2 consumer table justified the speed row with *"Sand Rush
+suppressed by Neutralizing Gas"* — unreachable, because §4.5 correctly records that suppression is
+**not** modelled. The row is justified by ability *change* instead.
+
+**One review claim I checked and did not accept.** The review states that First Impression is not
+disabled even in the Champions mod. `data/mods/champions/moves.ts:364-372` overrides it with the same
+`onDisableMove` shape as Fake Out. The finding stands anyway — it rests on base gen 9, where neither
+move is disabled — but the reason is recorded correctly (§5.1a).
+
+**Two errors of mine that this table should not disguise.** Rev 2's `cant` list was incomplete
+because I read a `head -40`-truncated grep as a complete enumeration, and rev 2's own-side conclusion
+was global because I generalised from the one format I had checked. Both are the same failure:
+treating a partial look as a finished one.
 
 ---
 
@@ -154,11 +178,47 @@ Removing or shadowing it is not a slice, it is a rewrite.
 Existing consumers are untouched and see exactly what they see today — the only difference is that
 after a re-entry they see a *reused* object rather than a fresh one.
 
-**Invariant ALIAS-1.** For every bound slot,
+**Invariant ALIAS-1.** For every slot that the registry has bound,
 `sides[side][slot] is combatants[side][active_slots[side][slot]]` — **object identity, not equality.**
-An unbound slot has `active_slots[side][slot] is None` and no `sides` entry.
 
-Three named consumers must be migrated and tested, because each can break ALIAS-1 in a different way:
+**ALIAS-1 is scoped to registry-bound slots, and that scope is load-bearing.** Rev 2 stated it over
+*every* bound slot and claimed "existing consumers are untouched". Both cannot be true: `sides` is a
+plain `dict`, so a direct `sides[side][slot] = PokemonState(...)` cannot update the registry, and
+those writers exist:
+
+| Writer | What it does |
+|---|---|
+| `learning/simulator.py:37-49` `_apply_switches` | assigns a roster mon into `sides` directly |
+| `engine/mega_projection.py:46-51` `copy_battle_state` | rebuilds `sides` wholesale after a deepcopy |
+| `eval/accuracy_gate_a.py:58-79` | builds fixture states with `sides[...] = PokemonState(...)` |
+| `eval/profile_fixtures.py:99-149` | same |
+
+Under rev 2's wording those last two produce states that **violate the invariant by construction**.
+
+**Contract — legacy adoption, not universal enforcement.**
+
+1. **Registry-bound** slots satisfy ALIAS-1. A slot becomes bound only through the switch/rebind path
+   or through explicit registration.
+2. **Unregistered** slots are legal. `active_slots[side][slot]` is `None` and the slot has no
+   `combatants` entry. Reads behave exactly as today; re-entry knowledge simply does not accumulate,
+   which is precisely today's behaviour and therefore not a regression.
+3. **Adoption is lazy and explicit.** The first `switch` event for a side adopts any pre-existing
+   `sides` entries for that side into the registry, keyed by §3.2, preserving object identity. A
+   fixture that never replays a switch stays unregistered forever and never needs to change.
+4. **`_resync`-style consumers read `sides`**, never `combatants`, so an unregistered slot is
+   invisible to them.
+
+This is what makes "existing consumers are untouched" true as stated: the two eval fixture builders
+need **no change**, and the two production writers are migrated because they are on the live and
+learning paths, not because the invariant forces every writer to be.
+
+**Rejected alternative:** making `sides` a registering `MutableMapping` so that any assignment
+updates the registry. It would enforce ALIAS-1 universally and remove the unregistered case — but it
+replaces a plain dict on a hot path used 94 times in production, and a `__setitem__` that mutates two
+other structures is exactly the hidden-state coupling this contract exists to avoid. The plan may
+revisit it; this design does not adopt it.
+
+Three consumers must be migrated and tested, because each can break ALIAS-1 in a different way:
 
 | Path | Hazard | Required handling |
 |---|---|---|
@@ -321,9 +381,50 @@ explicitly, which is a small, enumerable set (`engine/belief/hypotheses.py:116,1
 
 | Consumer | Uses | Why |
 |---|---|---|
-| damage calc (`CalcMon.ability`) | **effective** | the calc must model what is actually modifying damage now |
-| speed / priority predicates (§5.2) | **effective** | Sand Rush suppressed by Neutralizing Gas must not double speed |
-| `SetHypothesis` / preset filtering | **intrinsic** | belief is about what this Pokémon *is*; a Traced ability tells us nothing about its set |
+| damage calc (`CalcMon.ability`) | **effective** | the calc must model the ability actually modifying damage now — after a Trace or a Mega, not before |
+| speed / priority predicates (§5.2) | **effective** | a Traced or swapped Sand Rush should double speed; the pre-swap ability should not |
+| `SetHypothesis` preset filtering | **intrinsic** | belief is about what this Pokémon *is*; a Traced ability tells us nothing about its set |
+
+**Correction to rev 2's justification.** Rev 2 argued the speed row with *"Sand Rush suppressed by
+Neutralizing Gas must not double speed"*. That contradicts §4.5, which correctly records that
+**suppression is not modelled** — there is no `suppressed` state, so `effective_ability` cannot
+express it and the example was unreachable. The row is justified by *ability change* (Trace, Skill
+Swap, Role Play, Mega), which `effective_ability` does express. Suppression remains a stated
+limitation, not a benefit.
+
+### 4.2a `SetHypothesis` must split too — the contract rev 2 left unimplementable
+
+Rev 2 stated the consumer split and stopped. It is not reachable by renaming `PokemonState` fields,
+because the two consumers share one object:
+
+- `hypothesis_from_state()` writes a single `ability` into `SetHypothesis`
+  (`engine/belief/hypotheses.py:136`, field at `:88`);
+- `_to_calc_mon()` passes that same value straight into `CalcMon.ability` (`:116`), and
+  `as_attacker()` / `as_defender()` are thin wrappers over it.
+
+So whatever single value `SetHypothesis` carries reaches **both** preset filtering and the calc. A
+`PokemonState`-only change gives the calc whichever one belief chose, or the reverse — never both.
+
+**Contract.** `SetHypothesis` carries both, and the split is made where the object is built:
+
+```
+SetHypothesis.base_ability      : str | None    # preset filtering / belief
+SetHypothesis.effective_ability : str | None    # passed to CalcMon.ability
+```
+
+- `hypothesis_from_state()` copies both from the combatant.
+- `_to_calc_mon()` emits `effective_ability` into `CalcMon.ability`, falling back to `base_ability`
+  when it is `None`.
+- Preset and item-candidate logic reads `base_ability` only.
+
+`engine/validate.py:247,264` (`_mon_from_known`) is on the same path and takes `effective_ability`
+for the same reason as the calc.
+
+**Why not a call-site override instead.** An `effective_ability=` keyword threaded through
+`as_attacker()` / `as_defender()` would work, but every caller would have to remember to pass it, and
+a forgotten one silently reverts to the old behaviour. Carrying both on the object makes the split
+structural. The plan may propose the override form; it must then say how a missed call site is
+detected.
 
 ### 4.3 Precedence for `base_ability`
 
@@ -336,9 +437,22 @@ overwrites a higher one.
 | `\|-ability\|` **without** `[from]` | `apply_event` | `revealed` |
 | `species_meta.ability_slot0` after a form change | `detailschange`, `_apply_mega_reconcile` | `assumed` |
 
-**Form changes remain the one legitimate override**, and only for the intrinsic value: a Mega
-genuinely changes what the Pokémon is (Aerodactyl's Unnerve → Tough Claws). This is the sole place a
-higher rank is overwritten, and §7 pins it.
+**Form changes remain the one legitimate override — and they set *both* fields, atomically.**
+Rev 2 said "only for the intrinsic value". **That was wrong**: a Mega Evolution changes what is in
+play *and* what the Pokémon is. Aerodactyl-Mega has Tough Claws; leaving `effective_ability` at
+Unnerve would make every damage calculation and every speed predicate read a pre-Mega ability for
+the rest of the battle — a defect introduced by the very rule meant to keep the fields honest.
+
+**Contract.** `detailschange` and `_apply_mega_reconcile` set
+
+```
+base_ability      ← form_meta.ability_slot0   (rank `assumed`, overriding any higher rank)
+effective_ability ← form_meta.ability_slot0
+```
+
+as a single update. This is the sole place a higher rank is overwritten, and it is the sole place
+`effective_ability` is set to something other than an observed change or `base_ability`. §7 pins
+both halves — rev 2's test asserted `base_ability` only, which is exactly how the gap survived.
 
 ### 4.4 Own-side plumbing (item 20)
 
@@ -368,71 +482,118 @@ needs a third state (`suppressed`) rather than a third value. §5.2 therefore re
 Skill Swap between allies emits nothing at all (`SIM-PROTOCOL.md:516-518`), so no parser can catch
 it; that is a property of the protocol, not a gap in this design.
 
-## 5. Contract C — Fake Out freshness and dynamic order
+## 5. Contract C — first-turn-move freshness and dynamic order
 
-### 5.1a Our own side: the server already answers this
+### 5.1a Our own side: `disabled` where the server sets it, `had_move_opportunity` everywhere else
 
-On `gen9championsvgc2026regma` the Champions mod overrides Fake Out
-(`data/mods/champions/moves.ts:331-338`):
+Rev 2 said "our own side reads `move.disabled`; `drop_first_turn` is removed from the own-side
+enumeration path rather than repaired". **That was a global conclusion from a format-local premise
+and is withdrawn.**
 
-```ts
-fakeout: {
-  inherit: true,
-  onDisableMove(pokemon) {
-    if (pokemon.activeMoveActions) { pokemon.disableMove('fakeout'); }
-  },
-},
+What the pin actually shows:
+
+| | base gen 9 (`data/moves.ts`) | Champions mod (`data/mods/champions/moves.ts`) |
+|---|---|---|
+| Fake Out | `onTry` at `:5096-5099` — checked at **execution**, never marked `disabled` | `onDisableMove` at `:331-338` — marked `disabled` in the request |
+| First Impression | `onTry` at `:5482-5487` — checked at **execution** | `onDisableMove` at `:364-372` — marked `disabled` in the request |
+
+Two consequences rev 2 missed:
+
+1. **`_FIRST_TURN_MOVES` is `{"fakeout", "firstimpression"}`** (`battle/resolve.py:18`), not Fake Out
+   alone. Rev 2 discussed only Fake Out.
+2. **Two of the three supported formats are base gen 9** — `config/formats/` holds
+   `gen9championsvgc2026regma`, `gen9vgc2024regg` and `gen9vgc2025regi`. On the latter two **neither**
+   move is ever `disabled`, so a global removal of `drop_first_turn` re-offers a stale Fake Out *and*
+   a stale First Impression on two thirds of the formats this bot supports.
+
+**Contract.** Per slot, per move, the own-side first-turn filter is:
+
+```
+drop  ⟺  move.disabled                      # authoritative wherever the server sets it
+      ∨  (move.id ∈ _FIRST_TURN_MOVES ∧ had_move_opportunity)   # repaired fallback
 ```
 
-**The server marks Fake Out `disabled` in our own request once it is stale**, and
-`battle/legal_actions.py:112-113` already skips disabled moves. So for our side the authoritative
-answer is present in the request every turn, and the `drop_first_turn` heuristic
-(`legal_actions.py:118-124`, fed by `moved_since_switch`) is a **redundant second mechanism derived
-from a broken predicate**.
+- `disabled` is honoured first and needs no format knowledge (`legal_actions.py:112-113` already
+  does this).
+- The fallback is the **repaired** predicate from §5.1c — never the broken `moved_since_switch`.
+- **No format detection.** The rule is a disjunction, correct on every format: where the server
+  disables, the first clause fires and the second is redundant but harmless; where it does not, the
+  second carries it.
 
-**Contract.** Our own side reads `move.disabled`. `drop_first_turn` is removed from the own-side
-enumeration path rather than repaired — that deletes the defect on our side outright instead of
-fixing its input.
+So `drop_first_turn` is **kept and re-fed**, not removed. What rev 2 got right and this keeps: on
+Champions the server's answer is authoritative and arrives every turn, which is why the fallback
+never has to be exactly right there.
 
-Two boundaries on that:
+**One correction to the review, verified.** The review states that First Impression is not disabled
+even in the Champions mod. That is false: `data/mods/champions/moves.ts:364-372` overrides it with
+the same `onDisableMove` shape as Fake Out. The finding stands regardless — it rests on base gen 9,
+where neither move is disabled.
 
-- **Format-conditional.** The `onDisableMove` override lives in the **Champions mod**, not in base
-  gen 9. The plan must not assume it holds for every format the bot can run. The own-side rule is
-  therefore "trust `disabled`", which is correct on *every* format — it is merely *sufficient* only
-  where the server implements the disable.
-- **It does not cover the opponent** (§5.1b), and it does not cover the resolver, which models Fake
-  Out for both sides (`battle/resolve.py:281-286`).
+### 5.1b The opponent side: the complete `cant` taxonomy
 
-Rev 1 missed this and specified repairing the predicate on both sides, which would have kept a
-redundant mechanism alive on the side that does not need one.
+For the opponent there is no request, so log-derived freshness is the only source.
 
-### 5.1b The opponent side: a verified `cant` taxonomy
+**Rev 2's allowlist was incomplete, and the cause was mine.** I enumerated with
+`grep -rn "add('cant'" sim/ data/ | head -40` and read a truncated result as complete — the old-gen
+mods filled the window and `data/moves.ts` never appeared. Re-run without truncation and scoped to
+gen 9 plus the Champions mod, the full picture is:
 
-For the opponent there is no request, so log-derived freshness is the only source. Rev 1's rule —
-*"every `|cant|` for this combatant sets the flag"* — is **wrong**, and demonstrably so.
+**Self class — the named Pokémon lost its own action:**
 
-`grep -rn "add('cant'" sim/ data/` on the pin yields two classes:
+| Reason token | Source |
+|---|---|
+| `par`, `slp`, `frz`, `flinch`, `recharge` | `data/conditions.ts:42,76,103,203,369` |
+| `par`, `frz` (mod overrides) | `data/mods/champions/conditions.ts:6,53` |
+| `nopp` | `sim/battle-actions.ts:283` |
+| `ability: Truant` | `data/abilities.ts:5183` |
+| `Attract` | `data/moves.ts:746` |
+| `Disable` | `:3700` |
+| `Focus Punch` | `:6017` |
+| `Shell Trap` | `:16299` |
+| `move: Gravity` | `:7822, 7828, 10870, 17703, 19140` |
+| `move: Heal Block` | `:8312, 8318, 8331, 13587` |
+| `move: Imprison` | `:9516` |
+| `move: Taunt` | `:19018` |
+| `move: Throat Chop` | `:19424, 19430` |
 
-| Class | Reasons (gen 9 + Champions mod) | Pokémon named in the event |
+**Third-party class — the named Pokémon *blocked someone else*:**
+
+| Reason token | Source |
+|---|---|
+| `ability: Armor Tail` | `data/abilities.ts:225` |
+| `ability: Damp` | `:805` |
+| `ability: Dazzling` | `:864` |
+| `ability: Queenly Majesty` | `:3716` |
+
+**Contract — three outcomes, not two.**
+
+| Reason | Effect | Counter |
 |---|---|---|
-| **Self** — the named Pokémon lost its own action | `par`, `slp`, `frz`, `flinch`, `recharge` (`data/conditions.ts`); `par`, `frz` (`data/mods/champions/conditions.ts`); `nopp` (`sim/battle-actions.ts`); `ability: Truant` (`data/abilities.ts`) | **the mover** |
-| **Third-party** — the named Pokémon *blocked someone else* | `ability: Armor Tail` (`data/abilities.ts:215`), `ability: Dazzling` (`:864`), `ability: Queenly Majesty` (`:3716`), `ability: Damp` | **the blocker** — the call passes the ability holder as the event's Pokémon and the move's target as `[of]` |
+| in the **self** list | sets `had_move_opportunity` | `cant_self` |
+| in the **third-party** list | sets nothing | `cant_third_party` |
+| **in neither** | sets nothing | **`cant_unknown`** |
 
-**Contract.** The flag is set **only** for the *self* class, matched on the reason token — an
-allowlist, not a catch-all. A third-party `cant` sets nothing and increments a `cant_third_party`
-diagnostic.
+Rev 2 had only two buckets and routed everything unrecognised to `cant_third_party`. That was wrong
+twice: it mislabels the diagnostic, and — because the unknown bucket was silently the third-party
+one — a future or missed reason would have looked like a known, handled case. **An unknown reason is
+its own counter.**
 
-**The known gap, stated rather than papered over.** The prevented mover *does* consume its
-opportunity: `sim/battle-actions.ts:217` increments `activeMoveActions` at the top of `runMove`,
-before any `TryMove` event, and `sim/pokemon.ts:249-250` documents this as the Fake-Out-like
-contract. But the third-party event does not name that mover — its arguments are the blocker and the
-move's target. So the bot cannot attribute the consumption from the event alone, and this slice
-**does not guess**. The counter makes the gap measurable.
+**The list is complete for gen 9 base + the Champions mod, and that is the claim.** It is not a
+claim about other mods or future server versions; `cant_unknown` is what makes the boundary
+observable rather than silent.
 
-Rev 1's safety argument is withdrawn too. It claimed over-triggering "costs at most one legal option"
-and is therefore safe. That is the same conflation the audit's item 1a correction already withdrew:
-removing an element from the action space can change the argmax. Over-triggering is not free, and
-nothing here relies on it being so.
+**A limitation the enumeration exposes.** Some self-class reasons fire from inside `runMove` (so the
+opportunity is genuinely consumed — `activeMoveActions` increments at `sim/battle-actions.ts:217`,
+before any `TryMove`), while others may fire at selection time. This slice treats every self-class
+reason as consuming, because that is the fail-closed direction for a first-turn move: it can make
+Fake Out look *stale* when it was fresh, never fresh when it was stale. Rev 1's stronger claim that
+this is therefore "safe" stays withdrawn — removing an action can change the argmax; the direction is
+merely the less bad one.
+
+**The third-party gap, unchanged from rev 2.** The prevented mover *does* consume its opportunity,
+but the third-party event names the blocker and the move's target, never that mover. The bot cannot
+attribute it, and this slice counts rather than guesses. Review has accepted a diagnostic counter as
+sufficient for S1.
 
 ### 5.1c The field
 
@@ -440,9 +601,9 @@ nothing here relies on it being so.
 had_move_opportunity : bool   # a move action was consumed since this combatant switched in
 ```
 
-Set by `|move|` (as today) and by a *self*-class `|cant|` (§5.1b). Reset to `False` on switch-in
-(§3.3). It replaces `moved_since_switch`, whose name asserted something narrower than what the
-resolver needs.
+Set by `|move|` (as today) and by a **self-class** `|cant|` (§5.1b). Reset to `False` on switch-in
+(§3.3). It replaces `moved_since_switch`, whose name asserted something narrower than what both the
+enumerator (§5.1a fallback) and the resolver (`battle/resolve.py:281-286`) need.
 
 ### 5.2 Dynamic action order (item 15)
 
@@ -565,21 +726,33 @@ four ways: `ability` is **replaced** by `base_ability` + `base_ability_source` +
 `effective_ability` (§4.2), `moved_since_switch` becomes `had_move_opportunity` (§5.1c), and
 `unburden_active` is added (§5.2.1a).
 
-**Contract:**
+**Contract — and rev 2's open question is closed here, not delegated.**
 
-1. New fields **do not** enter the v3 payload. `decision-trace-v4` is minted; v3 stays readable and
-   frozen evidence stays valid. `SUPPORTED_TRACE_SCHEMA_VERSIONS` gains v4.
-2. While `SHOWDOWN_STATE_TRUTH_V1` is off, writes stay **v3 and byte-identical**. The version bump
-   is tied to the switch, not to the merge.
-3. `had_move_opportunity` and the three ability fields are serialised under their new names in **v4
-   only**; v3 continues to emit `moved_since_switch` and a single `ability`. **Which value v3's
-   `ability` carries when the switch is on is a decision the plan must make and justify** — the
-   options are `effective_ability` (what v3 readers would have expected the field to mean) or
-   `base_ability` (what the pre-slice code actually wrote after a form change). This is not a
-   detail: a v3 consumer silently receiving the other one is a data-meaning change without a version
-   bump.
-4. **Frozen evidence is never rewritten.** No existing artifact under `data/eval/` is touched. The
-   Gate B and Attempt-6 freezes remain valid because their rows are v3 and v3 readers survive.
+Rev 2 wrote that "which value v3's `ability` carries when the switch is on is a decision the plan
+must make". That was wrong to defer: #129 requires a *defined* schema migration, and the question
+only exists because rev 2 left the version selection ambiguous. It is closed by removing the
+ambiguity rather than by choosing a mapping.
+
+1. **The schema version is a pure function of the switch.**
+   `SHOWDOWN_STATE_TRUTH_V1` **off → v3 only**; **on → v4 only**. There is no configuration in which
+   the new fields exist and a v3 row is written, so **no v3 `ability` mapping is needed and none is
+   defined**. Any code path that could emit v3 while the switch is on is a defect, and §7 test 37
+   is the assertion.
+2. **v4 mints the new field set**: `base_ability`, `base_ability_source`, `effective_ability`,
+   `had_move_opportunity`, `unburden_active`. The v3 keys `ability` and `moved_since_switch` do not
+   appear in v4 — a reader that wants "the ability" must choose which one it means, which is the
+   whole point of §4.
+3. **v3 stays readable, unchanged, forever.** `SUPPORTED_TRACE_SCHEMA_VERSIONS` gains v4 and keeps
+   v1–v3.
+4. **While off, writes are v3 and byte-identical.** The version bump is tied to the switch, not to
+   the merge.
+5. **Frozen evidence is never rewritten.** No artifact under `data/eval/` is touched; the Gate B and
+   Attempt-6 freezes stay valid because their rows are v3 and v3 readers survive.
+
+**The consequence, stated rather than buried:** a consumer that reads both v3 and v4 rows sees
+`ability` on the old ones and two fields on the new ones, and must decide per row. That is correct —
+the fields genuinely mean different things — but it is a real cost of the split and it belongs in
+this contract rather than in a reader's assumptions.
 
 ### 6.4 Byte-stability
 
@@ -629,8 +802,12 @@ the corrected rule against the pinned server.
 5. `test_fainted_combatant_knowledge_survives`
 6. `test_active_slots_rebind_without_constructing_a_new_combatant` — asserts **object identity**,
    not field equality. This is the test that actually pins §3.1.
-7. `test_alias_invariant_holds_after_every_switch` **[rev2]** — ALIAS-1: `sides[side][slot] is
-   combatants[side][active_slots[side][slot]]`.
+7. `test_alias_invariant_holds_after_every_switch` **[rev2]** — ALIAS-1 over registry-bound slots.
+7a. `test_unregistered_slot_is_legal_and_reads_as_today` **[rev3]** — a fixture built with a direct
+    `sides[...] = PokemonState(...)` (the `eval/accuracy_gate_a.py` / `eval/profile_fixtures.py`
+    shape) is valid, has no `combatants` entry, and behaves exactly as on `main` (§3.1a rule 2).
+7b. `test_first_switch_adopts_preexisting_slots_preserving_identity` **[rev3]** — lazy adoption
+    (§3.1a rule 3), asserted on object identity.
 8. `test_copy_battle_state_preserves_alias_invariant` **[rev2]** — the `engine/mega_projection.py:46-51`
    hazard: a full `deepcopy` followed by a per-mon `deepcopy` overwrite of `sides` must not leave
    `combatants` and `sides` holding different objects.
@@ -656,22 +833,40 @@ the corrected rule against the pinned server.
 18. `test_switch_in_resets_effective_ability_to_base` **[rev2]** — `sim/pokemon.ts:1528`.
 19. `test_detailschange_does_not_overwrite_revealed_base_ability` — the monotonicity rule, and a
     behaviour change from today.
-20. `test_mega_reconcile_may_override_base_ability` — the single named exception (§4.3).
+20. `test_mega_reconcile_sets_base_and_effective_ability` **[rev3]** — both fields, atomically.
+    Rev 2's test asserted `base_ability` only, which is how the gap survived: Aerodactyl-Mega would
+    have kept Unnerve in play for the rest of the battle (§4.3).
+20a. `test_detailschange_sets_base_and_effective_ability` **[rev3]** — the same rule on the
+     non-Mega forme-change path.
 21. `test_calc_receives_effective_ability_and_belief_receives_base` **[rev2]** — the split in §4.2's
     consumer table; without this the two-field design is indistinguishable from a rename.
+21a. `test_set_hypothesis_carries_both_abilities` **[rev3]** — `SetHypothesis` splits too (§4.2a).
+     Without this the consumer split is unimplementable: `hypothesis_from_state` writes one value
+     and `_to_calc_mon` forwards that same value to `CalcMon`.
+21b. `test_mon_from_known_uses_effective_ability` **[rev3]** — `engine/validate.py:247,264`, the same
+     path.
 22. `test_unknown_ability_reaches_calc_as_none` — no guessing.
 
 ### Group 3 — freshness (§5.1)
 
-23. `test_own_side_fake_out_uses_request_disabled` **[rev2]** — the Champions mod disables it server
-    side (`data/mods/champions/moves.ts:331-338`); `legal_actions.py:112-113` already honours
-    `disabled`.
-24. `test_drop_first_turn_removed_from_own_side_enumeration` **[rev2]**
-25. `test_cant_self_reasons_consume_the_opportunity` **[rev2]** — `par`, `slp`, `frz`, `flinch`,
-    `recharge`, `nopp`, `ability: Truant`, table-driven.
+23. `test_own_side_first_turn_move_dropped_when_request_disabled` **[rev2]** — the Champions path,
+    for **both** `fakeout` and `firstimpression` (`data/mods/champions/moves.ts:331-338, 364-372`).
+24. `test_own_side_first_turn_move_dropped_by_fallback_when_not_disabled` **[rev3]** — the base-gen-9
+    path, where the server uses `onTry` and never marks `disabled`. Covers **both** moves in
+    `_FIRST_TURN_MOVES`. This is the regression rev 2 would have shipped on two of the three
+    supported formats.
+24a. `test_first_turn_filter_needs_no_format_detection` **[rev3]** — the §5.1a disjunction holds on
+     both format shapes without branching on format id.
+25. `test_cant_self_reasons_consume_the_opportunity` **[rev3]** — table-driven over the **complete**
+    §5.1b self list: `par`, `slp`, `frz`, `flinch`, `recharge`, `nopp`, `ability: Truant`, `Attract`,
+    `Disable`, `Focus Punch`, `Shell Trap`, `move: Gravity`, `move: Heal Block`, `move: Imprison`,
+    `move: Taunt`, `move: Throat Chop`. Rev 2's list had seven of sixteen.
 26. `test_cant_third_party_reasons_set_nothing_and_count` **[rev2]** — `ability: Armor Tail`,
-    `ability: Dazzling`, `ability: Queenly Majesty`, `ability: Damp`. The named Pokémon is the
-    **blocker**; a rev-1 handler would have frozen Fake Out on the wrong combatant.
+    `ability: Damp`, `ability: Dazzling`, `ability: Queenly Majesty`. The named Pokémon is the
+    **blocker**; a rev-1 handler would have frozen the flag on the wrong combatant.
+26a. `test_unrecognised_cant_reason_counts_as_unknown` **[rev3]** — a reason in neither list sets
+     nothing and increments `cant_unknown`, **not** `cant_third_party` (§5.1b). Rev 2 routed unknown
+     reasons into the third-party bucket, which would have made a missed reason look handled.
 27. `test_opponent_flinch_cant_marks_fake_out_stale` — the audit's original counterexample, on the
     side where the log is the only source.
 28. `test_switch_in_resets_had_move_opportunity`
@@ -692,7 +887,9 @@ the corrected rule against the pinned server.
 
 36. `test_state_truth_off_is_byte_identical` — golden decision-trace comparison against `main`, switch
     off. **This is the merge gate.**
-37. `test_trace_v3_payload_unchanged_when_off` and `test_trace_v4_carries_new_fields_when_on` (§6.3).
+37. `test_trace_v3_payload_unchanged_when_off`, `test_trace_v4_carries_new_fields_when_on`, and
+    `test_no_v3_row_is_ever_written_while_the_switch_is_on` **[rev3]** — the last one is what makes
+    §6.3's "no v3 `ability` mapping is needed" true rather than assumed.
 38. `test_env_var_is_behavior_affecting` — `SHOWDOWN_STATE_TRUTH_V1` classified in
     `eval/config_env.py`, so it lands in `config_hash`; the drift test enforces classification.
 39. Full offline suite — `python -m pytest` — run and reported, not inferred from CI.
@@ -717,27 +914,29 @@ belongs to **S2**, not to this slice.)
 
 ## 8. Open questions for review
 
-Rev 1 asked four. Three are settled by the review and by the pinned-source verification; the list is
-rewritten rather than appended to, so a reader does not have to reconstruct which still stand.
+Rewritten each revision rather than appended to, so a reader never has to reconstruct which still
+stand.
 
-**Settled:**
+**Settled in review:**
 
 1. **`combatant_key` granularity** — ident suffix with a collision counter, accepted for the current
    panel.
-2. **Default-on gate** — belongs in its own decision record, not in this slice. §6.2 unchanged.
-3. **The blanket `cant` rule** — rejected, and replaced by the verified two-class taxonomy in §5.1b.
+2. **Default-on gate** — its own decision record, not this slice. §6.2 unchanged.
+3. **The blanket `cant` rule** — rejected; replaced by §5.1b's verified taxonomy, now complete.
+4. **Gale Wings scope** — one priority ability rather than a framework, accepted.
+5. **Third-party `cant`** — a diagnostic counter is sufficient for S1, accepted, **provided unknown
+   reasons are not classified as third-party**. §5.1b now gives them their own counter.
+6. **Retiring the name `ability`** — accepted, conditional on the v3 mapping and `SetHypothesis`
+   being closed unambiguously. §6.3 closes the first by making the version a pure function of the
+   switch; §4.2a closes the second by splitting `SetHypothesis`.
 
-**Still open:**
+**Still open — one, and it is a scoping question rather than a defect:**
 
-4. **Gale Wings scope** (§5.2.2) — one priority ability rather than a framework. Accepted in review
-   *conditional on the effective-ability semantics being right*, which §4 now provides. Confirm
-   against the rewritten §4.
-5. **Third-party `cant` attribution** (§5.1b) — the prevented mover consumes its opportunity but is
-   not named in the event. This slice counts the case and does not guess. Is a diagnostic counter the
-   right resting place, or should the plan attempt attribution from the action queue?
-6. **Retiring the name `ability`** (§4.2) — the design renames the field rather than keeping `ability`
-   as an alias for one of the two. That touches five named consumers and one persisted payload
-   (§6.3). Confirm the rename is preferred over an alias.
+7. **The `sides` registering-mapping alternative** (§3.1a, "Rejected alternative"). This design keeps
+   `sides` a plain dict and accepts unregistered slots, because a `__setitem__` that mutates two
+   other structures is the hidden coupling the contract exists to avoid. The cost is that ALIAS-1
+   holds over a subset rather than universally. If review prefers universal enforcement, that is a
+   larger change and should be said now rather than during implementation.
 
 ## 9. Non-claims
 
