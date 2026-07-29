@@ -7,7 +7,12 @@ import logging
 from pathlib import Path
 
 from showdown_bot.client.fixture_runner import replay_request_fixture
-from showdown_bot.client.runner import run_challenge, run_ladder_search, run_smoke_battle
+from showdown_bot.client.runner import (
+    recorder_exit_status,
+    run_challenge,
+    run_ladder_search,
+    run_smoke_battle,
+)
 from showdown_bot.config import Settings
 
 
@@ -1499,6 +1504,25 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _run_live(coro) -> None:
+    """Run a live runner and turn a recording failure into a non-zero process status.
+
+    There is deliberately NO try/except here, and a test asserts that structurally. The status
+    check is a plain statement after asyncio.run(), so it executes only when the coroutine
+    RETURNED normally; an exception, a KeyboardInterrupt and a CancelledError all propagate
+    untouched and keep producing their own non-zero status. Nothing here can mask an original
+    failure, because nothing here catches anything.
+
+    A non-zero exit therefore means "the run failed, possibly at recording" -- never "recording
+    failed" on its own. SystemExit is how this file already reports a machine-checkable verdict;
+    see the two `raise SystemExit(...)` call sites in the Gate B commands above.
+    """
+    asyncio.run(coro)
+    status = recorder_exit_status()
+    if status:
+        raise SystemExit(status)
+
+
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
@@ -1580,13 +1604,13 @@ def main() -> None:
 
     settings = Settings.from_env()
     if args.command == "ladder":
-        asyncio.run(run_ladder_search(settings, max_battles=args.max_battles))
+        _run_live(run_ladder_search(settings, max_battles=args.max_battles))
     elif args.command == "challenge":
         if not args.opponent:
             parser.error("challenge requires --opponent USERNAME")
-        asyncio.run(run_challenge(settings, args.opponent, max_battles=args.max_battles))
+        _run_live(run_challenge(settings, args.opponent, max_battles=args.max_battles))
     elif args.command == "smoke":
-        asyncio.run(run_smoke_battle(settings))
+        _run_live(run_smoke_battle(settings))
 
 
 if __name__ == "__main__":

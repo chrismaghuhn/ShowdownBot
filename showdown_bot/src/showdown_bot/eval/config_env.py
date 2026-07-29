@@ -124,6 +124,14 @@ NON_BEHAVIORAL = frozenset({
     # would put it in behavior_env and thus in config_hash, and enabling a measurement
     # sidecar would change the identity of the run being measured.
     "SHOWDOWN_DECISION_PROFILE_OUT",
+    # [#125] Live-path degradation sink DIRECTORY (live-degradation-v1). Same species as
+    # SHOWDOWN_DECISION_PROFILE_OUT above: an IO path with no /choose effect. It must be
+    # classified, not merely commented -- is_excluded fails closed toward INCLUSION, so an
+    # unclassified name lands in behavior_env and thus in config_hash, and merely choosing
+    # where to write telemetry would change the identity of the run being measured. Note the
+    # recorder is ALWAYS ON; this variable only redirects where it writes, it never gates
+    # whether recording happens.
+    "SHOWDOWN_LIVE_DEGRADATION_DIR",
     # [2c-Slice-0b Task 3] Research-only full-fidelity aggregation sidecar PATH (env alias for
     # --agg-trace-out; the Kaggle datagen kernel injects it via EXTRA_ENV). IO/telemetry-only,
     # no /choose effect -> excluded from config_hash. MUST stay non-behavioral so a per-shard
