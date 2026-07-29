@@ -71,8 +71,10 @@ python -m pytest                                  # full offline suite
 python -m showdown_bot.cli <command> -v
 ```
 
-The authoritative command list is the `choices` list in `cli.py::_build_parser` — read it there
-rather than trusting any prose copy, including this one.
+The authoritative command **names** are the `choices` in `cli.py::_build_parser`. That list is
+authoritative for names and nothing else: flags, required inputs, environment contracts and
+behaviour live in the surrounding `add_argument` definitions and the command handler. Read those,
+not a prose copy — including this one.
 
 `pip install -e ".[learning]"` pulls lightgbm/numpy for offline reranker work only. A live run
 must never import lightgbm (INV-1). If a change makes it reachable from the live path, that is a
@@ -83,10 +85,15 @@ as a side effect of another slice.
 
 ## Project invariants
 
-INV-1…INV-7 in `docs/architecture/brain-v1-northstar.md` are binding: live-path allowlist, memory
-as priors only, anytime/abortable search, one layer at a time behind an ablation gate, no LLM
-anywhere, no label leakage, model-artifact safety. Read them before touching the decision path,
-the learning schema, or a model artifact.
+The INV-1…INV-7 **summaries** in `docs/architecture/brain-v1-northstar.md` are binding
+in-repository constraints, and they are in the repo: live-path allowlist, memory as priors only,
+anytime/abortable search, one layer at a time behind an ablation gate, no LLM anywhere, no label
+leakage, model-artifact safety. Read them before touching the decision path, the learning schema,
+or a model artifact.
+
+The external Brain documents hold their full rationale, architecture and slice detail. That file
+being a pointer to those documents does not weaken the seven summaries — apply them; do not
+reconstruct the detail behind them when the external documents are unavailable.
 
 **Byte stability.** Provenance hashes in this repository are computed over *raw file bytes*
 (`format_config_hash`, `file_content_hash`, `_sha256_file`). Any new file whose bytes are hashed —
@@ -138,6 +145,10 @@ A code change without inspecting the final diff and running fresh verification i
 ## Plan Quality Gate
 
 Before presenting an implementation plan, perform a fresh repository-grounded planning pass.
+
+Treat this gate as an internal review checklist. Do not mirror its items as plan headings or
+restate repository facts unless they are load-bearing to the implementation. A plan that satisfies
+every item as a section while getting the control flow wrong has failed the gate, not passed it.
 
 A plan is not ready for review until it:
 
