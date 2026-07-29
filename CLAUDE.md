@@ -83,6 +83,14 @@ defect, not a dependency question.
 There is no linter, formatter, or type checker configured in this repository. Do not introduce one
 as a side effect of another slice.
 
+Your *environment* may still run one. A `PostToolUse` hook has been observed running
+`ruff check --select F,E711,E712,UP006,UP007,UP035,UP037,T201,S` plus `pyright` on a temp copy of
+every Python file written. Two consequences, because the copy is unnamed and outside the package:
+`S101` ("assert used") fires on **every** pytest file — all 4056 tests here would trip it, and no
+`per-file-ignores` can apply — and every intra-package import resolves as missing. Treat those two
+as environment noise, not findings. Real findings do appear alongside them (`UP037`, `F401`) and
+should be fixed. Never reshape a test or a message to satisfy the hook.
+
 ## Project invariants
 
 The INV-1…INV-7 **summaries** in `docs/architecture/brain-v1-northstar.md` are binding
