@@ -501,3 +501,194 @@ async def test_preflight_runs_before_any_search_or_utm_is_sent(tmp_path, monkeyp
     with pytest.raises(PreflightError):
         await runner.run_ladder_search(_settings(), max_battles=1)
     assert sent == []
+
+
+# --- Task 11: the process exit status ----------------------------------------
+
+
+def test_clean_run_does_not_raise_system_exit(monkeypatch):
+    from showdown_bot import cli
+
+    async def _ok():
+        return 1
+
+    monkeypatch.setattr(cli, "recorder_exit_status", lambda: 0)
+    cli._run_live(_ok())        # must not raise
+
+
+def test_a_write_error_produces_a_non_zero_process_status(monkeypatch):
+    from showdown_bot import cli
+
+    async def _ok():
+        return 1
+
+    monkeypatch.setattr(cli, "recorder_exit_status", lambda: 1)
+    with pytest.raises(SystemExit) as excinfo:
+        cli._run_live(_ok())
+    assert excinfo.value.code == 1
+
+
+def test_an_original_exception_is_never_masked(monkeypatch):
+    """The status check is a plain statement AFTER asyncio.run(), so it runs only on the
+    normal-return path. There is no except clause that could swallow this."""
+    from showdown_bot import cli
+
+    async def _boom():
+        raise RuntimeError("the real failure")
+
+    monkeypatch.setattr(cli, "recorder_exit_status", lambda: 1)
+    with pytest.raises(RuntimeError, match="the real failure"):
+        cli._run_live(_boom())
+
+
+def test_a_cancellation_is_never_masked(monkeypatch):
+    from showdown_bot import cli
+
+    async def _cancelled():
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(cli, "recorder_exit_status", lambda: 1)
+    with pytest.raises(asyncio.CancelledError):
+        cli._run_live(_cancelled())
+
+
+def test_a_keyboard_interrupt_is_never_masked(monkeypatch):
+    from showdown_bot import cli
+
+    async def _interrupted():
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(cli, "recorder_exit_status", lambda: 1)
+    with pytest.raises(KeyboardInterrupt):
+        cli._run_live(_interrupted())
+
+
+def test_run_live_contains_no_exception_handler_at_all():
+    """The non-masking property is structural, not behavioural: if _run_live ever grows a
+    try/except, some future exception WILL be swallowed and these tests would not
+    necessarily notice. Assert the absence directly."""
+    import ast
+    import inspect
+    import textwrap
+
+    from showdown_bot import cli
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(cli._run_live)))
+    handlers = [n for n in ast.walk(tree) if isinstance(n, (ast.Try, ast.ExceptHandler))]
+    assert handlers == [], "_run_live must contain no exception handling (section 10.3)"
+
+
+def test_main_routes_all_three_live_commands_through_run_live():
+    """Otherwise a write failure on `challenge` or `smoke` would still exit 0."""
+    import inspect
+
+    from showdown_bot import cli
+
+    flat = "".join(inspect.getsource(cli.main).split())
+    for command in ("run_ladder_search", "run_challenge", "run_smoke_battle"):
+        assert f"_run_live({command}(" in flat, f"{command} is not routed through _run_live"
+
+
+# --- Task 12 (local parts): smoke shape and the artifact invariant ------------
+
+
+@pytest.mark.asyncio
+async def test_smoke_records_every_decision_as_not_applicable(
+        tmp_path, monkeypatch, _clean_runner_state):
+    """run_smoke_battle searches gen9randomdoublesbattle, for which _get_book returns None (and,
+    separately, run_smoke_battle never assigns _active_format at all). So `state is None` on
+    every decision while NOTHING is degraded. A naive `state is None` rule would report smoke as
+    100% degraded."""
+    rec = _install_recorder(monkeypatch, tmp_path)
+    monkeypatch.setenv("SHOWDOWN_TURN_TRACE", "0")
+    monkeypatch.setattr(runner, "_active_format", None)
+    monkeypatch.setattr(runner, "choose_for_request",
+                        lambda req: f"/choose default|{req.rqid}")
+    runner.reset_format_caches()
+    conn = _StubConnection([
+        f">{ROOM}\n|init|battle",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|win|opponent",
+    ])
+    await runner._run_battle_loop(conn, max_battles=1, cancel_on_done=None)
+
+    rows = [json.loads(line) for line in
+            (rec.run_dir / "decisions.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert rows
+    assert all(r["book_absent"] is True for r in rows)
+    assert all(r["derivation_applicable"] is False for r in rows)
+    assert all(r["is_degraded"] is None for r in rows)
+    assert all(r["outcome"] == "not_applicable" for r in rows)
+    assert all(r["state_build_failed"] is False for r in rows)
+
+    battle = _battle_rows(rec)[0]
+    assert battle["degraded_decisions"] == 0
+    assert battle["state_build_failures"] == 0
+    assert battle["decisions_not_applicable"] == len(rows)
+
+
+def _run_id_of_every_line(run_dir) -> set:
+    """Collect run_id from every JSONL line PRESENT. A missing file is zero rows, not a
+    violation -- see the no-events shape below for why that distinction is load-bearing."""
+    seen = set()
+    for name in ("decisions.jsonl", "events.jsonl", "battles.jsonl"):
+        path = run_dir / name
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                seen.add(json.loads(line)["run_id"])
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_artifact_invariant_on_a_run_that_produces_every_grain(
+        tmp_path, monkeypatch, _clean_runner_state):
+    """Shape 1: decisions, at least one event, a battle row and a completion."""
+    from showdown_bot.client.live_degradation import validate_completion_row
+
+    rec = _install_recorder(monkeypatch, tmp_path)
+    _use_heuristic_path(monkeypatch)
+    runner._last_rqid[ROOM] = 2
+    conn = _StubConnection([
+        f">{ROOM}\n|init|battle",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|error|[Invalid choice] Can't move: Zamazenta needs a target",
+        f">{ROOM}\n|win|opponent",
+    ])
+    await runner._run_battle_loop(conn, max_battles=1, cancel_on_done=None)
+
+    for name in ("decisions.jsonl", "events.jsonl", "battles.jsonl", "completion.json"):
+        assert (rec.run_dir / name).exists(), f"{name} missing on the all-grains shape"
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert _run_id_of_every_line(rec.run_dir) == {completion["run_id"]}
+    assert completion["run_id"] == rec.run_dir.name          # 8.1: dir name IS the run_id
+
+
+@pytest.mark.asyncio
+async def test_artifact_invariant_on_a_run_with_no_events(
+        tmp_path, monkeypatch, _clean_runner_state):
+    """Shape 2, and the commonest one: no |error| and no invalid-choice PM. events.jsonl is
+    ABSENT, and with all three counters at zero that absence means zero rows, not loss. An
+    invariant demanding all four files would fail here -- on a CORRECT run."""
+    from showdown_bot.client.live_degradation import validate_completion_row
+
+    rec = _install_recorder(monkeypatch, tmp_path)
+    _use_heuristic_path(monkeypatch)
+    conn = _StubConnection([
+        f">{ROOM}\n|init|battle",
+        f">{ROOM}\n|request|{_request_payload()}",
+        f">{ROOM}\n|win|opponent",
+    ])
+    await runner._run_battle_loop(conn, max_battles=1, cancel_on_done=None)
+
+    assert not (rec.run_dir / "events.jsonl").exists()
+    completion = json.loads((rec.run_dir / "completion.json").read_text(encoding="utf-8"))
+    validate_completion_row(dict(completion), expected_run_id=rec.run_id)
+    assert completion["write_errors_total"] == 0
+    assert completion["schema_errors_total"] == 0
+    assert completion["recorder_errors_total"] == 0
+    assert rec.exit_status() == 0                            # absence here is emptiness
+    assert _run_id_of_every_line(rec.run_dir) == {completion["run_id"]}
