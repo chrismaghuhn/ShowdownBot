@@ -488,3 +488,128 @@ def test_run_directory_is_gitignored():
         f"{target} is not ignored; git check-ignore said rc={proc.returncode} "
         f"stdout={proc.stdout!r} stderr={proc.stderr!r}"
     )
+
+
+from pathlib import Path  # noqa: E402
+
+from showdown_bot.client.live_degradation import (  # noqa: E402
+    DEFAULT_PARENT,
+    DIR_ENV,
+    LiveDegradationRecorder,
+    PreflightError,
+    resolve_parent,
+)
+
+
+def _refuse_the_probe(monkeypatch):
+    """Make only the probe write fail, leaving every other open() alone.
+
+    Patching the MODULE namespace works because preflight calls the bare builtin open(), which
+    Python resolves through module globals first. If the implementation ever switches to
+    Path.open(), this patch becomes a silent no-op and the test would prove nothing -- so the
+    implementation deliberately keeps the global call.
+    """
+    real_open = open
+
+    def _refuse(path, mode="r", *args, **kwargs):
+        if str(path).endswith(".probe"):
+            raise OSError("read-only filesystem")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr("showdown_bot.client.live_degradation.open", _refuse, raising=False)
+
+
+def test_preflight_creates_an_exclusive_run_dir(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    assert rec.run_dir.parent == tmp_path
+    assert rec.run_dir.is_dir()
+    assert rec.run_dir.name == rec.run_id
+
+
+def test_preflight_refuses_an_existing_run_dir(tmp_path, monkeypatch):
+    """C9: a new run must never reuse or overwrite existing evidence."""
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation._new_run_id", lambda: "fixed-run-id")
+    LiveDegradationRecorder.preflight(parent=tmp_path)
+    with pytest.raises(PreflightError, match=re.escape("[dir_exists]")):
+        LiveDegradationRecorder.preflight(parent=tmp_path)
+
+
+def test_preflight_fails_when_the_parent_is_not_a_directory(tmp_path):
+    """Windows and POSIX raise different OSError subclasses here, which is exactly why the
+    implementation catches OSError broadly instead of enumerating them."""
+    target = tmp_path / "not-a-dir"
+    target.write_text("blocking file", encoding="utf-8")
+    with pytest.raises(PreflightError, match=re.escape("[dir_create]")):
+        LiveDegradationRecorder.preflight(parent=target)
+
+
+def test_preflight_probe_is_removed_and_the_dir_is_left_empty(tmp_path):
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path)
+    assert list(rec.run_dir.iterdir()) == []
+
+
+def test_preflight_fails_when_the_probe_cannot_be_written(tmp_path, monkeypatch):
+    _refuse_the_probe(monkeypatch)
+    with pytest.raises(PreflightError, match=re.escape("[probe]")):
+        LiveDegradationRecorder.preflight(parent=tmp_path)
+
+
+def test_a_failed_probe_leaves_its_directory_and_it_is_never_reused(tmp_path, monkeypatch):
+    """Section 10.1 aborts BEFORE the connection; it does not promise to tidy up the failed
+    attempt. So the directory may legitimately remain -- what must never happen is a later run
+    reusing it, because that is how one run's evidence ends up mixed into another's."""
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation._new_run_id", lambda: "fixed-run-id")
+    _refuse_the_probe(monkeypatch)
+    with pytest.raises(PreflightError, match=re.escape("[probe]")):
+        LiveDegradationRecorder.preflight(parent=tmp_path)
+    assert (tmp_path / "fixed-run-id").is_dir()
+
+    monkeypatch.undo()
+    monkeypatch.setattr(
+        "showdown_bot.client.live_degradation._new_run_id", lambda: "fixed-run-id")
+    with pytest.raises(PreflightError, match=re.escape("[dir_exists]")):
+        LiveDegradationRecorder.preflight(parent=tmp_path)
+
+
+def test_default_parent_when_the_override_is_unset(monkeypatch):
+    monkeypatch.delenv(DIR_ENV, raising=False)
+    assert resolve_parent() == DEFAULT_PARENT
+    assert DEFAULT_PARENT == Path("logs") / "live-degradation"
+
+
+def test_env_override_replaces_the_parent_only(tmp_path, monkeypatch):
+    """8.1: the override replaces the PARENT; the <run_id> subdirectory is still created
+    beneath it."""
+    monkeypatch.setenv(DIR_ENV, str(tmp_path / "custom-sink"))
+    rec = LiveDegradationRecorder.preflight()
+    assert rec.run_dir.parent == tmp_path / "custom-sink"
+    assert rec.run_dir.name == rec.run_id
+    assert rec.run_dir.is_dir()
+
+
+def test_env_override_empty_string_falls_back_to_the_default(monkeypatch):
+    """An empty override would otherwise resolve to the current directory."""
+    monkeypatch.setenv(DIR_ENV, "")
+    assert resolve_parent() == DEFAULT_PARENT
+
+
+def test_explicit_parent_wins_over_the_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv(DIR_ENV, str(tmp_path / "env-sink"))
+    rec = LiveDegradationRecorder.preflight(parent=tmp_path / "explicit-sink")
+    assert rec.run_dir.parent == tmp_path / "explicit-sink"
+    assert not (tmp_path / "env-sink").exists()
+
+
+def test_the_override_is_the_only_environment_read_in_the_module():
+    """The drift test in test_config_env.py scans source for SHOWDOWN_* reads. Keeping this
+    module to exactly one environment read keeps that scan unambiguous, and keeps the always-on
+    guarantee honest: no second variable can quietly gate whether recording happens."""
+    module_path = Path(
+        LiveDegradationRecorder.__module__.replace(".", "/") + ".py")
+    root = Path(__file__).resolve().parents[1] / "src"
+    text = (root / module_path).read_text(encoding="utf-8")
+    assert text.count("os.environ") == 1
+    assert "os.environ.get(DIR_ENV)" in text
+    assert 'DIR_ENV = "SHOWDOWN_LIVE_DEGRADATION_DIR"' in text

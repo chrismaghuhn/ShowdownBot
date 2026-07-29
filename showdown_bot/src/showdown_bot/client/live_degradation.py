@@ -12,12 +12,20 @@ sentence wording turns every clarification into a contract breach.
 """
 from __future__ import annotations
 
+import logging
+import os
+import secrets
+from datetime import datetime, timezone
+from pathlib import Path
+
 from showdown_bot.eval.decision_profile import (
     LIVE_FALLBACK_STAGES,
     LIVE_OK_STAGE,
     STAGE_ALLOWED_REASONS,
     is_degraded_decision,
 )
+
+logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = "live-degradation-v1"
 
@@ -437,3 +445,91 @@ def validate_completion_row(row: dict, *, expected_run_id: str | None = None) ->
     if expected_run_id is not None and row["run_id"] != expected_run_id:
         _fail(what, "expected_run_id",
               f"run_id={row['run_id']!r} does not match expected_run_id={expected_run_id!r}")
+
+
+DEFAULT_PARENT = Path("logs") / "live-degradation"
+DIR_ENV = "SHOWDOWN_LIVE_DEGRADATION_DIR"
+
+
+class PreflightError(RuntimeError):
+    """The sink could not be established. Raised BEFORE connect/search (section 10.1)."""
+
+
+def _preflight_fail(rule: str, detail: str, cause: BaseException | None = None) -> None:
+    """Same identifier-then-prose contract as SchemaError -- tests match the identifier."""
+    raise PreflightError(f"preflight [{rule}]: {detail}") from cause
+
+
+def _new_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(3)
+
+
+def resolve_parent(explicit: Path | None = None) -> Path:
+    """An explicit parent wins; then the override; then the default.
+
+    An EMPTY override is treated as unset -- an empty string would otherwise resolve to the
+    current directory, which is a surprising place to drop evidence.
+
+    This is the module's ONLY environment read, deliberately: a second one could quietly gate
+    whether recording happens, and the whole ruling is that nothing may.
+    """
+    if explicit is not None:
+        return Path(explicit)
+    override = os.environ.get(DIR_ENV)
+    return Path(override) if override else DEFAULT_PARENT
+
+
+class LiveDegradationRecorder:
+    def __init__(self, run_dir: Path, run_id: str) -> None:
+        self.run_dir = run_dir
+        self.run_id = run_id
+        self.write_errors_total = 0
+        self.schema_errors_total = 0
+        self.recorder_errors_total = 0
+        self.battles_finished = 0
+        self.unterminated_rooms: list[str] = []
+        self._decisions: dict[str, list[dict]] = {}
+        self._events: list[dict] = []
+        self._room_write_errors: dict[str, int] = {}
+        self._seq: dict[str, int] = {}
+
+    @classmethod
+    def preflight(cls, *, parent: Path | None = None) -> "LiveDegradationRecorder":
+        """Create the run directory exclusively and prove the writer works.
+
+        Called BEFORE _connect_and_login and before any /search or challenge (section 10.1).
+        This is the ONE place a recording failure may stop the run: nothing has been played, so
+        aborting costs nothing, whereas an unwritable sink discovered after 50 ladder games costs
+        all 50 games' evidence.
+
+        If the probe fails the directory created just above is LEFT BEHIND. That is deliberate:
+        the contract is "abort before the connection", not "tidy up the failed attempt", and a
+        cleanup path here could delete a directory a concurrent run had just claimed. The
+        exclusive create means the leftover is refused rather than reused next time, which is the
+        property that actually matters.
+
+        open() is called as the bare builtin, resolved through this module's globals. Tests patch
+        it there to simulate an unwritable sink; switching to Path.open() would silently turn that
+        patch into a no-op and the test would prove nothing.
+        """
+        base = resolve_parent(parent)
+        run_id = _new_run_id()
+        run_dir = base / run_id
+        try:
+            os.makedirs(run_dir, exist_ok=False)
+        except FileExistsError as exc:
+            _preflight_fail("dir_exists", f"run directory already exists: {run_dir}", exc)
+        except OSError as exc:
+            # Windows and POSIX raise different subclasses when a parent is a file or is
+            # unwritable; catching OSError broadly is the portable form.
+            _preflight_fail("dir_create", f"cannot create run directory {run_dir}: {exc}", exc)
+        probe = run_dir / ".probe"
+        try:
+            with open(probe, "x", encoding="utf-8") as fh:
+                fh.write("probe")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.remove(probe)
+        except OSError as exc:
+            _preflight_fail("probe", f"writer probe failed in {run_dir}: {exc}", exc)
+        return cls(run_dir, run_id)
