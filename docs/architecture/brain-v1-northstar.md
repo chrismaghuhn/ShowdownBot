@@ -1,11 +1,10 @@
 # Brain V1 — Northstar (pointer)
 
 The detailed architecture and execution-slice documents for the bot's decision ("Brain") component live
-**outside this repo**, in the external folder `TestBOtpläne/` (sibling of this repo under
-`Documents/`). Kept external on purpose; this file is the in-repo pointer so contributors don't lose the
-context.
+**outside this repo**, in the external folder `../Showdown-Archive/TestBOtpläne/`. Kept external
+on purpose; this file is the in-repo pointer so contributors don't lose the context.
 
-## Canonical docs (external `TestBOtpläne/`)
+## Canonical docs (external `../Showdown-Archive/TestBOtpläne/`)
 
 - `README.md` — index + reading order
 - `00-overview-and-assumptions.md` … `09-roadmap.md` — **northstar architecture** (the broad vision):

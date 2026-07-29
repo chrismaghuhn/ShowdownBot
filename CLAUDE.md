@@ -41,7 +41,7 @@ the roadmap, current code, committed evidence, and Git history, and do not claim
 status was verified.
 
 The canonical Brain V1 architecture documents live **outside this repository**
-(`TestBOtpläne/`, sibling of the repo). An agent working only from the repo does not have them:
+(`../Showdown-Archive/TestBOtpläne/`). An agent working only from the repo does not have them:
 say so rather than reconstructing them from `docs/architecture/brain-v1-northstar.md`, which is a
 pointer, not the source.
 
@@ -83,13 +83,13 @@ defect, not a dependency question.
 There is no linter, formatter, or type checker configured in this repository. Do not introduce one
 as a side effect of another slice.
 
-Your *environment* may still run one. A `PostToolUse` hook has been observed running
-`ruff check --select F,E711,E712,UP006,UP007,UP035,UP037,T201,S` plus `pyright` on a temp copy of
-every Python file written. Two consequences, because the copy is unnamed and outside the package:
-`S101` ("assert used") fires on **every** pytest file — all 4056 tests here would trip it, and no
-`per-file-ignores` can apply — and every intra-package import resolves as missing. Treat those two
-as environment noise, not findings. Real findings do appear alongside them (`UP037`, `F401`) and
-should be fixed. Never reshape a test or a message to satisfy the hook.
+Your *environment* may still run one, and it is not bound by that. If a tool-level hook lints what
+you write, expect two classes of false positive whenever it lints a detached copy of the file
+rather than the file in place: rules that a repository config would have scoped away — an
+assert-usage rule firing on every pytest file is the common one, and no `per-file-ignores` can
+reach it — and every intra-package import reported as unresolvable. Treat those as environment
+noise, not findings; real findings arrive through the same channel and should be fixed. Never
+reshape a test, a message, or an interface to satisfy a hook.
 
 ## Project invariants
 
@@ -200,8 +200,9 @@ structure has no value by itself.
 - Inspect the actual diff and relevant production paths; do not accept agent reports on trust.
 - Before claiming success, run fresh checks proportional to the change and read their full output.
 - Run `git diff --check` for every commit-ready slice.
-- **CI is not the suite.** `.github/workflows/pytest.yml` runs a named slice smoke plus a
-  two-platform provenance-bytes matrix; the Studio lanes cover Studio only. Nothing runs the full
+- **CI is not the suite.** `.github/workflows/pytest.yml` runs three targeted jobs — `slice-smoke`,
+  a two-platform `provenance-bytes` matrix, and `champions-mega` — each naming explicit test files
+  or directories; the Studio lanes cover Studio only. Nothing runs the full
   offline suite automatically. "CI is green" is not "the suite passed" — run
   `python -m pytest` and report what it returned.
 - Report exactly what was verified locally and what was only reported by another agent or CI.
