@@ -34,9 +34,12 @@ stated reason before its implementation existed.
 | `54eb1e5` | 11, 12 (local) | non-masking exit status, smoke shape, artifact invariant |
 | `ee9f67c` | 11 (fix) | AST guard narrowed to `ExceptHandler` |
 
-Three commits on this branch are **not** part of the #125 implementation. They are
-user-commissioned working-agreement changes that happen to share the branch history:
-`c7524c2`, `f941e62`, `acc99d9`, `43b4105`.
+This branch contains **only** the #125 implementation. Five user-commissioned working-agreement
+commits were made during the same session and initially shared this branch; they were split onto
+`claude/working-agreement` before review, so that a contract change and a code change are reviewed
+separately rather than as one enlarged surface. Nothing was lost in the split: the `showdown_bot`,
+`.gitignore` and `docs/projects` trees are byte-identical to the pre-split state, and the three
+contract files are byte-identical on the other branch.
 
 ---
 
