@@ -91,7 +91,7 @@ identifiers S1–S3, S5, S6 are kept stable so review history stays readable.)
 | **S1** | Persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | 3, 8, 15, 20, 23 | A |
 | **S2** | Legal action + authoritative switch transition | 1a, 1b, 1c, 9, 22 | 1b, 9 | B |
 | **S3** | Resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24-residual, 25 | 2, 14, 16, 17, 24, 25 | C |
-| **S5** | Ally targeting only (1a–1c, carved out of S2) | 1a, 1b, 1c | 1b | B |
+| **S5** | `adjacentAlly` actor-slot awareness only (carved out of S2) | **1b** | 1b | B |
 | **S6** | Screens as a standalone state + calc binding (carved out of S3) | 17 | 17 | C |
 
 S5 and S6 are deliberately narrow carve-outs, considered so the shortlist is a choice and not a
@@ -119,10 +119,27 @@ boundary.
   repaired before Urshifu appears in strength evidence, and it is recorded here as a named,
   out-of-shortlist item rather than silently dropped.
 
-**Closure check.** The audit's 13 blockers are 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.
-S1 covers 3, 8, 15, 20, 23 · S2 covers 1b, 9 · S3 covers 2, 14, 16, 17, 24, 25. Union = all 13, with
-no blocker assigned twice and none left over. Non-blocking findings 1a, 1c and 22 ride along inside
-S1–S3; only item 21 sits outside, deliberately and by name.
+**Closure check.** The audit's 13 confirmed blockers are 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24,
+25. S1 covers 3, 8, 15, 20, 23 · S2 covers 1b, 9 · S3 covers 2, 14, 16, 17, 24, 25. Union = all 13,
+with no blocker assigned twice and none left over. Findings 1a, 1c and 22 ride along inside S2; only
+item 21 sits outside, deliberately and by name.
+
+**Item 1a is `unresolved`, not a blocker and not a non-blocker** (audit §4.1a, rev 4). It is covered
+by S2 either way, so the closure above holds whichever way it resolves — but it must not be counted
+into the 13, and nothing in this document may rank on the assumption that its omitted actions are
+worthless.
+
+### S5 is narrowed to item 1b alone — corrected in review
+
+An earlier revision defined S5 as "ally targeting" and gave it findings 1a, 1b and 1c. That made its
+relevance rank depend on item 1a, whose value is explicitly unmeasured — so the document assigned a
+definite last place and then said, in the same section, that the place was not defended if 1a turned
+out to matter. A rank that concedes its own possible falsity is not a rank.
+
+**S5 is now item 1b only:** make `_move_targets` actor-slot aware for `adjacentAlly`. Items **1a and
+1c stay in S2**, where 1a's unresolved status is carried rather than ranked on. S5 is thereby exactly
+what it was proposed to be — the small, independent `adjacentAlly` pre-slice — and its relevance rank
+now rests entirely on counted facts about 1b, with no unmeasured component.
 
 ---
 
@@ -160,13 +177,14 @@ Both errors are fixed as follows.
 | **1–2 (tied)** | **S1** state truth + action order | order-abilities (Gale Wings, Sand Rush, Unburden, Intimidate, Levitate, Blaze) on **3 of 4 teams**; Fake Out on **3 of 4 teams** | **unknown** | **highest**: a wrong order inverts KO-before-act and flinch-before-act, so the error is in the frame, not in one line | maximal *when it fires*: one wrong ordering mis-scores the whole candidate set for that turn | none measured | upstream of every other slice; `sort_actions` fixes the order in which S2's transitions and S3's effects are applied |
 | **1–2 (tied)** | **S3** resolved effects + calc binding | Rock Slide **4 mons / 3 teams**; Will-O-Wisp **3 mons / 3 teams**; Aurora Veil **1 mon / 1 team**; Blaze Delphox **1 / 1**; Acrobatics **1 / 1**; six unexecuted effect families | **unknown** | high and **two-directional**: flinch over-valued, screens/status/HP-conditional damage under-valued | broad rather than concentrated: many moves, each moderately mis-valued | **weak, and an adjacency only**: #127's W2 (`tailwind_both`, highest mean regret of any bucket) is a fast-board Protect/tempo context, which is where flinch and screens are decided. **Not** a demonstrated cause. | inside the turn: wrong effect values on an otherwise correct frame |
 | **3** | **S2** legality + switch transition | Helping Hand **1 mon / 1 team**; switch candidates enumerated on **4 of 4 teams** | **unknown** | **severe when it fires**: an illegal choice is rejected outright and triggers the item-5 fan-out; a mis-resolved switch damages the wrong Pokémon | concentrated in few but high-stakes decisions | none measured | inside the turn, and **reachability-restricted**: the transition defect cannot reach a candidate line that contains no switch |
-| **4** | **S6** screens standalone | Aurora Veil **1 mon / 1 team** | **unknown** | moderate | narrow | none | inside the turn, one mechanic |
-| **5** | **S5** ally targeting standalone | 1b: Helping Hand **1 mon / 1 team**. 1a: **23 mons / 4 teams** — see the unit note below | **unknown** | 1b severe when it fires; 1a's omissions are of **unmeasured** value (audit §8 gap 2) | very narrow | none | enumeration only; additive, corrupts no present action's score |
+| **4–5 (tied)** | **S6** screens standalone | Aurora Veil **1 mon / 1 team** | **unknown** | moderate: a 2/3 damage factor missing in both directions | narrow, but applies to every damage calc while the veil is up | none | inside the turn, one mechanic |
+| **4–5 (tied)** | **S5** `adjacentAlly` actor-slot awareness (item 1b only) | Helping Hand **1 mon / 1 team** | **unknown** | **severe when it fires**: the choice is rejected outright and triggers the item-5 fan-out into unrelated rooms | very narrow: one move, one slot condition | none | enumeration; the action is offered with an unusable target |
 
 **Unit note.** Every cell above counts **mons and teams**. Audit §4.1a additionally reports item 1a
-as *55 moveset occurrences / 32 distinct names*; those are a different and much larger unit and are
-deliberately **not** carried into this table, because comparing "55 occurrences" against "4 mons"
-would inflate S5 by unit choice alone.
+as *55 moveset occurrences / 32 distinct names / 23 mons / 4 teams*; the occurrence and name figures
+are a different and much larger unit and are deliberately **not** carried into any ranking table,
+because comparing "55 occurrences" against "4 mons" would inflate a candidate by unit choice alone.
+Item 1a no longer appears in this table at all — it sits in S2, whose row does not rank on it.
 
 ### Why S1 and S3 are tied, not ordered
 
@@ -195,13 +213,31 @@ containing no switch, which is a code fact rather than a rate estimate. S6 is on
 mon. S5's blocker (1b) is one mon on one team, and its larger component (1a) has unmeasured value.
 None of these is separated from the band by a frequency claim.
 
-**Why S5 is last, and how far that rank is defended.** Not "few": audit §4.1a establishes that item
-1a touches 23 mons across all 4 teams. The rank rests on two things — S5's *blocker* (1b) is one mon
-on one team, and the value of 1a's omitted ally-directed actions is **unmeasured**, with 4× Sitrus
-Berry a concrete counterexample category that an earlier "dominated" claim overlooked. So S5 is last
-on a **counted blocker footprint plus an acknowledged unknown**, not on a demonstration that the
-omitted actions are worthless. If those actions turn out to matter, this rank is not defended — and
-S5's place in §6 does not depend on it, because it is sequenced there on availability.
+### Why S5 and S6 are tied at 4–5
+
+An earlier revision gave S5 a definite last place while its scope still included item 1a, whose value
+is unmeasured — and then conceded in the same paragraph that the place was not defended if 1a
+mattered. Narrowing S5 to item 1b (§3) removes the unmeasured component: every input to S5's rank is
+now a counted fact.
+
+What that reveals is a second tie. S5 and S6 have **identical counted exposure** — one mon, one team
+each — and `decision frequency` is `unknown` for both. The two remaining axes split rather than
+order them:
+
+- **Severity favours S5**: a rejected choice is a hard failure that additionally corrupts unrelated
+  rooms through the item-5 fan-out, against S6's missing 2/3 damage factor.
+- **Regret breadth favours S6**: the screen factor is wrong on every damage calculation while the
+  veil is up, whereas 1b needs Helping Hand to be selected from the left slot.
+
+So they share rank 4–5, on the same principle as the S1/S3 tie: with the deciding axis unknown and
+the rest split, the honest output is a band. **This changes no decision** — S6 is subsumed by S3, and
+S5 is sequenced in §6 on availability, not on relevance.
+
+**What the relevance ranking does and does not say.** It separates three bands —
+**{S1, S3} > S2 > {S5, S6}** — and that separation is the decision-relevant part, resting on counted
+trigger presence, blocker count and reachability restrictions. Within a band the evidence runs out.
+Two ties over five candidates is the honest yield of an axis set with one unknown in it, not a
+failure of the ranking.
 
 ---
 
@@ -217,7 +253,7 @@ feasibility order in this document, and §6 quotes it verbatim.
 
 | Rank | Slice | Dependencies | Testability | Effort | Regression risk | Reversibility |
 |---|---|---|---|---|---|---|
-| **1** | **S5** ally targeting standalone | **none** — `_slot_move_actions` already receives `active_index` and simply does not pass it to `_move_targets` | **highest**: a pure function of request and actor slot | **smallest** in the set | very low: additive to enumeration | very high |
+| **1** | **S5** `adjacentAlly` actor-slot awareness (item 1b only) | **none** — `_slot_move_actions` already receives `active_index` and simply does not pass it to `_move_targets` | **highest**: a pure function of request and actor slot | **smallest** in the set | very low: additive to enumeration | very high |
 | **2** | **S2** legality + switch transition | the *legality* half has none; the *transition* half needs S1's identity contract | high: legality is decidable per request, and a transition contract is directly assertable | legality small; transition medium | moderate — must **replace** the item-22 Choice guard rather than delete it, and change `tests/test_legal_actions.py:118-126`, which currently asserts the defect | high: enumeration changes are local and revertible |
 | **3** | **S6** screens standalone | none beyond a `FieldState` extension and the calc-bridge field copy | good: replay for state, golden payload for the bridge | small | low | high |
 | **4** | **S1** state truth + action order | needs its own two ability sources (log `\|-ability\|`, request `ability`/`baseAbility`) before ordering can read them | high: replay-based, deterministic, no calc needed | large — identity, two ability sources, and activation predicates (full HP, weather, item consumption) | **highest**: order is upstream of everything, so every scored line moves at once | low: the whole decision path shifts together |
@@ -227,11 +263,12 @@ S1 moved from 2 to 4 in this revision. Nothing about S1 changed — S5 and S6 we
 below it by carrying the "carve-out" label rather than by their actual dependency, testability and
 risk profile, which are better than S1's on all three.
 
-**Where the two orders disagree.** Relevance gives **{S1, S3} tied at 1–2, then S2, S6, S5**;
-feasibility gives **S5, S2, S6, S1, S3** — a strict order, because dependencies, effort and risk are
-knowable here where firing rates are not. The two are close to reversed: the tied relevance band
-holds the two candidates that sit 4th and 5th on feasibility, and S5 is last on relevance and first
-on feasibility. No candidate holds the same rank on both.
+**Where the two orders disagree.** Relevance gives **{S1, S3} tied at 1–2, then S2, then
+{S5, S6} tied at 4–5**; feasibility gives **S5, S2, S6, S1, S3** — a strict order, because
+dependencies, effort and risk are knowable here where firing rates are not. The two are close to
+reversed: the top relevance band holds the two candidates that sit 4th and 5th on feasibility, and
+S5 is in the bottom relevance band and first on feasibility. Only S2 holds the same position in
+both (3rd on relevance, 2nd on feasibility) — every other candidate moves across the table.
 
 The disagreement is not resolved by averaging — averaging would put S2 first, and S2 cannot go first
 because half of it depends on S1. It is resolved by the dependency chain in §6, which is a fact about
@@ -263,7 +300,7 @@ The hypothesis presents S1 → S2 → S3 as a ranking. It is not one, on either 
 - On **strength relevance** S1 and **S3 are tied** at 1–2 and **S2** is third (§4). The tie is not
   a formality: `decision frequency` is `unknown`, and it is the axis that would have separated them.
 - On **feasibility** the order is **S2**, S1, S3 among these three — and **S5, S2, S6, S1, S3**
-  across all five candidates (§5).
+  across all five candidates (§5). Feasibility is a strict total order; relevance is not.
 
 Neither produces S1 → S2 → S3. What does produce it is the dependency chain, which is a third thing:
 
@@ -277,31 +314,35 @@ strength ranking would misstate why. This distinction is the correction.
 
 ### Addition: S5 is carved out of S2 and sequenced first
 
-S2's legality half (findings 1a–1c) has **no dependency on S1**, is the smallest item in the set,
-and closes a current-panel path that today emits an illegal choice from the left active
+**Item 1b alone** has **no dependency on S1**, is the smallest item in the set, and closes a
+current-panel path that today emits an illegal choice from the left active
 (`teams/panel_champions_v0/trick_room.txt`, Helping Hand) and thereby triggers the item-5 fan-out
 into unrelated rooms. `_slot_move_actions` already receives `active_index` and simply does not pass
 it to `_move_targets`.
 
-It is **last on strength relevance (5 of 5) and first on feasibility (1 of 5)** — precisely the
-profile that must not be promoted on relevance grounds. It is proposed **as a pre-slice**, not as a
+S5 was narrowed to that one finding in review (§3). Items 1a and 1c stay in S2, so the pre-slice
+carries no unmeasured component and its rank rests only on counted facts.
+
+It is in the **bottom relevance band (4–5 of 5, tied with S6) and first on feasibility (1 of 5)** —
+precisely the profile that must not be promoted on relevance grounds. It is proposed **as a pre-slice**, not as a
 shortlist member, on availability alone: it is independently landable while S1 is specified, and it
 removes an active illegal-action path.
 
 Its one blocker, item 1b, is **also covered by S2**, so skipping the pre-slice loses nothing but
-time. Item 1a rides along in both; audit §4.1a establishes that it touches 23 mons across all four
-teams, and audit §8 gap 2 records that the value of those omitted ally-directed actions is
-**unmeasured**. S5's last relevance rank therefore rests on its blocker footprint plus an
-acknowledged unknown — not on a demonstration that the omissions are worthless. Its sequencing here
-is on availability and does not depend on that rank.
+time. Item 1a is **not** in S5 — it stays in S2 with its blocker status at **`unresolved`** (audit
+§4.1a, rev 4), because removing a legal action changes the argmax even when every remaining score is
+right, and whether an omitted ally action would ever win that argmax is unmeasured. Nothing in this
+document ranks on the assumption that it would not.
 
 ### Resulting shortlist
 
-Ranks are quoted verbatim from §4 and §5 over the same five candidates. No rank appears twice.
+Ranks are quoted verbatim from §4 and §5 over the same five candidates. **Feasibility is a strict
+total order; relevance carries two recorded ties** — {S1, S3} at 1–2 and {S5, S6} at 4–5 — so a
+relevance rank legitimately appears twice, and each such cell names its partner.
 
 | Order | Slice | Blockers covered | Rank on relevance | Rank on feasibility | Gate to start |
 |---|---|---|---|---|---|
-| **0** (pre-slice, optional) | **S5** ally targeting | 1b | 5 of 5 | **1 of 5** | none — independent |
+| **0** (pre-slice, optional) | **S5** `adjacentAlly` actor-slot awareness (item 1b only) | 1b | **4–5 of 5 (tied with S6)** | **1 of 5** | none — independent |
 | **1** | **S1** persistent combatant state + dynamic action order | 3, 8, 15, 20, 23 | **1–2 of 5 (tied with S3)** | 4 of 5 | approval of this document |
 | **2** | **S2** legal action + authoritative switch transition | 1b, 9 | 3 of 5 | 2 of 5 | S1's identity contract landed |
 | **3** | **S3** resolved effects + attacker-aware mechanics and calc binding | 2, 14, 16, 17, 24, 25 | **1–2 of 5 (tied with S1)** | 5 of 5 | S1 landed **and** an approved effect taxonomy |
@@ -310,8 +351,9 @@ Ranks are quoted verbatim from §4 and §5 over the same five candidates. No ran
 the dependency chain below, and nothing in this document claims S1 is the more strength-relevant of
 the two.
 
-**Blocker closure: S1 ∪ S2 ∪ S3 = all 13** (§3). S5's single blocker is already inside S2, so the
-pre-slice is optional in the strict sense — skipping it costs time, not coverage.
+**Blocker closure: S1 ∪ S2 ∪ S3 = all 13 confirmed blockers** (§3). S5's single blocker is already
+inside S2, so the pre-slice is optional in the strict sense — skipping it costs time, not coverage.
+Item 1a's `unresolved` status is carried by S2 and is deliberately not counted into the 13.
 
 **S3 carries an unmet precondition** and must not be started on the strength of this document alone:
 its event taxonomy does not exist. That is a design slice of its own, and it is why S3 ranks **last**
@@ -346,12 +388,16 @@ orders.
 - [x] Shortlist of 2–3 candidates documented — three, plus an optional independent pre-slice.
 - [x] Each candidate has stated relevance, feasibility and risk — §4, §5, §6.
 - [x] Ranking rationale is explicit, with the two rankings kept separate and their disagreement
-      named rather than averaged. Feasibility is a single total order; relevance is a total order
-      with one recorded tie (S1 = S3), and §4 states what the tie rests on.
+      named rather than averaged. Feasibility is a strict total order; relevance is a banded order
+      with two recorded ties ({S1, S3} at 1–2, {S5, S6} at 4–5), and §4 states what each tie rests
+      on. The bands themselves — {S1, S3} > S2 > {S5, S6} — are the decision-relevant separation.
 - [x] All five approved relevance axes are present. `decision frequency` is retained and entered as
       **`unknown`** for every candidate — neither dropped nor substituted — §4.
-- [x] No invented outcome metric, and no unmeasured quantity doing load-bearing work: the one
-      ordering that had rested on an unmeasured axis (S1 over S3) is now a recorded tie — §1 Fact 1,
-      §4.
+- [x] No invented outcome metric, and no unmeasured quantity doing load-bearing work. Both orderings
+      that had rested on an unmeasured quantity are now recorded ties (S1 over S3; S5 under S6), and
+      the one candidate whose scope carried an unmeasured component was narrowed to remove it (S5 →
+      item 1b alone) — §1 Fact 1, §3, §4.
+- [x] The audit's `unresolved` blocker (item 1a) is carried, not resolved by assertion: it sits in
+      S2, is excluded from the 13-blocker count, and no rank depends on it — §3, §6.
 - [x] The shortlist closes its own correctness boundary: all 13 audit blockers are assigned, none
       twice, none left over — §3 closure check, restated in §6.

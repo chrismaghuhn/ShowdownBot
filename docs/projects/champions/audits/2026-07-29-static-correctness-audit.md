@@ -31,10 +31,17 @@ passes:
   counterexample category the check missed. The exposure unit is now named (occurrences ≠ mons ≠
   teams) with a warning against cross-unit comparison, and the item count is corrected from four
   Mega stones to **five**. §8 is new and records what remains unmeasured.
+- **Rev 4** — item 1a's blocker status moves from `no` to **`unresolved`**. The `no` rested on
+  "a missing action does not corrupt the scoring of the actions that are present", which conflates
+  scoring correctness with selection correctness: selection is an argmax over the action space, so
+  removing an element can change the output even when every remaining score is right. The item
+  inventory is also completed — 23 items on 23 mons, **1 mon carrying none**.
 
-The pattern in rev 2 and rev 3 is the same one: a correction stated more strongly than the check
-that produced it. It is called out here rather than smoothed over, because the register's value
-depends on the gap between a claim and its evidence staying visible.
+Rev 2 and rev 3 share one failure mode — a correction stated more strongly than the check that
+produced it. Rev 4 is a different one: not an overstatement but a wrong inference, and it survived
+two review rounds because it *sounded* like a scoping rule. Both are called out rather than smoothed
+over, because the register's value depends on the gap between a claim and its evidence staying
+visible.
 
 It is also **not** a strength statement, a prioritisation, or an authorisation. Prioritisation is
 [`docs/projects/champions/specs/2026-07-29-128-correctness-slice-prioritisation.md`](../specs/2026-07-29-128-correctness-slice-prioritisation.md).
@@ -108,6 +115,10 @@ data and committed teams.
 | **Rejected** | the claim does not hold |
 | **Not sufficiently evidenced here** | cannot be settled from this repository |
 
+The `Blocks #128` column takes three values: `yes`, `no`, and **`unresolved`** — the last for a
+defect that is panel-exposed and default-reachable but whose effect on candidate *selection* is
+unmeasured. Exactly one entry carries it (item 1a, §4.1a).
+
 ---
 
 ## 3. Finding register
@@ -128,7 +139,7 @@ actually executing.
 
 | # | Finding | Status | Primary path | Default? | Panel | Blast radius | Existing tests | Blocks #128 | WS |
 |---|---|---|---|---|---|---|---|---|---|
-| 1a | `normal`/`any` never offer an ally target | **Confirmed, corrected** | `battle/legal_actions.py:45-58` | yes | **yes — 23 mons / 4 teams** (55 moveset occurrences, 32 distinct names; §4.1a, note the unit) | missing legal actions, all ally-directed; **their value is unmeasured** (§8 gap 2) | none | no — a missing action does not corrupt the scoring of present ones, §4.1a | B |
+| 1a | `normal`/`any` never offer an ally target | **Confirmed, corrected** | `battle/legal_actions.py:45-58` | yes | **yes — 23 mons / 4 teams** (55 moveset occurrences, 32 distinct names; §4.1a, note the unit) | missing legal actions, all ally-directed; **their value is unmeasured** (§8 gap 2) | none | **unresolved** — §4.1a | B |
 | 1b | `adjacentAlly` hardcodes `-1`, not actor-slot aware | **Confirmed, corrected** | `battle/legal_actions.py:53-54` | yes | **yes** (Helping Hand, `trick_room`) | illegal choice from the left slot → server reject | none | **yes** | B |
 | 1c | Pollen Puff unselectable as an ally heal | Confirmed | as 1a | yes | no (`panel_v001` dev only) | missing legal action | none | no | B |
 | 1d | Resolver lacks Pollen Puff ally-heal semantics | Overlap → 24 | `battle/resolve.py:293-295` | yes | no | mis-scored line | none | no | C |
@@ -203,10 +214,13 @@ friendly-fire uses, and one concrete counterexample category was missed:
 What the check *does* support, and all it supports:
 
 - **no ally-heal move** on these teams (Pollen Puff is on `panel_v001` — item 1c);
-- **no stat-trigger item** that a friendly hit would set off (the full item set is 4× Sitrus, 3×
-  Leftovers, 2× Chople, 2× Haban, 2× White Herb, 2× Focus Sash, 1× Choice Scarf, 1× Black Glasses,
-  1× Mental Herb and **five** Mega stones — Scovillainite, Aerodactylite, Delphoxite, Froslassite,
-  Tyranitarite; no Weakness Policy, no Absorb Bulb, no Berry Juice);
+- **no stat-trigger item** that a friendly hit would set off. The full inventory across the 24 mons
+  is **23 items on 23 mons, with 1 mon carrying no item at all** (`tailwind_offense` Talonflame):
+  4× Sitrus Berry, 3× Leftovers, 2× Chople Berry, 2× Haban Berry, 2× White Herb, 2× Focus Sash,
+  1× Choice Scarf, 1× Black Glasses, 1× Mental Herb, and **five** Mega stones — Scovillainite,
+  Aerodactylite, Delphoxite, Froslassite, Tyranitarite. No Weakness Policy, no Absorb Bulb, no
+  Berry Juice. (The itemless mon cannot be a damage-trigger target at all, which narrows the
+  category by one further.)
 - **no obviously friendly use** among the 30 `normal` status names — but "obviously" is doing real
   work in that sentence, and it is not an enumeration of board states.
 
@@ -214,11 +228,25 @@ So the supportable statement is: **no *demonstrated high-value* ally-target use 
 panel, and no measurement of the omitted actions' value exists at all.** That is weaker than
 "dominated", and §8 of this document now carries it as an open evidence gap.
 
-Item 1a therefore remains **panel-exposed and not on the blocker list** — a blocker is a defect that
-would corrupt a candidate *evaluation*, and a missing action does not corrupt the scoring of the
-actions that are present. But its *low-value* characterisation is an assumption, not a finding, and
-anything that ranks on it must say so. Introduce one ally-heal move or one damage-trigger item to a
-future panel and it becomes load-bearing outright.
+### Blocker status: `unresolved`, not `no` — corrected in review
+
+An earlier revision recorded item 1a as **not** a blocker, on the reasoning that "a missing action
+does not corrupt the scoring of the actions that are present". **That reasoning is wrong and is
+withdrawn.** Candidate selection is an argmax over the enumerated action space
+(`battle/policy.py:93-106`). Removing an element from that space cannot change the *scores* of the
+remaining elements, but it can absolutely change the *argmax* — which is the output. Scoring
+correctness and selection correctness are not the same property, and I conflated them.
+
+So the question is not whether the omitted actions are scored correctly (they are absent, so the
+question does not arise) but whether any of them would ever have won the argmax. That is exactly the
+quantity §8 gap 2 records as unmeasured, and 4× Sitrus Berry shows the category is not empty.
+
+**Item 1a's blocker status is therefore `unresolved`.** Not `yes` — no board state has been
+demonstrated in which an omitted ally target would be selected. Not `no` — that would assert the
+absence of such a state, which is unproven. `unresolved` is a distinct status from item 19's: item
+19 is *unverifiable from this repository*, item 1a is *unquantified*. Settling it needs a bounded
+piece of work — enumerate whether any omitted ally action can win the argmax on the current panel —
+not a slice.
 
 ### 4.1 Item 1b — the ally-target defect is current-panel exposed, and the scratch understated it
 
@@ -428,17 +456,22 @@ into 24, 13 folded into 4) = **24 independent confirmed defects**:
 Item 20 is kept as independent despite elaborating 15: it is a second, separate code path (the
 request model) for the same contract, and it must be repaired on its own terms.
 
-**13 defects are marked *blocks #128*: 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.** Each is
-current-panel exposed *and* reachable on the shipped default configuration. The remaining six
-decision-path entries are excluded for three different reasons, and the reasons are not
-interchangeable:
+The 19 decision-path defects split three ways on blocker status — 13 `yes`, 1 `unresolved`, 5 `no`:
+
+**`yes` (13): 1b, 2, 3, 8, 9, 14, 15, 16, 17, 20, 23, 24, 25.** Each is current-panel exposed *and*
+reachable on the shipped default configuration.
+
+**`unresolved` (1): 1a.** Panel-exposed and default-reachable, but whether an omitted ally action
+would ever win the argmax is unmeasured — §4.1a, §8 gap 2. Recorded as neither `yes` nor `no`
+because both would assert something unproven.
+
+**`no` (5), for two different and non-interchangeable reasons:**
 
 | Excluded | Why |
 |---|---|
 | 10, 11 | depth 2 is **off by default** (`SHOWDOWN_SEARCH_DEPTH` → 1) |
 | 1c, 21 | **no current-panel exposure** — Pollen Puff is on `panel_v001`; no Urshifu on hero or dev teams |
-| 22 | **no current-panel exposure** — the only Choice holder is Basculegion @ Choice Scarf, whose four moves are all damaging |
-| 1a | **panel-exposed but dominated** — §4.1a: the omitted actions exist on 32 panel moves, but every one of them is an ally-directed option with no use on this team set |
+| 22 | **no current-panel exposure** — the only Choice holder is Basculegion @ Choice Scarf, whose four moves are all damaging, so the filter removes nothing here. Note this is an *exposure* argument, not the withdrawn "a missing action cannot change selection" argument: item 22 also shrinks the action space, and would be `unresolved` on the same footing as 1a if any panel mon held a Choice item alongside a status move. |
 
 The `SHOWDOWN_ACCURACY_MODE` correction above was checked against this set and changes nothing in
 it: accuracy gates no entry's `Default?` value.
@@ -485,7 +518,10 @@ Gaps demonstrated by the verification, not speculation. Each one bounds a statem
 2. **The value of item 1a's omitted actions is unmeasured** (§4.1a). No ally-heal move and no
    damage-trigger item is a checked fact; "worthless" is not, and 4× Sitrus Berry is a concrete
    counterexample category. Any rank that rests on those actions being low-value rests on an
-   assumption.
+   assumption. **This is what holds item 1a's blocker status at `unresolved`**, and closing it is a
+   bounded question — can any omitted ally action win the argmax on the current panel? — not a
+   slice. Item 22 sits behind the same question and is answered only by the accident that no panel
+   mon pairs a Choice item with a status move.
 3. **The pinned Showdown server source is not in this repository** (§2 limit 1), so items 19, 21, 22
    and 23 are recorded bot-side only.
 4. **Held-out team contents were not read** (§2 limit 2), so every exposure figure is a lower bound
